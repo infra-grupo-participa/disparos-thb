@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.env
+.env.local
+.env*.local
+.dbpass.tmp
+*.log
+.DS_Store
+
+# typescript / next
+*.tsbuildinfo
+next-env.d.ts
