@@ -36,4 +36,30 @@ test.describe("Tela de disparo (validações, sem enviar)", () => {
     await page.getByRole("checkbox").check();
     await expect(page.getByRole("button", { name: /Disparar para 2 contato/ })).toBeDisabled();
   });
+
+  test("dupla confirmação: abre modal com ação rotulada e Cancelar fecha (sem enviar)", async ({ page }) => {
+    // Precisa de um template ativo para habilitar o disparo. Espera o fetch
+    // assíncrono de /api/templates popular o select antes de contar.
+    const templateSelect = page.locator("select").first();
+    await templateSelect
+      .locator('option:not([value=""])')
+      .first()
+      .waitFor({ state: "attached", timeout: 5000 })
+      .catch(() => {});
+    const qtdOpcoes = await templateSelect.locator("option").count();
+    test.skip(qtdOpcoes < 2, "nenhum template ativo cadastrado");
+
+    await templateSelect.selectOption({ index: 1 });
+    await page.getByRole("checkbox").check();
+    await page.getByRole("button", { name: /Disparar para 2 contato/ }).click();
+
+    // Modal de dupla confirmação com a ação rotulada pela ação real.
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /Enviar para 2 contato/ })).toBeVisible();
+
+    // Cancelar fecha sem disparar.
+    await dialog.getByRole("button", { name: "Cancelar" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+  });
 });

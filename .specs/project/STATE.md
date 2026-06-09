@@ -32,7 +32,16 @@ _Atualizado: 2026-06-09_
 - ✅ Tela Templates didática: formulário guiado com microcopy, preview WhatsApp ao vivo, toggle ativar/desativar (novo PATCH /api/templates), validação amigável.
 - ✅ Robustez do disparo: retry com backoff [1s,3s,8s] p/ erros transitórios (rede/429/5xx), pausa maior pós-429, idempotência no webhook (UPDATE ... where respondeu=false returning, não reconta), fallback de variável vazia. Sem schema novo.
 - **Smoke pronto**: template `teste_disparo3` (id 931554972956171, 0 vars) ativo + conta de teste "João Pedro Alves Assunção" (HT27, 5521989370272). Falta só disparar.
-- Pendente go-live: smoke real (disparar), trocar APP_PASSWORD, desativar Make 4773166/4686692, COMMIT (nada commitado desde o inicial).
+- Pendente go-live: smoke real (disparar), trocar APP_PASSWORD, desativar Make 4773166/4686692.
+
+## Webhook de resposta / SLA + criação de contatos (2026-06-09)
+- **Unnichat enviava a resposta pro Make** (hook.us1.make.com), não pro nosso webhook. Solução: na automação "Cliente interagir", apontar pra `.../api/webhook?secret=...` e **DESLIGAR o body customizável** (o nativo é que funciona).
+- **Payload nativo da Unnichat** (gatilho Cliente interagir): dados aninhados em `contact` → `contact.phoneNumber`, `contact.lastMessage`, `contact.name`, `contact.email`, `contact.id`. As variáveis `{{contact.phone}}` do body customizado vinham VAZIAS (sintaxe errada).
+- Webhook ajustado (commit b4abefb) pra ler o formato nativo. `cs.webhook_log` (migration 0004) registra toda chamada — usar pra diagnosticar (`select ... from cs.webhook_log order by recebido_em desc`).
+- **SLA validado**: Luis respondeu, SLA calculado = 23 min (recuperei manual do log enquanto o deploy não entrava).
+- **Criar contato na Unnichat antes de disparar** (commit 66c74c6): `POST /contact {name, phone}` é **idempotente** (upsert por telefone). Disparo agora tem 2 fases (criar contatos → enviar), migration 0005 (cs.disparos.fase/total_contatos_criados, disparo_contatos.contato_criado/erro_contato).
+- **Contas de teste** (em public, hotmart_event=TESTE_QA, edição HT27): João Pedro (5521989370272), Victor Hugo (5521984147640), Luis Fernando (5521965384714). ⚠️ O número de teste pode estar no "experiment" da Meta (bloqueia entrega) — não afeta compradores reais.
+- ⚠️ **Hostinger NÃO auto-deploya com build**: o `git push` não basta — precisa build+restart no painel. Commits b4abefb e 66c74c6 dependem de redeploy manual pra entrar no ar.
 
 ## Dados úteis
 - Produção (Hostinger): https://purple-guanaco-521727.hostingersite.com — login OK, banco OK.
