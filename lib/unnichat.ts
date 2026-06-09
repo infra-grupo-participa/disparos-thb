@@ -130,7 +130,7 @@ export async function getMessageStatus(messageId: string): Promise<{
 // message id não foi capturado no envio.
 export async function getContactMessages(contactId: string): Promise<{
   ok: boolean;
-  messages: Array<{ id: string; type: string; templateId?: string; senderBy?: string; date?: string }>;
+  messages: Array<{ id: string; type: string; text: string; templateId?: string; senderBy?: string; date?: string }>;
 }> {
   try {
     const res = await fetch(`${BASE}/contact/${encodeURIComponent(contactId)}/messages`, { headers: headers() });
@@ -139,15 +139,46 @@ export async function getContactMessages(contactId: string): Promise<{
     const arr = Array.isArray(json?.data) ? (json.data as Record<string, unknown>[]) : [];
     return {
       ok: true,
-      messages: arr.map((m) => ({
-        id: String(m.id),
-        type: String(m.type ?? ""),
-        templateId: m.templateId ? String(m.templateId) : undefined,
-        senderBy: m.senderBy ? String(m.senderBy) : undefined,
-        date: m.date ? String(m.date) : undefined,
-      })),
+      messages: arr.map((m) => {
+        const comps = m.templateComponents as Array<{ type?: string; text?: string }> | undefined;
+        const tplText = comps?.find((x) => x.type === "BODY")?.text ?? comps?.[0]?.text ?? "";
+        return {
+          id: String(m.id),
+          type: String(m.type ?? ""),
+          text: m.type === "template" ? tplText : String(m.message ?? ""),
+          templateId: m.templateId ? String(m.templateId) : undefined,
+          senderBy: m.senderBy ? String(m.senderBy) : undefined,
+          date: m.date ? String(m.date) : undefined,
+        };
+      }),
     };
   } catch {
     return { ok: false, messages: [] };
+  }
+}
+
+// POST /meta/messages — envia mensagem de texto livre ao contato. Só funciona
+// dentro da janela de 24h (a Meta exige uma interação recente do contato);
+// fora dela, a API retorna erro de "janela de envio fechada".
+export async function sendMessage(opts: { phone: string; text: string }): Promise<EnvioResultado> {
+  try {
+    const res = await fetch(`${BASE}/meta/messages`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ phone: opts.phone, messageText: opts.text }),
+    });
+    const txt = await res.text();
+    let data: unknown;
+    try { data = JSON.parse(txt); } catch { data = txt; }
+    return {
+      ok: res.ok,
+      status: res.status,
+      data,
+      erro: res.ok ? undefined : (typeof data === "object" && data && "message" in data
+        ? String((data as { message: unknown }).message)
+        : `HTTP ${res.status}`),
+    };
+  } catch (e) {
+    return { ok: false, status: 0, data: null, erro: e instanceof Error ? e.message : "erro de rede" };
   }
 }
