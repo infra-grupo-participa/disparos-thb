@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
-import { sendTemplate, type BodyParam, type EnvioResultado } from "@/lib/unnichat";
+import { sendTemplate, createContact, type BodyParam, type EnvioResultado } from "@/lib/unnichat";
 import { normalizePhone, primeiroNome } from "@/lib/phone";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const DELAY_MS = 350; // pausa entre envios (rate limit gentil)
+const DELAY_CRIAR_MS = 200; // pausa entre criações de contato na Unnichat
 const DELAY_429_MS = 5000; // pausa extra após 429 (respeita rate limit do Unnichat)
 const RETRY_BACKOFF_MS = [1000, 3000, 8000]; // espera crescente entre tentativas
 const FALLBACK_VAR = "tudo bem"; // texto neutro quando não há nome para a variável
@@ -91,8 +92,34 @@ export async function POST(req: Request) {
 }
 
 async function processar(disparoId: string, template: Template, linhas: Linha[]) {
-  let enviados = 0;
+  // ===== Fase 1: garantir os contatos na Unnichat (idempotente) =====
+  // O template só pode ser enviado para um contato que existe na Unnichat.
+  // Compradores HT entram no nosso sistema automaticamente, mas podem não existir
+  // lá — então criamos/garantimos cada um antes de disparar.
+  await query(`update cs.disparos set fase = 'criando_contatos' where id = $1`, [disparoId]);
+  let criados = 0;
+  const prontos: Linha[] = [];
   for (const l of linhas) {
+    const r = await createContact({ name: l.nome || l.telefone, phone: l.telefone });
+    if (r.ok) {
+      criados++;
+      prontos.push(l);
+      await query(`update cs.disparo_contatos set contato_criado = true, erro_contato = null where id = $1`, [l.id]);
+    } else {
+      // Não conseguiu criar o contato → não será disparado; registra o motivo.
+      await query(
+        `update cs.disparo_contatos set contato_criado = false, erro_contato = $2, erro = $2 where id = $1`,
+        [l.id, r.erro || "falha ao criar contato na Unnichat"],
+      );
+    }
+    await query(`update cs.disparos set total_contatos_criados = $2 where id = $1`, [disparoId, criados]);
+    await sleep(DELAY_CRIAR_MS);
+  }
+
+  // ===== Fase 2: enviar o template (só para quem foi criado com sucesso) =====
+  await query(`update cs.disparos set fase = 'enviando' where id = $1`, [disparoId]);
+  let enviados = 0;
+  for (const l of prontos) {
     // Validação variáveis↔parâmetros: o template declara N variáveis no body.
     // Se declara >=1 mas não há nome para preencher, usa texto neutro (fallback
     // seguro) em vez de mandar variável vazia — que o WhatsApp pode rejeitar.
@@ -143,10 +170,10 @@ async function processar(disparoId: string, template: Template, linhas: Linha[])
     await sleep(pausaProximo);
   }
 
-  await query(`update cs.disparos set status = 'concluido', concluido_em = now(), total_enviados = $2 where id = $1`, [
-    disparoId,
-    enviados,
-  ]);
+  await query(
+    `update cs.disparos set status = 'concluido', fase = 'concluido', concluido_em = now(), total_enviados = $2 where id = $1`,
+    [disparoId, enviados],
+  );
 }
 
 // Envia um template com retry/backoff para erros transitórios (rede, 429, 5xx).

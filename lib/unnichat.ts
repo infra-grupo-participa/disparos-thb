@@ -54,3 +54,37 @@ export async function sendTemplate(opts: {
     return { ok: false, status: 0, data: null, erro: e instanceof Error ? e.message : "erro de rede" };
   }
 }
+
+// POST /contact — cria (ou garante) um contato na Unnichat. Idempotente: se o
+// telefone já existe, retorna o contato existente (mesmo id). Necessário ANTES
+// de disparar, pois o template só pode ser enviado para um contato conhecido.
+export async function createContact(opts: {
+  name: string;
+  phone: string;
+  email?: string;
+}): Promise<EnvioResultado> {
+  try {
+    const res = await fetch(`${BASE}/contact`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        name: opts.name || opts.phone,
+        phone: opts.phone,
+        ...(opts.email ? { email: opts.email } : {}),
+      }),
+    });
+    const txt = await res.text();
+    let data: unknown;
+    try { data = JSON.parse(txt); } catch { data = txt; }
+    return {
+      ok: res.ok,
+      status: res.status,
+      data,
+      erro: res.ok ? undefined : (typeof data === "object" && data && "message" in data
+        ? String((data as { message: unknown }).message)
+        : `HTTP ${res.status}`),
+    };
+  } catch (e) {
+    return { ok: false, status: 0, data: null, erro: e instanceof Error ? e.message : "erro de rede" };
+  }
+}

@@ -7,9 +7,12 @@ import { primeiroNome } from "@/lib/phone";
 type Selecionado = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 type Template = { id: string; nome: string; unnichat_id: string; variaveis: number; preview: string | null; ativo: boolean };
 type Progresso = {
-  disparo: { status: string; total_enviados: number };
-  resumo: { total: number; enviados: number; erros: number };
-  contatos: { id: string; nome: string | null; telefone: string; enviado: boolean; erro: string | null }[];
+  disparo: { status: string; fase: string; total_enviados: number; total_contatos_criados: number };
+  resumo: { total: number; criados: number; enviados: number; erros: number };
+  contatos: {
+    id: string; nome: string | null; telefone: string;
+    enviado: boolean; erro: string | null; contato_criado: boolean; erro_contato: string | null;
+  }[];
 };
 
 export default function DispararPage() {
@@ -109,16 +112,38 @@ export default function DispararPage() {
   // ---- Tela de progresso/resultado ----
   if (disparoId && progresso) {
     const { resumo, disparo } = progresso;
-    const pct = resumo.total ? Math.round(((resumo.enviados + resumo.erros) / resumo.total) * 100) : 0;
     const concluido = disparo.status === "concluido";
+    const criandoContatos = disparo.fase === "criando_contatos";
+    const pct = resumo.total
+      ? Math.round(((criandoContatos ? resumo.criados : resumo.enviados + resumo.erros) / resumo.total) * 100)
+      : 0;
+    const titulo = concluido
+      ? "Disparo concluído"
+      : criandoContatos
+        ? "Criando contatos na Unnichat…"
+        : "Disparando…";
     return (
       <div className="mx-auto max-w-2xl">
-        <h1 className="text-xl font-semibold">{concluido ? "Disparo concluído" : "Disparando…"}</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          {resumo.enviados} enviados · {resumo.erros} erros · {resumo.total} no total
+        <h1 className="text-xl font-semibold">{titulo}</h1>
+
+        {/* Indicador das 2 fases: garantir contatos → enviar */}
+        <div className="mt-2 flex items-center gap-2 text-xs">
+          <span className={`rounded-full px-2 py-0.5 font-medium ${criandoContatos ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`}>
+            1 · Contatos {resumo.criados}/{resumo.total}
+          </span>
+          <span className="text-slate-300">→</span>
+          <span className={`rounded-full px-2 py-0.5 font-medium ${!criandoContatos ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-400"}`}>
+            2 · Envios {resumo.enviados}/{resumo.total}
+          </span>
+        </div>
+
+        <p className="mt-2 text-sm text-slate-500">
+          {criandoContatos
+            ? `${resumo.criados} de ${resumo.total} contatos garantidos na Unnichat`
+            : `${resumo.enviados} enviados · ${resumo.erros} erros · ${resumo.total} no total`}
         </p>
         <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200">
-          <div className="h-full bg-brand transition-all" style={{ width: `${pct}%` }} />
+          <div className={`h-full transition-all ${criandoContatos ? "bg-blue-500" : "bg-brand"}`} style={{ width: `${pct}%` }} />
         </div>
 
         <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -132,9 +157,11 @@ export default function DispararPage() {
                   <td className="px-3 py-2">{c.nome || "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{c.telefone}</td>
                   <td className="px-3 py-2">
-                    {c.erro ? <span className="text-red-600" title={c.erro}>erro</span>
+                    {c.erro_contato ? <span className="text-red-600" title={c.erro_contato}>erro ao criar</span>
+                      : c.erro ? <span className="text-red-600" title={c.erro}>erro no envio</span>
                       : c.enviado ? <span className="text-green-600">enviado</span>
-                      : <span className="text-slate-400">aguardando…</span>}
+                      : c.contato_criado ? <span className={criandoContatos ? "text-blue-600" : "text-slate-400"}>{criandoContatos ? "criado ✓" : "aguardando envio…"}</span>
+                      : <span className="text-slate-400">{criandoContatos ? "criando…" : "aguardando…"}</span>}
                   </td>
                 </tr>
               ))}
