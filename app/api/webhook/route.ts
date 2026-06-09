@@ -52,9 +52,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, reason: "invalid_secret" }, { status: 401 });
   }
 
+  // Formato NATIVO da Unnichat (gatilho "Cliente interagir"): dados aninhados em `contact`.
+  // Mantém também o formato plano (body.telefone/mensagem) caso um body customizado seja usado.
+  const contact = body.contact as Record<string, unknown> | undefined;
+  const lastMsg = contact?.lastMessageData as Record<string, unknown> | undefined;
+
   const telefoneRaw =
-    (body.telefone as string) ?? (body.phone as string) ?? (body.contact_phone as string) ?? null;
-  const mensagem = String((body.mensagem as string) ?? (body.message as string) ?? "").slice(0, 140);
+    (body.telefone as string) ??
+    (body.phone as string) ??
+    (body.contact_phone as string) ??
+    (contact?.phoneNumber as string) ??
+    null;
+  const mensagem = String(
+    (body.mensagem as string) ??
+      (body.message as string) ??
+      (contact?.lastMessage as string) ??
+      (lastMsg?.message as string) ??
+      "",
+  ).slice(0, 140);
   const tel = normalizePhone(telefoneRaw);
 
   if (!tel) {
