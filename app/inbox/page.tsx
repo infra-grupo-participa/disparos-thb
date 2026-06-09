@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
+import { Button, Card, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 
 type Conversa = {
   comprador_id: string; nome: string; telefone: string | null; edicao: string | null;
@@ -11,6 +12,43 @@ type Mensagem = { id: string; de: "lead" | "cs"; tipo: string; texto: string; da
 
 function fmtData(iso: string | null) {
   return iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+}
+
+function fmtHora(iso: string | null) {
+  return iso ? new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
+}
+
+// Inicial e cor de avatar derivada do nome (determinística).
+function inicial(nome: string) {
+  return (nome?.trim()?.[0] || "?").toUpperCase();
+}
+const AVATAR_CORES = [
+  "bg-brand-100 text-brand-700",
+  "bg-blue-100 text-blue-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-amber-100 text-amber-800",
+  "bg-violet-100 text-violet-700",
+  "bg-rose-100 text-rose-700",
+  "bg-cyan-100 text-cyan-700",
+];
+function corAvatar(nome: string) {
+  let h = 0;
+  for (let i = 0; i < (nome?.length || 0); i++) h = (h * 31 + nome.charCodeAt(i)) >>> 0;
+  return AVATAR_CORES[h % AVATAR_CORES.length];
+}
+
+function Avatar({ nome, size = "md" }: { nome: string; size?: "sm" | "md" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold",
+        size === "sm" ? "h-9 w-9 text-sm" : "h-10 w-10 text-base",
+        corAvatar(nome),
+      )}
+    >
+      {inicial(nome)}
+    </span>
+  );
 }
 
 export default function InboxPage() {
@@ -53,84 +91,152 @@ export default function InboxPage() {
   }
 
   return (
-    <div className="grid h-[75vh] gap-4 lg:grid-cols-[320px_1fr]">
+    <Card className="grid h-[78vh] grid-cols-1 overflow-hidden p-0 lg:grid-cols-[340px_1fr]">
       {/* Fila de conversas */}
-      <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
-        <div className="sticky top-0 border-b border-slate-100 bg-white px-4 py-3">
-          <h1 className="font-semibold text-slate-800">Inbox</h1>
-          <p className="text-xs text-slate-400">{conversas.length} conversa(s)</p>
-        </div>
-        {conversas.length === 0 && <p className="p-6 text-center text-sm text-slate-400">Nenhuma resposta ainda.</p>}
-        {conversas.map((c) => (
-          <button
-            key={c.comprador_id}
-            onClick={() => abrir(c)}
-            className={`block w-full border-b border-slate-50 px-4 py-3 text-left hover:bg-slate-50 ${sel?.comprador_id === c.comprador_id ? "bg-brand/5" : ""}`}>
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate font-medium text-slate-800">{c.nome}</span>
-              <EdicaoBadge edicao={c.edicao} />
+      <aside className="flex min-h-0 flex-col border-b border-slate-200 lg:border-b-0 lg:border-r">
+        <header className="flex items-center justify-between gap-2 border-b border-slate-100 px-5 py-4">
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900">Inbox</h1>
+          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+            {conversas.length}
+          </span>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-auto">
+          {conversas.length === 0 ? (
+            <div className="p-4">
+              <EmptyState
+                title="Nenhuma conversa"
+                description="Quando um lead responder, a conversa aparecerá aqui."
+              />
             </div>
-            <div className="mt-0.5 truncate text-xs text-slate-500">{c.ultima_msg || "—"}</div>
-            <div className="text-[10px] text-slate-400">{fmtData(c.ultima_resposta_em)}</div>
-          </button>
-        ))}
-      </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {conversas.map((c) => {
+                const ativo = sel?.comprador_id === c.comprador_id;
+                return (
+                  <li key={c.comprador_id}>
+                    <button
+                      onClick={() => abrir(c)}
+                      className={cn(
+                        "flex w-full items-start gap-3 px-4 py-3 text-left transition",
+                        ativo ? "bg-brand-50" : "hover:bg-slate-50",
+                      )}
+                    >
+                      <Avatar nome={c.nome} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={cn("truncate font-semibold", ativo ? "text-brand-700" : "text-slate-800")}>
+                            {c.nome}
+                          </span>
+                          <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
+                            {fmtData(c.ultima_resposta_em)}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center justify-between gap-2">
+                          <span className="truncate text-xs text-slate-500">{c.ultima_msg || "—"}</span>
+                          <EdicaoBadge edicao={c.edicao} className="shrink-0" />
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </aside>
 
       {/* Conversa selecionada */}
-      <div className="flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <section className="flex min-h-0 flex-col">
         {!sel ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
-            Selecione uma conversa à esquerda.
+          <div className="flex flex-1 items-center justify-center p-8">
+            <EmptyState
+              icon={
+                <svg className="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M8 10h8M8 14h5M21 12a9 9 0 0 1-13.36 7.87L3 21l1.13-4.64A9 9 0 1 1 21 12Z" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              }
+              title="Selecione uma conversa"
+              description="Escolha um contato na lista à esquerda para ver o histórico e responder."
+            />
           </div>
         ) : (
           <>
-            <div className="border-b border-slate-100 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-800">{sel.nome}</span>
-                <EdicaoBadge edicao={sel.edicao} />
-              </div>
-              <p className="text-xs text-slate-400">{sel.telefone} · {sel.estagio_nome || ""}</p>
-            </div>
-
-            <div className="flex-1 space-y-2 overflow-auto bg-[#ECE5DD] p-4">
-              {carregandoMsg && <p className="text-center text-sm text-slate-500">Carregando conversa…</p>}
-              {aviso && <p className="text-center text-xs text-amber-600">{aviso}</p>}
-              {mensagens.map((m) => (
-                <div key={m.id} className={`flex ${m.de === "cs" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm ${m.de === "cs" ? "rounded-tr-sm bg-[#DCF8C6]" : "rounded-tl-sm bg-white"}`}>
-                    {m.tipo === "template" && <span className="mb-0.5 block text-[10px] font-medium uppercase text-slate-400">Template</span>}
-                    <p className="whitespace-pre-wrap text-slate-800">{m.texto}</p>
-                    <span className="mt-1 block text-right text-[10px] text-slate-400">{fmtData(m.data)}</span>
-                  </div>
+            <header className="flex items-center gap-3 border-b border-slate-100 px-5 py-3">
+              <Avatar nome={sel.nome} size="sm" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-semibold text-slate-900">{sel.nome}</span>
+                  <EdicaoBadge edicao={sel.edicao} />
                 </div>
-              ))}
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {sel.telefone || "Sem telefone"}
+                  {sel.estagio_nome ? <span className="text-slate-300"> · </span> : null}
+                  {sel.estagio_nome}
+                </p>
+              </div>
+            </header>
+
+            <div className="min-h-0 flex-1 space-y-2 overflow-auto bg-[#ECE5DD] p-4">
+              {carregandoMsg && (
+                <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-600">
+                  <Spinner /> Carregando conversa…
+                </div>
+              )}
+              {aviso && (
+                <div className="mx-auto w-fit max-w-[85%] rounded-full bg-amber-50 px-3 py-1 text-center text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                  {aviso}
+                </div>
+              )}
+              {mensagens.map((m) => {
+                const cs = m.de === "cs";
+                return (
+                  <div key={m.id} className={cn("flex", cs ? "justify-end" : "justify-start")}>
+                    <div
+                      className={cn(
+                        "max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm",
+                        cs ? "rounded-br-sm bg-[#DCF8C6]" : "rounded-bl-sm bg-white",
+                      )}
+                    >
+                      {m.tipo === "template" && (
+                        <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Template
+                        </span>
+                      )}
+                      <p className="whitespace-pre-wrap break-words text-slate-800">{m.texto}</p>
+                      <span className="mt-1 block text-right text-[10px] tabular-nums text-slate-400">{fmtHora(m.data)}</span>
+                    </div>
+                  </div>
+                );
+              })}
               {!carregandoMsg && mensagens.length === 0 && !aviso && (
-                <p className="text-center text-sm text-slate-500">Sem mensagens.</p>
+                <p className="py-6 text-center text-sm text-slate-500">Sem mensagens nesta conversa.</p>
               )}
             </div>
 
-            <div className="border-t border-slate-100 p-3">
-              <div className="flex gap-2">
+            <div className="border-t border-slate-100 bg-white px-4 py-3">
+              <div className="flex items-end gap-2">
                 <input
                   value={texto}
                   onChange={(e) => setTexto(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }}
                   placeholder="Escreva uma resposta…"
-                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand" />
-                <button
-                  onClick={enviar}
-                  disabled={enviando || !texto.trim()}
-                  className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-light disabled:opacity-50">
-                  {enviando ? "Enviando…" : "Enviar"}
-                </button>
+                  className={cn(fieldClass, "flex-1")}
+                />
+                <Button onClick={enviar} disabled={enviando || !texto.trim()}>
+                  {enviando ? (<><Spinner className="text-white" /> Enviando…</>) : "Enviar"}
+                </Button>
               </div>
-              <p className="mt-1 text-[10px] text-slate-400">
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
+                <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
                 A resposta só é entregue dentro da janela de 24h após a última mensagem do lead.
               </p>
             </div>
           </>
         )}
-      </div>
-    </div>
+      </section>
+    </Card>
   );
 }

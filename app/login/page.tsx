@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button, Card, Spinner, cn, fieldClass } from "@/app/_components/ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,33 +34,79 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-[70vh] items-center justify-center">
-      <form
-        onSubmit={entrar}
-        className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm"
-      >
-        <h1 className="text-lg font-semibold text-brand">CS · Grupo Participa</h1>
-        <p className="mt-1 text-sm text-slate-500">Acesso interno — Customer Success HT</p>
+    <div className="flex min-h-[80vh] items-center justify-center px-4">
+      <Card className="w-full max-w-sm animate-fade-in p-8 shadow-soft">
+        <form onSubmit={entrar}>
+          {/* Marca */}
+          <div className="flex flex-col items-center text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-lg font-semibold tracking-wide text-white shadow-card">
+              CS
+            </div>
+            <h1 className="mt-4 text-lg font-semibold tracking-tight text-slate-900">
+              CS · Grupo Participa
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Acesso interno — Customer Success HT
+            </p>
+          </div>
 
-        <label className="mt-6 block text-sm font-medium text-slate-700">Senha</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoFocus
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
-        />
+          {/* Campo de senha */}
+          <div className="mt-8">
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-slate-700"
+            >
+              Senha
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+              placeholder="Digite sua senha"
+              className={cn(
+                fieldClass,
+                "mt-1.5",
+                erro && "border-rose-400 focus:border-rose-500",
+              )}
+            />
+            {erro && (
+              <p className="mt-2 flex items-center gap-1.5 text-sm text-rose-600">
+                <svg
+                  className="h-4 w-4 shrink-0"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM9 9a1 1 0 0 1 2 0v4a1 1 0 1 1-2 0V9Zm1-4a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                {erro}
+              </p>
+            )}
+          </div>
 
-        {erro && <p className="mt-3 text-sm text-red-600">{erro}</p>}
-
-        <button
-          type="submit"
-          disabled={carregando}
-          className="mt-6 w-full rounded-lg bg-brand py-2 text-sm font-medium text-white hover:bg-brand-light disabled:opacity-60"
-        >
-          {carregando ? "Entrando…" : "Entrar"}
-        </button>
-      </form>
+          {/* Ação */}
+          <Button
+            type="submit"
+            disabled={carregando}
+            className="mt-6 w-full"
+          >
+            {carregando ? (
+              <>
+                <Spinner className="text-white" />
+                Entrando…
+              </>
+            ) : (
+              "Entrar"
+            )}
+          </Button>
+        </form>
+      </Card>
     </div>
   );
 }

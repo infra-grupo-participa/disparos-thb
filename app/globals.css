@@ -7,5 +7,26 @@
 }
 
 body {
-  @apply bg-slate-50 text-slate-800 antialiased;
+  @apply bg-slate-100 text-slate-800 antialiased;
+  background-image: radial-gradient(60rem 60rem at 110% -10%, rgb(30 58 95 / 0.05), transparent 60%);
+  background-attachment: fixed;
 }
+
+/* Foco visível e consistente (acessibilidade) */
+:where(a, button, input, select, textarea):focus-visible {
+  @apply outline-none ring-2 ring-brand/40 ring-offset-1 ring-offset-white;
+}
+
+/* Seleção de texto na cor da marca */
+::selection {
+  @apply bg-brand/15 text-brand-700;
+}
+
+/* Scrollbar discreta */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 0.5) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { @apply rounded-full bg-slate-300/70; }
+*::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }

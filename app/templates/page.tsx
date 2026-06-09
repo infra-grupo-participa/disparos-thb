@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
 
 type Template = {
   id: string;
@@ -98,165 +99,172 @@ export default function TemplatesPage() {
   const previewRender = useMemo(() => montarPreview(form.preview), [form.preview]);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
-      <div>
-        <h1 className="mb-1 text-xl font-semibold">Templates</h1>
-        <p className="mb-4 text-sm text-slate-500">
-          Mensagens aprovadas pela Meta usadas nos disparos. Ative ou desative cada uma direto na lista.
-        </p>
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-              <tr>
-                <th className="px-3 py-2">Nome</th>
-                <th className="px-3 py-2">ID Unnichat</th>
-                <th className="px-3 py-2">Vars</th>
-                <th className="px-3 py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {templates.map((t) => (
-                <tr key={t.id}>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{t.nome}</div>
-                    {t.preview && <div className="max-w-md truncate text-xs text-slate-400">{t.preview}</div>}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs text-slate-500">{t.unnichat_id}</td>
-                  <td className="px-3 py-2">{t.variaveis}</td>
-                  <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => alternarAtivo(t)}
-                      disabled={alternando === t.id}
-                      title={t.ativo ? "Clique para desativar" : "Clique para ativar"}
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs transition disabled:opacity-60 ${
-                        t.ativo
-                          ? "bg-green-100 text-green-700 hover:bg-green-200"
-                          : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                      }`}
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${t.ativo ? "bg-green-600" : "bg-slate-400"}`} />
-                      {t.ativo ? "ativo" : "inativo"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {templates.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-3 py-10 text-center">
-                    <p className="text-slate-500">Nenhum template ainda — cadastre o primeiro.</p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Use o formulário ao lado para registrar uma mensagem aprovada na Unnichat.
-                    </p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+    <div>
+      <PageHeader
+        title="Templates"
+        description="Mensagens aprovadas pela Meta e cadastradas na Unnichat. Ative ou desative cada uma direto na lista."
+      />
 
-      <form onSubmit={salvar} className="h-fit rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-1 font-medium">Novo template</h2>
-        <p className="mb-4 text-xs text-slate-500">
-          Cadastro manual: crie o template na Unnichat e copie as informações para cá.
-        </p>
-        <div className="space-y-4 text-sm">
-          <Campo
-            label="Nome do template"
-            dica="Um apelido para você reconhecer. Ex.: “Boas-vindas”, “Lembrete de consulta”."
-            value={form.nome}
-            onChange={(v) => setForm({ ...form, nome: v })}
-          />
-
-          <Campo
-            label="ID do template (Unnichat)"
-            dica="Abra o template no painel da Unnichat e copie o número no fim da URL (.../templates/edit/ESTE-NÚMERO)."
-            value={form.unnichat_id}
-            onChange={(v) => setForm({ ...form, unnichat_id: v })}
-            mono
-          />
-
-          <Campo
-            label="Categoria (opcional)"
-            dica="Como o template foi aprovado na Meta: MARKETING ou UTILITY."
-            value={form.categoria}
-            onChange={(v) => setForm({ ...form, categoria: v })}
-          />
-
-          <div>
-            <label className="block font-medium text-slate-700">Nº de variáveis no corpo</label>
-            <p className="mt-0.5 text-xs text-slate-500">
-              0 = texto fixo, igual para todos. 1 = a primeira variável recebe o primeiro nome do contato.
-              Use o mesmo número de variáveis que existe no template aprovado.
-            </p>
-            <input
-              type="number"
-              min={0}
-              max={10}
-              value={form.variaveis}
-              onChange={(e) => setForm({ ...form, variaveis: Number(e.target.value) })}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5"
+      <div className="grid items-start gap-6 lg:grid-cols-[1fr_400px]">
+        {/* ---- Coluna esquerda: lista ---- */}
+        <div className="space-y-3">
+          {templates.length === 0 ? (
+            <EmptyState
+              title="Nenhum template ainda"
+              description="Cadastre o primeiro usando o formulário ao lado, registrando uma mensagem aprovada na Unnichat."
             />
-          </div>
+          ) : (
+            templates.map((t) => (
+              <Card key={t.id} className="p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-medium text-slate-900">{t.nome}</span>
+                      {t.categoria && (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                          {t.categoria}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-400">
+                      <span className="font-mono">ID {t.unnichat_id}</span>
+                      <span>·</span>
+                      <span>
+                        {t.variaveis} {t.variaveis === 1 ? "variável" : "variáveis"}
+                      </span>
+                    </div>
+                    {t.preview && (
+                      <p className="mt-2 max-w-md truncate text-sm text-slate-500">{t.preview}</p>
+                    )}
+                  </div>
 
-          <div>
-            <label className="block font-medium text-slate-700">Preview do corpo da mensagem</label>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Cole aqui o texto do corpo da mensagem; use {"{{1}}"} onde entra a variável (o primeiro nome).
-            </p>
-            <textarea
-              value={form.preview}
-              onChange={(e) => setForm({ ...form, preview: e.target.value })}
-              rows={4}
-              placeholder="Olá {{1}}, tudo bem? Passando para lembrar..."
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5"
-            />
-          </div>
-
-          {/* Preview ao vivo em bolha tipo WhatsApp */}
-          <div>
-            <span className="block text-xs font-medium uppercase tracking-wide text-slate-400">
-              Como o contato verá
-            </span>
-            <div className="mt-1 rounded-lg p-3" style={{ backgroundColor: "#ECE5DD" }}>
-              {form.preview.trim() ? (
-                <div
-                  className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-lg rounded-tr-sm px-3 py-2 text-sm text-slate-800 shadow-sm"
-                  style={{ backgroundColor: "#DCF8C6" }}
-                >
-                  {previewRender}
+                  {/* Toggle/pill clicável ativo/inativo (mantém PATCH otimista). */}
+                  <button
+                    type="button"
+                    onClick={() => alternarAtivo(t)}
+                    disabled={alternando === t.id}
+                    title={t.ativo ? "Clique para desativar" : "Clique para ativar"}
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition disabled:opacity-60",
+                      t.ativo
+                        ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                        : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        t.ativo ? "bg-emerald-600" : "bg-slate-400",
+                      )}
+                    />
+                    {t.ativo ? "ativo" : "inativo"}
+                  </button>
                 </div>
-              ) : (
-                <p className="py-4 text-center text-xs text-slate-500">
-                  O texto da mensagem aparecerá aqui conforme você digita.
+              </Card>
+            ))
+          )}
+        </div>
+
+        {/* ---- Coluna direita: formulário sticky ---- */}
+        <Card className="p-5 lg:sticky lg:top-6">
+          <h2 className="font-semibold text-slate-900">Novo template</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Cadastro manual: crie o template na Unnichat e copie as informações para cá.
+          </p>
+
+          <form onSubmit={salvar} className="mt-4 space-y-4">
+            <Campo
+              label="Nome do template"
+              dica="Um apelido para você reconhecer. Ex.: “Boas-vindas”, “Lembrete de consulta”."
+              value={form.nome}
+              onChange={(v) => setForm({ ...form, nome: v })}
+            />
+
+            <Campo
+              label="ID do template (Unnichat)"
+              dica="Abra o template no painel da Unnichat e copie o número no fim da URL (.../templates/edit/ESTE-NÚMERO)."
+              value={form.unnichat_id}
+              onChange={(v) => setForm({ ...form, unnichat_id: v })}
+              mono
+            />
+
+            <Campo
+              label="Categoria (opcional)"
+              dica="Como o template foi aprovado na Meta: MARKETING ou UTILITY."
+              value={form.categoria}
+              onChange={(v) => setForm({ ...form, categoria: v })}
+            />
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Nº de variáveis no corpo</label>
+              <p className="mt-0.5 text-xs text-slate-500">
+                0 = texto fixo, igual para todos. 1 = a primeira variável recebe o primeiro nome do contato.
+                Use o mesmo número de variáveis que existe no template aprovado.
+              </p>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={form.variaveis}
+                onChange={(e) => setForm({ ...form, variaveis: Number(e.target.value) })}
+                className={cn(fieldClass, "mt-1.5")}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Preview do corpo da mensagem</label>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Cole aqui o texto do corpo da mensagem; use {"{{1}}"} onde entra a variável (o primeiro nome).
+              </p>
+              <textarea
+                value={form.preview}
+                onChange={(e) => setForm({ ...form, preview: e.target.value })}
+                rows={4}
+                placeholder="Olá {{1}}, tudo bem? Passando para lembrar..."
+                className={cn(fieldClass, "mt-1.5 resize-y")}
+              />
+            </div>
+
+            {/* Preview ao vivo em bolha tipo WhatsApp */}
+            <div>
+              <span className="block text-xs font-medium uppercase tracking-wide text-slate-400">
+                Como o contato verá
+              </span>
+              <div className="mt-1.5 rounded-lg p-3" style={{ backgroundColor: "#ECE5DD" }}>
+                {form.preview.trim() ? (
+                  <div
+                    className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-lg rounded-tr-sm px-3 py-2 text-sm text-slate-800 shadow-sm"
+                    style={{ backgroundColor: "#DCF8C6" }}
+                  >
+                    {previewRender}
+                  </div>
+                ) : (
+                  <p className="py-4 text-center text-xs text-slate-500">
+                    O texto da mensagem aparecerá aqui conforme você digita.
+                  </p>
+                )}
+              </div>
+              {faltaVar && (
+                <p className="mt-1.5 text-xs text-amber-600">
+                  Você indicou {vars} variável(eis), mas o texto não tem {"{{1}}"}. Adicione {"{{1}}"} onde entra o
+                  primeiro nome.
                 </p>
               )}
+              {form.preview.trim() && (
+                <p className="mt-1.5 text-xs text-slate-400">Exemplo usando o nome “{NOME_EXEMPLO}”.</p>
+              )}
             </div>
-            {faltaVar && (
-              <p className="mt-1 text-xs text-amber-600">
-                Você indicou {vars} variável(eis), mas o texto não tem {"{{1}}"}. Adicione {"{{1}}"} onde entra o
-                primeiro nome.
-              </p>
-            )}
-            {form.preview.trim() && (
-              <p className="mt-1 text-xs text-slate-400">Exemplo usando o nome “{NOME_EXEMPLO}”.</p>
-            )}
-          </div>
 
-          {erro && (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-red-600">{erro}</p>
-          )}
+            {erro && (
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{erro}</p>
+            )}
 
-          <button
-            type="submit"
-            disabled={salvando}
-            className="w-full rounded-lg bg-brand py-2 font-medium text-white hover:bg-brand-light disabled:opacity-60"
-          >
-            {salvando ? "Salvando…" : "Cadastrar template"}
-          </button>
-        </div>
-      </form>
+            <Button type="submit" disabled={salvando} className="w-full">
+              {salvando ? "Salvando…" : "Cadastrar template"}
+            </Button>
+          </form>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -276,12 +284,12 @@ function Campo({
 }) {
   return (
     <div>
-      <label className="block font-medium text-slate-700">{label}</label>
+      <label className="block text-sm font-medium text-slate-700">{label}</label>
       {dica && <p className="mt-0.5 text-xs text-slate-500">{dica}</p>}
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 ${mono ? "font-mono" : ""}`}
+        className={cn(fieldClass, "mt-1.5", mono && "font-mono")}
       />
     </div>
   );

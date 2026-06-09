@@ -6,7 +6,7 @@ Referências: CRMs (HubSpot, Pipedrive), CS/atendimento (Intercom, Front, Zendes
 disparo/marketing (Mailchimp, SendGrid, Twilio), plataformas WhatsApp (Take Blip, Zenvia).
 
 ## A. Entrega & Confiabilidade  ← maior dor hoje
-- **A1 [P0·M] Status de entrega real** (sent/delivered/read/failed). Hoje só sabemos se a API *aceitou* — não se a Meta *entregou* (foi o caso do "experiment"). Capturar o status via webhook de status da Unnichat/Meta e mostrar no disparo.
+- **A1 [✅ FEITO] Status de entrega real** (sent/delivered/read/failed). Implementado via GET /meta/messages/{id} (pull, botão "Atualizar status de entrega"); erro 130472 = experiment tratado.
 - **A2 [P0·S] Reenvio em 1 clique** dos contatos que falharam num disparo.
 - **A3 [P1·M] Retomar disparo interrompido** se o processo Node cair no meio (hoje o `void processar()` não retoma).
 
@@ -16,7 +16,7 @@ disparo/marketing (Mailchimp, SendGrid, Twilio), plataformas WhatsApp (Take Blip
 - **B3 [P2·M] Gatilhos por evento**: entrou na esteira → boas-vindas automáticas.
 
 ## C. Inbox / atendimento bidirecional
-- **C1 [P1·L] Caixa de entrada**: ver as respostas e **responder direto no sistema** (a Unnichat tem `POST /meta/messages` para mensagem livre dentro da janela de 24h).
+- **C1 [✅ FEITO] Caixa de entrada (Inbox)**: tela /inbox com fila de conversas + chat (GET /contact/{id}/messages) + resposta livre (POST /meta/messages).
 - **C2 [P2·M] Carteira**: atribuir conversas/contatos a operadores específicos.
 - **C3 [P2·S] Notas internas** e marcadores na conversa.
 
