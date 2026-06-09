@@ -12,7 +12,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const contato = await queryOne(
     `select v.comprador_id, v.nome, v.email, v.telefone, v.edicao, v.ultima_compra_ht,
             v.estagio_chave, v.estagio_nome, v.responsavel, v.proxima_acao_em,
-            v.proxima_acao_nota, v.ultima_resposta_em, v.ultimo_contato_em, v.observacoes
+            v.proxima_acao_nota, v.ultima_resposta_em, v.ultimo_contato_em, v.observacoes,
+            v.edicao_ht, v.legado_ativado, v.legado_sla_h, v.legado_ativacao_em,
+            v.legado_no_grupo, v.legado_pesquisa, v.legado_ja_ht, v.legado_qtd_ht,
+            v.legado_ja_hm, v.legado_e_aluno, v.legado_instrucao, v.primeiro_contato_em,
+            v.legado_t_primeiro_contato_h, v.legado_t_ativacao_h
        from cs.contatos_ht v
       where v.comprador_id = $1`,
     [compradorId],

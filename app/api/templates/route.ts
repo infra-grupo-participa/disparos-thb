@@ -40,3 +40,22 @@ export async function POST(req: Request) {
   );
   return NextResponse.json({ ok: true, id: (row as { id: string } | null)?.id });
 }
+
+export async function PATCH(req: Request) {
+  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const b = await req.json().catch(() => ({}));
+  const { id, ativo } = b as Record<string, unknown>;
+
+  if (!id || typeof ativo !== "boolean") {
+    return NextResponse.json({ ok: false, reason: "id e ativo (boolean) são obrigatórios" }, { status: 400 });
+  }
+
+  const row = await queryOne(
+    `update cs.templates set ativo = $2 where id = $1 returning id, ativo`,
+    [String(id), ativo],
+  );
+  if (!row) {
+    return NextResponse.json({ ok: false, reason: "template não encontrado" }, { status: 404 });
+  }
+  return NextResponse.json({ ok: true, template: row });
+}

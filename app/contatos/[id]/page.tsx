@@ -1,7 +1,9 @@
 "use client";
 
+import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { EdicaoBadge } from "@/app/_components/edicao-badge";
 
 type Estagio = { chave: string; nome: string; cor: string | null };
 type Contato = {
@@ -10,6 +12,20 @@ type Contato = {
   estagio_chave: string | null; estagio_nome: string | null;
   proxima_acao_em: string | null; proxima_acao_nota: string | null;
   observacoes: string | null; ultima_resposta_em: string | null;
+  edicao_ht: string | null;
+  legado_ativado: boolean | null;
+  legado_sla_h: number | null;
+  legado_ativacao_em: string | null;
+  legado_no_grupo: boolean | null;
+  legado_pesquisa: boolean | null;
+  legado_ja_ht: boolean | null;
+  legado_qtd_ht: number | null;
+  legado_ja_hm: boolean | null;
+  legado_e_aluno: boolean | null;
+  legado_instrucao: string | null;
+  primeiro_contato_em: string | null;
+  legado_t_primeiro_contato_h: number | null;
+  legado_t_ativacao_h: number | null;
 };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 
@@ -18,6 +34,24 @@ const ICONE: Record<string, string> = {
 };
 function fmt(iso: string | null) {
   return iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+}
+function fmtData(iso: string | null) {
+  return iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—";
+}
+function fmtNum(n: number | null) {
+  return n == null ? "—" : n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+function fmtBool(b: boolean | null) {
+  return b == null ? null : b ? "Sim" : "Não";
+}
+function LegadoLinha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
+  if (valor === null || valor === undefined || valor === "") return null;
+  return (
+    <div className="flex justify-between gap-2 text-sm">
+      <span className="text-slate-400">{rotulo}</span>
+      <span className="text-right font-medium text-slate-700">{valor}</span>
+    </div>
+  );
 }
 
 export default function ContatoDetalhe({ params }: { params: { id: string } }) {
@@ -63,7 +97,10 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
       <div className="mt-2 grid gap-6 lg:grid-cols-[1fr_380px]">
         {/* Coluna principal */}
         <div>
-          <h1 className="text-xl font-semibold">{contato.nome}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold">{contato.nome}</h1>
+            <EdicaoBadge edicao={contato.edicao_ht} />
+          </div>
           <p className="text-sm text-slate-500">
             {contato.email} · {contato.telefone || "sem telefone"} · {contato.edicao || "edição —"}
           </p>
@@ -85,6 +122,22 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
 
         {/* Painel de CS */}
         <div className="space-y-4">
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <h3 className="mb-3 text-xs font-semibold uppercase text-slate-400">Histórico CS (planilha)</h3>
+            <div className="space-y-1.5">
+              <LegadoLinha rotulo="Ativado" valor={fmtBool(contato.legado_ativado)} />
+              <LegadoLinha rotulo="SLA (h)" valor={contato.legado_sla_h != null ? fmtNum(contato.legado_sla_h) : null} />
+              <LegadoLinha rotulo="Ativação" valor={contato.legado_ativacao_em ? fmtData(contato.legado_ativacao_em) : null} />
+              <LegadoLinha rotulo="1º contato" valor={contato.primeiro_contato_em ? fmtData(contato.primeiro_contato_em) : null} />
+              <LegadoLinha rotulo="No grupo" valor={fmtBool(contato.legado_no_grupo)} />
+              <LegadoLinha rotulo="Já HT?" valor={fmtBool(contato.legado_ja_ht)} />
+              <LegadoLinha rotulo="Qtd HT" valor={contato.legado_qtd_ht != null ? contato.legado_qtd_ht : null} />
+              <LegadoLinha rotulo="Já HM?" valor={fmtBool(contato.legado_ja_hm)} />
+              <LegadoLinha rotulo="É aluno?" valor={fmtBool(contato.legado_e_aluno)} />
+              <LegadoLinha rotulo="Instrução" valor={contato.legado_instrucao || null} />
+            </div>
+          </div>
+
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <label className="block text-xs uppercase text-slate-400">Estágio</label>
             <select

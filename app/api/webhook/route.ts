@@ -52,21 +52,32 @@ export async function POST(req: Request) {
   );
 
   if (pendente) {
+    // Idempotência: o UPDATE só "vence" se a linha ainda estava respondeu=false.
+    // Como o SELECT acima e este UPDATE não são atômicos, um reenvio do mesmo
+    // evento pelo Unnichat pode passar pelo SELECT mas a cláusula respondeu=false
+    // garante que apenas a primeira gravação retorne linha. Sem retorno → já
+    // contabilizado: não reincrementa total_respondidos nem reavança o contato.
     const upd = await queryOne<{ sla_minutos: number }>(
       `update cs.disparo_contatos
           set respondeu = true,
               respondeu_em = now(),
               sla_minutos = round(extract(epoch from (now() - enviado_em)) / 60)::int
-        where id = $1
+        where id = $1 and respondeu = false
         returning sla_minutos`,
       [pendente.id],
     );
+
+    if (!upd) {
+      // Reenvio do mesmo evento — resposta já registrada. Responde 200 sem recontar.
+      return NextResponse.json({ ok: true, matched: true, duplicado: true, sla_minutos: null });
+    }
+
     await query(`update cs.disparos set total_respondidos = total_respondidos + 1 where id = $1`, [pendente.disparo_id]);
 
     if (pendente.comprador_id) {
       await avancarContato(pendente.comprador_id, desc, pendente.disparo_id);
     }
-    return NextResponse.json({ ok: true, matched: true, sla_minutos: upd?.sla_minutos ?? null });
+    return NextResponse.json({ ok: true, matched: true, sla_minutos: upd.sla_minutos ?? null });
   }
 
   // 2) Sem disparo pendente — registra a resposta no contato HT (se existir), sem SLA.

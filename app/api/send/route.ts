@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
-import { sendTemplate, type BodyParam } from "@/lib/unnichat";
+import { sendTemplate, type BodyParam, type EnvioResultado } from "@/lib/unnichat";
 import { normalizePhone, primeiroNome } from "@/lib/phone";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const DELAY_MS = 350; // pausa entre envios (rate limit gentil)
+const DELAY_429_MS = 5000; // pausa extra após 429 (respeita rate limit do Unnichat)
+const RETRY_BACKOFF_MS = [1000, 3000, 8000]; // espera crescente entre tentativas
+const FALLBACK_VAR = "tudo bem"; // texto neutro quando não há nome para a variável
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Decide se um erro é transitório (vale retry): rede/timeout (status 0),
+// rate limit (429) e erros de servidor (5xx). 4xx (exceto 429) são definitivos.
+function ehTransitorio(status: number): boolean {
+  return status === 0 || status === 429 || status >= 500;
+}
 
 type Template = { id: string; nome: string; unnichat_id: string; variaveis: number };
 type Linha = { id: string; comprador_id: string; nome: string; telefone: string };
@@ -84,10 +93,26 @@ export async function POST(req: Request) {
 async function processar(disparoId: string, template: Template, linhas: Linha[]) {
   let enviados = 0;
   for (const l of linhas) {
-    const params: BodyParam[] | undefined =
-      Number(template.variaveis) >= 1 ? [{ type: "text", text: primeiroNome(l.nome) }] : undefined;
+    // Validação variáveis↔parâmetros: o template declara N variáveis no body.
+    // Se declara >=1 mas não há nome para preencher, usa texto neutro (fallback
+    // seguro) em vez de mandar variável vazia — que o WhatsApp pode rejeitar.
+    let params: BodyParam[] | undefined;
+    if (Number(template.variaveis) >= 1) {
+      let texto = primeiroNome(l.nome);
+      if (!texto) {
+        texto = FALLBACK_VAR;
+        console.warn(
+          `[send] contato ${l.id} sem nome para variável do template "${template.nome}"; usando fallback neutro`,
+        );
+      }
+      params = [{ type: "text", text: texto }];
+    }
 
-    const r = await sendTemplate({ phone: l.telefone, templateId: template.unnichat_id, bodyParameters: params });
+    const r = await enviarComRetry(l.telefone, template.unnichat_id, params, l.id);
+
+    // Respeita rate limit: se o último resultado foi 429, dá uma pausa maior
+    // antes do próximo contato para não insistir contra o limite do Unnichat.
+    const pausaProximo = r.status === 429 ? DELAY_429_MS : DELAY_MS;
 
     if (r.ok) {
       enviados++;
@@ -115,11 +140,41 @@ async function processar(disparoId: string, template: Template, linhas: Linha[])
     }
 
     await query(`update cs.disparos set total_enviados = $2 where id = $1`, [disparoId, enviados]);
-    await sleep(DELAY_MS);
+    await sleep(pausaProximo);
   }
 
   await query(`update cs.disparos set status = 'concluido', concluido_em = now(), total_enviados = $2 where id = $1`, [
     disparoId,
     enviados,
   ]);
+}
+
+// Envia um template com retry/backoff para erros transitórios (rede, 429, 5xx).
+// Tenta até 1 + RETRY_BACKOFF_MS.length vezes. Erros 4xx (exceto 429) abortam
+// imediatamente (são definitivos). Retorna o último EnvioResultado.
+async function enviarComRetry(
+  phone: string,
+  templateId: string,
+  bodyParameters: BodyParam[] | undefined,
+  contatoId: string,
+): Promise<EnvioResultado> {
+  let r = await sendTemplate({ phone, templateId, bodyParameters });
+  let tentativa = 0;
+
+  while (!r.ok && ehTransitorio(r.status) && tentativa < RETRY_BACKOFF_MS.length) {
+    const espera = RETRY_BACKOFF_MS[tentativa];
+    console.warn(
+      `[send] envio ${contatoId} falhou (status ${r.status}: ${r.erro || "?"}); ` +
+        `retry ${tentativa + 1}/${RETRY_BACKOFF_MS.length} em ${espera}ms`,
+    );
+    await sleep(espera);
+    r = await sendTemplate({ phone, templateId, bodyParameters });
+    tentativa++;
+  }
+
+  // Anota no erro a contagem de tentativas para diagnóstico, quando houve retry.
+  if (!r.ok && tentativa > 0) {
+    r = { ...r, erro: `${r.erro || `HTTP ${r.status}`} (após ${tentativa + 1} tentativas)` };
+  }
+  return r;
 }

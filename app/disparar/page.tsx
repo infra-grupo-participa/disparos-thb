@@ -18,6 +18,7 @@ export default function DispararPage() {
   const [templateId, setTemplateId] = useState("");
   const [edicao, setEdicao] = useState("");
   const [confirmado, setConfirmado] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [disparoId, setDisparoId] = useState<string | null>(null);
   const [progresso, setProgresso] = useState<Progresso | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -53,6 +54,24 @@ export default function DispararPage() {
     return template.preview.replace(/\{\{?\s*1\s*\}?\}|\{\{\s*nome\s*\}\}/gi, exemploNome);
   }, [template, exemploNome]);
 
+  // À prova de variáveis: se o template declara variáveis mas o preview ainda
+  // contém placeholders ({{...}}) não resolvidos, sinalizamos sem bloquear.
+  const placeholdersRestantes = useMemo(
+    () => (preview.match(/\{\{[^}]*\}\}/g) ?? []),
+    [preview],
+  );
+  const temPlaceholderNaoResolvido = (template?.variaveis ?? 0) > 0 && placeholdersRestantes.length > 0;
+
+  // Quantos contatos têm telefone (impacto real do disparo).
+  const comTelefone = useMemo(
+    () => selecao.filter((s) => (s.telefone ?? "").trim().length > 0).length,
+    [selecao],
+  );
+
+  // Rótulo de edição derivado: edição escolhida, ou "mista" quando há várias.
+  const edicaoLabel =
+    edicao || (edicoesPresentes.length > 1 ? `${edicoesPresentes.length} edições` : "sem edição");
+
   async function disparar() {
     if (!templateId || selecao.length === 0) return;
     setEnviando(true);
@@ -63,7 +82,7 @@ export default function DispararPage() {
         body: JSON.stringify({ templateId, compradorIds: selecao.map((s) => s.comprador_id), edicao: edicao || undefined }),
       });
       const d = await r.json();
-      if (!d.ok) { alert(d.reason || "Falha ao iniciar disparo"); setEnviando(false); return; }
+      if (!d.ok) { alert(d.reason || "Falha ao iniciar disparo"); setEnviando(false); setShowConfirm(false); return; }
       setDisparoId(d.disparoId);
       iniciarPolling(d.disparoId);
     } catch {
@@ -164,7 +183,32 @@ export default function DispararPage() {
       {template && (
         <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
           <div className="text-xs uppercase text-slate-400">Pré-visualização (ex.: {exemploNome})</div>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{preview || <span className="text-slate-400">Template sem preview cadastrado.</span>}</p>
+          {/* Bolha de chat estilo WhatsApp para o operador "ver o que o contato verá". */}
+          <div className="mt-3 rounded-lg bg-[#ECE5DD] p-4">
+            <div className="relative max-w-[85%] rounded-2xl rounded-tl-sm bg-[#DCF8C6] px-3 py-2 text-sm text-slate-800 shadow-sm">
+              {preview ? (
+                <p className="whitespace-pre-wrap">
+                  {placeholdersRestantes.length === 0
+                    ? preview
+                    : preview.split(/(\{\{[^}]*\}\})/g).map((parte, i) =>
+                        /^\{\{[^}]*\}\}$/.test(parte) ? (
+                          <span key={i} className="rounded bg-red-100 px-1 font-semibold text-red-700">{parte}</span>
+                        ) : (
+                          <span key={i}>{parte}</span>
+                        ),
+                      )}
+                </p>
+              ) : (
+                <span className="text-slate-400">Template sem preview cadastrado.</span>
+              )}
+              <span className="mt-1 block text-right text-[10px] text-slate-400">12:00</span>
+            </div>
+          </div>
+          {temPlaceholderNaoResolvido && (
+            <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+              ⚠ Variáveis não resolvidas: {placeholdersRestantes.join(", ")}. Os contatos receberão o texto exatamente como acima. Revise o template antes de disparar.
+            </p>
+          )}
         </div>
       )}
 
@@ -192,15 +236,81 @@ export default function DispararPage() {
         ))}
       </div>
 
+      {/* Resumo de impacto: o que vai acontecer, em uma frase clara. */}
+      {template && (
+        <div className="mt-5 rounded-lg border border-brand/30 bg-brand/5 p-4 text-sm text-slate-700">
+          <p>
+            Você vai enviar o template <strong>«{template.nome}»</strong> para{" "}
+            <strong>{selecao.length}</strong> contato(s) — edição <strong>{edicaoLabel}</strong>.
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {comTelefone} com telefone
+            {comTelefone < selecao.length && (
+              <span className="text-amber-600"> · {selecao.length - comTelefone} sem telefone (não receberão)</span>
+            )}
+          </p>
+        </div>
+      )}
+
       <label className="mt-5 flex items-center gap-2 text-sm">
         <input type="checkbox" checked={confirmado} onChange={(e) => setConfirmado(e.target.checked)} />
         Confirmo o envio para <strong>{selecao.length}</strong> contato(s).
       </label>
 
-      <button onClick={disparar} disabled={!templateId || !confirmado || enviando}
-        className="mt-4 w-full rounded-lg bg-brand py-2.5 text-sm font-medium text-white hover:bg-brand-light disabled:opacity-50">
+      <button
+        type="button"
+        onClick={() => setShowConfirm(true)}
+        disabled={!templateId || !confirmado || enviando}
+        className="mt-4 w-full rounded-lg bg-brand py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-light disabled:cursor-not-allowed disabled:opacity-50">
         {enviando ? "Iniciando…" : `Disparar para ${selecao.length} contato(s)`}
       </button>
+
+      {/* Dupla confirmação: modal com template + contagem e ação rotulada pela ação real. */}
+      {showConfirm && template && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-titulo"
+          onClick={() => !enviando && setShowConfirm(false)}>
+          <div
+            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}>
+            <h2 id="confirm-titulo" className="text-lg font-semibold text-slate-900">Confirmar disparo</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Esta ação envia o template <strong>«{template.nome}»</strong> para{" "}
+              <strong>{selecao.length}</strong> contato(s) — edição <strong>{edicaoLabel}</strong>.
+              Não é possível desfazer após iniciar.
+            </p>
+            {temPlaceholderNaoResolvido && (
+              <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                ⚠ Há variáveis não resolvidas no preview ({placeholdersRestantes.join(", ")}).
+              </p>
+            )}
+            {comTelefone < selecao.length && (
+              <p className="mt-3 text-xs text-amber-600">
+                {selecao.length - comTelefone} contato(s) sem telefone não receberão a mensagem.
+              </p>
+            )}
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setShowConfirm(false)}
+                disabled={enviando}
+                className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={disparar}
+                disabled={enviando}
+                className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-red-700 disabled:opacity-50">
+                {enviando ? "Enviando…" : `Enviar para ${selecao.length} contato(s)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

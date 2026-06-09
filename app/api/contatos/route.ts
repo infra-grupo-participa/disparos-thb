@@ -18,12 +18,12 @@ export async function GET(req: Request) {
   const comTelefone = searchParams.get("com_telefone") === "1";
 
   const contatos = await query(
-    `select comprador_id, nome, email, telefone, edicao, edition_number,
+    `select comprador_id, nome, email, telefone, edicao, edicao_ht, edition_number,
             ultima_compra_ht, estagio_chave, estagio_nome,
             proxima_acao_em, ultima_resposta_em, ultimo_contato_em
        from cs.contatos_ht
       where ($1::text is null or estagio_chave = $1)
-        and ($2::text is null or edicao ilike '%' || $2 || '%')
+        and ($2::text is null or edicao_ht = $2 or edicao ilike '%' || $2 || '%')
         and ($3::text is null or nome ilike '%' || $3 || '%'
              or email ilike '%' || $3 || '%' or telefone ilike '%' || $3 || '%')
         and ($4::boolean is false or (telefone is not null and telefone <> ''))
