@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 // Webhook chamado pela automação do Unnichat ("Cliente interagir → qualquer mensagem").
 // NÃO usa sessão do app — valida origem via WEBHOOK_SECRET (header, query ou body).
 // Sempre responde 200 (exceto segredo inválido) para o Unnichat não ficar retentando.
+// TODA chamada é registrada em cs.webhook_log para observabilidade do SLA.
 
 function originOk(req: Request, body: Record<string, unknown>): boolean {
   const secret = process.env.WEBHOOK_SECRET;
@@ -19,14 +20,35 @@ function originOk(req: Request, body: Record<string, unknown>): boolean {
   return recebido === secret;
 }
 
+// Registra a chamada recebida (best-effort; nunca quebra o webhook).
+async function logWebhook(args: {
+  origem: string | null;
+  telefoneRaw: string | null;
+  telefoneNorm: string | null;
+  resultado: string;
+  payload: unknown;
+}) {
+  try {
+    await query(
+      `insert into cs.webhook_log (origem, telefone_raw, telefone_norm, resultado, payload)
+       values ($1, $2, $3, $4, $5)`,
+      [args.origem, args.telefoneRaw, args.telefoneNorm, args.resultado, JSON.stringify(args.payload ?? null)],
+    );
+  } catch (e) {
+    console.error("[webhook] falha ao gravar log:", e instanceof Error ? e.message : e);
+  }
+}
+
 export async function GET() {
   return new Response("OK", { status: 200 });
 }
 
 export async function POST(req: Request) {
+  const origem = req.headers.get("x-forwarded-for") || req.headers.get("user-agent") || null;
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
   if (!originOk(req, body)) {
+    await logWebhook({ origem, telefoneRaw: null, telefoneNorm: null, resultado: "invalid_secret", payload: body });
     return NextResponse.json({ ok: false, reason: "invalid_secret" }, { status: 401 });
   }
 
@@ -36,6 +58,7 @@ export async function POST(req: Request) {
   const tel = normalizePhone(telefoneRaw);
 
   if (!tel) {
+    await logWebhook({ origem, telefoneRaw, telefoneNorm: null, resultado: "sem_telefone", payload: body });
     return NextResponse.json({ ok: true, reason: "sem_telefone" }, { status: 200 });
   }
 
@@ -53,10 +76,6 @@ export async function POST(req: Request) {
 
   if (pendente) {
     // Idempotência: o UPDATE só "vence" se a linha ainda estava respondeu=false.
-    // Como o SELECT acima e este UPDATE não são atômicos, um reenvio do mesmo
-    // evento pelo Unnichat pode passar pelo SELECT mas a cláusula respondeu=false
-    // garante que apenas a primeira gravação retorne linha. Sem retorno → já
-    // contabilizado: não reincrementa total_respondidos nem reavança o contato.
     const upd = await queryOne<{ sla_minutos: number }>(
       `update cs.disparo_contatos
           set respondeu = true,
@@ -68,7 +87,7 @@ export async function POST(req: Request) {
     );
 
     if (!upd) {
-      // Reenvio do mesmo evento — resposta já registrada. Responde 200 sem recontar.
+      await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "duplicado", payload: body });
       return NextResponse.json({ ok: true, matched: true, duplicado: true, sla_minutos: null });
     }
 
@@ -77,6 +96,7 @@ export async function POST(req: Request) {
     if (pendente.comprador_id) {
       await avancarContato(pendente.comprador_id, desc, pendente.disparo_id);
     }
+    await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "matched", payload: body });
     return NextResponse.json({ ok: true, matched: true, sla_minutos: upd.sla_minutos ?? null });
   }
 
@@ -87,9 +107,11 @@ export async function POST(req: Request) {
   );
   if (contato) {
     await avancarContato(contato.comprador_id, desc, null);
+    await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "registrado_sem_disparo", payload: body });
     return NextResponse.json({ ok: true, matched: false, registrado: true });
   }
 
+  await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "telefone_nao_encontrado", payload: body });
   return NextResponse.json({ ok: true, matched: false, registrado: false });
 }
 
