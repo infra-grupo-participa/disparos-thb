@@ -19,7 +19,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const contatos = await query(
     `select dc.id, dc.telefone, dc.enviado, dc.respondeu, dc.erro,
-            dc.contato_criado, dc.erro_contato, dc.enviado_em, v.nome
+            dc.contato_criado, dc.erro_contato, dc.status_meta, dc.erro_meta_code, dc.enviado_em, v.nome
        from cs.disparo_contatos dc
        left join cs.contatos_ht v on v.comprador_id = dc.comprador_id
       where dc.disparo_id = $1

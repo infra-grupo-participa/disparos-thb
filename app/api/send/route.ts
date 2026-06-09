@@ -104,7 +104,11 @@ async function processar(disparoId: string, template: Template, linhas: Linha[])
     if (r.ok) {
       criados++;
       prontos.push(l);
-      await query(`update cs.disparo_contatos set contato_criado = true, erro_contato = null where id = $1`, [l.id]);
+      // Guarda o contactId da Unnichat para consultar o status de entrega depois.
+      await query(
+        `update cs.disparo_contatos set contato_criado = true, erro_contato = null, unnichat_contact_id = $2 where id = $1`,
+        [l.id, r.contactId ?? null],
+      );
     } else {
       // Não conseguiu criar o contato → não será disparado; registra o motivo.
       await query(

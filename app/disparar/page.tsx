@@ -12,8 +12,24 @@ type Progresso = {
   contatos: {
     id: string; nome: string | null; telefone: string;
     enviado: boolean; erro: string | null; contato_criado: boolean; erro_contato: string | null;
+    status_meta: string | null; erro_meta_code: number | null;
   }[];
 };
+
+// Rótulo do status de entrega (Meta) com cor/título acessível.
+function StatusEntrega({ status, code }: { status: string | null; code: number | null }) {
+  if (!status) return <span className="text-slate-300">—</span>;
+  if (status === "read") return <span className="font-medium text-blue-600" title="Lido">lido ✓✓</span>;
+  if (status === "delivered") return <span className="font-medium text-green-600" title="Entregue">entregue ✓✓</span>;
+  if (status === "sent") return <span className="text-slate-500" title="Enviado ao WhatsApp (ainda não entregue)">enviado ✓</span>;
+  if (status === "failed")
+    return (
+      <span className="font-medium text-red-600" title={code === 130472 ? "Bloqueado pela Meta (número em experimento)" : `Falhou${code ? ` · código ${code}` : ""}`}>
+        {code === 130472 ? "experimento Meta ✗" : "falhou ✗"}
+      </span>
+    );
+  return <span className="text-slate-400">{status}</span>;
+}
 
 export default function DispararPage() {
   const [selecao, setSelecao] = useState<Selecionado[]>([]);
@@ -25,6 +41,7 @@ export default function DispararPage() {
   const [disparoId, setDisparoId] = useState<string | null>(null);
   const [progresso, setProgresso] = useState<Progresso | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -109,6 +126,20 @@ export default function DispararPage() {
     pollRef.current = setInterval(tick, 1500);
   }
 
+  // Consulta o status de entrega real (Meta) de cada contato e recarrega o progresso.
+  async function sincronizarStatus() {
+    if (!disparoId) return;
+    setSincronizando(true);
+    try {
+      await fetch(`/api/disparos/${disparoId}/status`, { method: "POST" });
+      const r = await fetch(`/api/disparos/${disparoId}`);
+      const d = await r.json();
+      if (d.ok) setProgresso(d);
+    } finally {
+      setSincronizando(false);
+    }
+  }
+
   // ---- Tela de progresso/resultado ----
   if (disparoId && progresso) {
     const { resumo, disparo } = progresso;
@@ -146,10 +177,28 @@ export default function DispararPage() {
           <div className={`h-full transition-all ${criandoContatos ? "bg-blue-500" : "bg-brand"}`} style={{ width: `${pct}%` }} />
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="mt-6 flex items-center justify-between">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Contatos</span>
+          {!criandoContatos && (
+            <button
+              type="button"
+              onClick={sincronizarStatus}
+              disabled={sincronizando}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+              {sincronizando ? "Consultando…" : "Atualizar status de entrega"}
+            </button>
+          )}
+        </div>
+
+        <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-              <tr><th className="px-3 py-2">Contato</th><th className="px-3 py-2">Telefone</th><th className="px-3 py-2">Status</th></tr>
+              <tr>
+                <th className="px-3 py-2">Contato</th>
+                <th className="px-3 py-2">Telefone</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Entrega</th>
+              </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {progresso.contatos.map((c) => (
@@ -163,6 +212,7 @@ export default function DispararPage() {
                       : c.contato_criado ? <span className={criandoContatos ? "text-blue-600" : "text-slate-400"}>{criandoContatos ? "criado ✓" : "aguardando envio…"}</span>
                       : <span className="text-slate-400">{criandoContatos ? "criando…" : "aguardando…"}</span>}
                   </td>
+                  <td className="px-3 py-2"><StatusEntrega status={c.status_meta} code={c.erro_meta_code} /></td>
                 </tr>
               ))}
             </tbody>
