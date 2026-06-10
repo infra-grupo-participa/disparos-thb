@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
+import { parseBody, KanbanMoverSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
@@ -78,10 +79,9 @@ export async function GET(req: Request) {
 // PATCH /api/kanban — move um card de estágio. body: { compradorId, estagioChave }
 export async function PATCH(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
-  const body = (await req.json().catch(() => ({}))) as { compradorId?: string; estagioChave?: string };
-  if (!body.compradorId || !body.estagioChave) {
-    return NextResponse.json({ ok: false, reason: "dados_incompletos" }, { status: 400 });
-  }
+  const p = await parseBody(req, KanbanMoverSchema);
+  if (!p.ok) return p.res;
+  const body = p.data;
 
   const estagio = await queryOne<{ id: number }>(
     `select id from cs.estagios where chave = $1 and ativo`,

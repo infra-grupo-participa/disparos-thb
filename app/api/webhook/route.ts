@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
 import { ehOptOut } from "@/lib/classificar";
+import { logger } from "@/lib/log";
 
 export const runtime = "nodejs";
+const log = logger("webhook");
 
 // Webhook chamado pela automação do Unnichat ("Cliente interagir → qualquer mensagem").
 // NÃO usa sessão do app — valida origem via WEBHOOK_SECRET (header, query ou body).
@@ -36,7 +38,7 @@ async function logWebhook(args: {
       [args.origem, args.telefoneRaw, args.telefoneNorm, args.resultado, JSON.stringify(args.payload ?? null)],
     );
   } catch (e) {
-    console.error("[webhook] falha ao gravar log:", e instanceof Error ? e.message : e);
+    log.error("falha ao gravar webhook_log", e);
   }
 }
 

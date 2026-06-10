@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import { makeToken, SESSION_COOKIE } from "@/lib/auth";
+import { parseBody, AuthSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const password = (body as { password?: string }).password;
-
   if (!process.env.APP_PASSWORD) {
     return NextResponse.json({ ok: false, reason: "server_misconfigured" }, { status: 500 });
   }
-  if (!password || password !== process.env.APP_PASSWORD) {
+  const p = await parseBody(req, AuthSchema);
+  if (!p.ok || p.data.password !== process.env.APP_PASSWORD) {
     return NextResponse.json({ ok: false, reason: "invalid_password" }, { status: 401 });
   }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { parseBody, KanbanLoteSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
@@ -8,10 +9,9 @@ export const runtime = "nodejs";
 // body: { compradorIds, addTag?, responsavel? }
 export async function POST(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
-  const b = (await req.json().catch(() => ({}))) as { compradorIds?: string[]; addTag?: string; responsavel?: string | null };
-  if (!Array.isArray(b.compradorIds) || b.compradorIds.length === 0) {
-    return NextResponse.json({ ok: false, reason: "compradorIds obrigatório" }, { status: 400 });
-  }
+  const p = await parseBody(req, KanbanLoteSchema);
+  if (!p.ok) return p.res;
+  const b = p.data;
 
   if (b.addTag && b.addTag.trim()) {
     await query(

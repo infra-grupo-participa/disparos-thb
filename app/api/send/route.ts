@@ -3,8 +3,11 @@ import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { sendTemplate, createContact, type BodyParam, type EnvioResultado } from "@/lib/unnichat";
 import { normalizePhone, primeiroNome } from "@/lib/phone";
+import { logger } from "@/lib/log";
+import { parseBody, SendSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
+const log = logger("send");
 export const maxDuration = 300;
 
 const DELAY_MS = 350; // pausa entre envios (rate limit gentil)
@@ -26,18 +29,10 @@ type Linha = { id: string; comprador_id: string; nome: string; telefone: string 
 export async function POST(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
 
-  const b = (await req.json().catch(() => ({}))) as {
-    templateId?: string;
-    compradorIds?: string[];
-    edicao?: string;
-  };
-  const templateId = b.templateId;
-  const compradorIds = b.compradorIds;
-  const edicao = b.edicao ? String(b.edicao) : null;
-
-  if (!templateId || !Array.isArray(compradorIds) || compradorIds.length === 0) {
-    return NextResponse.json({ ok: false, reason: "templateId e compradorIds obrigatórios" }, { status: 400 });
-  }
+  const p = await parseBody(req, SendSchema);
+  if (!p.ok) return p.res;
+  const { templateId, compradorIds } = p.data;
+  const edicao = p.data.edicao ? String(p.data.edicao) : null;
 
   const template = await queryOne<Template>(
     `select id, nome, unnichat_id, variaveis from cs.templates where id = $1 and ativo`,
@@ -94,7 +89,7 @@ export async function POST(req: Request) {
 
   // Processamento em background (servidor persistente — Hostinger Node / next start).
   void processar(disparoId, template, linhas).catch((e) =>
-    console.error("[send] erro ao processar disparo:", e),
+    log.error("erro ao processar disparo", e, { disparoId }),
   );
 
   return NextResponse.json({ ok: true, disparoId, total: linhas.length, pulados_opt_out: optOut?.n ?? 0 });
@@ -141,9 +136,7 @@ async function processar(disparoId: string, template: Template, linhas: Linha[])
       let texto = primeiroNome(l.nome);
       if (!texto) {
         texto = FALLBACK_VAR;
-        console.warn(
-          `[send] contato ${l.id} sem nome para variável do template "${template.nome}"; usando fallback neutro`,
-        );
+        log.warn("contato sem nome para a variável do template; usando fallback neutro", { contatoId: l.id, template: template.nome });
       }
       params = [{ type: "text", text: texto }];
     }
@@ -201,10 +194,7 @@ async function enviarComRetry(
 
   while (!r.ok && ehTransitorio(r.status) && tentativa < RETRY_BACKOFF_MS.length) {
     const espera = RETRY_BACKOFF_MS[tentativa];
-    console.warn(
-      `[send] envio ${contatoId} falhou (status ${r.status}: ${r.erro || "?"}); ` +
-        `retry ${tentativa + 1}/${RETRY_BACKOFF_MS.length} em ${espera}ms`,
-    );
+    log.warn("envio falhou; agendando retry", { contatoId, status: r.status, erro: r.erro, tentativa: tentativa + 1, de: RETRY_BACKOFF_MS.length, esperaMs: espera });
     await sleep(espera);
     r = await sendTemplate({ phone, templateId, bodyParameters });
     tentativa++;

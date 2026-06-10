@@ -3,6 +3,7 @@ import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { createContact, getContactMessages, sendMessage } from "@/lib/unnichat";
 import { normalizePhone } from "@/lib/phone";
+import { parseBody, InboxMsgSchema, InboxStatusSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -60,9 +61,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
 
-  const body = (await req.json().catch(() => ({}))) as { texto?: string; atendente?: string };
-  const texto = String(body.texto ?? "").trim();
-  if (!texto) return NextResponse.json({ ok: false, reason: "texto obrigatório" }, { status: 400 });
+  const p = await parseBody(req, InboxMsgSchema);
+  if (!p.ok) return p.res;
+  const texto = p.data.texto.trim();
 
   const c = await carregarContato(params.id);
   if (!c) return NextResponse.json({ ok: false, reason: "contato não encontrado" }, { status: 404 });
@@ -81,7 +82,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, reason: r.erro || "falha ao enviar" }, { status: 400 });
   }
 
-  const atendente = String(body.atendente ?? "").trim() || null;
+  const atendente = (p.data.atendente ?? "").trim() || null;
 
   // Atendimento + FRT quando havia uma pergunta pendente do lead.
   let frtMin: number | null = null;
@@ -114,13 +115,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 // PATCH — muda o status da conversa sem enviar (resolver / reabrir).
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
-  const b = (await req.json().catch(() => ({}))) as { status?: string };
-  if (b.status === "resolvido") {
+  const p = await parseBody(req, InboxStatusSchema);
+  if (!p.ok) return p.res;
+  if (p.data.status === "resolvido") {
     await query(`update cs.contatos set inbox_status = 'resolvido', aguardando_desde = null, atualizado_em = now() where comprador_id = $1`, [params.id]);
-  } else if (b.status === "pendente") {
-    await query(`update cs.contatos set inbox_status = 'pendente', aguardando_desde = coalesce(aguardando_desde, now()), atualizado_em = now() where comprador_id = $1`, [params.id]);
   } else {
-    return NextResponse.json({ ok: false, reason: "status inválido" }, { status: 400 });
+    await query(`update cs.contatos set inbox_status = 'pendente', aguardando_desde = coalesce(aguardando_desde, now()), atualizado_em = now() where comprador_id = $1`, [params.id]);
   }
   return NextResponse.json({ ok: true });
 }

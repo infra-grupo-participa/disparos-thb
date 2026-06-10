@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
+import { parseBody, ContatoPatchSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
@@ -55,16 +56,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
   const compradorId = params.id;
-  const b = (await req.json().catch(() => ({}))) as {
-    estagio_chave?: string;
-    proxima_acao_em?: string | null;
-    proxima_acao_nota?: string | null;
-    observacoes?: string | null;
-    nota?: string;
-    tags?: string[];
-    responsavel?: string | null;
-    opt_out?: boolean;
-  };
+  const parsed = await parseBody(req, ContatoPatchSchema);
+  if (!parsed.ok) return parsed.res;
+  const b = parsed.data;
 
   // mudança de estágio (com log na timeline)
   if (b.estagio_chave) {
