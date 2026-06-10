@@ -65,6 +65,8 @@ export default function KanbanPage() {
   const [carregando, setCarregando] = useState(true);
   const [selecionado, setSelecionado] = useState<Card | null>(null);
   const [dispararSelecao, setDispararSelecao] = useState<SelDisparo[] | null>(null);
+  const [selecaoMulti, setSelecaoMulti] = useState<Set<string>>(new Set());
+  const [menu, setMenu] = useState<{ card: Card; x: number; y: number } | null>(null);
   const arrastando = useRef<Card | null>(null);
   const [sobre, setSobre] = useState<string | null>(null);
 
@@ -110,6 +112,20 @@ export default function KanbanPage() {
     setDispararSelecao(lista.map((c: { comprador_id: string; nome: string; telefone: string; edicao: string | null }) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone, edicao: c.edicao })));
   }
 
+  // Seleção múltipla (checkbox / menu de contexto) para disparo em lote.
+  function toggleSel(id: string) {
+    setSelecaoMulti((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function selecionarEtapa(chave: string) {
+    setSelecaoMulti((s) => { const n = new Set(s); cards.filter((c) => c.estagio_chave === chave).forEach((c) => n.add(c.comprador_id)); return n; });
+  }
+  function dispararCards(lista: Card[]) {
+    const sel = lista.filter((c) => c.telefone).map((c) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone as string, edicao: c.edicao }));
+    if (sel.length === 0) { alert("Nenhum dos selecionados tem telefone."); return; }
+    setDispararSelecao(sel);
+  }
+  const cardsSelecionados = () => cards.filter((c) => selecaoMulti.has(c.comprador_id));
+
   const totalGeral = colunas.reduce((s, c) => s + c.total, 0);
 
   return (
@@ -132,7 +148,7 @@ export default function KanbanPage() {
           <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando jornada…</span>
         </div>
       ) : (
-        <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6">
+        <div className={cn("-mx-4 flex gap-3 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6", selecaoMulti.size > 0 && "pb-20")}>
           {colunas.map((col) => {
             const doCol = cards.filter((c) => c.estagio_chave === col.chave);
             const ativa = sobre === col.chave;
@@ -170,8 +186,12 @@ export default function KanbanPage() {
                       <CardItem
                         key={card.comprador_id}
                         card={card}
+                        selecionado={selecaoMulti.has(card.comprador_id)}
+                        modoSelecao={selecaoMulti.size > 0}
                         onDragStart={() => { arrastando.current = card; }}
                         onClick={() => setSelecionado(card)}
+                        onToggleSel={() => toggleSel(card.comprador_id)}
+                        onMenu={(x, y) => setMenu({ card, x, y })}
                       />
                     ))
                   )}
@@ -199,13 +219,61 @@ export default function KanbanPage() {
       )}
 
       {dispararSelecao && (
-        <DisparoModal selecao={dispararSelecao} onClose={() => { setDispararSelecao(null); carregar(edicao ?? ""); }} />
+        <DisparoModal selecao={dispararSelecao} onClose={() => { setDispararSelecao(null); setSelecaoMulti(new Set()); carregar(edicao ?? ""); }} />
+      )}
+
+      {/* Barra de ação da seleção múltipla */}
+      {selecaoMulti.size > 0 && !dispararSelecao && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 shadow-[0_-2px_12px_rgba(0,0,0,0.06)] backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+          <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-3">
+            <span className="text-sm text-slate-700 dark:text-slate-200">
+              <span className="font-semibold text-slate-900 dark:text-slate-100">{selecaoMulti.size}</span> selecionado(s)
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => setSelecaoMulti(new Set())}>Limpar</Button>
+            <div className="flex-1" />
+            <Button variant="primary" onClick={() => dispararCards(cardsSelecionados())}>Disparar para {selecaoMulti.size}</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Menu de contexto (botão direito no card) */}
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-[55]" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+          <div
+            className="fixed z-[60] w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-pop dark:border-slate-700 dark:bg-slate-900"
+            style={{ top: Math.min(menu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 230), left: Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 240) }}
+          >
+            <MenuItem onClick={() => { toggleSel(menu.card.comprador_id); setMenu(null); }}>
+              {selecaoMulti.has(menu.card.comprador_id) ? "Desselecionar" : "Selecionar"}
+            </MenuItem>
+            <MenuItem onClick={() => { selecionarEtapa(menu.card.estagio_chave); setMenu(null); }}>Selecionar todos desta etapa</MenuItem>
+            <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+            <MenuItem onClick={() => { dispararCards([menu.card]); setMenu(null); }}>Disparar para este</MenuItem>
+            {selecaoMulti.size > 0 && (
+              <MenuItem onClick={() => { dispararCards(cardsSelecionados()); setMenu(null); }}>Disparar para selecionados ({selecaoMulti.size})</MenuItem>
+            )}
+            <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+            <MenuItem onClick={() => { setSelecionado(menu.card); setMenu(null); }}>Abrir detalhes</MenuItem>
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-function CardItem({ card, onDragStart, onClick }: { card: Card; onDragStart: () => void; onClick: () => void }) {
+function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="block w-full px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
+      {children}
+    </button>
+  );
+}
+
+function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onToggleSel, onMenu }: {
+  card: Card; selecionado: boolean; modoSelecao: boolean;
+  onDragStart: () => void; onClick: () => void; onToggleSel: () => void; onMenu: (x: number, y: number) => void;
+}) {
   return (
     <div
       role="button"
@@ -213,9 +281,27 @@ function CardItem({ card, onDragStart, onClick }: { card: Card; onDragStart: () 
       draggable
       onDragStart={onDragStart}
       onClick={onClick}
+      onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}
       onKeyDown={(e) => { if (e.key === "Enter") onClick(); }}
-      className="group block cursor-grab rounded-lg border border-slate-200 bg-white p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft active:cursor-grabbing dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-400/30"
+      className={cn(
+        "group relative block cursor-grab rounded-lg border bg-white p-2.5 shadow-card transition hover:shadow-soft active:cursor-grabbing dark:bg-slate-900",
+        selecionado ? "border-brand ring-2 ring-brand/30 dark:border-brand-400 dark:ring-brand-400/30" : "border-slate-200 hover:border-brand/30 dark:border-slate-800 dark:hover:border-brand-400/30",
+      )}
     >
+      {/* Checkbox de seleção — aparece no hover ou quando já há seleção */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onToggleSel(); }}
+        aria-label="Selecionar"
+        className={cn(
+          "absolute -left-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 transition",
+          selecionado
+            ? "border-brand bg-brand text-white dark:border-brand-400 dark:bg-brand-400 dark:text-slate-900"
+            : cn("border-slate-300 bg-white text-transparent dark:border-slate-600 dark:bg-slate-900", modoSelecao ? "opacity-100" : "opacity-0 group-hover:opacity-100"),
+        )}
+      >
+        <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+      </button>
+
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap gap-1">
           {card.edicao && (
