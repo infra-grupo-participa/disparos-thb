@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
+import Comportamento from "@/app/_components/comportamento";
 
 type Kpis = { enviados: number; respondidos: number; sla_medio: number | null };
 
@@ -184,6 +185,8 @@ export default function DashboardPage() {
           }
         />
       </div>
+
+      <Comportamento edicao={edicao} />
 
       <SectionTitle>Detalhamento · Edição → Template → Disparo</SectionTitle>
       <Arvore arvore={arvore} />

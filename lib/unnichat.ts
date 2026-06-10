@@ -157,6 +157,26 @@ export async function getContactMessages(contactId: string): Promise<{
   }
 }
 
+// POST /contact/search — localiza um contato por telefone. Retorna `data` como
+// array; usamos o primeiro. Necessário para a sincronização do histórico de
+// conversas (não há listagem em massa de contatos na Unnichat).
+export async function searchContactByPhone(phone: string): Promise<{ ok: boolean; contactId?: string }> {
+  try {
+    const res = await fetch(`${BASE}/contact/search`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ phone }),
+    });
+    if (!res.ok) return { ok: false };
+    const json = (await res.json()) as { data?: Array<{ id?: unknown }> };
+    const arr = Array.isArray(json?.data) ? json.data : [];
+    const id = arr[0]?.id ? String(arr[0].id) : undefined;
+    return { ok: true, contactId: id };
+  } catch {
+    return { ok: false };
+  }
+}
+
 // POST /meta/messages — envia mensagem de texto livre ao contato. Só funciona
 // dentro da janela de 24h (a Meta exige uma interação recente do contato);
 // fora dela, a API retorna erro de "janela de envio fechada".
