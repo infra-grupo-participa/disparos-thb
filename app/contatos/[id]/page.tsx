@@ -118,7 +118,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
       <Card className="mt-2 p-5">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{contato.nome}</h1>
-          <EdicaoBadge edicao={contato.edicao_ht} />
+          <EdicaoBadge edicao={contato.edicao_ht ?? contato.edicao} />
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
           <span className="inline-flex items-center gap-1.5">
@@ -127,9 +127,6 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
           <span className="inline-flex items-center gap-1.5">
             <span className="text-slate-400">Telefone:</span>
             {contato.telefone || <span className="text-rose-500">sem telefone</span>}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="text-slate-400">Edição:</span>{contato.edicao || "—"}
           </span>
         </div>
       </Card>
