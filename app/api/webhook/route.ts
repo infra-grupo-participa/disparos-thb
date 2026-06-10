@@ -141,6 +141,8 @@ async function avancarContato(compradorId: string, descricao: string, disparoId:
               when estagio_id = (select id from cs.estagios where chave = 'comprou_ingresso')
               then (select id from cs.estagios where chave = 'em_onboarding')
               else estagio_id end,
+            inbox_status = 'pendente',
+            aguardando_desde = coalesce(aguardando_desde, now()),
             atualizado_em = now()
       where comprador_id = $1`,
     [compradorId],
@@ -153,7 +155,9 @@ async function avancarContato(compradorId: string, descricao: string, disparoId:
   // Opt-out: registra a saída e bloqueia disparos futuros.
   if (optOut) {
     await query(
-      `update cs.contatos set opt_out = true, opt_out_em = now(), atualizado_em = now() where comprador_id = $1 and not opt_out`,
+      `update cs.contatos set opt_out = true, opt_out_em = coalesce(opt_out_em, now()),
+              inbox_status = 'resolvido', aguardando_desde = null, atualizado_em = now()
+        where comprador_id = $1`,
       [compradorId],
     );
     await query(

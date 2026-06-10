@@ -60,7 +60,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
 
-  const body = (await req.json().catch(() => ({}))) as { texto?: string };
+  const body = (await req.json().catch(() => ({}))) as { texto?: string; atendente?: string };
   const texto = String(body.texto ?? "").trim();
   if (!texto) return NextResponse.json({ ok: false, reason: "texto obrigatório" }, { status: 400 });
 
@@ -70,20 +70,57 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const tel = normalizePhone(c.telefone);
   if (!tel) return NextResponse.json({ ok: false, reason: "contato sem telefone" }, { status: 400 });
 
+  // Estado da pendência antes de enviar (para o FRT do primeiro contato).
+  const pend = await queryOne<{ aguardando_desde: string | null }>(
+    `select aguardando_desde from cs.contatos where comprador_id = $1`,
+    [c.comprador_id],
+  );
+
   const r = await sendMessage({ phone: tel, text: texto });
   if (!r.ok) {
     return NextResponse.json({ ok: false, reason: r.erro || "falha ao enviar" }, { status: 400 });
   }
 
-  // Rastro no nosso sistema (timeline) + marca último contato.
+  const atendente = String(body.atendente ?? "").trim() || null;
+
+  // Atendimento + FRT quando havia uma pergunta pendente do lead.
+  let frtMin: number | null = null;
+  if (pend?.aguardando_desde) {
+    const at = await queryOne<{ frt_minutos: number }>(
+      `insert into cs.atendimentos (comprador_id, atendente, pergunta_em, frt_minutos)
+       values ($1, $2, $3, round(extract(epoch from (now() - $3::timestamptz)) / 60)::int)
+       returning frt_minutos`,
+      [c.comprador_id, atendente, pend.aguardando_desde],
+    );
+    frtMin = at?.frt_minutos ?? null;
+  }
+
+  // Resolve a conversa + registra a resposta na timeline (com o atendente).
+  await query(
+    `update cs.contatos set inbox_status = 'resolvido', aguardando_desde = null,
+            ultimo_contato_em = now(), atualizado_em = now()
+      where comprador_id = $1`,
+    [c.comprador_id],
+  );
   await query(
     `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-     select id, 'nota', $2, 'cs' from cs.contatos where comprador_id = $1`,
-    [c.comprador_id, `CS respondeu: ${texto.slice(0, 200)}`],
+     select id, 'nota', $2, $3 from cs.contatos where comprador_id = $1`,
+    [c.comprador_id, `CS respondeu: ${texto.slice(0, 200)}`, atendente || "cs"],
   );
-  await query(`update cs.contatos set ultimo_contato_em = now(), atualizado_em = now() where comprador_id = $1`, [
-    c.comprador_id,
-  ]);
 
+  return NextResponse.json({ ok: true, frt_minutos: frtMin });
+}
+
+// PATCH — muda o status da conversa sem enviar (resolver / reabrir).
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const b = (await req.json().catch(() => ({}))) as { status?: string };
+  if (b.status === "resolvido") {
+    await query(`update cs.contatos set inbox_status = 'resolvido', aguardando_desde = null, atualizado_em = now() where comprador_id = $1`, [params.id]);
+  } else if (b.status === "pendente") {
+    await query(`update cs.contatos set inbox_status = 'pendente', aguardando_desde = coalesce(aguardando_desde, now()), atualizado_em = now() where comprador_id = $1`, [params.id]);
+  } else {
+    return NextResponse.json({ ok: false, reason: "status inválido" }, { status: 400 });
+  }
   return NextResponse.json({ ok: true });
 }
