@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, PageHeader, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
+import { Disparo } from "@/app/_components/disparo";
+
+type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
 const EDICOES_HT = ["HT21", "HT22", "HT23", "HT24", "HT25", "HT26", "HT27"];
 
@@ -35,7 +37,6 @@ function fmtData(iso: string | null): string {
 }
 
 export default function ContatosPage() {
-  const router = useRouter();
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [contatos, setContatos] = useState<Contato[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -46,6 +47,7 @@ export default function ContatosPage() {
   const [fComTelefone, setFComTelefone] = useState(true);
 
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [dispararSelecao, setDispararSelecao] = useState<SelDisparo[] | null>(null);
 
   const corEstagio = useMemo(() => {
     const m: Record<string, string> = {};
@@ -114,12 +116,11 @@ export default function ContatosPage() {
   }
 
   function dispararSelecionados() {
-    const escolhidos = contatos
+    const escolhidos: SelDisparo[] = contatos
       .filter((c) => selecionados.has(c.comprador_id) && c.telefone)
-      .map((c) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone, edicao: c.edicao }));
+      .map((c) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone as string, edicao: c.edicao }));
     if (escolhidos.length === 0) return;
-    sessionStorage.setItem("cs_disparo_selecao", JSON.stringify(escolhidos));
-    router.push("/disparar");
+    setDispararSelecao(escolhidos); // abre o disparo como modal, sem sair da tela
   }
 
   const descricao = carregando ? (
@@ -324,6 +325,34 @@ export default function ContatosPage() {
             <Button variant="primary" onClick={dispararSelecionados}>
               Disparar para {selecionados.size}
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Disparo como modal — mesmo fluxo da página, sem sair de Contatos */}
+      {dispararSelecao && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 backdrop-blur-sm sm:p-8"
+          onClick={() => setDispararSelecao(null)}
+        >
+          <div
+            className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-slate-100 p-4 shadow-pop dark:border-slate-800 dark:bg-slate-950 sm:p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Novo disparo</h2>
+              <button
+                onClick={() => setDispararSelecao(null)}
+                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                aria-label="Fechar"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <Disparo
+              selecaoInicial={dispararSelecao}
+              aoFechar={() => { setDispararSelecao(null); limparSelecao(); carregar(); }}
+            />
           </div>
         </div>
       )}
