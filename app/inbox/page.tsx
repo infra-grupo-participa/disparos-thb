@@ -23,13 +23,13 @@ function inicial(nome: string) {
   return (nome?.trim()?.[0] || "?").toUpperCase();
 }
 const AVATAR_CORES = [
-  "bg-brand-100 text-brand-700",
-  "bg-blue-100 text-blue-700",
-  "bg-emerald-100 text-emerald-700",
-  "bg-amber-100 text-amber-800",
-  "bg-violet-100 text-violet-700",
-  "bg-rose-100 text-rose-700",
-  "bg-cyan-100 text-cyan-700",
+  "bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300",
+  "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
+  "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+  "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
+  "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
+  "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
+  "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300",
 ];
 function corAvatar(nome: string) {
   let h = 0;
@@ -93,10 +93,10 @@ export default function InboxPage() {
   return (
     <Card className="grid h-[78vh] grid-cols-1 overflow-hidden p-0 lg:grid-cols-[340px_1fr]">
       {/* Fila de conversas */}
-      <aside className="flex min-h-0 flex-col border-b border-slate-200 lg:border-b-0 lg:border-r">
-        <header className="flex items-center justify-between gap-2 border-b border-slate-100 px-5 py-4">
-          <h1 className="text-lg font-semibold tracking-tight text-slate-900">Inbox</h1>
-          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+      <aside className="flex min-h-0 flex-col border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r">
+        <header className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 px-5 py-4">
+          <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">Inbox</h1>
+          <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
             {conversas.length}
           </span>
         </header>
@@ -110,7 +110,7 @@ export default function InboxPage() {
               />
             </div>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {conversas.map((c) => {
                 const ativo = sel?.comprador_id === c.comprador_id;
                 return (
@@ -119,21 +119,21 @@ export default function InboxPage() {
                       onClick={() => abrir(c)}
                       className={cn(
                         "flex w-full items-start gap-3 px-4 py-3 text-left transition",
-                        ativo ? "bg-brand-50" : "hover:bg-slate-50",
+                        ativo ? "bg-brand-50 dark:bg-brand-400/10" : "hover:bg-slate-50 dark:hover:bg-slate-800/60",
                       )}
                     >
                       <Avatar nome={c.nome} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <span className={cn("truncate font-semibold", ativo ? "text-brand-700" : "text-slate-800")}>
+                          <span className={cn("truncate font-semibold", ativo ? "text-brand-700 dark:text-brand-300" : "text-slate-800 dark:text-slate-200")}>
                             {c.nome}
                           </span>
-                          <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
+                          <span className="shrink-0 text-[11px] tabular-nums text-slate-400 dark:text-slate-500">
                             {fmtData(c.ultima_resposta_em)}
                           </span>
                         </div>
                         <div className="mt-0.5 flex items-center justify-between gap-2">
-                          <span className="truncate text-xs text-slate-500">{c.ultima_msg || "—"}</span>
+                          <span className="truncate text-xs text-slate-500 dark:text-slate-400">{c.ultima_msg || "—"}</span>
                           <EdicaoBadge edicao={c.edicao} className="shrink-0" />
                         </div>
                       </div>
@@ -162,29 +162,29 @@ export default function InboxPage() {
           </div>
         ) : (
           <>
-            <header className="flex items-center gap-3 border-b border-slate-100 px-5 py-3">
+            <header className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 px-5 py-3">
               <Avatar nome={sel.nome} size="sm" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="truncate font-semibold text-slate-900">{sel.nome}</span>
+                  <span className="truncate font-semibold text-slate-900 dark:text-slate-100">{sel.nome}</span>
                   <EdicaoBadge edicao={sel.edicao} />
                 </div>
-                <p className="mt-0.5 truncate text-xs text-slate-500">
+                <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
                   {sel.telefone || "Sem telefone"}
-                  {sel.estagio_nome ? <span className="text-slate-300"> · </span> : null}
+                  {sel.estagio_nome ? <span className="text-slate-300 dark:text-slate-600"> · </span> : null}
                   {sel.estagio_nome}
                 </p>
               </div>
             </header>
 
-            <div className="min-h-0 flex-1 space-y-2 overflow-auto bg-[#ECE5DD] p-4">
+            <div className="min-h-0 flex-1 space-y-2 overflow-auto bg-[#ECE5DD] dark:bg-slate-800 p-4">
               {carregandoMsg && (
-                <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-600">
+                <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-600 dark:text-slate-300">
                   <Spinner /> Carregando conversa…
                 </div>
               )}
               {aviso && (
-                <div className="mx-auto w-fit max-w-[85%] rounded-full bg-amber-50 px-3 py-1 text-center text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                <div className="mx-auto w-fit max-w-[85%] rounded-full bg-amber-50 dark:bg-amber-500/15 px-3 py-1 text-center text-xs font-medium text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-200 dark:ring-amber-500/30">
                   {aviso}
                 </div>
               )}
@@ -195,26 +195,26 @@ export default function InboxPage() {
                     <div
                       className={cn(
                         "max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm",
-                        cs ? "rounded-br-sm bg-[#DCF8C6]" : "rounded-bl-sm bg-white",
+                        cs ? "rounded-br-sm bg-[#DCF8C6] dark:bg-emerald-900/40 dark:text-slate-100" : "rounded-bl-sm bg-white dark:bg-slate-700 dark:text-slate-100",
                       )}
                     >
                       {m.tipo === "template" && (
-                        <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                           Template
                         </span>
                       )}
-                      <p className="whitespace-pre-wrap break-words text-slate-800">{m.texto}</p>
-                      <span className="mt-1 block text-right text-[10px] tabular-nums text-slate-400">{fmtHora(m.data)}</span>
+                      <p className="whitespace-pre-wrap break-words text-slate-800 dark:text-slate-200">{m.texto}</p>
+                      <span className="mt-1 block text-right text-[10px] tabular-nums text-slate-400 dark:text-slate-500">{fmtHora(m.data)}</span>
                     </div>
                   </div>
                 );
               })}
               {!carregandoMsg && mensagens.length === 0 && !aviso && (
-                <p className="py-6 text-center text-sm text-slate-500">Sem mensagens nesta conversa.</p>
+                <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Sem mensagens nesta conversa.</p>
               )}
             </div>
 
-            <div className="border-t border-slate-100 bg-white px-4 py-3">
+            <div className="border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3">
               <div className="flex items-end gap-2">
                 <input
                   value={texto}
@@ -227,7 +227,7 @@ export default function InboxPage() {
                   {enviando ? (<><Spinner className="text-white" /> Enviando…</>) : "Enviar"}
                 </Button>
               </div>
-              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
                 <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>

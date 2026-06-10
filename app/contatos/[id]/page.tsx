@@ -34,11 +34,11 @@ const ICONE: Record<string, string> = {
   disparo: "📤", resposta: "💬", nota: "📝", mudanca_estagio: "🔀", sistema: "⚙️",
 };
 const ICONE_RING: Record<string, string> = {
-  disparo: "bg-blue-50 ring-blue-200",
-  resposta: "bg-emerald-50 ring-emerald-200",
-  nota: "bg-amber-50 ring-amber-200",
-  mudanca_estagio: "bg-violet-50 ring-violet-200",
-  sistema: "bg-slate-50 ring-slate-200",
+  disparo: "bg-blue-50 ring-blue-200 dark:bg-blue-500/15 dark:ring-blue-500/30",
+  resposta: "bg-emerald-50 ring-emerald-200 dark:bg-emerald-500/15 dark:ring-emerald-500/30",
+  nota: "bg-amber-50 ring-amber-200 dark:bg-amber-500/15 dark:ring-amber-500/30",
+  mudanca_estagio: "bg-violet-50 ring-violet-200 dark:bg-violet-500/15 dark:ring-violet-500/30",
+  sistema: "bg-slate-50 ring-slate-200 dark:bg-slate-800/60 dark:ring-slate-700",
 };
 function fmt(iso: string | null) {
   return iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
@@ -55,15 +55,15 @@ function fmtBool(b: boolean | null) {
 function LegadoLinha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
   if (valor === null || valor === undefined || valor === "") return null;
   return (
-    <div className="flex justify-between gap-2 border-b border-slate-100 py-1.5 text-sm last:border-0">
-      <span className="text-slate-500">{rotulo}</span>
-      <span className="text-right font-medium text-slate-800">{valor}</span>
+    <div className="flex justify-between gap-2 border-b border-slate-100 py-1.5 text-sm last:border-0 dark:border-slate-800">
+      <span className="text-slate-500 dark:text-slate-400">{rotulo}</span>
+      <span className="text-right font-medium text-slate-800 dark:text-slate-200">{valor}</span>
     </div>
   );
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{children}</h3>;
+  return <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{children}</h3>;
 }
 
 export default function ContatoDetalhe({ params }: { params: { id: string } }) {
@@ -102,7 +102,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
 
   if (!contato) {
     return (
-      <div className="flex items-center gap-2 text-slate-400">
+      <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500">
         <Spinner /> Carregando…
       </div>
     );
@@ -110,23 +110,23 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
 
   return (
     <div className="pb-12">
-      <Link href="/contatos" className="text-sm text-slate-500 transition-colors hover:text-slate-800">
+      <Link href="/contatos" className="text-sm text-slate-500 transition-colors hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
         ← Contatos
       </Link>
 
       {/* Cabeçalho do contato */}
       <Card className="mt-2 p-5">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{contato.nome}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{contato.nome}</h1>
           <EdicaoBadge edicao={contato.edicao_ht ?? contato.edicao} />
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
           <span className="inline-flex items-center gap-1.5">
-            <span className="text-slate-400">E-mail:</span>{contato.email}
+            <span className="text-slate-400 dark:text-slate-500">E-mail:</span>{contato.email}
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="text-slate-400">Telefone:</span>
-            {contato.telefone || <span className="text-rose-500">sem telefone</span>}
+            <span className="text-slate-400 dark:text-slate-500">Telefone:</span>
+            {contato.telefone || <span className="text-rose-500 dark:text-rose-400">sem telefone</span>}
           </span>
         </div>
       </Card>
@@ -141,20 +141,20 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
                 <span
                   className={cn(
                     "flex h-9 w-9 flex-none items-center justify-center rounded-full text-base ring-1 ring-inset",
-                    ICONE_RING[i.tipo] || "bg-slate-50 ring-slate-200",
+                    ICONE_RING[i.tipo] || "bg-slate-50 ring-slate-200 dark:bg-slate-800/60 dark:ring-slate-700",
                   )}
                   aria-hidden="true"
                 >
                   {ICONE[i.tipo] || "•"}
                 </span>
                 <div className="flex-1">
-                  <div className="text-slate-700">{i.descricao}</div>
-                  <div className="mt-0.5 text-xs text-slate-400">{fmt(i.criado_em)} · {i.autor || "—"}</div>
+                  <div className="text-slate-700 dark:text-slate-200">{i.descricao}</div>
+                  <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{fmt(i.criado_em)} · {i.autor || "—"}</div>
                 </div>
               </Card>
             ))}
             {timeline.length === 0 && (
-              <Card className="px-4 py-8 text-center text-sm text-slate-400">Sem interações ainda.</Card>
+              <Card className="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">Sem interações ainda.</Card>
             )}
           </div>
         </div>
@@ -172,7 +172,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
               {estagios.map((e) => <option key={e.chave} value={e.chave}>{e.nome}</option>)}
             </select>
             {contato.ultima_resposta_em && (
-              <p className="mt-2 text-xs font-medium text-emerald-600">
+              <p className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 Última resposta: {fmt(contato.ultima_resposta_em)}
               </p>
             )}

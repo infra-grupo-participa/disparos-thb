@@ -119,14 +119,14 @@ export default function TemplatesPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="font-medium text-slate-900">{t.nome}</span>
+                      <span className="font-medium text-slate-900 dark:text-slate-100">{t.nome}</span>
                       {t.categoria && (
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                        <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                           {t.categoria}
                         </span>
                       )}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-400">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-400 dark:text-slate-500">
                       <span className="font-mono">ID {t.unnichat_id}</span>
                       <span>·</span>
                       <span>
@@ -134,7 +134,7 @@ export default function TemplatesPage() {
                       </span>
                     </div>
                     {t.preview && (
-                      <p className="mt-2 max-w-md truncate text-sm text-slate-500">{t.preview}</p>
+                      <p className="mt-2 max-w-md truncate text-sm text-slate-500 dark:text-slate-400">{t.preview}</p>
                     )}
                   </div>
 
@@ -147,14 +147,14 @@ export default function TemplatesPage() {
                     className={cn(
                       "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition disabled:opacity-60",
                       t.ativo
-                        ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                        : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                        ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:hover:bg-emerald-500/25"
+                        : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700",
                     )}
                   >
                     <span
                       className={cn(
                         "h-1.5 w-1.5 rounded-full",
-                        t.ativo ? "bg-emerald-600" : "bg-slate-400",
+                        t.ativo ? "bg-emerald-600 dark:bg-emerald-400" : "bg-slate-400 dark:bg-slate-500",
                       )}
                     />
                     {t.ativo ? "ativo" : "inativo"}
@@ -167,8 +167,8 @@ export default function TemplatesPage() {
 
         {/* ---- Coluna direita: formulário sticky ---- */}
         <Card className="p-5 lg:sticky lg:top-6">
-          <h2 className="font-semibold text-slate-900">Novo template</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <h2 className="font-semibold text-slate-900 dark:text-slate-100">Novo template</h2>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             Cadastro manual: crie o template na Unnichat e copie as informações para cá.
           </p>
 
@@ -196,8 +196,8 @@ export default function TemplatesPage() {
             />
 
             <div>
-              <label className="block text-sm font-medium text-slate-700">Nº de variáveis no corpo</label>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Nº de variáveis no corpo</label>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 0 = texto fixo, igual para todos. 1 = a primeira variável recebe o primeiro nome do contato.
                 Use o mesmo número de variáveis que existe no template aprovado.
               </p>
@@ -212,8 +212,8 @@ export default function TemplatesPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700">Preview do corpo da mensagem</label>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Preview do corpo da mensagem</label>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 Cole aqui o texto do corpo da mensagem; use {"{{1}}"} onde entra a variável (o primeiro nome).
               </p>
               <textarea
@@ -227,7 +227,7 @@ export default function TemplatesPage() {
 
             {/* Preview ao vivo em bolha tipo WhatsApp */}
             <div>
-              <span className="block text-xs font-medium uppercase tracking-wide text-slate-400">
+              <span className="block text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
                 Como o contato verá
               </span>
               <div className="mt-1.5 rounded-lg p-3" style={{ backgroundColor: "#ECE5DD" }}>
@@ -239,24 +239,24 @@ export default function TemplatesPage() {
                     {previewRender}
                   </div>
                 ) : (
-                  <p className="py-4 text-center text-xs text-slate-500">
+                  <p className="py-4 text-center text-xs text-slate-500 dark:text-slate-600">
                     O texto da mensagem aparecerá aqui conforme você digita.
                   </p>
                 )}
               </div>
               {faltaVar && (
-                <p className="mt-1.5 text-xs text-amber-600">
+                <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
                   Você indicou {vars} variável(eis), mas o texto não tem {"{{1}}"}. Adicione {"{{1}}"} onde entra o
                   primeiro nome.
                 </p>
               )}
               {form.preview.trim() && (
-                <p className="mt-1.5 text-xs text-slate-400">Exemplo usando o nome “{NOME_EXEMPLO}”.</p>
+                <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">Exemplo usando o nome “{NOME_EXEMPLO}”.</p>
               )}
             </div>
 
             {erro && (
-              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{erro}</p>
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300">{erro}</p>
             )}
 
             <Button type="submit" disabled={salvando} className="w-full">
@@ -284,8 +284,8 @@ function Campo({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-slate-700">{label}</label>
-      {dica && <p className="mt-0.5 text-xs text-slate-500">{dica}</p>}
+      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">{label}</label>
+      {dica && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{dica}</p>}
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}

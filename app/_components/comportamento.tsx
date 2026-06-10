@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, Card, Spinner, cn } from "@/app/_components/ui";
 
 // Seção executiva de Inteligência de Comportamento. Lê /api/comportamento e
-// renderiza visualizações intuitivas: o gestor entende a saúde do relacionamento
-// pela COR (verde = positivo, azul = neutro, âmbar/vermelho = atenção), sem
-// precisar ler números. Alimentada pela sincronização da Unnichat.
+// renderiza visualizações intuitivas, com acesso rápido aos números-chave no
+// topo (KPIs) e cor semântica (verde = positivo, azul = neutro, âmbar/vermelho
+// = atenção). Suporta tema claro e escuro.
 
 type Assunto = { chave: string; label: string; emoji: string; conversas: number; pct: number };
 type Categoria = { chave: string; label: string; qtd: number };
@@ -25,8 +25,6 @@ type Dados = {
   sync: { ultima: string | null; contatos: number; pendentes: number };
 };
 
-// Temperatura de cada assunto — define a cor. O gestor lê "saúde" pela cor:
-// muito verde = relacionamento saudável; vermelho/âmbar = pontos de atenção.
 type Temp = "positivo" | "neutro" | "atencao" | "risco";
 const TEMP: Record<string, Temp> = {
   desafio_trilha: "positivo", prova_social: "positivo", elogio: "positivo", compromisso: "positivo", afetivo: "positivo",
@@ -34,11 +32,8 @@ const TEMP: Record<string, Temp> = {
   financeiro_cobranca: "atencao", tecnico: "atencao", video: "atencao",
   risco_churn: "risco",
 };
-const COR_TEMP: Record<Temp, { barra: string; texto: string }> = {
-  positivo: { barra: "bg-emerald-500", texto: "text-emerald-600" },
-  neutro: { barra: "bg-sky-500", texto: "text-sky-600" },
-  atencao: { barra: "bg-amber-500", texto: "text-amber-600" },
-  risco: { barra: "bg-rose-500", texto: "text-rose-600" },
+const COR_TEMP: Record<Temp, string> = {
+  positivo: "bg-emerald-500", neutro: "bg-sky-500", atencao: "bg-amber-500", risco: "bg-rose-500",
 };
 const temp = (chave: string): Temp => TEMP[chave] ?? "neutro";
 
@@ -89,16 +84,21 @@ export default function Comportamento({ edicao }: { edicao: string }) {
 
   const semDados = !dados || dados.totalConversas === 0;
 
+  const totSent = dados ? dados.sentimentos.positivo + dados.sentimentos.neutro + dados.sentimentos.negativo : 0;
+  const pctPositivo = totSent ? Math.round((dados!.sentimentos.positivo / totSent) * 100) : 0;
+  const atencaoConv = dados ? dados.conversasPorAssunto.filter((a) => temp(a.chave) === "atencao" || temp(a.chave) === "risco").reduce((s, a) => s + a.conversas, 0) : 0;
+  const pctAtencao = dados && dados.totalConversas ? Math.round((atencaoConv / dados.totalConversas) * 100) : 0;
+
   return (
     <div>
       <div className="mb-4 mt-8 flex flex-wrap items-center gap-3">
-        <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <span className="h-3.5 w-1 rounded-full bg-brand/60" aria-hidden="true" />
+        <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <span className="h-3.5 w-1 rounded-full bg-brand/60 dark:bg-brand-400/70" aria-hidden="true" />
           Inteligência de comportamento dos leads
         </h2>
         <div className="flex-1" />
-        {progresso && <span className="text-xs font-medium text-brand">{progresso}</span>}
-        <span className="hidden text-xs text-slate-400 sm:inline">
+        {progresso && <span className="text-xs font-medium text-brand dark:text-brand-300">{progresso}</span>}
+        <span className="hidden text-xs text-slate-400 dark:text-slate-500 sm:inline">
           Sync: {fmtData(dados?.sync.ultima ?? null)}
           {dados && dados.sync.pendentes > 0 ? ` · ${dados.sync.pendentes} pendentes` : ""}
         </span>
@@ -112,23 +112,35 @@ export default function Comportamento({ edicao }: { edicao: string }) {
         </Button>
       </div>
 
-      {/* Ciclo de vida — um card só, com proporção visual imediata */}
+      {/* KPIs de acesso rápido — leitura imediata dos números-chave */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MiniKpi label="Conversas" valor={dados?.totalConversas ?? 0} tom="brand"
+          icone={<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />} />
+        <MiniKpi label="Sentimento positivo" valor={`${pctPositivo}%`} tom="emerald"
+          icone={<><path d="M8 14s1.5 2 4 2 4-2 4-2" /><circle cx="9" cy="9" r="1" /><circle cx="15" cy="9" r="1" /><circle cx="12" cy="12" r="9" /></>} />
+        <MiniKpi label="Pico de resposta" valor={dados ? `${String(dados.melhorHora).padStart(2, "0")}h` : "—"} tom="sky"
+          icone={<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>} />
+        <MiniKpi label="Pedem atenção" valor={`${pctAtencao}%`} tom="amber"
+          icone={<><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><path d="M12 9v4M12 17h.01" /></>} />
+      </div>
+
+      {/* Ciclo de vida */}
       <CicloVida ciclo={dados?.ciclo ?? { onboarding: 0, ongoing: 0, total: 0 }} />
 
       {carregando && !dados ? (
-        <Card className="mt-4 flex items-center justify-center gap-3 py-12 text-slate-400">
+        <Card className="mt-4 flex items-center justify-center gap-3 py-12 text-slate-400 dark:text-slate-500">
           <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando inteligência…</span>
         </Card>
       ) : semDados ? (
         <Card className="mt-4 flex flex-col items-center gap-3 px-6 py-12 text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10 text-brand">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/10 text-brand dark:bg-brand-400/15 dark:text-brand-300">
             <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
           </span>
           <div>
-            <p className="font-semibold text-slate-800">Ainda não há conversas analisadas</p>
-            <p className="mt-1 text-sm text-slate-500">Clique em <strong>Sincronizar conversas</strong> para puxar o histórico da Unnichat e gerar a inteligência.</p>
+            <p className="font-semibold text-slate-800 dark:text-slate-100">Ainda não há conversas analisadas</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Clique em <strong>Sincronizar conversas</strong> para puxar o histórico da Unnichat e gerar a inteligência.</p>
           </div>
           <Button variant="primary" onClick={sincronizar} disabled={sincronizando}>
             {sincronizando ? "Sincronizando…" : "Sincronizar agora"}
@@ -136,12 +148,7 @@ export default function Comportamento({ edicao }: { edicao: string }) {
         </Card>
       ) : dados ? (
         <>
-          <p className="mt-3 text-xs text-slate-400">
-            Base: <strong className="text-slate-600">{dados.totalConversas}</strong> conversas ·{" "}
-            <strong className="text-slate-600">{dados.totalMensagens}</strong> mensagens de leads
-          </p>
-
-          <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Card className="p-5 lg:col-span-2">
               <CardTitulo>Conversas por assunto</CardTitulo>
               <Legenda />
@@ -153,33 +160,33 @@ export default function Comportamento({ edicao }: { edicao: string }) {
                 <CardTitulo>Sentimento</CardTitulo>
                 <Donut s={dados.sentimentos} />
               </div>
-              <div className="border-t border-slate-100 pt-4">
+              <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
                 <CardTitulo>Como respondem</CardTitulo>
                 <Categorias itens={dados.categoriasResp} />
               </div>
             </Card>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card className="p-5">
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
+            <Card className="p-5 lg:col-span-3">
               <div className="flex items-baseline justify-between">
                 <CardTitulo>Quando os leads respondem</CardTitulo>
-                <span className="text-sm font-semibold text-brand">pico {String(dados.melhorHora).padStart(2, "0")}h</span>
+                <span className="text-sm font-semibold text-brand dark:text-brand-300">pico {String(dados.melhorHora).padStart(2, "0")}h</span>
               </div>
-              <p className="mb-3 text-xs text-slate-400">Melhor janela para disparar.</p>
+              <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">Melhor janela para disparar.</p>
               <Horarios horas={dados.horas} pico={dados.melhorHora} />
             </Card>
 
-            <Card className="p-5">
+            <Card className="p-5 lg:col-span-2">
               <CardTitulo>Movimentação no funil</CardTitulo>
-              <p className="mb-3 text-xs text-slate-400">Do primeiro contato à ativação.</p>
+              <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">Do primeiro contato à ativação.</p>
               <Funil estagios={dados.funil} />
             </Card>
           </div>
 
           <Card className="mt-4 p-5">
             <CardTitulo>Palavras que mais colaram</CardTitulo>
-            <p className="mb-4 text-xs text-slate-400">Vocabulário de quem reagiu bem — use na copy dos próximos disparos.</p>
+            <p className="mb-4 text-xs text-slate-400 dark:text-slate-500">Vocabulário de quem reagiu bem — use na copy dos próximos disparos.</p>
             <PalavrasChave itens={dados.palavrasChave} />
           </Card>
         </>
@@ -189,7 +196,29 @@ export default function Comportamento({ edicao }: { edicao: string }) {
 }
 
 function CardTitulo({ children }: { children: React.ReactNode }) {
-  return <h3 className="text-sm font-semibold text-slate-800">{children}</h3>;
+  return <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{children}</h3>;
+}
+
+const KPI_TOM: Record<string, { wrap: string; valor: string }> = {
+  brand: { wrap: "bg-brand/10 text-brand dark:bg-brand-400/15 dark:text-brand-300", valor: "text-slate-900 dark:text-white" },
+  emerald: { wrap: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400", valor: "text-emerald-600 dark:text-emerald-400" },
+  sky: { wrap: "bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400", valor: "text-slate-900 dark:text-white" },
+  amber: { wrap: "bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400", valor: "text-amber-600 dark:text-amber-400" },
+};
+
+function MiniKpi({ label, valor, tom, icone }: { label: string; valor: string | number; tom: keyof typeof KPI_TOM; icone: React.ReactNode }) {
+  const t = KPI_TOM[tom];
+  return (
+    <Card className="flex items-center gap-3 p-4">
+      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", t.wrap)} aria-hidden="true">
+        <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{icone}</svg>
+      </span>
+      <div className="min-w-0">
+        <div className={cn("text-2xl font-semibold leading-none tabular-nums", t.valor)}>{valor}</div>
+        <div className="mt-1 truncate text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</div>
+      </div>
+    </Card>
+  );
 }
 
 function Legenda() {
@@ -200,8 +229,8 @@ function Legenda() {
   return (
     <div className="mb-4 mt-1 flex flex-wrap gap-x-4 gap-y-1">
       {itens.map((i) => (
-        <span key={i.t} className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-          <span className={cn("h-2 w-2 rounded-full", COR_TEMP[i.t].barra)} />
+        <span key={i.t} className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+          <span className={cn("h-2 w-2 rounded-full", COR_TEMP[i.t])} />
           {i.label}
         </span>
       ))}
@@ -217,25 +246,25 @@ function CicloVida({ ciclo }: { ciclo: { onboarding: number; ongoing: number; to
     <Card className="mt-4 p-5">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-            <span className="h-2.5 w-2.5 rounded-full bg-brand" /> Onboarding
-            <span className="text-slate-400">· compraram há ≤ 30 dias</span>
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <span className="h-2.5 w-2.5 rounded-full bg-brand dark:bg-brand-400" /> Onboarding
+            <span className="text-slate-400 dark:text-slate-500">· compraram há ≤ 30 dias</span>
           </div>
-          <div className="mt-1 text-4xl font-semibold tabular-nums text-brand">{ciclo.onboarding}</div>
+          <div className="mt-1 text-4xl font-semibold tabular-nums text-brand dark:text-brand-300">{ciclo.onboarding}</div>
         </div>
         <div className="text-right">
-          <div className="flex items-center justify-end gap-2 text-xs font-medium text-slate-500">
-            <span className="text-slate-400">compraram há &gt; 30 dias ·</span> Ongoing
+          <div className="flex items-center justify-end gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <span className="text-slate-400 dark:text-slate-500">compraram há &gt; 30 dias ·</span> Ongoing
             <span className="h-2.5 w-2.5 rounded-full bg-cyan-500" />
           </div>
-          <div className="mt-1 text-4xl font-semibold tabular-nums text-cyan-600">{ciclo.ongoing}</div>
+          <div className="mt-1 text-4xl font-semibold tabular-nums text-cyan-600 dark:text-cyan-400">{ciclo.ongoing}</div>
         </div>
       </div>
-      <div className="mt-4 flex h-2.5 overflow-hidden rounded-full bg-slate-100">
-        <div className="bg-brand" style={{ width: `${pOn}%` }} />
+      <div className="mt-4 flex h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+        <div className="bg-brand dark:bg-brand-400" style={{ width: `${pOn}%` }} />
         <div className="bg-cyan-500" style={{ width: `${pOng}%` }} />
       </div>
-      <div className="mt-1.5 flex justify-between text-[11px] font-medium tabular-nums text-slate-400">
+      <div className="mt-1.5 flex justify-between text-[11px] font-medium tabular-nums text-slate-400 dark:text-slate-500">
         <span>{pOn}%</span><span>{pOng}%</span>
       </div>
     </Card>
@@ -243,30 +272,27 @@ function CicloVida({ ciclo }: { ciclo: { onboarding: number; ongoing: number; to
 }
 
 function BarrasAssunto({ itens }: { itens: Assunto[] }) {
-  if (itens.length === 0) return <p className="text-sm text-slate-400">Sem conversas classificadas.</p>;
+  if (itens.length === 0) return <p className="text-sm text-slate-400 dark:text-slate-500">Sem conversas classificadas.</p>;
   const max = Math.max(...itens.map((i) => i.conversas), 1);
   return (
     <div className="space-y-2">
-      {itens.map((it) => {
-        const c = COR_TEMP[temp(it.chave)];
-        return (
-          <div key={it.chave} className="flex items-center gap-3">
-            <div className="flex w-44 shrink-0 items-center gap-1.5 text-[13px] text-slate-600">
-              <span aria-hidden>{it.emoji}</span>
-              <span className="truncate">{it.label}</span>
-            </div>
-            <div className="relative h-7 flex-1 overflow-hidden rounded-lg bg-slate-50">
-              <div
-                className={cn("h-full rounded-lg transition-all", c.barra)}
-                style={{ width: `${Math.max((it.conversas / max) * 100, 4)}%` }}
-              />
-              <span className="absolute inset-y-0 right-2.5 flex items-center text-[11px] font-semibold tabular-nums text-slate-500">
-                {it.conversas} · {it.pct}%
-              </span>
-            </div>
+      {itens.map((it) => (
+        <div key={it.chave} className="flex items-center gap-3">
+          <div className="flex w-44 shrink-0 items-center gap-1.5 text-[13px] text-slate-600 dark:text-slate-300">
+            <span aria-hidden>{it.emoji}</span>
+            <span className="truncate">{it.label}</span>
           </div>
-        );
-      })}
+          <div className="h-6 flex-1 overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
+            <div
+              className={cn("h-full rounded-lg transition-all", COR_TEMP[temp(it.chave)])}
+              style={{ width: `${Math.max((it.conversas / max) * 100, 3)}%` }}
+            />
+          </div>
+          {/* Números FORA da barra, em colunas alinhadas — leitura limpa */}
+          <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{it.conversas}</span>
+          <span className="w-12 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">{it.pct}%</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -277,7 +303,7 @@ function Donut({ s }: { s: { positivo: number; neutro: number; negativo: number 
   const r = 42, C = 2 * Math.PI * r;
   const segs = [
     { v: s.positivo, cor: "#10b981", label: "Positivo" },
-    { v: s.neutro, cor: "#cbd5e1", label: "Neutro" },
+    { v: s.neutro, cor: "#94a3b8", label: "Neutro" },
     { v: s.negativo, cor: "#f43f5e", label: "Negativo" },
   ];
   let acc = 0;
@@ -285,7 +311,7 @@ function Donut({ s }: { s: { positivo: number; neutro: number; negativo: number 
     <div className="mt-2 flex items-center gap-4">
       <div className="relative h-28 w-28 shrink-0">
         <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
-          <circle cx="60" cy="60" r={r} fill="none" stroke="#f1f5f9" strokeWidth="14" />
+          <circle cx="60" cy="60" r={r} fill="none" strokeWidth="14" className="stroke-slate-100 dark:stroke-slate-800" stroke="currentColor" />
           {total > 0 && segs.map((seg, i) => {
             const len = (seg.v / total) * C;
             const el = (
@@ -297,16 +323,16 @@ function Donut({ s }: { s: { positivo: number; neutro: number; negativo: number 
           })}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-semibold tabular-nums text-emerald-600">{pct}%</span>
-          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">positivo</span>
+          <span className="text-2xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{pct}%</span>
+          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">positivo</span>
         </div>
       </div>
       <div className="flex-1 space-y-1.5">
         {segs.map((seg) => (
           <div key={seg.label} className="flex items-center gap-2 text-xs">
             <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: seg.cor }} />
-            <span className="text-slate-600">{seg.label}</span>
-            <span className="ml-auto font-semibold tabular-nums text-slate-700">{seg.v}</span>
+            <span className="text-slate-600 dark:text-slate-300">{seg.label}</span>
+            <span className="ml-auto font-semibold tabular-nums text-slate-700 dark:text-slate-200">{seg.v}</span>
           </div>
         ))}
       </div>
@@ -315,17 +341,17 @@ function Donut({ s }: { s: { positivo: number; neutro: number; negativo: number 
 }
 
 function Categorias({ itens }: { itens: Categoria[] }) {
-  if (itens.length === 0) return <p className="text-sm text-slate-400">Sem dados.</p>;
+  if (itens.length === 0) return <p className="text-sm text-slate-400 dark:text-slate-500">Sem dados.</p>;
   const max = Math.max(...itens.map((i) => i.qtd), 1);
   return (
     <div className="mt-2 space-y-2">
       {itens.map((c) => (
         <div key={c.chave} className="flex items-center gap-2 text-xs">
-          <span className="w-24 shrink-0 text-slate-600">{c.label}</span>
-          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-brand/60" style={{ width: `${(c.qtd / max) * 100}%` }} />
+          <span className="w-24 shrink-0 text-slate-600 dark:text-slate-300">{c.label}</span>
+          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+            <div className="h-full rounded-full bg-brand/60 dark:bg-brand-400/70" style={{ width: `${(c.qtd / max) * 100}%` }} />
           </div>
-          <span className="w-6 text-right font-semibold tabular-nums text-slate-700">{c.qtd}</span>
+          <span className="w-6 text-right font-semibold tabular-nums text-slate-700 dark:text-slate-200">{c.qtd}</span>
         </div>
       ))}
     </div>
@@ -342,17 +368,17 @@ function Horarios({ horas, pico }: { horas: number[]; pico: number }) {
           return (
             <div key={h} className="group relative flex h-full flex-1 flex-col items-center justify-end" title={`${String(h).padStart(2, "0")}h — ${q} resp.`}>
               {ehPico && q > 0 && (
-                <span className="mb-1 rounded bg-brand px-1 py-0.5 text-[9px] font-bold text-white">{q}</span>
+                <span className="mb-1 rounded bg-brand px-1 py-0.5 text-[9px] font-bold text-white dark:bg-brand-400 dark:text-slate-900">{q}</span>
               )}
               <div
-                className={cn("w-full rounded-t transition-all", ehPico ? "bg-brand" : q > 0 ? "bg-brand/40 group-hover:bg-brand/60" : "bg-slate-100")}
+                className={cn("w-full rounded-t transition-all", ehPico ? "bg-brand dark:bg-brand-400" : q > 0 ? "bg-brand/40 group-hover:bg-brand/60 dark:bg-brand-400/40 dark:group-hover:bg-brand-400/60" : "bg-slate-100 dark:bg-slate-800")}
                 style={{ height: `${Math.max((q / max) * 100, 4)}%` }}
               />
             </div>
           );
         })}
       </div>
-      <div className="mt-2 flex justify-between border-t border-slate-100 pt-1.5 text-[10px] tabular-nums text-slate-400">
+      <div className="mt-2 flex justify-between border-t border-slate-100 pt-1.5 text-[10px] tabular-nums text-slate-400 dark:border-slate-800 dark:text-slate-500">
         <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
       </div>
     </div>
@@ -367,8 +393,8 @@ function Funil({ estagios }: { estagios: FunilEstagio[] }) {
         const w = Math.max((e.qtd / max) * 100, 3);
         return (
           <div key={e.chave} className="flex items-center gap-3">
-            <span className="w-32 shrink-0 truncate text-[13px] text-slate-600">{e.nome}</span>
-            <div className="h-7 flex-1 rounded-lg bg-slate-50">
+            <span className="w-32 shrink-0 truncate text-[13px] text-slate-600 dark:text-slate-300">{e.nome}</span>
+            <div className="h-7 flex-1 rounded-lg bg-slate-100 dark:bg-slate-800">
               <div
                 className="flex h-full items-center justify-end rounded-lg px-2.5 text-[11px] font-semibold text-white shadow-sm"
                 style={{ width: `${w}%`, backgroundColor: e.cor || "#94a3b8" }}
@@ -384,7 +410,7 @@ function Funil({ estagios }: { estagios: FunilEstagio[] }) {
 }
 
 function PalavrasChave({ itens }: { itens: { palavra: string; qtd: number }[] }) {
-  if (itens.length === 0) return <p className="text-sm text-slate-400">Sem dados suficientes ainda.</p>;
+  if (itens.length === 0) return <p className="text-sm text-slate-400 dark:text-slate-500">Sem dados suficientes ainda.</p>;
   const max = Math.max(...itens.map((i) => i.qtd), 1);
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -394,7 +420,7 @@ function PalavrasChave({ itens }: { itens: { palavra: string; qtd: number }[] })
         return (
           <span
             key={p.palavra}
-            className={cn("inline-flex items-center rounded-full px-3 py-1 font-medium leading-none", forte ? "bg-brand/10 text-brand" : "bg-slate-100 text-slate-600")}
+            className={cn("inline-flex items-center rounded-full px-3 py-1 font-medium leading-none", forte ? "bg-brand/10 text-brand dark:bg-brand-400/15 dark:text-brand-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}
             style={{ fontSize: `${escala}rem` }}
             title={`${p.qtd} ocorrências`}
           >

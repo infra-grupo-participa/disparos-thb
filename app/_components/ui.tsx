@@ -9,7 +9,7 @@ export function cn(...parts: Array<string | false | null | undefined>): string {
 
 // Classe-base para campos de formulário (input, select, textarea).
 export const fieldClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-card transition placeholder:text-slate-400 focus:border-brand";
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-card transition placeholder:text-slate-400 focus:border-brand dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-brand-400";
 
 // ---- Button -------------------------------------------------------------
 type ButtonProps = {
@@ -20,10 +20,10 @@ type ButtonProps = {
 } & React.ButtonHTMLAttributes<HTMLButtonElement>;
 
 const BTN_VARIANTS: Record<NonNullable<ButtonProps["variant"]>, string> = {
-  primary: "bg-brand text-white shadow-card hover:bg-brand-light",
-  secondary: "border border-slate-300 bg-white text-slate-700 shadow-card hover:bg-slate-50",
-  ghost: "text-slate-600 hover:bg-slate-100",
-  danger: "bg-rose-600 text-white shadow-card hover:bg-rose-700",
+  primary: "bg-brand text-white shadow-card hover:bg-brand-light dark:bg-brand-500 dark:hover:bg-brand-400",
+  secondary: "border border-slate-300 bg-white text-slate-700 shadow-card hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
+  ghost: "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800",
+  danger: "bg-rose-600 text-white shadow-card hover:bg-rose-700 dark:bg-rose-600 dark:hover:bg-rose-500",
 };
 const BTN_SIZES: Record<NonNullable<ButtonProps["size"]>, string> = {
   sm: "px-3 py-1.5 text-xs",
@@ -48,7 +48,7 @@ export function Button({ children, variant = "primary", size = "md", className, 
 
 // ---- Card ---------------------------------------------------------------
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("rounded-xl border border-slate-200 bg-white shadow-card", className)}>{children}</div>;
+  return <div className={cn("rounded-xl border border-slate-200 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900", className)}>{children}</div>;
 }
 
 // ---- PageHeader ---------------------------------------------------------
@@ -66,8 +66,8 @@ export function PageHeader({
   return (
     <div className={cn("mb-5 flex flex-wrap items-end justify-between gap-3", className)}>
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">{title}</h1>
-        {description && <p className="mt-0.5 text-sm text-slate-500">{description}</p>}
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{title}</h1>
+        {description && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{description}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
@@ -87,10 +87,10 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white/60 px-6 py-12 text-center">
-      {icon && <div className="mb-3 text-slate-300">{icon}</div>}
-      <p className="font-medium text-slate-700">{title}</p>
-      {description && <p className="mt-1 max-w-sm text-sm text-slate-500">{description}</p>}
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white/60 px-6 py-12 text-center dark:border-slate-700 dark:bg-slate-900/40">
+      {icon && <div className="mb-3 text-slate-300 dark:text-slate-600">{icon}</div>}
+      <p className="font-medium text-slate-700 dark:text-slate-200">{title}</p>
+      {description && <p className="mt-1 max-w-sm text-sm text-slate-500 dark:text-slate-400">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );

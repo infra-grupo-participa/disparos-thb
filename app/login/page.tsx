@@ -42,10 +42,10 @@ export default function LoginPage() {
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-lg font-semibold tracking-wide text-white shadow-card">
               CS
             </div>
-            <h1 className="mt-4 text-lg font-semibold tracking-tight text-slate-900">
+            <h1 className="mt-4 text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">
               CS · Grupo Participa
             </h1>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               Acesso interno — Customer Success HT
             </p>
           </div>
@@ -54,7 +54,7 @@ export default function LoginPage() {
           <div className="mt-8">
             <label
               htmlFor="password"
-              className="block text-sm font-medium text-slate-700"
+              className="block text-sm font-medium text-slate-700 dark:text-slate-200"
             >
               Senha
             </label>
@@ -72,7 +72,7 @@ export default function LoginPage() {
               )}
             />
             {erro && (
-              <p className="mt-2 flex items-center gap-1.5 text-sm text-rose-600">
+              <p className="mt-2 flex items-center gap-1.5 text-sm text-rose-600 dark:text-rose-400">
                 <svg
                   className="h-4 w-4 shrink-0"
                   viewBox="0 0 20 20"

@@ -19,17 +19,17 @@ type Progresso = {
 
 // Rótulo do status de entrega (Meta) com cor/título acessível.
 function StatusEntrega({ status, code }: { status: string | null; code: number | null }) {
-  if (!status) return <span className="text-slate-300">—</span>;
-  if (status === "read") return <span className="font-medium text-blue-600" title="Lido">lido ✓✓</span>;
-  if (status === "delivered") return <span className="font-medium text-emerald-600" title="Entregue">entregue ✓✓</span>;
-  if (status === "sent") return <span className="text-slate-500" title="Enviado ao WhatsApp (ainda não entregue)">enviado ✓</span>;
+  if (!status) return <span className="text-slate-300 dark:text-slate-600">—</span>;
+  if (status === "read") return <span className="font-medium text-blue-600 dark:text-blue-300" title="Lido">lido ✓✓</span>;
+  if (status === "delivered") return <span className="font-medium text-emerald-600 dark:text-emerald-300" title="Entregue">entregue ✓✓</span>;
+  if (status === "sent") return <span className="text-slate-500 dark:text-slate-400" title="Enviado ao WhatsApp (ainda não entregue)">enviado ✓</span>;
   if (status === "failed")
     return (
-      <span className="font-medium text-rose-600" title={code === 130472 ? "Bloqueado pela Meta (número em experimento)" : `Falhou${code ? ` · código ${code}` : ""}`}>
+      <span className="font-medium text-rose-600 dark:text-rose-300" title={code === 130472 ? "Bloqueado pela Meta (número em experimento)" : `Falhou${code ? ` · código ${code}` : ""}`}>
         {code === 130472 ? "experimento Meta ✗" : "falhou ✗"}
       </span>
     );
-  return <span className="text-slate-400">{status}</span>;
+  return <span className="text-slate-400 dark:text-slate-500">{status}</span>;
 }
 
 export default function DispararPage() {
@@ -177,8 +177,8 @@ export default function DispararPage() {
               className={cn(
                 "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition",
                 criandoContatos
-                  ? "bg-blue-50 text-blue-700 ring-blue-200"
-                  : "bg-emerald-50 text-emerald-700 ring-emerald-200",
+                  ? "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/30"
+                  : "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30",
               )}
             >
               <span
@@ -191,13 +191,13 @@ export default function DispararPage() {
               </span>
               Contatos · {resumo.criados}/{resumo.total}
             </span>
-            <span className="text-slate-300" aria-hidden>→</span>
+            <span className="text-slate-300 dark:text-slate-600" aria-hidden>→</span>
             <span
               className={cn(
                 "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition",
                 !criandoContatos
-                  ? "bg-blue-50 text-blue-700 ring-blue-200"
-                  : "bg-slate-50 text-slate-400 ring-slate-200",
+                  ? "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/30"
+                  : "bg-slate-50 text-slate-400 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-500 dark:ring-slate-700",
               )}
             >
               <span
@@ -213,18 +213,18 @@ export default function DispararPage() {
           </div>
 
           <div className="mt-5 flex items-center gap-3">
-            <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
               <div
                 className={cn("h-full rounded-full transition-all", criandoContatos ? "bg-blue-500" : "bg-brand")}
                 style={{ width: `${pct}%` }}
               />
             </div>
-            <span className="w-12 text-right text-sm font-semibold tabular-nums text-slate-600">{pct}%</span>
+            <span className="w-12 text-right text-sm font-semibold tabular-nums text-slate-600 dark:text-slate-300">{pct}%</span>
           </div>
         </Card>
 
         <div className="mt-6 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Contatos</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Contatos</span>
           {!criandoContatos && (
             <Button variant="secondary" size="sm" onClick={sincronizarStatus} disabled={sincronizando}>
               {sincronizando && <Spinner className="h-3.5 w-3.5" />}
@@ -236,7 +236,7 @@ export default function DispararPage() {
         <Card className="mt-2 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <thead className="bg-slate-50 dark:bg-slate-800/60 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-2.5 font-semibold">Contato</th>
                   <th className="px-4 py-2.5 font-semibold">Telefone</th>
@@ -244,17 +244,17 @@ export default function DispararPage() {
                   <th className="px-4 py-2.5 font-semibold">Entrega</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {progresso.contatos.map((c) => (
-                  <tr key={c.id} className="transition hover:bg-slate-50/60">
-                    <td className="px-4 py-2.5 font-medium text-slate-800">{c.nome || "—"}</td>
-                    <td className="px-4 py-2.5 text-slate-500">{c.telefone}</td>
+                  <tr key={c.id} className="transition hover:bg-slate-50/60 dark:hover:bg-slate-800/60">
+                    <td className="px-4 py-2.5 font-medium text-slate-800 dark:text-slate-200">{c.nome || "—"}</td>
+                    <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">{c.telefone}</td>
                     <td className="px-4 py-2.5">
-                      {c.erro_contato ? <span className="text-rose-600" title={c.erro_contato}>erro ao criar</span>
-                        : c.erro ? <span className="text-rose-600" title={c.erro}>erro no envio</span>
-                        : c.enviado ? <span className="text-emerald-600">enviado</span>
-                        : c.contato_criado ? <span className={criandoContatos ? "text-blue-600" : "text-slate-400"}>{criandoContatos ? "criado ✓" : "aguardando envio…"}</span>
-                        : <span className="text-slate-400">{criandoContatos ? "criando…" : "aguardando…"}</span>}
+                      {c.erro_contato ? <span className="text-rose-600 dark:text-rose-300" title={c.erro_contato}>erro ao criar</span>
+                        : c.erro ? <span className="text-rose-600 dark:text-rose-300" title={c.erro}>erro no envio</span>
+                        : c.enviado ? <span className="text-emerald-600 dark:text-emerald-300">enviado</span>
+                        : c.contato_criado ? <span className={criandoContatos ? "text-blue-600 dark:text-blue-300" : "text-slate-400 dark:text-slate-500"}>{criandoContatos ? "criado ✓" : "aguardando envio…"}</span>
+                        : <span className="text-slate-400 dark:text-slate-500">{criandoContatos ? "criando…" : "aguardando…"}</span>}
                     </td>
                     <td className="px-4 py-2.5"><StatusEntrega status={c.status_meta} code={c.erro_meta_code} /></td>
                   </tr>
@@ -305,7 +305,7 @@ export default function DispararPage() {
       <div className="space-y-5">
         {/* Template */}
         <Card className="p-5">
-          <label htmlFor="template" className="block text-sm font-semibold text-slate-700">Template</label>
+          <label htmlFor="template" className="block text-sm font-semibold text-slate-700 dark:text-slate-200">Template</label>
           <select
             id="template"
             value={templateId}
@@ -318,7 +318,7 @@ export default function DispararPage() {
             ))}
           </select>
           {templates.length === 0 && (
-            <p className="mt-2 text-sm text-amber-600">
+            <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
               Nenhum template ativo. Cadastre em <Link href="/templates" className="font-medium underline">Templates</Link>.
             </p>
           )}
@@ -327,32 +327,32 @@ export default function DispararPage() {
         {/* Preview WhatsApp */}
         {template && (
           <Card className="p-5">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Pré-visualização <span className="font-normal normal-case text-slate-400">(ex.: {exemploNome})</span>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              Pré-visualização <span className="font-normal normal-case text-slate-400 dark:text-slate-500">(ex.: {exemploNome})</span>
             </div>
             {/* Bolha de chat estilo WhatsApp para o operador "ver o que o contato verá". */}
-            <div className="mt-3 rounded-xl bg-[#ECE5DD] p-4">
-              <div className="relative max-w-[85%] rounded-2xl rounded-tl-sm bg-[#DCF8C6] px-3 py-2 text-sm text-slate-800 shadow-sm">
+            <div className="mt-3 rounded-xl bg-[#ECE5DD] dark:bg-slate-800 p-4">
+              <div className="relative max-w-[85%] rounded-2xl rounded-tl-sm bg-[#DCF8C6] dark:bg-emerald-900/40 px-3 py-2 text-sm text-slate-800 dark:text-slate-100 shadow-sm">
                 {preview ? (
                   <p className="whitespace-pre-wrap">
                     {placeholdersRestantes.length === 0
                       ? preview
                       : preview.split(/(\{\{[^}]*\}\})/g).map((parte, i) =>
                           /^\{\{[^}]*\}\}$/.test(parte) ? (
-                            <span key={i} className="rounded bg-rose-100 px-1 font-semibold text-rose-700">{parte}</span>
+                            <span key={i} className="rounded bg-rose-100 dark:bg-rose-500/20 px-1 font-semibold text-rose-700 dark:text-rose-300">{parte}</span>
                           ) : (
                             <span key={i}>{parte}</span>
                           ),
                         )}
                   </p>
                 ) : (
-                  <span className="text-slate-400">Template sem preview cadastrado.</span>
+                  <span className="text-slate-400 dark:text-slate-500">Template sem preview cadastrado.</span>
                 )}
-                <span className="mt-1 block text-right text-[10px] text-slate-400">12:00</span>
+                <span className="mt-1 block text-right text-[10px] text-slate-400 dark:text-slate-500">12:00</span>
               </div>
             </div>
             {temPlaceholderNaoResolvido && (
-              <p className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+              <p className="mt-3 rounded-md bg-rose-50 dark:bg-rose-500/15 px-3 py-2 text-xs font-medium text-rose-700 dark:text-rose-300">
                 ⚠ Variáveis não resolvidas: {placeholdersRestantes.join(", ")}. Os contatos receberão o texto exatamente como acima. Revise o template antes de disparar.
               </p>
             )}
@@ -362,7 +362,7 @@ export default function DispararPage() {
         {/* Edição da campanha */}
         {edicoesPresentes.length > 0 && (
           <Card className="p-5">
-            <label htmlFor="edicao" className="block text-sm font-semibold text-slate-700">Edição da campanha</label>
+            <label htmlFor="edicao" className="block text-sm font-semibold text-slate-700 dark:text-slate-200">Edição da campanha</label>
             <select
               id="edicao"
               value={edicao}
@@ -373,7 +373,7 @@ export default function DispararPage() {
               {edicoesPresentes.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
             </select>
             {edicoesPresentes.length > 1 && (
-              <p className="mt-2 text-xs text-amber-600">
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                 Seleção com {edicoesPresentes.length} edições diferentes. Escolha como rotular este disparo (ou deixe sem edição).
               </p>
             )}
@@ -382,14 +382,14 @@ export default function DispararPage() {
 
         {/* Contatos selecionados */}
         <Card className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Contatos selecionados</span>
-            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">{selecao.length}</span>
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-5 py-3">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Contatos selecionados</span>
+            <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:text-slate-300">{selecao.length}</span>
           </div>
           <div className="max-h-48 overflow-auto text-sm">
             {selecao.map((s) => (
-              <div key={s.comprador_id} className="flex justify-between border-b border-slate-50 px-5 py-2 last:border-0">
-                <span className="text-slate-700">{s.nome}</span><span className="text-slate-400">{s.telefone}</span>
+              <div key={s.comprador_id} className="flex justify-between border-b border-slate-50 dark:border-slate-800 px-5 py-2 last:border-0">
+                <span className="text-slate-700 dark:text-slate-200">{s.nome}</span><span className="text-slate-400 dark:text-slate-500">{s.telefone}</span>
               </div>
             ))}
           </div>
@@ -397,9 +397,9 @@ export default function DispararPage() {
 
         {/* Resumo de impacto: o que vai acontecer, em uma frase clara. */}
         {template && (
-          <Card className="border-brand-200 bg-brand-50 p-5 text-sm text-slate-700">
+          <Card className="border-brand-200 dark:border-brand-400/30 bg-brand-50 dark:bg-brand-400/10 p-5 text-sm text-slate-700 dark:text-slate-200">
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700" aria-hidden>
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-100 dark:bg-brand-400/20 text-brand-700 dark:text-brand-300" aria-hidden>
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M22 2 11 13" /><path d="m22 2-7 20-4-9-9-4 20-7z" />
                 </svg>
@@ -409,10 +409,10 @@ export default function DispararPage() {
                   Você vai enviar o template <strong>«{template.nome}»</strong> para{" "}
                   <strong>{selecao.length}</strong> contato(s) — edição <strong>{edicaoLabel}</strong>.
                 </p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {comTelefone} com telefone
                   {comTelefone < selecao.length && (
-                    <span className="text-amber-600"> · {selecao.length - comTelefone} sem telefone (não receberão)</span>
+                    <span className="text-amber-600 dark:text-amber-400"> · {selecao.length - comTelefone} sem telefone (não receberão)</span>
                   )}
                 </p>
               </div>
@@ -422,12 +422,12 @@ export default function DispararPage() {
 
         {/* Confirmação + ação */}
         <Card className="p-5">
-          <label className="flex items-center gap-2.5 text-sm text-slate-700">
+          <label className="flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-200">
             <input
               type="checkbox"
               checked={confirmado}
               onChange={(e) => setConfirmado(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+              className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-brand focus:ring-brand"
             />
             Confirmo o envio para <strong>{selecao.length}</strong> contato(s).
           </label>
@@ -453,18 +453,18 @@ export default function DispararPage() {
           aria-labelledby="confirm-titulo"
           onClick={() => !enviando && setShowConfirm(false)}>
           <div
-            className="w-full max-w-md animate-fade-in rounded-xl border border-slate-200 bg-white p-6 shadow-pop"
+            className="w-full max-w-md animate-fade-in rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-pop"
             onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600" aria-hidden>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-300" aria-hidden>
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                   <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
                 </svg>
               </span>
               <div className="min-w-0">
-                <h2 id="confirm-titulo" className="text-lg font-semibold text-slate-900">Confirmar disparo</h2>
-                <p className="mt-2 text-sm text-slate-600">
+                <h2 id="confirm-titulo" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Confirmar disparo</h2>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
                   Esta ação envia o template <strong>«{template.nome}»</strong> para{" "}
                   <strong>{selecao.length}</strong> contato(s) — edição <strong>{edicaoLabel}</strong>.
                   Não é possível desfazer após iniciar.
@@ -472,12 +472,12 @@ export default function DispararPage() {
               </div>
             </div>
             {temPlaceholderNaoResolvido && (
-              <p className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+              <p className="mt-3 rounded-md bg-rose-50 dark:bg-rose-500/15 px-3 py-2 text-xs font-medium text-rose-700 dark:text-rose-300">
                 ⚠ Há variáveis não resolvidas no preview ({placeholdersRestantes.join(", ")}).
               </p>
             )}
             {comTelefone < selecao.length && (
-              <p className="mt-3 text-xs text-amber-600">
+              <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
                 {selecao.length - comTelefone} contato(s) sem telefone não receberão a mensagem.
               </p>
             )}

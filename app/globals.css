@@ -5,21 +5,36 @@
 :root {
   color-scheme: light;
 }
+.dark {
+  color-scheme: dark;
+}
 
 body {
   @apply bg-slate-100 text-slate-800 antialiased;
   background-image: radial-gradient(60rem 60rem at 110% -10%, rgb(30 58 95 / 0.05), transparent 60%);
   background-attachment: fixed;
 }
+.dark body {
+  @apply bg-slate-950 text-slate-200;
+  background-image:
+    radial-gradient(50rem 50rem at 110% -10%, rgb(56 110 190 / 0.10), transparent 60%),
+    radial-gradient(40rem 40rem at -10% 10%, rgb(45 82 130 / 0.10), transparent 60%);
+}
 
 /* Foco visível e consistente (acessibilidade) */
 :where(a, button, input, select, textarea):focus-visible {
   @apply outline-none ring-2 ring-brand/40 ring-offset-1 ring-offset-white;
 }
+.dark :where(a, button, input, select, textarea):focus-visible {
+  @apply ring-brand-400/50 ring-offset-slate-900;
+}
 
 /* Seleção de texto na cor da marca */
 ::selection {
   @apply bg-brand/15 text-brand-700;
+}
+.dark ::selection {
+  @apply bg-brand-400/25 text-brand-100;
 }
 
 /* Scrollbar discreta */
@@ -30,3 +45,5 @@ body {
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-thumb { @apply rounded-full bg-slate-300/70; }
 *::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
+.dark *::-webkit-scrollbar-thumb { @apply bg-slate-700; }
+.dark *::-webkit-scrollbar-thumb:hover { @apply bg-slate-600; }

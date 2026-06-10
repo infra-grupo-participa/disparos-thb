@@ -129,7 +129,7 @@ export default function ContatosPage() {
     </span>
   ) : (
     <>
-      <span className="font-medium text-slate-700">{contatos.length}</span>{" "}
+      <span className="font-medium text-slate-700 dark:text-slate-200">{contatos.length}</span>{" "}
       {contatos.length === 1 ? "contato" : "contatos"}
       {selecionados.size > 0 && (
         <>
@@ -185,12 +185,12 @@ export default function ContatosPage() {
             onChange={(e) => setFQ(e.target.value)}
             className={cn(fieldClass, "min-w-64 flex-1")}
           />
-          <label className="flex select-none items-center gap-2 text-sm text-slate-600">
+          <label className="flex select-none items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
             <input
               type="checkbox"
               checked={fComTelefone}
               onChange={(e) => setFComTelefone(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+              className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand dark:border-slate-600"
             />
             Só com telefone
           </label>
@@ -204,7 +204,7 @@ export default function ContatosPage() {
 
       {/* Conteúdo: carregando × vazio × tabela */}
       {carregando && contatos.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-slate-400">
+        <Card className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-slate-400 dark:text-slate-500">
           <Spinner className="h-7 w-7" />
           <span className="text-sm">Carregando contatos…</span>
         </Card>
@@ -241,14 +241,14 @@ export default function ContatosPage() {
       ) : (
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
               <tr>
                 <th className="w-10 px-4 py-3">
                   <input
                     type="checkbox"
                     checked={todosSelecionados}
                     onChange={toggleTodos}
-                    className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                    className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand dark:border-slate-600"
                   />
                 </th>
                 <th className="px-4 py-3">Nome</th>
@@ -258,13 +258,13 @@ export default function ContatosPage() {
                 <th className="px-4 py-3">Última compra</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {contatos.map((c) => (
                 <tr
                   key={c.comprador_id}
                   className={cn(
-                    "transition-colors hover:bg-slate-50",
-                    selecionados.has(c.comprador_id) && "bg-brand/5 hover:bg-brand/10",
+                    "transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60",
+                    selecionados.has(c.comprador_id) && "bg-brand/5 hover:bg-brand/10 dark:bg-brand-400/10 dark:hover:bg-brand-400/15",
                   )}
                 >
                   <td className="px-4 py-3">
@@ -273,20 +273,20 @@ export default function ContatosPage() {
                       disabled={!c.telefone}
                       checked={selecionados.has(c.comprador_id)}
                       onChange={() => toggle(c.comprador_id)}
-                      className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand disabled:opacity-40"
+                      className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand disabled:opacity-40 dark:border-slate-600"
                     />
                   </td>
                   <td className="px-4 py-3">
                     <Link
                       href={`/contatos/${c.comprador_id}`}
-                      className="font-medium text-slate-900 hover:text-brand hover:underline"
+                      className="font-medium text-slate-900 hover:text-brand hover:underline dark:text-slate-100 dark:hover:text-brand-300"
                     >
                       {c.nome}
                     </Link>
-                    <div className="text-xs text-slate-400">{c.email}</div>
+                    <div className="text-xs text-slate-400 dark:text-slate-500">{c.email}</div>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {c.telefone || <span className="text-rose-500">sem telefone</span>}
+                  <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                    {c.telefone || <span className="text-rose-500 dark:text-rose-400">sem telefone</span>}
                   </td>
                   <td className="px-4 py-3"><EdicaoBadge edicao={c.edicao_ht ?? c.edicao} /></td>
                   <td className="px-4 py-3">
@@ -298,10 +298,10 @@ export default function ContatosPage() {
                         {c.estagio_nome}
                       </span>
                     ) : (
-                      <span className="text-slate-300">—</span>
+                      <span className="text-slate-300 dark:text-slate-600">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-slate-500">{fmtData(c.ultima_compra_ht)}</td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{fmtData(c.ultima_compra_ht)}</td>
                 </tr>
               ))}
             </tbody>
@@ -311,10 +311,10 @@ export default function ContatosPage() {
 
       {/* Barra de ação em massa — fixa no rodapé enquanto houver seleção */}
       {selecionados.size > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 shadow-[0_-2px_12px_rgba(0,0,0,0.06)] backdrop-blur">
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 shadow-[0_-2px_12px_rgba(0,0,0,0.06)] backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
           <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
-            <span className="text-sm text-slate-700">
-              <span className="font-semibold text-slate-900">{selecionados.size}</span>{" "}
+            <span className="text-sm text-slate-700 dark:text-slate-200">
+              <span className="font-semibold text-slate-900 dark:text-slate-100">{selecionados.size}</span>{" "}
               {selecionados.size === 1 ? "contato selecionado" : "contatos selecionados"}
             </span>
             <Button variant="ghost" size="sm" onClick={limparSelecao}>

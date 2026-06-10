@@ -96,7 +96,7 @@ export default function DashboardPage() {
         actions={
           <div className="flex items-center gap-3">
             {atualizadoEm && (
-              <span className="hidden items-center gap-1.5 text-xs text-slate-400 sm:inline-flex">
+              <span className="hidden items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 sm:inline-flex">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" aria-hidden="true" />
                 Atualizado às {hms(atualizadoEm)} · a cada {POLL_MS / 1000}s
               </span>
@@ -115,15 +115,15 @@ export default function DashboardPage() {
       <Card className="mb-5 p-3.5">
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[9rem] flex-1 sm:flex-none">
-            <label className="mb-1 block text-xs font-medium text-slate-500">De</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">De</label>
             <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className={fieldClass} />
           </div>
           <div className="min-w-[9rem] flex-1 sm:flex-none">
-            <label className="mb-1 block text-xs font-medium text-slate-500">Até</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Até</label>
             <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={fieldClass} />
           </div>
           <div className="min-w-[9rem] flex-1 sm:flex-none">
-            <label className="mb-1 block text-xs font-medium text-slate-500">Edição HT</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Edição HT</label>
             <select value={edicao} onChange={(e) => setEdicao(e.target.value)} className={fieldClass}>
               <option value="">Todas</option>
               {edicoes.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
@@ -132,7 +132,7 @@ export default function DashboardPage() {
           {temFiltro && (
             <button
               onClick={limparFiltros}
-              className="ml-auto inline-flex items-center gap-1 self-end py-2 text-sm font-medium text-slate-500 transition hover:text-slate-800 sm:ml-0"
+              className="ml-auto inline-flex items-center gap-1 self-end py-2 text-sm font-medium text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 sm:ml-0"
             >
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M18 6 6 18M6 6l12 12" />
@@ -199,8 +199,8 @@ export default function DashboardPage() {
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return (
-    <h2 className="mb-3 mt-8 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-      <span className="h-3.5 w-1 rounded-full bg-brand/60" aria-hidden="true" />
+    <h2 className="mb-3 mt-8 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <span className="h-3.5 w-1 rounded-full bg-brand/60 dark:bg-brand-400/70" aria-hidden="true" />
       {children}
     </h2>
   );
@@ -255,22 +255,22 @@ const ACAO_ESTILO: Record<
   { card: string; iconWrap: string; titulo: string; eyebrow: string }
 > = {
   alerta: {
-    card: "border-rose-200 bg-gradient-to-br from-rose-50 to-white",
-    iconWrap: "bg-rose-100 text-rose-600 ring-1 ring-inset ring-rose-200",
-    titulo: "text-rose-900",
-    eyebrow: "text-rose-500",
+    card: "border-rose-200 bg-gradient-to-br from-rose-50 to-white dark:border-rose-500/30 dark:from-rose-500/10 dark:to-slate-900",
+    iconWrap: "bg-rose-100 text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/15 dark:text-rose-400 dark:ring-rose-500/30",
+    titulo: "text-rose-900 dark:text-rose-200",
+    eyebrow: "text-rose-500 dark:text-rose-400",
   },
   sugestao: {
-    card: "border-brand/20 bg-gradient-to-br from-brand/5 to-white",
-    iconWrap: "bg-brand/10 text-brand ring-1 ring-inset ring-brand/20",
-    titulo: "text-slate-900",
-    eyebrow: "text-brand",
+    card: "border-brand/20 bg-gradient-to-br from-brand/5 to-white dark:border-brand-400/25 dark:from-brand-400/10 dark:to-slate-900",
+    iconWrap: "bg-brand/10 text-brand ring-1 ring-inset ring-brand/20 dark:bg-brand-400/15 dark:text-brand-300 dark:ring-brand-400/25",
+    titulo: "text-slate-900 dark:text-slate-100",
+    eyebrow: "text-brand dark:text-brand-300",
   },
   neutro: {
-    card: "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white",
-    iconWrap: "bg-emerald-100 text-emerald-600 ring-1 ring-inset ring-emerald-200",
-    titulo: "text-emerald-900",
-    eyebrow: "text-emerald-600",
+    card: "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white dark:border-emerald-500/30 dark:from-emerald-500/10 dark:to-slate-900",
+    iconWrap: "bg-emerald-100 text-emerald-600 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:ring-emerald-500/30",
+    titulo: "text-emerald-900 dark:text-emerald-200",
+    eyebrow: "text-emerald-600 dark:text-emerald-400",
   },
 };
 
@@ -299,25 +299,25 @@ function ProximaAcao({ acao }: { acao: Acao }) {
       <div className="min-w-0">
         <div className={cn("text-[11px] font-semibold uppercase tracking-wide", estilo.eyebrow)}>Próxima ação</div>
         <p className={cn("mt-1 text-lg font-semibold leading-tight", estilo.titulo)}>{acao.titulo}</p>
-        <p className="mt-1 text-sm text-slate-600">{acao.descricao}</p>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{acao.descricao}</p>
       </div>
     </Card>
   );
 }
 
 const STATUS_CLASSE: Record<string, string> = {
-  concluido: "bg-emerald-100 text-emerald-700 ring-emerald-300",
-  concluído: "bg-emerald-100 text-emerald-700 ring-emerald-300",
-  enviado: "bg-emerald-100 text-emerald-700 ring-emerald-300",
-  em_andamento: "bg-blue-100 text-blue-700 ring-blue-300",
-  enviando: "bg-blue-100 text-blue-700 ring-blue-300",
-  agendado: "bg-amber-100 text-amber-800 ring-amber-300",
-  erro: "bg-rose-100 text-rose-700 ring-rose-300",
-  falha: "bg-rose-100 text-rose-700 ring-rose-300",
+  concluido: "bg-emerald-100 text-emerald-700 ring-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30",
+  concluído: "bg-emerald-100 text-emerald-700 ring-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30",
+  enviado: "bg-emerald-100 text-emerald-700 ring-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30",
+  em_andamento: "bg-blue-100 text-blue-700 ring-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/30",
+  enviando: "bg-blue-100 text-blue-700 ring-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/30",
+  agendado: "bg-amber-100 text-amber-800 ring-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30",
+  erro: "bg-rose-100 text-rose-700 ring-rose-300 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30",
+  falha: "bg-rose-100 text-rose-700 ring-rose-300 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30",
 };
 
 function StatusBadge({ status }: { status: string }) {
-  const cor = STATUS_CLASSE[status?.toLowerCase()] || "bg-slate-100 text-slate-600 ring-slate-300";
+  const cor = STATUS_CLASSE[status?.toLowerCase()] || "bg-slate-100 text-slate-600 ring-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700";
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${cor}`}>
       {status || "—"}
@@ -327,17 +327,17 @@ function StatusBadge({ status }: { status: string }) {
 
 function Metricas({ m }: { m: Metricas }) {
   return (
-    <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums text-slate-500 sm:gap-4">
+    <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums text-slate-500 dark:text-slate-400 sm:gap-4">
       <span className="hidden sm:inline">
-        <span className="font-semibold text-slate-700">{m.enviados}</span> env.
+        <span className="font-semibold text-slate-700 dark:text-slate-200">{m.enviados}</span> env.
       </span>
       <span className="hidden sm:inline">
-        <span className="font-semibold text-slate-700">{m.respondidos}</span> resp.
+        <span className="font-semibold text-slate-700 dark:text-slate-200">{m.respondidos}</span> resp.
       </span>
-      <span className="inline-flex items-center rounded-full bg-brand/5 px-2 py-0.5 font-semibold text-brand ring-1 ring-inset ring-brand/10">
+      <span className="inline-flex items-center rounded-full bg-brand/5 px-2 py-0.5 font-semibold text-brand ring-1 ring-inset ring-brand/10 dark:bg-brand-400/10 dark:text-brand-300 dark:ring-brand-400/20">
         {taxa(m.respondidos, m.enviados)}%
       </span>
-      <span className="hidden text-slate-400 md:inline">SLA {m.sla_medio != null ? `${m.sla_medio}m` : "—"}</span>
+      <span className="hidden text-slate-400 dark:text-slate-500 md:inline">SLA {m.sla_medio != null ? `${m.sla_medio}m` : "—"}</span>
     </div>
   );
 }
@@ -345,7 +345,7 @@ function Metricas({ m }: { m: Metricas }) {
 function Chevron({ aberto }: { aberto: boolean }) {
   return (
     <svg
-      className={cn("h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-150", aberto && "rotate-90")}
+      className={cn("h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-150 dark:text-slate-500", aberto && "rotate-90")}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -378,7 +378,7 @@ function Arvore({ arvore }: { arvore: NoEdicao[] }) {
   }
 
   return (
-    <Card className="divide-y divide-slate-100 overflow-hidden text-sm">
+    <Card className="divide-y divide-slate-100 overflow-hidden text-sm dark:divide-slate-800">
       {arvore.map((ed) => {
         const ke = `e:${ed.edicao_ht}`;
         const abertoE = !!abertos[ke];
@@ -387,8 +387,8 @@ function Arvore({ arvore }: { arvore: NoEdicao[] }) {
             <button
               onClick={() => toggle(ke)}
               className={cn(
-                "flex w-full items-center gap-2.5 px-4 py-3 text-left transition hover:bg-slate-50",
-                abertoE && "bg-slate-50/70",
+                "flex w-full items-center gap-2.5 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60",
+                abertoE && "bg-slate-50/70 dark:bg-slate-800/40",
               )}
             >
               <Chevron aberto={abertoE} />
@@ -398,37 +398,37 @@ function Arvore({ arvore }: { arvore: NoEdicao[] }) {
             </button>
 
             {abertoE && (
-              <div className="border-t border-slate-100 bg-slate-50/40">
+              <div className="border-t border-slate-100 bg-slate-50/40 dark:border-slate-800 dark:bg-slate-800/20">
                 {ed.templates.map((tpl) => {
                   const kt = `${ke}|t:${tpl.template}`;
                   const abertoT = !!abertos[kt];
                   return (
-                    <div key={kt} className="border-l-2 border-slate-200 ml-5">
+                    <div key={kt} className="border-l-2 border-slate-200 ml-5 dark:border-slate-700">
                       <button
                         onClick={() => toggle(kt)}
-                        className="flex w-full items-center gap-2.5 py-2.5 pl-4 pr-4 text-left transition hover:bg-slate-100/70"
+                        className="flex w-full items-center gap-2.5 py-2.5 pl-4 pr-4 text-left transition hover:bg-slate-100/70 dark:hover:bg-slate-800"
                       >
                         <Chevron aberto={abertoT} />
-                        <span className="font-medium text-slate-700">{tpl.template}</span>
+                        <span className="font-medium text-slate-700 dark:text-slate-200">{tpl.template}</span>
                         <div className="flex-1" />
                         <Metricas m={tpl} />
                       </button>
 
                       {abertoT && (
-                        <div className="border-l-2 border-brand/20 ml-4 bg-white">
+                        <div className="border-l-2 border-brand/20 ml-4 bg-white dark:border-brand-400/20 dark:bg-slate-900">
                           {tpl.disparos.map((dp) => (
                             <div
                               key={dp.id}
-                              className="flex items-center gap-2.5 border-t border-slate-100 py-2.5 pl-6 pr-4"
+                              className="flex items-center gap-2.5 border-t border-slate-100 py-2.5 pl-6 pr-4 dark:border-slate-800"
                             >
-                              <span className="text-xs tabular-nums text-slate-500">{fmt(dp.iniciado_em)}</span>
+                              <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">{fmt(dp.iniciado_em)}</span>
                               <StatusBadge status={dp.status} />
                               <div className="flex-1" />
                               <Metricas m={dp} />
                             </div>
                           ))}
                           {tpl.disparos.length === 0 && (
-                            <div className="border-t border-slate-100 py-2.5 pl-6 pr-4 text-xs text-slate-400">
+                            <div className="border-t border-slate-100 py-2.5 pl-6 pr-4 text-xs text-slate-400 dark:border-slate-800 dark:text-slate-500">
                               Sem disparos.
                             </div>
                           )}
@@ -438,7 +438,7 @@ function Arvore({ arvore }: { arvore: NoEdicao[] }) {
                   );
                 })}
                 {ed.templates.length === 0 && (
-                  <div className="py-2.5 pl-9 pr-4 text-xs text-slate-400">Sem templates.</div>
+                  <div className="py-2.5 pl-9 pr-4 text-xs text-slate-400 dark:text-slate-500">Sem templates.</div>
                 )}
               </div>
             )}
@@ -465,18 +465,18 @@ function Atividades({ itens }: { itens: Atividade[] }) {
   }
   return (
     <Card className="overflow-hidden">
-      <ul className="divide-y divide-slate-100">
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
         {itens.map((a) => (
-          <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-sm transition hover:bg-slate-50/70">
-            <span className="w-24 shrink-0 text-xs tabular-nums text-slate-500">{fmt(a.iniciado_em)}</span>
+          <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-sm transition hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+            <span className="w-24 shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">{fmt(a.iniciado_em)}</span>
             <StatusBadge status={a.status} />
-            <span className="font-medium text-slate-700">{a.template || "—"}</span>
+            <span className="font-medium text-slate-700 dark:text-slate-200">{a.template || "—"}</span>
             <EdicaoBadge edicao={a.edicao_ht || null} />
             <div className="flex-1" />
-            <span className="text-xs tabular-nums text-slate-500">
-              <span className="font-semibold text-slate-700">{a.enviados}</span> env. ·{" "}
-              <span className="font-semibold text-slate-700">{a.respondidos}</span> resp. ·{" "}
-              <span className="font-semibold text-brand">{taxa(a.respondidos, a.enviados)}%</span>
+            <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
+              <span className="font-semibold text-slate-700 dark:text-slate-200">{a.enviados}</span> env. ·{" "}
+              <span className="font-semibold text-slate-700 dark:text-slate-200">{a.respondidos}</span> resp. ·{" "}
+              <span className="font-semibold text-brand dark:text-brand-300">{taxa(a.respondidos, a.enviados)}%</span>
             </span>
           </li>
         ))}
@@ -486,10 +486,10 @@ function Atividades({ itens }: { itens: Atividade[] }) {
 }
 
 const KPI_TOM: Record<string, { iconWrap: string; valor: string }> = {
-  blue: { iconWrap: "bg-blue-50 text-blue-600 ring-blue-100", valor: "text-slate-900" },
-  emerald: { iconWrap: "bg-emerald-50 text-emerald-600 ring-emerald-100", valor: "text-slate-900" },
-  brand: { iconWrap: "bg-brand/10 text-brand ring-brand/15", valor: "text-brand" },
-  amber: { iconWrap: "bg-amber-50 text-amber-600 ring-amber-100", valor: "text-slate-900" },
+  blue: { iconWrap: "bg-blue-50 text-blue-600 ring-blue-100 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-500/20", valor: "text-slate-900 dark:text-white" },
+  emerald: { iconWrap: "bg-emerald-50 text-emerald-600 ring-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400 dark:ring-emerald-500/20", valor: "text-slate-900 dark:text-white" },
+  brand: { iconWrap: "bg-brand/10 text-brand ring-brand/15 dark:bg-brand-400/15 dark:text-brand-300 dark:ring-brand-400/20", valor: "text-brand dark:text-brand-300" },
+  amber: { iconWrap: "bg-amber-50 text-amber-600 ring-amber-100 dark:bg-amber-500/15 dark:text-amber-400 dark:ring-amber-500/20", valor: "text-slate-900 dark:text-white" },
 };
 
 function Kpi({
@@ -507,7 +507,7 @@ function Kpi({
   return (
     <Card className="p-4 transition hover:shadow-soft">
       <div className="flex items-start justify-between gap-2">
-        <div className="text-xs font-medium uppercase tracking-wide text-slate-400">{titulo}</div>
+        <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{titulo}</div>
         <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset", t.iconWrap)} aria-hidden="true">
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             {icone}
