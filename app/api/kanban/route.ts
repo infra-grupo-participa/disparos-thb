@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, KanbanMoverSchema } from "@/lib/validators";
+import { moverEstagio } from "@/lib/services/contato";
 
 export const runtime = "nodejs";
 
@@ -81,24 +82,7 @@ export async function PATCH(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
   const p = await parseBody(req, KanbanMoverSchema);
   if (!p.ok) return p.res;
-  const body = p.data;
-
-  const estagio = await queryOne<{ id: number }>(
-    `select id from cs.estagios where chave = $1 and ativo`,
-    [body.estagioChave],
-  );
-  if (!estagio) return NextResponse.json({ ok: false, reason: "estagio_invalido" }, { status: 400 });
-
-  await query(
-    `update cs.contatos set estagio_id = $2, atualizado_em = now() where comprador_id = $1`,
-    [body.compradorId, estagio.id],
-  );
-  // Registra a movimentação na timeline.
-  await query(
-    `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-     select id, 'mudanca_estagio', $2, 'cs' from cs.contatos where comprador_id = $1`,
-    [body.compradorId, `Movido para "${body.estagioChave}"`],
-  );
-
+  const ok = await moverEstagio(p.data.compradorId, p.data.estagioChave);
+  if (!ok) return NextResponse.json({ ok: false, reason: "estagio_invalido" }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

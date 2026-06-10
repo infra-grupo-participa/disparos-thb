@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, ContatoPatchSchema } from "@/lib/validators";
+import { moverEstagio, setTags, setResponsavel, setOptOut } from "@/lib/services/contato";
 
 export const runtime = "nodejs";
 
@@ -60,28 +61,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!parsed.ok) return parsed.res;
   const b = parsed.data;
 
-  // mudança de estágio (com log na timeline)
-  if (b.estagio_chave) {
-    const atual = await queryOne<{ estagio_id: number | null }>(
-      `select estagio_id from cs.contatos where comprador_id = $1`,
-      [compradorId],
-    );
-    const novo = await queryOne<{ id: number; nome: string }>(
-      `select id, nome from cs.estagios where chave = $1 and ativo`,
-      [b.estagio_chave],
-    );
-    if (novo) {
-      await query(
-        `update cs.contatos set estagio_id = $2, atualizado_em = now() where comprador_id = $1`,
-        [compradorId, novo.id],
-      );
-      await query(
-        `insert into cs.interacoes (contato_id, tipo, descricao, estagio_anterior_id, estagio_novo_id, autor)
-         select id, 'mudanca_estagio', $2, $3, $4, 'cs' from cs.contatos where comprador_id = $1`,
-        [compradorId, `Estágio alterado para "${novo.nome}"`, atual?.estagio_id ?? null, novo.id],
-      );
-    }
-  }
+  // mudança de estágio (com log na timeline) — via serviço de contato
+  if (b.estagio_chave) await moverEstagio(compradorId, b.estagio_chave);
 
   // campos de follow-up / observações (atualiza só os enviados)
   await query(
@@ -99,24 +80,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     ],
   );
 
-  // tags / responsável / opt-out (atualiza só os campos enviados)
-  if (b.tags !== undefined) {
-    await query(`update cs.contatos set tags = $2, atualizado_em = now() where comprador_id = $1`, [compradorId, b.tags]);
-  }
-  if (b.responsavel !== undefined) {
-    await query(`update cs.contatos set responsavel = $2, atualizado_em = now() where comprador_id = $1`, [compradorId, b.responsavel || null]);
-  }
-  if (b.opt_out !== undefined) {
-    await query(
-      `update cs.contatos set opt_out = $2, opt_out_em = case when $2 then now() else null end, atualizado_em = now() where comprador_id = $1`,
-      [compradorId, b.opt_out],
-    );
-    await query(
-      `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-       select id, 'sistema', $2, 'cs' from cs.contatos where comprador_id = $1`,
-      [compradorId, b.opt_out ? "Marcado como opt-out (manual)" : "Opt-out removido (manual)"],
-    );
-  }
+  // tags / responsável / opt-out (atualiza só os campos enviados) — via serviço
+  if (b.tags !== undefined) await setTags(compradorId, b.tags);
+  if (b.responsavel !== undefined) await setResponsavel([compradorId], b.responsavel || null);
+  if (b.opt_out !== undefined) await setOptOut(compradorId, b.opt_out);
 
   // nota manual na timeline
   if (b.nota && b.nota.trim()) {

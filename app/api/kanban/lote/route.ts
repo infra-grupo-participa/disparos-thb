@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
-import { query } from "@/lib/db";
 import { parseBody, KanbanLoteSchema } from "@/lib/validators";
+import { addTagEmLote, setResponsavel } from "@/lib/services/contato";
 
 export const runtime = "nodejs";
 
@@ -13,19 +13,8 @@ export async function POST(req: Request) {
   if (!p.ok) return p.res;
   const b = p.data;
 
-  if (b.addTag && b.addTag.trim()) {
-    await query(
-      `update cs.contatos set tags = array_append(tags, $2), atualizado_em = now()
-        where comprador_id = any($1::uuid[]) and not ($2 = any(tags))`,
-      [b.compradorIds, b.addTag.trim()],
-    );
-  }
-  if (b.responsavel !== undefined) {
-    await query(
-      `update cs.contatos set responsavel = $2, atualizado_em = now() where comprador_id = any($1::uuid[])`,
-      [b.compradorIds, b.responsavel || null],
-    );
-  }
+  if (b.addTag && b.addTag.trim()) await addTagEmLote(b.compradorIds, b.addTag.trim());
+  if (b.responsavel !== undefined) await setResponsavel(b.compradorIds, b.responsavel || null);
 
   return NextResponse.json({ ok: true });
 }

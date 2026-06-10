@@ -82,6 +82,8 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
       .then((d) => d.ok && setTemplates(d.templates.filter((t: Template) => t.ativo)))
       .catch(() => {});
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    // selecaoInicial é fixa ao montar (modal); rodar só na montagem é intencional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const template = templates.find((t) => t.id === templateId);

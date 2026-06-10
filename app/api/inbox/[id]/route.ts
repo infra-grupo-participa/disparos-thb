@@ -4,6 +4,7 @@ import { query, queryOne } from "@/lib/db";
 import { createContact, getContactMessages, sendMessage } from "@/lib/unnichat";
 import { normalizePhone } from "@/lib/phone";
 import { parseBody, InboxMsgSchema, InboxStatusSchema } from "@/lib/validators";
+import { registrarRespostaCS, mudarStatus } from "@/lib/services/atendimento";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -71,12 +72,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const tel = normalizePhone(c.telefone);
   if (!tel) return NextResponse.json({ ok: false, reason: "contato sem telefone" }, { status: 400 });
 
-  // Estado da pendência antes de enviar (para o FRT do primeiro contato).
-  const pend = await queryOne<{ aguardando_desde: string | null }>(
-    `select aguardando_desde from cs.contatos where comprador_id = $1`,
-    [c.comprador_id],
-  );
-
   const r = await sendMessage({ phone: tel, text: texto });
   if (!r.ok) {
     return NextResponse.json({ ok: false, reason: r.erro || "falha ao enviar" }, { status: 400 });
@@ -84,25 +79,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const atendente = (p.data.atendente ?? "").trim() || null;
 
-  // Atendimento + FRT quando havia uma pergunta pendente do lead.
-  let frtMin: number | null = null;
-  if (pend?.aguardando_desde) {
-    const at = await queryOne<{ frt_minutos: number }>(
-      `insert into cs.atendimentos (comprador_id, atendente, pergunta_em, frt_minutos)
-       values ($1, $2, $3, round(extract(epoch from (now() - $3::timestamptz)) / 60)::int)
-       returning frt_minutos`,
-      [c.comprador_id, atendente, pend.aguardando_desde],
-    );
-    frtMin = at?.frt_minutos ?? null;
-  }
+  // Fecha a pendência + grava o atendimento com o FRT (serviço de atendimento).
+  const frtMin = await registrarRespostaCS(c.comprador_id, atendente);
 
-  // Resolve a conversa + registra a resposta na timeline (com o atendente).
-  await query(
-    `update cs.contatos set inbox_status = 'resolvido', aguardando_desde = null,
-            ultimo_contato_em = now(), atualizado_em = now()
-      where comprador_id = $1`,
-    [c.comprador_id],
-  );
+  // Registra a resposta na timeline (com o atendente).
   await query(
     `insert into cs.interacoes (contato_id, tipo, descricao, autor)
      select id, 'nota', $2, $3 from cs.contatos where comprador_id = $1`,
@@ -117,10 +97,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
   const p = await parseBody(req, InboxStatusSchema);
   if (!p.ok) return p.res;
-  if (p.data.status === "resolvido") {
-    await query(`update cs.contatos set inbox_status = 'resolvido', aguardando_desde = null, atualizado_em = now() where comprador_id = $1`, [params.id]);
-  } else {
-    await query(`update cs.contatos set inbox_status = 'pendente', aguardando_desde = coalesce(aguardando_desde, now()), atualizado_em = now() where comprador_id = $1`, [params.id]);
-  }
+  await mudarStatus(params.id, p.data.status);
   return NextResponse.json({ ok: true });
 }
