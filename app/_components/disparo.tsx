@@ -32,6 +32,35 @@ function StatusEntrega({ status, code }: { status: string | null; code: number |
   return <span className="text-slate-400 dark:text-slate-500">{status}</span>;
 }
 
+// Modal reutilizável do disparo — usado em Contatos e no Kanban (atalho rápido,
+// sem trocar de página). Envolve <Disparo> num overlay; onClose deve limpar a
+// seleção / recarregar a tela de origem conforme o caso.
+export function DisparoModal({ selecao, onClose }: { selecao: Selecionado[]; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 backdrop-blur-sm sm:p-8"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-slate-100 p-4 shadow-pop dark:border-slate-800 dark:bg-slate-950 sm:p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Novo disparo</h2>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            aria-label="Fechar"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <Disparo selecaoInicial={selecao} aoFechar={onClose} />
+      </div>
+    </div>
+  );
+}
+
 export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecionado[]; aoFechar?: () => void }) {
   const wrap = aoFechar ? "animate-fade-in" : "mx-auto max-w-3xl animate-fade-in";
   const [selecao, setSelecao] = useState<Selecionado[]>([]);
@@ -47,15 +76,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    // Modo modal recebe a seleção por prop; modo página lê do sessionStorage.
-    if (selecaoInicial && selecaoInicial.length) {
-      setSelecao(selecaoInicial);
-    } else {
-      try {
-        const raw = sessionStorage.getItem("cs_disparo_selecao");
-        if (raw) setSelecao(JSON.parse(raw));
-      } catch { /* noop */ }
-    }
+    if (selecaoInicial?.length) setSelecao(selecaoInicial);
     fetch("/api/templates")
       .then((r) => r.json())
       .then((d) => d.ok && setTemplates(d.templates.filter((t: Template) => t.ativo)))

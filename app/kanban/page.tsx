@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
+import { DisparoModal } from "@/app/_components/disparo";
+
+type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
 type Card = {
   comprador_id: string;
@@ -56,13 +58,13 @@ const EDICAO_COR: Record<string, string> = {
 };
 
 export default function KanbanPage() {
-  const router = useRouter();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [edicoes, setEdicoes] = useState<string[]>([]);
   const [edicao, setEdicao] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [selecionado, setSelecionado] = useState<Card | null>(null);
+  const [dispararSelecao, setDispararSelecao] = useState<SelDisparo[] | null>(null);
   const arrastando = useRef<Card | null>(null);
   const [sobre, setSobre] = useState<string | null>(null);
 
@@ -105,10 +107,7 @@ export default function KanbanPage() {
     const d = await r.json();
     const lista = (d.ok ? d.contatos : []).filter((c: { telefone: string | null }) => c.telefone);
     if (lista.length === 0) { alert("Nenhum contato com telefone nesta etapa."); return; }
-    sessionStorage.setItem("cs_disparo_selecao", JSON.stringify(
-      lista.map((c: { comprador_id: string; nome: string; telefone: string; edicao: string | null }) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone, edicao: c.edicao })),
-    ));
-    router.push("/disparar");
+    setDispararSelecao(lista.map((c: { comprador_id: string; nome: string; telefone: string; edicao: string | null }) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone, edicao: c.edicao })));
   }
 
   const totalGeral = colunas.reduce((s, c) => s + c.total, 0);
@@ -193,10 +192,14 @@ export default function KanbanPage() {
           onClose={() => setSelecionado(null)}
           onMover={(chave) => { mover(selecionado, chave); setSelecionado({ ...selecionado, estagio_chave: chave }); }}
           onDisparar={() => {
-            sessionStorage.setItem("cs_disparo_selecao", JSON.stringify([{ comprador_id: selecionado.comprador_id, nome: selecionado.nome, telefone: selecionado.telefone, edicao: selecionado.edicao }]));
-            router.push("/disparar");
+            if (selecionado.telefone) setDispararSelecao([{ comprador_id: selecionado.comprador_id, nome: selecionado.nome, telefone: selecionado.telefone, edicao: selecionado.edicao }]);
+            setSelecionado(null);
           }}
         />
+      )}
+
+      {dispararSelecao && (
+        <DisparoModal selecao={dispararSelecao} onClose={() => { setDispararSelecao(null); carregar(edicao ?? ""); }} />
       )}
     </div>
   );
