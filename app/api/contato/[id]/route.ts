@@ -33,7 +33,19 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     [compradorId],
   );
 
-  return NextResponse.json({ ok: true, contato, timeline });
+  // Métricas de disparo do contato (acesso rápido no card/painel do Kanban).
+  const metricas = await queryOne(
+    `select
+        count(*) filter (where enviado)::int   as disparos_recebidos,
+        count(*) filter (where respondeu)::int as disparos_respondidos,
+        round(avg(sla_minutos) filter (where respondeu))::int as sla_medio,
+        max(respondeu_em) as ultima_resposta_disparo
+       from cs.disparo_contatos
+      where comprador_id = $1`,
+    [compradorId],
+  );
+
+  return NextResponse.json({ ok: true, contato, timeline, metricas });
 }
 
 // PATCH: atualiza estágio / próxima ação / observações; opcionalmente adiciona uma nota.
