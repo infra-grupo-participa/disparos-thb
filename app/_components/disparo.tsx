@@ -11,7 +11,7 @@ type Progresso = {
   disparo: { status: string; fase: string; total_enviados: number; total_contatos_criados: number };
   resumo: { total: number; criados: number; enviados: number; erros: number };
   contatos: {
-    id: string; nome: string | null; telefone: string;
+    id: string; comprador_id: string; nome: string | null; telefone: string;
     enviado: boolean; erro: string | null; contato_criado: boolean; erro_contato: string | null;
     status_meta: string | null; erro_meta_code: number | null;
   }[];
@@ -168,6 +168,21 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
     }
   }
 
+  // Reenvio dos que falharam: recarrega a seleção só com os falhados e volta à
+  // tela de configuração (mantém o template escolhido).
+  function reenviarFalhas() {
+    if (!progresso) return;
+    const falhados = progresso.contatos.filter((c) => c.erro || c.erro_contato || c.status_meta === "failed");
+    if (falhados.length === 0) return;
+    if (pollRef.current) clearInterval(pollRef.current);
+    setSelecao(falhados.map((c) => ({ comprador_id: c.comprador_id, nome: c.nome || c.telefone, telefone: c.telefone })));
+    setDisparoId(null);
+    setProgresso(null);
+    setConfirmado(false);
+    setShowConfirm(false);
+    setEnviando(false);
+  }
+
   // ---- Tela de progresso/resultado ----
   if (disparoId && progresso) {
     const { resumo, disparo } = progresso;
@@ -293,12 +308,17 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
 
         {concluido && (
           <div className="mt-6 flex flex-wrap gap-3">
+            {resumo.erros > 0 && (
+              <Button variant="primary" onClick={reenviarFalhas}>
+                Reenviar para os {resumo.erros} que falharam
+              </Button>
+            )}
             {aoFechar ? (
-              <Button variant="primary" onClick={aoFechar}>Concluir</Button>
+              <Button variant={resumo.erros > 0 ? "secondary" : "primary"} onClick={aoFechar}>Concluir</Button>
             ) : (
               <>
                 <Link href="/contatos">
-                  <Button variant="primary">Voltar aos contatos</Button>
+                  <Button variant={resumo.erros > 0 ? "secondary" : "primary"}>Voltar aos contatos</Button>
                 </Link>
                 <Link href="/dashboard">
                   <Button variant="secondary">Ver métricas</Button>

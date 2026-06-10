@@ -18,7 +18,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   if (!disparo) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
   const contatos = await query(
-    `select dc.id, dc.telefone, dc.enviado, dc.respondeu, dc.erro,
+    `select dc.id, dc.comprador_id, dc.telefone, dc.enviado, dc.respondeu, dc.erro,
             dc.contato_criado, dc.erro_contato, dc.status_meta, dc.erro_meta_code, dc.enviado_em, v.nome
        from cs.disparo_contatos dc
        left join cs.contatos_ht v on v.comprador_id = dc.comprador_id

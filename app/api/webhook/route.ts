@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
+import { ehOptOut } from "@/lib/classificar";
 
 export const runtime = "nodejs";
 
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
       "",
   ).slice(0, 140);
   const tel = normalizePhone(telefoneRaw);
+  const optOut = ehOptOut(mensagem);
 
   if (!tel) {
     await logWebhook({ origem, telefoneRaw, telefoneNorm: null, resultado: "sem_telefone", payload: body });
@@ -109,7 +111,7 @@ export async function POST(req: Request) {
     await query(`update cs.disparos set total_respondidos = total_respondidos + 1 where id = $1`, [pendente.disparo_id]);
 
     if (pendente.comprador_id) {
-      await avancarContato(pendente.comprador_id, desc, pendente.disparo_id);
+      await avancarContato(pendente.comprador_id, desc, pendente.disparo_id, optOut);
     }
     await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "matched", payload: body });
     return NextResponse.json({ ok: true, matched: true, sla_minutos: upd.sla_minutos ?? null });
@@ -121,7 +123,7 @@ export async function POST(req: Request) {
     [tel],
   );
   if (contato) {
-    await avancarContato(contato.comprador_id, desc, null);
+    await avancarContato(contato.comprador_id, desc, null, optOut);
     await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "registrado_sem_disparo", payload: body });
     return NextResponse.json({ ok: true, matched: false, registrado: true });
   }
@@ -131,7 +133,7 @@ export async function POST(req: Request) {
 }
 
 // Marca resposta no contato: timeline + ultima_resposta_em + avança estágio (novo/contatado → respondeu).
-async function avancarContato(compradorId: string, descricao: string, disparoId: string | null) {
+async function avancarContato(compradorId: string, descricao: string, disparoId: string | null, optOut: boolean) {
   await query(
     `update cs.contatos
         set ultima_resposta_em = now(),
@@ -148,4 +150,16 @@ async function avancarContato(compradorId: string, descricao: string, disparoId:
      select id, 'resposta', $2, $3, 'lead' from cs.contatos where comprador_id = $1`,
     [compradorId, descricao, disparoId],
   );
+  // Opt-out: registra a saída e bloqueia disparos futuros.
+  if (optOut) {
+    await query(
+      `update cs.contatos set opt_out = true, opt_out_em = now(), atualizado_em = now() where comprador_id = $1 and not opt_out`,
+      [compradorId],
+    );
+    await query(
+      `insert into cs.interacoes (contato_id, tipo, descricao, autor)
+       select id, 'sistema', 'Pediu para parar de receber (opt-out)', 'sistema' from cs.contatos where comprador_id = $1`,
+      [compradorId],
+    );
+  }
 }

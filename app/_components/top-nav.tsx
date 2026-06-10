@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import ThemeToggle from "./theme-toggle";
+import BuscaGlobal from "./busca-global";
 
 type LinkDef = { href: string; label: string; icon: string };
 
@@ -64,6 +65,7 @@ export default function TopNav() {
           })}
         </nav>
 
+        <BuscaGlobal />
         <ThemeToggle />
         <button onClick={logout} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100">
           Sair

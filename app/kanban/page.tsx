@@ -14,6 +14,8 @@ type Card = {
   edicao: string | null;
   estagio_chave: string;
   tags: string[];
+  responsavel: string | null;
+  opt_out: boolean;
   ultima_resposta_em: string | null;
   ultima_msg: string | null;
 };
@@ -21,7 +23,7 @@ type Coluna = { chave: string; nome: string; cor: string; total: number };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 type Metricas = { disparos_recebidos: number; disparos_respondidos: number; sla_medio: number | null; ultima_resposta_disparo: string | null };
 type Detalhe = {
-  contato: { nome: string; email: string; telefone: string | null; edicao: string | null; estagio_chave: string | null; estagio_nome: string | null; ultima_compra_ht: string | null };
+  contato: { nome: string; email: string; telefone: string | null; edicao: string | null; estagio_chave: string | null; estagio_nome: string | null; ultima_compra_ht: string | null; tags: string[] | null; responsavel: string | null; opt_out: boolean };
   timeline: Interacao[];
   metricas: Metricas;
 };
@@ -62,6 +64,10 @@ export default function KanbanPage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [edicoes, setEdicoes] = useState<string[]>([]);
   const [edicao, setEdicao] = useState<string | null>(null);
+  const [responsaveis, setResponsaveis] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
+  const [filtroResp, setFiltroResp] = useState("");
+  const [filtroTag, setFiltroTag] = useState("");
   const [carregando, setCarregando] = useState(true);
   const [selecionado, setSelecionado] = useState<Card | null>(null);
   const [dispararSelecao, setDispararSelecao] = useState<SelDisparo[] | null>(null);
@@ -70,25 +76,29 @@ export default function KanbanPage() {
   const arrastando = useRef<Card | null>(null);
   const [sobre, setSobre] = useState<string | null>(null);
 
-  const carregar = useCallback(async (ed: string) => {
+  const carregar = useCallback(async () => {
     setCarregando(true);
     try {
       const params = new URLSearchParams();
-      if (ed) params.set("edicao", ed);
+      if (edicao) params.set("edicao", edicao);
+      if (filtroResp) params.set("responsavel", filtroResp);
+      if (filtroTag) params.set("tag", filtroTag);
       const r = await fetch(`/api/kanban?${params.toString()}`);
       const d = await r.json();
       if (d.ok) {
         setColunas(d.colunas);
         setCards(d.cards);
         if (Array.isArray(d.edicoes)) setEdicoes(d.edicoes);
+        if (Array.isArray(d.responsaveis)) setResponsaveis(d.responsaveis);
+        if (Array.isArray(d.tags)) setTags(d.tags);
         if (edicao === null && d.edicoes?.length) { setEdicao(d.edicoes[0]); return; }
       }
     } finally {
       setCarregando(false);
     }
-  }, [edicao]);
+  }, [edicao, filtroResp, filtroTag]);
 
-  useEffect(() => { carregar(edicao ?? ""); }, [edicao, carregar]);
+  useEffect(() => { carregar(); }, [carregar]);
 
   async function mover(card: Card, estagioChave: string) {
     if (card.estagio_chave === estagioChave) return;
@@ -99,7 +109,7 @@ export default function KanbanPage() {
     ));
     try {
       await fetch("/api/kanban", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compradorId: card.comprador_id, estagioChave }) });
-    } catch { carregar(edicao ?? ""); }
+    } catch { carregar(); }
   }
 
   async function dispararEtapa(col: Coluna) {
@@ -126,6 +136,22 @@ export default function KanbanPage() {
   }
   const cardsSelecionados = () => cards.filter((c) => selecaoMulti.has(c.comprador_id));
 
+  // Ações em lote sobre a seleção (tag / responsável).
+  async function lote(payload: { addTag?: string; responsavel?: string | null }) {
+    const ids = [...selecaoMulti];
+    if (!ids.length) return;
+    await fetch("/api/kanban/lote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compradorIds: ids, ...payload }) });
+    await carregar();
+  }
+  function addTagLote() {
+    const t = window.prompt("Tag para adicionar aos selecionados:");
+    if (t && t.trim()) lote({ addTag: t.trim() });
+  }
+  function responsavelLote() {
+    const r = window.prompt("Atribuir responsável aos selecionados (vazio = remover):");
+    if (r !== null) lote({ responsavel: r.trim() || null });
+  }
+
   const totalGeral = colunas.reduce((s, c) => s + c.total, 0);
 
   return (
@@ -137,10 +163,24 @@ export default function KanbanPage() {
             {totalGeral} comprador(es){edicao ? ` · ${edicao}` : ""} — arraste os cards entre as etapas, clique para ver detalhes.
           </p>
         </div>
-        <select value={edicao ?? ""} onChange={(e) => setEdicao(e.target.value)} className={cn(fieldClass, "w-auto")}>
-          <option value="">Todas as edições</option>
-          {edicoes.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={edicao ?? ""} onChange={(e) => setEdicao(e.target.value)} className={cn(fieldClass, "w-auto")}>
+            <option value="">Todas as edições</option>
+            {edicoes.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
+          </select>
+          {responsaveis.length > 0 && (
+            <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto")}>
+              <option value="">Todos os responsáveis</option>
+              {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          )}
+          {tags.length > 0 && (
+            <select value={filtroTag} onChange={(e) => setFiltroTag(e.target.value)} className={cn(fieldClass, "w-auto")}>
+              <option value="">Todas as tags</option>
+              {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+        </div>
       </div>
 
       {carregando && cards.length === 0 ? (
@@ -209,6 +249,8 @@ export default function KanbanPage() {
         <Drawer
           card={selecionado}
           colunas={colunas}
+          responsaveis={responsaveis}
+          onAtualizar={carregar}
           onClose={() => setSelecionado(null)}
           onMover={(chave) => { mover(selecionado, chave); setSelecionado({ ...selecionado, estagio_chave: chave }); }}
           onDisparar={() => {
@@ -219,7 +261,7 @@ export default function KanbanPage() {
       )}
 
       {dispararSelecao && (
-        <DisparoModal selecao={dispararSelecao} onClose={() => { setDispararSelecao(null); setSelecaoMulti(new Set()); carregar(edicao ?? ""); }} />
+        <DisparoModal selecao={dispararSelecao} onClose={() => { setDispararSelecao(null); setSelecaoMulti(new Set()); carregar(); }} />
       )}
 
       {/* Barra de ação da seleção múltipla */}
@@ -231,6 +273,8 @@ export default function KanbanPage() {
             </span>
             <Button variant="ghost" size="sm" onClick={() => setSelecaoMulti(new Set())}>Limpar</Button>
             <div className="flex-1" />
+            <Button variant="secondary" size="sm" onClick={addTagLote}>+ Tag</Button>
+            <Button variant="secondary" size="sm" onClick={responsavelLote}>Responsável</Button>
             <Button variant="primary" onClick={() => dispararCards(cardsSelecionados())}>Disparar para {selecaoMulti.size}</Button>
           </div>
         </div>
@@ -307,6 +351,12 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
           {card.edicao && (
             <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", EDICAO_COR[card.edicao] || "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}>{card.edicao}</span>
           )}
+          {card.opt_out && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:bg-rose-500/15 dark:text-rose-300" title="Opt-out: não recebe disparos">
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><path d="m5 5 14 14" /></svg>
+              opt-out
+            </span>
+          )}
           {(card.tags || []).slice(0, 2).map((t) => (
             <span key={t} className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{t}</span>
           ))}
@@ -314,6 +364,12 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
         <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", corAvatar(card.nome))}>{inicial(card.nome)}</span>
       </div>
       <p className="mt-1.5 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{card.nome}</p>
+      {card.responsavel && (
+        <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-slate-400 dark:text-slate-500">
+          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+          {card.responsavel}
+        </p>
+      )}
       <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
         <svg className="h-3.5 w-3.5 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.76.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Z" /></svg>
         <span className="flex-1 truncate">{card.ultima_msg ? card.ultima_msg.replace(/^Respondeu:\s*/, "") : "—"}</span>
@@ -331,15 +387,30 @@ const TL_ICONE: Record<string, { e: string; ring: string }> = {
   sistema: { e: "⚙️", ring: "bg-slate-50 ring-slate-200 dark:bg-slate-800/60 dark:ring-slate-700" },
 };
 
-function Drawer({ card, colunas, onClose, onMover, onDisparar }: {
-  card: Card; colunas: Coluna[]; onClose: () => void; onMover: (chave: string) => void; onDisparar: () => void;
+function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onAtualizar }: {
+  card: Card; colunas: Coluna[]; responsaveis: string[]; onClose: () => void; onMover: (chave: string) => void; onDisparar: () => void; onAtualizar: () => void;
 }) {
   const [det, setDet] = useState<Detalhe | null>(null);
+  const [tagNova, setTagNova] = useState("");
 
-  useEffect(() => {
-    setDet(null);
-    fetch(`/api/contato/${card.comprador_id}`).then((r) => r.json()).then((d) => { if (d.ok) setDet(d); }).catch(() => {});
-  }, [card.comprador_id]);
+  const recarregar = useCallback(
+    () => fetch(`/api/contato/${card.comprador_id}`).then((r) => r.json()).then((d) => { if (d.ok) setDet(d); }).catch(() => {}),
+    [card.comprador_id],
+  );
+  useEffect(() => { setDet(null); recarregar(); }, [recarregar]);
+
+  async function patch(payload: Record<string, unknown>) {
+    await fetch(`/api/contato/${card.comprador_id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    await recarregar();
+    onAtualizar();
+  }
+  const tagsAtuais = det?.contato.tags ?? [];
+  function addTag() {
+    const t = tagNova.trim();
+    setTagNova("");
+    if (t && !tagsAtuais.includes(t)) patch({ tags: [...tagsAtuais, t] });
+  }
+  const removeTag = (t: string) => patch({ tags: tagsAtuais.filter((x) => x !== t) });
 
   const m = det?.metricas;
   const taxa = m && m.disparos_recebidos ? Math.round((m.disparos_respondidos / m.disparos_recebidos) * 100) : 0;
@@ -386,6 +457,46 @@ function Drawer({ card, colunas, onClose, onMover, onDisparar }: {
               {colunas.map((c) => <option key={c.chave} value={c.chave}>{c.nome}</option>)}
             </select>
           </div>
+
+          {/* Tags, responsável e opt-out */}
+          {det && (
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Tags</label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {tagsAtuais.map((t) => (
+                    <span key={t} className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand dark:bg-brand-400/15 dark:text-brand-300">
+                      {t}
+                      <button onClick={() => removeTag(t)} className="text-brand/60 transition hover:text-brand dark:text-brand-300/60 dark:hover:text-brand-300" aria-label={`Remover ${t}`}>×</button>
+                    </span>
+                  ))}
+                  <input
+                    value={tagNova}
+                    onChange={(e) => setTagNova(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                    onBlur={addTag}
+                    placeholder="+ tag"
+                    className="w-20 rounded-full border border-dashed border-slate-300 bg-transparent px-2 py-0.5 text-xs outline-none placeholder:text-slate-400 focus:border-brand dark:border-slate-600 dark:text-slate-200"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Responsável</label>
+                <input
+                  list="resp-list"
+                  defaultValue={det.contato.responsavel ?? ""}
+                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (det.contato.responsavel ?? "")) patch({ responsavel: v || null }); }}
+                  placeholder="Atribuir a…"
+                  className={fieldClass}
+                />
+                <datalist id="resp-list">{responsaveis.map((r) => <option key={r} value={r} />)}</datalist>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                <input type="checkbox" checked={!!det.contato.opt_out} onChange={(e) => patch({ opt_out: e.target.checked })} className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600" />
+                Opt-out — não recebe disparos
+              </label>
+            </div>
+          )}
 
           {/* Histórico */}
           <div>

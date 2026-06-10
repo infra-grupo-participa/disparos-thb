@@ -121,6 +121,17 @@ export function metaAssunto(chave: string | null) {
   return (chave && META_ASSUNTO.get(chave)) || { chave: "saudacao", label: "Sem assunto", emoji: "💬", prioridade: 99 };
 }
 
+// Detecta pedido de opt-out ("PARAR", "SAIR", "não quero mais receber"…).
+// Conservador para não confundir com "cancelar minha dúvida": só dispara para
+// palavra isolada em mensagem curta ou frases explícitas de descadastro.
+export function ehOptOut(texto: string): boolean {
+  const t = normalizar(texto).trim();
+  if (!t) return false;
+  if (t.length <= 20 && /^(parar|pare|para|sair|saia|stop|descadastrar|remover|cancelar)\b/.test(t)) return true;
+  if (/\b(nao quero mais receber|parar de receber|nao me (mande|envie|manda) mais|me (tira|tire|remova|exclua) da lista|sair da lista|descadastr|cancelar (o )?recebimento|nao quero receber mais)/.test(t)) return true;
+  return false;
+}
+
 // Classifica uma mensagem de lead por completo (usado no sync e no webhook).
 export function classificarMensagem(texto: string) {
   const assunto = classificarAssunto(texto);

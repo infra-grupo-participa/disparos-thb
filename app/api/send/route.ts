@@ -49,11 +49,20 @@ export async function POST(req: Request) {
 
   const contatos = await query<{ comprador_id: string; nome: string; telefone: string; edicao: string | null }>(
     `select comprador_id, nome, telefone, edicao from cs.contatos_ht
-      where comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''`,
+      where comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
+        and comprador_id not in (select comprador_id from cs.contatos where opt_out)`,
+    [compradorIds],
+  );
+  // Quantos da seleção foram bloqueados por opt-out (informativo para o front).
+  const optOut = await queryOne<{ n: number }>(
+    `select count(*)::int as n from cs.contatos where comprador_id = any($1::uuid[]) and opt_out`,
     [compradorIds],
   );
   if (contatos.length === 0) {
-    return NextResponse.json({ ok: false, reason: "nenhum contato com telefone" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      reason: (optOut?.n ?? 0) > 0 ? "todos os contatos selecionados pediram para não receber (opt-out)" : "nenhum contato com telefone",
+    }, { status: 400 });
   }
 
   // Edição da campanha: usa a explícita do body; se ausente, deriva dos contatos
@@ -88,7 +97,7 @@ export async function POST(req: Request) {
     console.error("[send] erro ao processar disparo:", e),
   );
 
-  return NextResponse.json({ ok: true, disparoId, total: linhas.length });
+  return NextResponse.json({ ok: true, disparoId, total: linhas.length, pulados_opt_out: optOut?.n ?? 0 });
 }
 
 async function processar(disparoId: string, template: Template, linhas: Linha[]) {
@@ -149,14 +158,12 @@ async function processar(disparoId: string, template: Template, linhas: Linha[])
       enviados++;
       await query(`update cs.disparo_contatos set enviado = true, enviado_em = now(), erro = null where id = $1`, [l.id]);
       // avança estágio (inicial -> contatado) + marca contato
+      // Registra o contato; a movimentação na jornada (→ Em Onboarding) acontece
+      // quando o lead responde (webhook), não apenas por ter recebido o disparo.
       await query(
         `update cs.contatos
             set ultimo_contato_em = now(),
                 primeiro_contato_em = coalesce(primeiro_contato_em, now()),
-                estagio_id = case
-                  when estagio_id = (select id from cs.estagios where is_inicial order by ordem limit 1)
-                  then (select id from cs.estagios where chave = 'contatado')
-                  else estagio_id end,
                 atualizado_em = now()
           where comprador_id = $1`,
         [l.comprador_id],

@@ -16,9 +16,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
             v.edicao_ht, v.legado_ativado, v.legado_sla_h, v.legado_ativacao_em,
             v.legado_no_grupo, v.legado_pesquisa, v.legado_ja_ht, v.legado_qtd_ht,
             v.legado_ja_hm, v.legado_e_aluno, v.legado_instrucao, v.primeiro_contato_em,
-            v.legado_t_primeiro_contato_h, v.legado_t_ativacao_h
+            v.legado_t_primeiro_contato_h, v.legado_t_ativacao_h,
+            ct.tags, ct.opt_out, ct.opt_out_em
        from cs.contatos_ht v
+       left join cs.contatos ct on ct.comprador_id = v.comprador_id
       where v.comprador_id = $1`,
+
     [compradorId],
   );
   if (!contato) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
@@ -58,6 +61,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     proxima_acao_nota?: string | null;
     observacoes?: string | null;
     nota?: string;
+    tags?: string[];
+    responsavel?: string | null;
+    opt_out?: boolean;
   };
 
   // mudança de estágio (com log na timeline)
@@ -98,6 +104,25 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       b.observacoes ?? null,
     ],
   );
+
+  // tags / responsável / opt-out (atualiza só os campos enviados)
+  if (b.tags !== undefined) {
+    await query(`update cs.contatos set tags = $2, atualizado_em = now() where comprador_id = $1`, [compradorId, b.tags]);
+  }
+  if (b.responsavel !== undefined) {
+    await query(`update cs.contatos set responsavel = $2, atualizado_em = now() where comprador_id = $1`, [compradorId, b.responsavel || null]);
+  }
+  if (b.opt_out !== undefined) {
+    await query(
+      `update cs.contatos set opt_out = $2, opt_out_em = case when $2 then now() else null end, atualizado_em = now() where comprador_id = $1`,
+      [compradorId, b.opt_out],
+    );
+    await query(
+      `insert into cs.interacoes (contato_id, tipo, descricao, autor)
+       select id, 'sistema', $2, 'cs' from cs.contatos where comprador_id = $1`,
+      [compradorId, b.opt_out ? "Marcado como opt-out (manual)" : "Opt-out removido (manual)"],
+    );
+  }
 
   // nota manual na timeline
   if (b.nota && b.nota.trim()) {
