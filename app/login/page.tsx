@@ -21,7 +21,7 @@ export default function LoginPage() {
         body: JSON.stringify({ password }),
       });
       if (res.ok) {
-        router.push("/contatos");
+        router.push("/kanban");
         router.refresh();
       } else {
         setErro("Senha incorreta.");

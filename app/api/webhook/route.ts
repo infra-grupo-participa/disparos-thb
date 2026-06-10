@@ -136,8 +136,8 @@ async function avancarContato(compradorId: string, descricao: string, disparoId:
     `update cs.contatos
         set ultima_resposta_em = now(),
             estagio_id = case
-              when estagio_id in (select id from cs.estagios where chave in ('novo','contatado'))
-              then (select id from cs.estagios where chave = 'respondeu')
+              when estagio_id = (select id from cs.estagios where chave = 'comprou_ingresso')
+              then (select id from cs.estagios where chave = 'em_onboarding')
               else estagio_id end,
             atualizado_em = now()
       where comprador_id = $1`,
