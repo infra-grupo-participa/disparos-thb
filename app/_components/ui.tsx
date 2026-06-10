@@ -9,7 +9,7 @@ export function cn(...parts: Array<string | false | null | undefined>): string {
 
 // Classe-base para campos de formulário (input, select, textarea).
 export const fieldClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-card transition placeholder:text-slate-400 focus:border-brand dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-brand-400";
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-xs outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-brand-400 dark:focus:ring-brand-400/15";
 
 // ---- Button -------------------------------------------------------------
 type ButtonProps = {
@@ -34,7 +34,7 @@ export function Button({ children, variant = "primary", size = "md", className, 
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
         BTN_VARIANTS[variant],
         BTN_SIZES[size],
         className,
@@ -48,7 +48,7 @@ export function Button({ children, variant = "primary", size = "md", className, 
 
 // ---- Card ---------------------------------------------------------------
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("rounded-xl border border-slate-200 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900", className)}>{children}</div>;
+  return <div className={cn("rounded-xl border border-slate-200/80 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900", className)}>{children}</div>;
 }
 
 // ---- PageHeader ---------------------------------------------------------

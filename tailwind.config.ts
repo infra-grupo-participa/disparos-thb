@@ -26,9 +26,12 @@ const config: Config = {
         sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       boxShadow: {
-        card: "0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)",
-        soft: "0 6px 20px -4px rgb(15 23 42 / 0.10)",
-        pop: "0 12px 32px -8px rgb(15 23 42 / 0.18)",
+        // Sombras em camadas e sutis (estilo produto — Linear/Stripe), sempre
+        // acompanhadas de uma borda fina para definir a superfície.
+        xs: "0 1px 2px 0 rgb(15 23 42 / 0.05)",
+        card: "0 1px 1px 0 rgb(15 23 42 / 0.04), 0 2px 4px -2px rgb(15 23 42 / 0.05)",
+        soft: "0 2px 4px -2px rgb(15 23 42 / 0.06), 0 6px 16px -4px rgb(15 23 42 / 0.10)",
+        pop: "0 4px 12px -4px rgb(15 23 42 / 0.12), 0 16px 40px -12px rgb(15 23 42 / 0.24)",
       },
       keyframes: {
         "fade-in": { from: { opacity: "0", transform: "translateY(4px)" }, to: { opacity: "1", transform: "translateY(0)" } },

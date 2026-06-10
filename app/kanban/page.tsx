@@ -379,12 +379,12 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
   );
 }
 
-const TL_ICONE: Record<string, { e: string; ring: string }> = {
-  disparo: { e: "📤", ring: "bg-blue-50 ring-blue-200 dark:bg-blue-500/15 dark:ring-blue-500/30" },
-  resposta: { e: "💬", ring: "bg-emerald-50 ring-emerald-200 dark:bg-emerald-500/15 dark:ring-emerald-500/30" },
-  nota: { e: "📝", ring: "bg-amber-50 ring-amber-200 dark:bg-amber-500/15 dark:ring-amber-500/30" },
-  mudanca_estagio: { e: "🔀", ring: "bg-violet-50 ring-violet-200 dark:bg-violet-500/15 dark:ring-violet-500/30" },
-  sistema: { e: "⚙️", ring: "bg-slate-50 ring-slate-200 dark:bg-slate-800/60 dark:ring-slate-700" },
+const TL_ICONE: Record<string, { path: string; wrap: string }> = {
+  disparo: { path: "m22 2-7 20-4-9-9-4Z M22 2 11 13", wrap: "bg-blue-50 text-blue-600 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-500/30" },
+  resposta: { path: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", wrap: "bg-emerald-50 text-emerald-600 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:ring-emerald-500/30" },
+  nota: { path: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z", wrap: "bg-amber-50 text-amber-600 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-400 dark:ring-amber-500/30" },
+  mudanca_estagio: { path: "M16 3h5v5 M21 3l-7 7 M8 21H3v-5 M3 21l7-7", wrap: "bg-violet-50 text-violet-600 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-400 dark:ring-violet-500/30" },
+  sistema: { path: "M13 2 3 14h9l-1 8 10-12h-9l1-8z", wrap: "bg-slate-100 text-slate-500 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700" },
 };
 
 function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onAtualizar }: {
@@ -511,7 +511,9 @@ function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onA
                   const ic = TL_ICONE[it.tipo] || TL_ICONE.sistema;
                   return (
                     <li key={i} className="flex gap-2.5">
-                      <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs ring-1 ring-inset", ic.ring)}>{ic.e}</span>
+                      <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1 ring-inset", ic.wrap)}>
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={ic.path} /></svg>
+                      </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm text-slate-700 dark:text-slate-200">{it.descricao || it.tipo}</p>
                         <p className="text-[11px] tabular-nums text-slate-400 dark:text-slate-500">{fmt(it.criado_em)}{it.autor ? ` · ${it.autor}` : ""}</p>

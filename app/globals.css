@@ -11,8 +11,25 @@
 
 body {
   @apply bg-slate-100 text-slate-800 antialiased;
-  background-image: radial-gradient(60rem 60rem at 110% -10%, rgb(30 58 95 / 0.05), transparent 60%);
+  background-image:
+    radial-gradient(55rem 55rem at 100% -8%, rgb(30 58 95 / 0.045), transparent 58%),
+    radial-gradient(42rem 42rem at -8% 2%, rgb(30 58 95 / 0.03), transparent 52%);
   background-attachment: fixed;
+  /* Alternativas tipográficas do Inter (a/g single-story, l/i mais limpos) +
+     kerning fino — tira o ar de "fonte padrão" e dá acabamento de produto. */
+  font-feature-settings: "cv11", "cv03", "cv04", "ss01";
+  letter-spacing: -0.006em;
+  text-rendering: optimizeLegibility;
+}
+
+/* Títulos com kerning um pouco mais fechado (hierarquia mais nítida). */
+h1, h2, h3 {
+  letter-spacing: -0.018em;
+}
+
+/* Números sempre tabulares e alinhados (métricas, horários, contadores). */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 .dark body {
   @apply bg-slate-950 text-slate-200;
