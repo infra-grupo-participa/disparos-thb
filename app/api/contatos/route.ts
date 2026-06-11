@@ -4,8 +4,8 @@ import { query } from "@/lib/db";
 
 export const runtime = "nodejs";
 
-// Lê a view curada cs.contatos_ht (única janela do app para o public) + tags do CS.
-// Filtros: estagio, edicao, q, com_telefone, com_tag (tem a tag), sem_tag (não tem).
+// Lê a view curada cs.contatos_ht + tags do CS + lead score (termômetro).
+// Filtros: estagio, edicao, q, com_telefone, com_tag, sem_tag, faixa (frio|morno|quente).
 export async function GET(req: Request) {
   if (!isAuthed()) {
     return NextResponse.json({ ok: false, reason: "unauthorized" }, { status: 401 });
@@ -18,14 +18,17 @@ export async function GET(req: Request) {
   const comTelefone = searchParams.get("com_telefone") === "1";
   const comTag = searchParams.get("com_tag") || null;
   const semTag = searchParams.get("sem_tag") || null;
+  const faixa = searchParams.get("faixa") || null;
 
   const contatos = await query(
     `select v.comprador_id, v.nome, v.email, v.telefone, v.edicao, v.edicao_ht, v.edition_number,
             v.ultima_compra_ht, v.estagio_chave, v.estagio_nome,
             v.proxima_acao_em, v.ultima_resposta_em, v.ultimo_contato_em,
-            coalesce(ct.tags, '{}'::text[]) as tags
+            coalesce(ct.tags, '{}'::text[]) as tags,
+            coalesce(ls.score, 0)::int as score
        from cs.contatos_ht v
        left join cs.contatos ct on ct.comprador_id = v.comprador_id
+       left join cs.lead_scores ls on ls.comprador_id = v.comprador_id
       where ($1::text is null or v.estagio_chave = $1)
         and ($2::text is null or v.edicao_ht = $2 or v.edicao ilike '%' || $2 || '%')
         and ($3::text is null or v.nome ilike '%' || $3 || '%'
@@ -33,9 +36,13 @@ export async function GET(req: Request) {
         and ($4::boolean is false or (v.telefone is not null and v.telefone <> ''))
         and ($5::text is null or $5 = any(ct.tags))
         and ($6::text is null or not ($6 = any(coalesce(ct.tags, '{}'::text[]))))
+        and ($7::text is null
+             or ($7 = 'quente' and coalesce(ls.score, 0) >= 60)
+             or ($7 = 'morno'  and coalesce(ls.score, 0) between 30 and 59)
+             or ($7 = 'frio'   and coalesce(ls.score, 0) < 30))
       order by v.ultima_compra_ht desc nulls last
       limit 1000`,
-    [estagio, edicao, q, comTelefone, comTag, semTag],
+    [estagio, edicao, q, comTelefone, comTag, semTag, faixa],
   );
 
   return NextResponse.json({ ok: true, total: contatos.length, contatos });

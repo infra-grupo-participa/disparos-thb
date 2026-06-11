@@ -11,6 +11,12 @@ type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao
 
 const EDICOES_HT = ["HT21", "HT22", "HT23", "HT24", "HT25", "HT26", "HT27"];
 const TAGS_FILTRO = ["No grupo", "Respondeu qualificação", "Respondeu ficha HM"];
+const SEGMENTOS: { nome: string; edicao?: string; comTag?: string; semTag?: string; faixa?: string }[] = [
+  { nome: "HT27 fora do grupo", edicao: "HT27", semTag: "No grupo" },
+  { nome: "No grupo, sem ficha HM", comTag: "No grupo", semTag: "Respondeu ficha HM" },
+  { nome: "Sem qualificação", semTag: "Respondeu qualificação" },
+  { nome: "🟢 Quentes (HM)", faixa: "quente" },
+];
 
 type Estagio = {
   id: number;
@@ -32,6 +38,7 @@ type Contato = {
   proxima_acao_em: string | null;
   ultima_resposta_em: string | null;
   tags: string[];
+  score: number;
 };
 
 function fmtData(iso: string | null): string {
@@ -50,6 +57,7 @@ export default function ContatosPage() {
   const [fComTelefone, setFComTelefone] = useState(true);
   const [fComTag, setFComTag] = useState("");
   const [fSemTag, setFSemTag] = useState("");
+  const [fFaixa, setFFaixa] = useState("");
 
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [dispararSelecao, setDispararSelecao] = useState<SelDisparo[] | null>(null);
@@ -76,6 +84,7 @@ export default function ContatosPage() {
     if (fComTelefone) params.set("com_telefone", "1");
     if (fComTag) params.set("com_tag", fComTag);
     if (fSemTag) params.set("sem_tag", fSemTag);
+    if (fFaixa) params.set("faixa", fFaixa);
     try {
       const r = await fetch(`/api/contatos?${params.toString()}`);
       const d = await r.json();
@@ -83,7 +92,7 @@ export default function ContatosPage() {
     } finally {
       setCarregando(false);
     }
-  }, [fEstagio, fEdicao, fQ, fComTelefone, fComTag, fSemTag]);
+  }, [fEstagio, fEdicao, fQ, fComTelefone, fComTag, fSemTag, fFaixa]);
 
   // debounce simples nos filtros
   useEffect(() => {
@@ -93,14 +102,17 @@ export default function ContatosPage() {
 
   const todosVisiveis = contatos.filter((c) => c.telefone);
   const todosSelecionados = todosVisiveis.length > 0 && todosVisiveis.every((c) => selecionados.has(c.comprador_id));
-  const temFiltro = Boolean(fEstagio || fEdicao || fQ || fComTag || fSemTag);
+  const temFiltro = Boolean(fEstagio || fEdicao || fQ || fComTag || fSemTag || fFaixa);
 
   function limparFiltros() {
-    setFEstagio("");
-    setFEdicao("");
-    setFQ("");
-    setFComTag("");
-    setFSemTag("");
+    setFEstagio(""); setFEdicao(""); setFQ(""); setFComTag(""); setFSemTag(""); setFFaixa("");
+  }
+  function aplicarSegmento(s: (typeof SEGMENTOS)[number]) {
+    setFQ(""); setFEstagio("");
+    setFEdicao(s.edicao || "");
+    setFComTag(s.comTag || "");
+    setFSemTag(s.semTag || "");
+    setFFaixa(s.faixa || "");
   }
 
   function limparSelecao() {
@@ -166,6 +178,20 @@ export default function ContatosPage() {
         }
       />
 
+      {/* Segmentos rápidos — atalhos de disparo contextual */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-slate-400 dark:text-slate-500">Atalhos:</span>
+        {SEGMENTOS.map((s) => (
+          <button
+            key={s.nome}
+            onClick={() => aplicarSegmento(s)}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-brand hover:text-brand dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-brand-400 dark:hover:text-brand-300"
+          >
+            {s.nome}
+          </button>
+        ))}
+      </div>
+
       {/* Filtros */}
       <Card className="mb-5 p-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -196,6 +222,12 @@ export default function ContatosPage() {
           <select value={fSemTag} onChange={(e) => setFSemTag(e.target.value)} className={cn(fieldClass, "w-auto")} title="Exclui quem TEM a tag">
             <option value="">Sem a tag…</option>
             {TAGS_FILTRO.map((t) => <option key={t} value={t}>✗ {t}</option>)}
+          </select>
+          <select value={fFaixa} onChange={(e) => setFFaixa(e.target.value)} className={cn(fieldClass, "w-auto")} title="Termômetro de lead (potencial HM)">
+            <option value="">Qualquer termômetro</option>
+            <option value="quente">🟢 Quentes</option>
+            <option value="morno">🟡 Mornos</option>
+            <option value="frio">🔴 Frios</option>
           </select>
           <input
             placeholder="Buscar nome, e-mail ou telefone"
@@ -274,6 +306,7 @@ export default function ContatosPage() {
                 <th className="px-4 py-3">Edição</th>
                 <th className="px-4 py-3">Estágio</th>
                 <th className="px-4 py-3">Tags</th>
+                <th className="px-4 py-3">Lead</th>
                 <th className="px-4 py-3">Última compra</th>
               </tr>
             </thead>
@@ -321,6 +354,12 @@ export default function ContatosPage() {
                     )}
                   </td>
                   <td className="px-4 py-3"><TagsIcon tags={c.tags} /></td>
+                  <td className="px-4 py-3">
+                    <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
+                      c.score >= 60 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                        : c.score >= 30 ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                          : "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300")}>{c.score}</span>
+                  </td>
                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{fmtData(c.ultima_compra_ht)}</td>
                 </tr>
               ))}
