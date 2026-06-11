@@ -132,7 +132,7 @@ export default function Comportamento({ edicao }: { edicao: string }) {
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <EngCard titulo="No grupo do WhatsApp" valor={dados?.engajamento.no_grupo ?? 0} total={dados?.engajamento.total ?? 0} cor="emerald"
           icone="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75" />
-        <EngCard titulo="Responderam matrícula" valor={dados?.engajamento.matricula ?? 0} total={dados?.engajamento.total ?? 0} cor="brand"
+        <EngCard titulo="Responderam qualificação" valor={dados?.engajamento.matricula ?? 0} total={dados?.engajamento.total ?? 0} cor="brand"
           icone="M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
         <EngCard titulo="Responderam ficha HM" valor={dados?.engajamento.ficha_hm ?? 0} total={dados?.engajamento.total ?? 0} cor="brand"
           icone="M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />

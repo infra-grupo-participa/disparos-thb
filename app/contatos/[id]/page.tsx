@@ -69,7 +69,7 @@ function Sinal({ on, label }: { on: boolean; label: string }) {
   );
 }
 
-const FORM_TITULO: Record<string, string> = { matricula: "Matrícula", ficha_hm: "Ficha de Interesse HM" };
+const FORM_TITULO: Record<string, string> = { matricula: "Qualificação", ficha_hm: "Ficha de Interesse HM" };
 
 // Cor da tag por natureza: edição (HT##), grupo, formulário, demais.
 function tagStyle(tag: string): string {

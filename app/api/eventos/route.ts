@@ -13,7 +13,7 @@ const log = logger("eventos");
 type Evento = { tag: string; descricao: (ctx: { grupo?: string }) => string; formulario?: "matricula" | "ficha_hm" };
 const EVENTOS: Record<string, Evento> = {
   entrou_grupo: { tag: "No grupo", descricao: (c) => `Entrou no grupo do WhatsApp${c.grupo ? ` (${c.grupo})` : ""}` },
-  respondeu_matricula: { tag: "Respondeu matrícula", descricao: () => "Respondeu o formulário de matrícula", formulario: "matricula" },
+  respondeu_matricula: { tag: "Respondeu qualificação", descricao: () => "Respondeu o formulário de qualificação", formulario: "matricula" },
   respondeu_ficha_hm: { tag: "Respondeu ficha HM", descricao: () => "Respondeu a ficha de interesse HM", formulario: "ficha_hm" },
 };
 
