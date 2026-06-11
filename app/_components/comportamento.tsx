@@ -13,6 +13,7 @@ type Categoria = { chave: string; label: string; qtd: number };
 type FunilEstagio = { chave: string; nome: string; cor: string | null; qtd: number };
 type Dados = {
   ciclo: { onboarding: number; ongoing: number; total: number };
+  engajamento: { no_grupo: number; respondeu_form: number; total: number };
   funil: FunilEstagio[];
   totalConversas: number;
   totalMensagens: number;
@@ -126,6 +127,24 @@ export default function Comportamento({ edicao }: { edicao: string }) {
 
       {/* Ciclo de vida */}
       <CicloVida ciclo={dados?.ciclo ?? { onboarding: 0, ongoing: 0, total: 0 }} />
+
+      {/* Engajamento no grupo / formulário (tags das automações do Make) */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <EngCard
+          titulo="No grupo do WhatsApp"
+          valor={dados?.engajamento.no_grupo ?? 0}
+          total={dados?.engajamento.total ?? 0}
+          cor="emerald"
+          icone="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75"
+        />
+        <EngCard
+          titulo="Responderam o formulário"
+          valor={dados?.engajamento.respondeu_form ?? 0}
+          total={dados?.engajamento.total ?? 0}
+          cor="brand"
+          icone="M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
+        />
+      </div>
 
       {carregando && !dados ? (
         <Card className="mt-4 flex items-center justify-center gap-3 py-12 text-slate-400 dark:text-slate-500">
@@ -294,6 +313,31 @@ function BarrasAssunto({ itens }: { itens: Assunto[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function EngCard({ titulo, valor, total, cor, icone }: { titulo: string; valor: number; total: number; cor: "emerald" | "brand"; icone: string }) {
+  const pct = total ? Math.round((valor / total) * 100) : 0;
+  const tom = cor === "emerald"
+    ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400"
+    : "bg-brand/10 text-brand dark:bg-brand-400/15 dark:text-brand-300";
+  const barra = cor === "emerald" ? "bg-emerald-500 dark:bg-emerald-400" : "bg-brand dark:bg-brand-400";
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{titulo}</span>
+        <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg", tom)} aria-hidden="true">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={icone} /></svg>
+        </span>
+      </div>
+      <div className="mt-2 flex items-baseline gap-2">
+        <span className="text-3xl font-semibold tabular-nums text-slate-900 dark:text-white">{valor}</span>
+        <span className="text-sm text-slate-400 dark:text-slate-500">{pct}% dos compradores</span>
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+        <div className={cn("h-full rounded-full transition-all", barra)} style={{ width: `${pct}%` }} />
+      </div>
+    </Card>
   );
 }
 

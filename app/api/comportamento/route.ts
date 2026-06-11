@@ -45,6 +45,18 @@ export async function GET(req: Request) {
     [edicao],
   );
 
+  // 1b) Engajamento (tags das automações do Make): no grupo / respondeu o form.
+  const engajamento = await queryOne<{ no_grupo: number; respondeu_form: number; total: number }>(
+    `select
+        count(*) filter (where 'No grupo' = any(ct.tags))::int as no_grupo,
+        count(*) filter (where 'Respondeu form' = any(ct.tags))::int as respondeu_form,
+        count(*)::int as total
+       from cs.contatos ct
+       join cs.contatos_ht h on h.comprador_id = ct.comprador_id
+      where ($1::text is null or h.edicao = $1)`,
+    [edicao],
+  );
+
   // 2) Funil — distribuição atual por estágio.
   const funil = await query<{ chave: string; nome: string; cor: string | null; qtd: number }>(
     `select e.chave, e.nome, e.cor, count(ct.id)::int as qtd
@@ -139,6 +151,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     ciclo: ciclo ?? { onboarding: 0, ongoing: 0, total: 0 },
+    engajamento: engajamento ?? { no_grupo: 0, respondeu_form: 0, total: 0 },
     funil,
     totalConversas,
     totalMensagens: msgs.length,

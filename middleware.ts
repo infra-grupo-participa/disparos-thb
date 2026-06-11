@@ -5,7 +5,7 @@ import type { NextRequest } from "next/server";
 // APIs sem cookie com 401. A validação CRIPTOGRÁFICA da sessão acontece nas
 // rotas (runtime Node, via isAuthed) — o middleware só checa presença, porque
 // roda em Edge e não temos o segredo de HMAC de forma síncrona aqui.
-const ALLOW_PREFIX = ["/api/auth", "/api/webhook", "/api/cron", "/login"];
+const ALLOW_PREFIX = ["/api/auth", "/api/webhook", "/api/cron", "/api/eventos", "/login"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
