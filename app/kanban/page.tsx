@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
-import { TagsResumo } from "@/app/_components/tags";
+import { TagsIcon, TAGS_PADRAO, tagTone } from "@/app/_components/tags";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
@@ -358,7 +358,7 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
               opt-out
             </span>
           )}
-          <TagsResumo tags={(card.tags || []).filter((t) => !/^HT\d+$/i.test(t))} max={2} />
+          <TagsIcon tags={card.tags} />
         </div>
         <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", corAvatar(card.nome))}>{inicial(card.nome)}</span>
       </div>
@@ -464,9 +464,9 @@ function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onA
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Tags</label>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {tagsAtuais.map((t) => (
-                    <span key={t} className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand dark:bg-brand-400/15 dark:text-brand-300">
+                    <span key={t} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset", tagTone(t))}>
                       {t}
-                      <button onClick={() => removeTag(t)} className="text-brand/60 transition hover:text-brand dark:text-brand-300/60 dark:hover:text-brand-300" aria-label={`Remover ${t}`}>×</button>
+                      <button onClick={() => removeTag(t)} className="opacity-60 transition hover:opacity-100" aria-label={`Remover ${t}`}>×</button>
                     </span>
                   ))}
                   <input
@@ -474,9 +474,14 @@ function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onA
                     onChange={(e) => setTagNova(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
                     onBlur={addTag}
-                    placeholder="+ tag"
+                    placeholder="+ nova"
                     className="w-20 rounded-full border border-dashed border-slate-300 bg-transparent px-2 py-0.5 text-xs outline-none placeholder:text-slate-400 focus:border-brand dark:border-slate-600 dark:text-slate-200"
                   />
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {TAGS_PADRAO.filter((t) => !tagsAtuais.includes(t)).map((t) => (
+                    <button key={t} onClick={() => patch({ tags: [...tagsAtuais, t] })} className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70 ring-1 ring-inset transition hover:opacity-100", tagTone(t))}>+ {t}</button>
+                  ))}
                 </div>
               </div>
               <div>
