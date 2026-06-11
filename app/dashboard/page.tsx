@@ -178,6 +178,7 @@ export default function DashboardPage() {
           titulo="Respondidos"
           valor={resp.toString()}
           tom="emerald"
+          sub={`de ${env} enviados`}
           icone={
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           }
@@ -186,6 +187,7 @@ export default function DashboardPage() {
           titulo="Taxa de resposta"
           valor={`${taxa(resp, env)}%`}
           tom="brand"
+          barra={taxa(resp, env)}
           icone={
             <>
               <path d="M3 3v18h18" />
@@ -507,11 +509,11 @@ function Atividades({ itens }: { itens: Atividade[] }) {
   );
 }
 
-const KPI_TOM: Record<string, { iconWrap: string; valor: string }> = {
-  blue: { iconWrap: "bg-blue-50 text-blue-600 ring-blue-100 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-500/20", valor: "text-slate-900 dark:text-white" },
-  emerald: { iconWrap: "bg-emerald-50 text-emerald-600 ring-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400 dark:ring-emerald-500/20", valor: "text-slate-900 dark:text-white" },
-  brand: { iconWrap: "bg-brand/10 text-brand ring-brand/15 dark:bg-brand-400/15 dark:text-brand-300 dark:ring-brand-400/20", valor: "text-brand dark:text-brand-300" },
-  amber: { iconWrap: "bg-amber-50 text-amber-600 ring-amber-100 dark:bg-amber-500/15 dark:text-amber-400 dark:ring-amber-500/20", valor: "text-slate-900 dark:text-white" },
+const KPI_TOM: Record<string, { iconWrap: string; valor: string; bar: string }> = {
+  blue: { iconWrap: "bg-blue-50 text-blue-600 ring-blue-100 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-500/20", valor: "text-slate-900 dark:text-white", bar: "bg-blue-500 dark:bg-blue-400" },
+  emerald: { iconWrap: "bg-emerald-50 text-emerald-600 ring-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400 dark:ring-emerald-500/20", valor: "text-slate-900 dark:text-white", bar: "bg-emerald-500 dark:bg-emerald-400" },
+  brand: { iconWrap: "bg-brand/10 text-brand ring-brand/15 dark:bg-brand-400/15 dark:text-brand-300 dark:ring-brand-400/20", valor: "text-brand dark:text-brand-300", bar: "bg-brand dark:bg-brand-400" },
+  amber: { iconWrap: "bg-amber-50 text-amber-600 ring-amber-100 dark:bg-amber-500/15 dark:text-amber-400 dark:ring-amber-500/20", valor: "text-slate-900 dark:text-white", bar: "bg-amber-500 dark:bg-amber-400" },
 };
 
 function Kpi({
@@ -519,11 +521,15 @@ function Kpi({
   valor,
   tom,
   icone,
+  barra,
+  sub,
 }: {
   titulo: string;
   valor: string;
   tom: keyof typeof KPI_TOM;
   icone: ReactNode;
+  barra?: number;
+  sub?: string;
 }) {
   const t = KPI_TOM[tom];
   return (
@@ -537,6 +543,12 @@ function Kpi({
         </span>
       </div>
       <div className={cn("mt-3 text-3xl font-semibold tabular-nums", t.valor)}>{valor}</div>
+      {barra != null && (
+        <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+          <div className={cn("h-full rounded-full transition-all", t.bar)} style={{ width: `${Math.max(2, Math.min(100, barra))}%` }} />
+        </div>
+      )}
+      {sub && <div className="mt-2 text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
     </Card>
   );
 }

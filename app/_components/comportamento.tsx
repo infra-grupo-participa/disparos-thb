@@ -139,17 +139,7 @@ export default function Comportamento({ edicao }: { edicao: string }) {
       </div>
 
       {/* Termômetro de leads — potencial de compra do HM */}
-      <Card className="mt-4 p-5">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Termômetro de leads — potencial HM</span>
-          <span className="text-xs text-slate-400 dark:text-slate-500">{dados?.engajamento.total ?? 0} alunos</span>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-3 text-center">
-          <div><div className="text-3xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{dados?.engajamento.quentes ?? 0}</div><div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">🟢 Quentes</div></div>
-          <div><div className="text-3xl font-bold tabular-nums text-amber-600 dark:text-amber-400">{dados?.engajamento.mornos ?? 0}</div><div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">🟡 Mornos</div></div>
-          <div><div className="text-3xl font-bold tabular-nums text-sky-600 dark:text-sky-400">{Math.max(0, (dados?.engajamento.total ?? 0) - (dados?.engajamento.quentes ?? 0) - (dados?.engajamento.mornos ?? 0))}</div><div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">🔴 Frios</div></div>
-        </div>
-      </Card>
+      <TermometroLeads e={dados?.engajamento ?? { total: 0, quentes: 0, mornos: 0 }} />
 
       {carregando && !dados ? (
         <Card className="mt-4 flex items-center justify-center gap-3 py-12 text-slate-400 dark:text-slate-500">
@@ -317,6 +307,41 @@ function BarrasAssunto({ itens }: { itens: Assunto[] }) {
           <span className="w-12 shrink-0 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">{it.pct}%</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function TermometroLeads({ e }: { e: { total: number; quentes: number; mornos: number } }) {
+  const total = e.total || 0;
+  const q = e.quentes || 0, m = e.mornos || 0, f = Math.max(0, total - q - m);
+  const pct = (n: number) => (total ? (n / total) * 100 : 0);
+  return (
+    <Card className="mt-4 p-5">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Termômetro de leads — potencial HM</span>
+        <span className="text-xs text-slate-400 dark:text-slate-500">{total} alunos</span>
+      </div>
+      <div className="mt-4 flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+        {q > 0 && <div className="bg-emerald-500 transition-all" style={{ width: `${pct(q)}%` }} />}
+        {m > 0 && <div className="bg-amber-400 transition-all" style={{ width: `${pct(m)}%` }} />}
+        {f > 0 && <div className="bg-sky-400 transition-all" style={{ width: `${pct(f)}%` }} />}
+      </div>
+      <div className="mt-3.5 grid grid-cols-3 gap-3">
+        <TermoLeg cor="bg-emerald-500" label="Quentes" n={q} pct={pct(q)} />
+        <TermoLeg cor="bg-amber-400" label="Mornos" n={m} pct={pct(m)} />
+        <TermoLeg cor="bg-sky-400" label="Frios" n={f} pct={pct(f)} />
+      </div>
+    </Card>
+  );
+}
+function TermoLeg({ cor, label, n, pct }: { cor: string; label: string; n: number; pct: number }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", cor)} aria-hidden="true" />
+      <div>
+        <div className="text-xl font-bold leading-none tabular-nums text-slate-900 dark:text-white">{n}</div>
+        <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">{label} · {Math.round(pct)}%</div>
+      </div>
     </div>
   );
 }
