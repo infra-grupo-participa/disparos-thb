@@ -1,6 +1,7 @@
 // Cliente da API Unnichat (só-servidor). Contrato: https://unnichat.com.br/api
 // Auth: header Authorization: Bearer <key>. Envelope de resposta: { success, data }.
 const BASE = process.env.UNNICHAT_BASE_URL || "https://unnichat.com.br/api";
+const TIMEOUT_MS = 20000; // não pendura se a Unnichat ficar lenta/instável
 
 function headers() {
   const key = process.env.UNNICHAT_API_KEY;
@@ -31,6 +32,7 @@ export async function sendTemplate(opts: {
     const res = await fetch(`${BASE}/meta/templates`, {
       method: "POST",
       headers: headers(),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
       body: JSON.stringify({
         phone: opts.phone,
         templateId: opts.templateId,
@@ -68,6 +70,7 @@ export async function createContact(opts: {
     const res = await fetch(`${BASE}/contact`, {
       method: "POST",
       headers: headers(),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
       body: JSON.stringify({
         name: opts.name || opts.phone,
         phone: opts.phone,
@@ -133,7 +136,7 @@ export async function getContactMessages(contactId: string): Promise<{
   messages: Array<{ id: string; type: string; text: string; templateId?: string; senderBy?: string; date?: string }>;
 }> {
   try {
-    const res = await fetch(`${BASE}/contact/${encodeURIComponent(contactId)}/messages`, { headers: headers() });
+    const res = await fetch(`${BASE}/contact/${encodeURIComponent(contactId)}/messages`, { headers: headers(), signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (!res.ok) return { ok: false, messages: [] };
     const json = (await res.json()) as { data?: unknown };
     const arr = Array.isArray(json?.data) ? (json.data as Record<string, unknown>[]) : [];
@@ -165,6 +168,7 @@ export async function searchContactByPhone(phone: string): Promise<{ ok: boolean
     const res = await fetch(`${BASE}/contact/search`, {
       method: "POST",
       headers: headers(),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
       body: JSON.stringify({ phone }),
     });
     if (!res.ok) return { ok: false };
@@ -186,6 +190,7 @@ export async function sendMessage(opts: { phone: string; text: string }): Promis
       method: "POST",
       headers: headers(),
       body: JSON.stringify({ phone: opts.phone, messageText: opts.text }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const txt = await res.text();
     let data: unknown;

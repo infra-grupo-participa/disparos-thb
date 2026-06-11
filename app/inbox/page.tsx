@@ -102,18 +102,34 @@ export default function InboxPage() {
 
   async function enviar() {
     if (!sel || !texto.trim()) return;
+    const txt = texto.trim();
+    const tmpId = `tmp-${Date.now()}`;
     setEnviando(true);
+    setTexto("");
+    // Otimista: mostra a mensagem na hora, sem esperar o ida-e-volta à Unnichat.
+    setMensagens((m) => [...m, { id: tmpId, de: "cs", tipo: "message", texto: txt, data: new Date().toISOString() }]);
     try {
       const r = await fetch(`/api/inbox/${sel.comprador_id}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto, atendente: atendente || undefined }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto: txt, atendente: atendente || undefined }),
       });
       const d = await r.json();
-      if (!d.ok) { alert(d.reason || "Falha ao enviar (a janela de 24h pode estar fechada)."); return; }
-      setTexto("");
-      await abrir(sel);
-      await carregarConversas();
-      await carregarMetricas();
-    } finally { setEnviando(false); }
+      if (!d.ok) {
+        // Reverte o otimista e devolve o texto ao campo.
+        setMensagens((m) => m.filter((x) => x.id !== tmpId));
+        setTexto(txt);
+        alert(d.reason || "Falha ao enviar (a janela de 24h pode estar fechada).");
+        return;
+      }
+      // Atualiza lista e métricas em segundo plano (banco, rápido) — não trava o input.
+      void carregarConversas();
+      void carregarMetricas();
+    } catch {
+      setMensagens((m) => m.filter((x) => x.id !== tmpId));
+      setTexto(txt);
+      alert("Falha ao enviar. Tente novamente.");
+    } finally {
+      setEnviando(false);
+    }
   }
 
   async function resolver(c: Conversa, status: "resolvido" | "pendente") {
