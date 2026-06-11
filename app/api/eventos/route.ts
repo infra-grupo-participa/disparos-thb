@@ -26,6 +26,7 @@ type Body = {
   grupo?: string;
   respostas?: Record<string, unknown>;
   pontuacao?: number | string;
+  telefones?: string[];
 };
 
 function originOk(req: Request, body: Body): boolean {
@@ -55,6 +56,23 @@ export async function POST(req: Request) {
   const cfg = EVENTOS[evento];
   if (!cfg) {
     return NextResponse.json({ ok: false, reason: "evento desconhecido", aceitos: Object.keys(EVENTOS) }, { status: 400 });
+  }
+
+  // Modo LOTE: { evento, telefones: [...] } — marca a tag para TODOS numa só query.
+  if (Array.isArray(body.telefones)) {
+    const tels = body.telefones.map((t) => normalizePhone(String(t ?? ""))).filter(Boolean) as string[];
+    if (tels.length === 0) return NextResponse.json({ ok: true, marcados: 0, recebidos: 0 });
+    const r = await query<{ id: string }>(
+      `update cs.contatos ct
+          set tags = array_append(ct.tags, $2), atualizado_em = now()
+         from cs.contatos_ht v
+        where v.comprador_id = ct.comprador_id
+          and cs.normalizar_telefone(v.telefone) = any($1::text[])
+          and not ($2 = any(ct.tags))
+        returning ct.id`,
+      [tels, cfg.tag],
+    );
+    return NextResponse.json({ ok: true, marcados: r.length, recebidos: tels.length });
   }
 
   const tel = normalizePhone(body.telefone ?? body.number ?? null);
