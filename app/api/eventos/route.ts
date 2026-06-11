@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
-import { normalizePhone } from "@/lib/phone";
 import { addTagEmLote } from "@/lib/services/contato";
 import { logger } from "@/lib/log";
 
@@ -79,22 +78,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, marcados: r.length, recebidos: u6.length });
   }
 
-  const tel = normalizePhone(body.telefone ?? body.number ?? null);
+  // Casa por e-mail (prioritário, sem ambiguidade) OU pelos últimos 6 dígitos do
+  // telefone (robusto contra formato de DDD/55/9), igual ao grupo.
+  const telDig = String(body.telefone ?? body.number ?? "").replace(/\D/g, "");
+  const u6 = telDig.length >= 6 ? telDig.slice(-6) : null;
   const email = String(body.email ?? "").trim().toLowerCase() || null;
-  if (!tel && !email) {
+  if (!u6 && !email) {
     return NextResponse.json({ ok: false, reason: "telefone ou email obrigatório" }, { status: 400 });
   }
 
-  // Acha o comprador HT por telefone (normalizado) OU e-mail.
   const contato = await queryOne<{ comprador_id: string }>(
     `select comprador_id from cs.contatos_ht
-      where ($1::text is not null and cs.normalizar_telefone(telefone) = $1)
-         or ($2::text is not null and lower(email) = $2)
+      where ($2::text is not null and lower(email) = $2)
+         or ($1::text is not null and right(regexp_replace(coalesce(telefone, ''), '[^0-9]', '', 'g'), 6) = $1)
+      order by (case when $2::text is not null and lower(email) = $2 then 0 else 1 end)
       limit 1`,
-    [tel, email],
+    [u6, email],
   );
   if (!contato) {
-    log.info("evento sem aluno correspondente", { evento, tel, email });
+    log.info("evento sem aluno correspondente", { evento, u6, email });
     return NextResponse.json({ ok: true, matched: false });
   }
 
