@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
+import { TagsResumo } from "@/app/_components/tags";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
@@ -357,9 +358,7 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
               opt-out
             </span>
           )}
-          {(card.tags || []).slice(0, 2).map((t) => (
-            <span key={t} className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{t}</span>
-          ))}
+          <TagsResumo tags={(card.tags || []).filter((t) => !/^HT\d+$/i.test(t))} max={2} />
         </div>
         <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", corAvatar(card.nome))}>{inicial(card.nome)}</span>
       </div>
