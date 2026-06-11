@@ -1,3 +1,8 @@
+"use client";
+
+import { useState } from "react";
+import type React from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/app/_components/ui";
 
 // Tags padrão (clicáveis) — evita criar tag nova toda vez ao associar.
@@ -29,20 +34,36 @@ export function TagChip({ tag, mini }: { tag: string; mini?: boolean }) {
   );
 }
 
-// Ícone de etiqueta no card (estilo Clint): padroniza os cards; ao passar o
-// mouse, revela TODAS as tags do contato. `title` garante o fallback nativo.
+// Ícone de etiqueta no card (estilo Clint). O popup é renderizado via PORTAL
+// no <body> com posição fixa — assim não é cortado pela rolagem das colunas.
 export function TagsIcon({ tags }: { tags: string[] | null | undefined }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   if (!tags || tags.length === 0) return null;
+  const abrir = (e: React.MouseEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = Math.max(8, Math.min(r.right - 210, window.innerWidth - 218));
+    setPos({ x, y: r.bottom + 6 });
+  };
   return (
-    <div className="group/tags relative inline-flex" title={tags.join("  ·  ")}>
-      <span className="flex h-5 w-5 items-center justify-center rounded text-brand dark:text-brand-300">
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><circle cx="7" cy="7" r="0.5" />
-        </svg>
-      </span>
-      <div className="pointer-events-none absolute right-0 top-full z-40 mt-1 hidden w-max max-w-[240px] flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-pop group-hover/tags:flex dark:border-slate-700 dark:bg-slate-900">
-        {tags.map((t) => <TagChip key={t} tag={t} mini />)}
-      </div>
-    </div>
+    <span
+      className="inline-flex h-5 w-5 cursor-default items-center justify-center rounded text-brand dark:text-brand-300"
+      title={tags.join("  ·  ")}
+      onMouseEnter={abrir}
+      onMouseLeave={() => setPos(null)}
+    >
+      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><circle cx="7" cy="7" r="0.5" />
+      </svg>
+      {pos &&
+        createPortal(
+          <div
+            style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 60, maxWidth: 210 }}
+            className="pointer-events-none flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-pop dark:border-slate-700 dark:bg-slate-900"
+          >
+            {tags.map((t) => <TagChip key={t} tag={t} mini />)}
+          </div>,
+          document.body,
+        )}
+    </span>
   );
 }
