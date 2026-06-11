@@ -59,20 +59,24 @@ export async function POST(req: Request) {
   }
 
   // Modo LOTE: { evento, telefones: [...] } — marca a tag para TODOS numa só query.
+  // Casa pelos ÚLTIMOS 6 DÍGITOS (chave estável que o analista usa), robusto
+  // contra inconsistências de DDD / 55 / nono dígito nos telefones.
   if (Array.isArray(body.telefones)) {
-    const tels = body.telefones.map((t) => normalizePhone(String(t ?? ""))).filter(Boolean) as string[];
-    if (tels.length === 0) return NextResponse.json({ ok: true, marcados: 0, recebidos: 0 });
+    const u6 = Array.from(new Set(
+      body.telefones.map((t) => String(t ?? "").replace(/\D/g, "")).filter((t) => t.length >= 6).map((t) => t.slice(-6)),
+    ));
+    if (u6.length === 0) return NextResponse.json({ ok: true, marcados: 0, recebidos: 0 });
     const r = await query<{ id: string }>(
       `update cs.contatos ct
           set tags = array_append(ct.tags, $2), atualizado_em = now()
          from cs.contatos_ht v
         where v.comprador_id = ct.comprador_id
-          and cs.normalizar_telefone(v.telefone) = any($1::text[])
+          and right(regexp_replace(coalesce(v.telefone, ''), '[^0-9]', '', 'g'), 6) = any($1::text[])
           and not ($2 = any(ct.tags))
         returning ct.id`,
-      [tels, cfg.tag],
+      [u6, cfg.tag],
     );
-    return NextResponse.json({ ok: true, marcados: r.length, recebidos: tels.length });
+    return NextResponse.json({ ok: true, marcados: r.length, recebidos: u6.length });
   }
 
   const tel = normalizePhone(body.telefone ?? body.number ?? null);
