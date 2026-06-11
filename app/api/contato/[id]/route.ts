@@ -50,7 +50,15 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     [compradorId],
   );
 
-  return NextResponse.json({ ok: true, contato, timeline, metricas });
+  // Respostas dos formulários (Matrícula / Ficha de Interesse HM).
+  const formularios = await query(
+    `select tipo, respostas, pontuacao, respondido_em
+       from cs.formularios where comprador_id = $1
+      order by respondido_em desc nulls last`,
+    [compradorId],
+  );
+
+  return NextResponse.json({ ok: true, contato, timeline, metricas, formularios });
 }
 
 // PATCH: atualiza estágio / próxima ação / observações; opcionalmente adiciona uma nota.

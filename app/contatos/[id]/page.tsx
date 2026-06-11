@@ -27,8 +27,23 @@ type Contato = {
   primeiro_contato_em: string | null;
   legado_t_primeiro_contato_h: number | null;
   legado_t_ativacao_h: number | null;
+  tags: string[] | null;
 };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
+type Formulario = { tipo: string; respostas: Record<string, string> | null; pontuacao: number | string | null; respondido_em: string | null };
+
+const FORM_TITULO: Record<string, string> = { matricula: "Matrícula", ficha_hm: "Ficha de Interesse HM" };
+
+// Cor da tag por natureza: edição (HT##), grupo, formulário, demais.
+function tagStyle(tag: string): string {
+  if (/^HT\d+$/i.test(tag)) return "bg-violet-100 text-violet-700 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-500/30";
+  if (tag === "No grupo") return "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30";
+  if (/respondeu/i.test(tag)) return "bg-blue-100 text-blue-700 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/30";
+  return "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700";
+}
+function TagChip({ tag }: { tag: string }) {
+  return <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", tagStyle(tag))}>{tag}</span>;
+}
 
 const ICONE_TL: Record<string, { path: string; wrap: string }> = {
   disparo: { path: "m22 2-7 20-4-9-9-4Z M22 2 11 13", wrap: "bg-blue-50 text-blue-600 ring-blue-200 dark:bg-blue-500/15 dark:text-blue-400 dark:ring-blue-500/30" },
@@ -63,11 +78,39 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{children}</h3>;
 }
 
+function FormularioCard({ f }: { f: Formulario }) {
+  const titulo = FORM_TITULO[f.tipo] || f.tipo;
+  const respostas = f.respostas && typeof f.respostas === "object" ? Object.entries(f.respostas) : [];
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{titulo}</h4>
+        {f.pontuacao != null && f.pontuacao !== "" && (
+          <span className="shrink-0 rounded-full bg-brand/10 px-2.5 py-1 text-xs font-semibold tabular-nums text-brand dark:bg-brand-400/15 dark:text-brand-300">
+            {f.pontuacao} pts
+          </span>
+        )}
+      </div>
+      <dl className="space-y-2.5">
+        {respostas.map(([q, a]) => (
+          <div key={q}>
+            <dt className="text-xs text-slate-400 dark:text-slate-500">{q}</dt>
+            <dd className="text-sm font-medium text-slate-700 dark:text-slate-200">{String(a).trim() || "—"}</dd>
+          </div>
+        ))}
+        {respostas.length === 0 && <p className="text-sm text-slate-400 dark:text-slate-500">Sem respostas registradas.</p>}
+      </dl>
+      {f.respondido_em && <p className="mt-3 border-t border-slate-100 pt-2 text-xs text-slate-400 dark:border-slate-800 dark:text-slate-500">Respondido em {fmtData(f.respondido_em)}</p>}
+    </Card>
+  );
+}
+
 export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   const id = params.id;
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [contato, setContato] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
+  const [formularios, setFormularios] = useState<Formulario[]>([]);
   const [nota, setNota] = useState("");
   const [obs, setObs] = useState("");
   const [proxData, setProxData] = useState("");
@@ -79,6 +122,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
     if (d.ok) {
       setContato(d.contato);
       setTimeline(d.timeline);
+      setFormularios(d.formularios || []);
       setObs(d.contato.observacoes || "");
       setProxNota(d.contato.proxima_acao_nota || "");
       setProxData(d.contato.proxima_acao_em ? d.contato.proxima_acao_em.slice(0, 16) : "");
@@ -126,11 +170,24 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
             {contato.telefone || <span className="text-rose-500 dark:text-rose-400">sem telefone</span>}
           </span>
         </div>
+        {(contato.tags?.length ?? 0) > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {contato.tags!.map((t) => <TagChip key={t} tag={t} />)}
+          </div>
+        )}
       </Card>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_380px]">
-        {/* Coluna principal — Timeline */}
+        {/* Coluna principal — Formulários + Timeline */}
         <div>
+          {formularios.length > 0 && (
+            <div className="mb-6">
+              <SectionTitle>Formulários</SectionTitle>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {formularios.map((f, i) => <FormularioCard key={i} f={f} />)}
+              </div>
+            </div>
+          )}
           <SectionTitle>Timeline</SectionTitle>
           <div className="space-y-2">
             {timeline.map((i, idx) => (
