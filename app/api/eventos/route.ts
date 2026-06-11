@@ -8,20 +8,37 @@ export const runtime = "nodejs";
 const log = logger("eventos");
 
 // Webhook de EVENTOS externos (automações do Make): marca o aluno com uma tag
-// conforme o evento. Hoje: entrou no grupo do WhatsApp / respondeu o formulário.
+// conforme o evento e, nos formulários, guarda as respostas em cs.formularios.
 // Match por telefone (normalizado) ou e-mail no cs.contatos_ht. Idempotente.
-const TAG_POR_EVENTO: Record<string, { tag: string; descricao: (grupo?: string) => string }> = {
-  entrou_grupo: { tag: "No grupo", descricao: (g) => `Entrou no grupo do WhatsApp${g ? ` (${g})` : ""}` },
-  respondeu_form: { tag: "Respondeu form", descricao: () => "Respondeu o formulário" },
+type Evento = { tag: string; descricao: (ctx: { grupo?: string }) => string; formulario?: "matricula" | "ficha_hm" };
+const EVENTOS: Record<string, Evento> = {
+  entrou_grupo: { tag: "No grupo", descricao: (c) => `Entrou no grupo do WhatsApp${c.grupo ? ` (${c.grupo})` : ""}` },
+  respondeu_matricula: { tag: "Respondeu matrícula", descricao: () => "Respondeu o formulário de matrícula", formulario: "matricula" },
+  respondeu_ficha_hm: { tag: "Respondeu ficha HM", descricao: () => "Respondeu a ficha de interesse HM", formulario: "ficha_hm" },
 };
 
-type Body = { secret?: string; evento?: string; telefone?: string; number?: string; email?: string; grupo?: string };
+type Body = {
+  secret?: string;
+  evento?: string;
+  telefone?: string;
+  number?: string;
+  email?: string;
+  grupo?: string;
+  respostas?: Record<string, unknown>;
+  pontuacao?: number | string;
+};
 
 function originOk(req: Request, body: Body): boolean {
   const secret = process.env.EVENTOS_SECRET || process.env.WEBHOOK_SECRET;
   if (!secret) return true; // sem segredo configurado → não bloqueia (dev)
   const recebido = req.headers.get("x-eventos-secret") || new URL(req.url).searchParams.get("secret") || body.secret;
   return recebido === secret;
+}
+
+function paraNumero(v: number | string | undefined): number | null {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(String(v).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
 }
 
 export async function GET() {
@@ -35,9 +52,9 @@ export async function POST(req: Request) {
   }
 
   const evento = String(body.evento ?? "").trim();
-  const cfg = TAG_POR_EVENTO[evento];
+  const cfg = EVENTOS[evento];
   if (!cfg) {
-    return NextResponse.json({ ok: false, reason: "evento desconhecido", aceitos: Object.keys(TAG_POR_EVENTO) }, { status: 400 });
+    return NextResponse.json({ ok: false, reason: "evento desconhecido", aceitos: Object.keys(EVENTOS) }, { status: 400 });
   }
 
   const tel = normalizePhone(body.telefone ?? body.number ?? null);
@@ -63,9 +80,20 @@ export async function POST(req: Request) {
   await query(
     `insert into cs.interacoes (contato_id, tipo, descricao, autor)
      select id, 'sistema', $2, 'make' from cs.contatos where comprador_id = $1`,
-    [contato.comprador_id, cfg.descricao(body.grupo)],
+    [contato.comprador_id, cfg.descricao({ grupo: body.grupo })],
   );
 
-  log.info("tag aplicada por evento", { evento, tag: cfg.tag, compradorId: contato.comprador_id });
+  // Formulário: guarda as respostas + pontuação (upsert por comprador+tipo).
+  if (cfg.formulario) {
+    await query(
+      `insert into cs.formularios (comprador_id, tipo, respostas, pontuacao, respondido_em)
+       values ($1, $2, $3::jsonb, $4, now())
+       on conflict (comprador_id, tipo)
+       do update set respostas = excluded.respostas, pontuacao = excluded.pontuacao, respondido_em = now(), atualizado_em = now()`,
+      [contato.comprador_id, cfg.formulario, JSON.stringify(body.respostas ?? {}), paraNumero(body.pontuacao)],
+    );
+  }
+
+  log.info("evento aplicado", { evento, tag: cfg.tag, formulario: cfg.formulario, compradorId: contato.comprador_id });
   return NextResponse.json({ ok: true, matched: true, tag: cfg.tag });
 }
