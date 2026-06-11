@@ -58,7 +58,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     [compradorId],
   );
 
-  return NextResponse.json({ ok: true, contato, timeline, metricas, formularios });
+  // Termômetro de lead (score 0-100).
+  const score = await queryOne<{ score: number }>(
+    `select score from cs.lead_scores where comprador_id = $1`,
+    [compradorId],
+  );
+
+  return NextResponse.json({ ok: true, contato, timeline, metricas, formularios, score: score?.score ?? 0 });
 }
 
 // PATCH: atualiza estágio / próxima ação / observações; opcionalmente adiciona uma nota.

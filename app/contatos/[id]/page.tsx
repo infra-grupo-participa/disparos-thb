@@ -31,6 +31,43 @@ type Contato = {
 };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 type Formulario = { tipo: string; respostas: Record<string, string> | null; pontuacao: number | string | null; respondido_em: string | null };
+type Metricas = { disparos_recebidos: number; disparos_respondidos: number; sla_medio: number | null; ultima_resposta_disparo: string | null };
+
+function nivelLead(score: number) {
+  if (score >= 60) return { label: "Quente", txt: "text-emerald-600 dark:text-emerald-400", bar: "bg-emerald-500", ring: "ring-emerald-200 dark:ring-emerald-500/30", bg: "bg-emerald-50 dark:bg-emerald-500/10" };
+  if (score >= 30) return { label: "Morno", txt: "text-amber-600 dark:text-amber-400", bar: "bg-amber-500", ring: "ring-amber-200 dark:ring-amber-500/30", bg: "bg-amber-50 dark:bg-amber-500/10" };
+  return { label: "Frio", txt: "text-sky-600 dark:text-sky-400", bar: "bg-sky-500", ring: "ring-sky-200 dark:ring-sky-500/30", bg: "bg-sky-50 dark:bg-sky-500/10" };
+}
+function Termometro({ score }: { score: number }) {
+  const n = nivelLead(score);
+  return (
+    <div className={cn("w-44 shrink-0 rounded-xl px-4 py-3 ring-1 ring-inset", n.bg, n.ring)}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Termômetro</span>
+        <span className={cn("text-xs font-bold", n.txt)}>{n.label}</span>
+      </div>
+      <div className="mt-0.5 flex items-baseline gap-1">
+        <span className="text-3xl font-bold tabular-nums text-slate-900 dark:text-white">{score}</span>
+        <span className="text-sm text-slate-400 dark:text-slate-500">/ 100</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-700/50">
+        <div className={cn("h-full rounded-full transition-all", n.bar)} style={{ width: `${Math.max(2, score)}%` }} />
+      </div>
+    </div>
+  );
+}
+function Sinal({ on, label }: { on: boolean; label: string }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset",
+      on ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30"
+         : "bg-slate-50 text-slate-400 ring-slate-200 dark:bg-slate-800/50 dark:text-slate-500 dark:ring-slate-700")}>
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        <path d={on ? "M20 6 9 17l-5-5" : "M18 6 6 18 M6 6l12 12"} />
+      </svg>
+      {label}
+    </span>
+  );
+}
 
 const FORM_TITULO: Record<string, string> = { matricula: "Matrícula", ficha_hm: "Ficha de Interesse HM" };
 
@@ -111,6 +148,8 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   const [contato, setContato] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
   const [formularios, setFormularios] = useState<Formulario[]>([]);
+  const [score, setScore] = useState(0);
+  const [metricas, setMetricas] = useState<Metricas | null>(null);
   const [nota, setNota] = useState("");
   const [obs, setObs] = useState("");
   const [proxData, setProxData] = useState("");
@@ -123,6 +162,8 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
       setContato(d.contato);
       setTimeline(d.timeline);
       setFormularios(d.formularios || []);
+      setScore(d.score ?? 0);
+      setMetricas(d.metricas ?? null);
       setObs(d.contato.observacoes || "");
       setProxNota(d.contato.proxima_acao_nota || "");
       setProxData(d.contato.proxima_acao_em ? d.contato.proxima_acao_em.slice(0, 16) : "");
@@ -155,26 +196,50 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
         ← Contatos
       </Link>
 
-      {/* Cabeçalho do contato */}
+      {/* Painel 360° — identidade, termômetro, sinais e ações num relance */}
       <Card className="mt-2 p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{contato.nome}</h1>
-          <EdicaoBadge edicao={contato.edicao_ht ?? contato.edicao} />
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="text-slate-400 dark:text-slate-500">E-mail:</span>{contato.email}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="text-slate-400 dark:text-slate-500">Telefone:</span>
-            {contato.telefone || <span className="text-rose-500 dark:text-rose-400">sem telefone</span>}
-          </span>
-        </div>
-        {(contato.tags?.length ?? 0) > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {contato.tags!.map((t) => <TagChip key={t} tag={t} />)}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{contato.nome}</h1>
+              <EdicaoBadge edicao={contato.edicao_ht ?? contato.edicao} />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+              <span className="inline-flex items-center gap-1.5"><span className="text-slate-400 dark:text-slate-500">E-mail:</span>{contato.email}</span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="text-slate-400 dark:text-slate-500">Telefone:</span>
+                {contato.telefone || <span className="text-rose-500 dark:text-rose-400">sem telefone</span>}
+              </span>
+              {contato.telefone && (
+                <a
+                  href={`https://wa.me/${(contato.telefone || "").replace(/\D/g, "")}`}
+                  target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200 transition-colors hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30"
+                >
+                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.5 15.3L2 22l4.8-1.5A10 10 0 1 0 12 2Z" /></svg>
+                  WhatsApp
+                </a>
+              )}
+            </div>
+            {(contato.tags?.length ?? 0) > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">{contato.tags!.map((t) => <TagChip key={t} tag={t} />)}</div>
+            )}
           </div>
-        )}
+          <Termometro score={score} />
+        </div>
+
+        {/* Sinais-chave reunidos */}
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <Sinal on={!!(contato.tags?.includes("No grupo") || contato.legado_no_grupo)} label="No grupo" />
+          <Sinal on={formularios.some((f) => f.tipo === "matricula")} label="Matrícula" />
+          <Sinal on={formularios.some((f) => f.tipo === "ficha_hm")} label="Ficha HM" />
+          <Sinal on={!!contato.legado_ativado} label="Ativado" />
+          {metricas && metricas.disparos_recebidos > 0 && (
+            <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
+              {metricas.disparos_respondidos}/{metricas.disparos_recebidos} disparos respondidos
+            </span>
+          )}
+        </div>
       </Card>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_380px]">
