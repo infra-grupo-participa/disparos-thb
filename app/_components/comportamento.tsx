@@ -13,7 +13,7 @@ type Categoria = { chave: string; label: string; qtd: number };
 type FunilEstagio = { chave: string; nome: string; cor: string | null; qtd: number };
 type Dados = {
   ciclo: { onboarding: number; ongoing: number; total: number };
-  engajamento: { no_grupo: number; respondeu_form: number; total: number };
+  engajamento: { total: number; no_grupo: number; matricula: number; ficha_hm: number; quentes: number; mornos: number };
   funil: FunilEstagio[];
   totalConversas: number;
   totalMensagens: number;
@@ -128,23 +128,28 @@ export default function Comportamento({ edicao }: { edicao: string }) {
       {/* Ciclo de vida */}
       <CicloVida ciclo={dados?.ciclo ?? { onboarding: 0, ongoing: 0, total: 0 }} />
 
-      {/* Engajamento no grupo / formulário (tags das automações do Make) */}
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <EngCard
-          titulo="No grupo do WhatsApp"
-          valor={dados?.engajamento.no_grupo ?? 0}
-          total={dados?.engajamento.total ?? 0}
-          cor="emerald"
-          icone="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75"
-        />
-        <EngCard
-          titulo="Responderam o formulário"
-          valor={dados?.engajamento.respondeu_form ?? 0}
-          total={dados?.engajamento.total ?? 0}
-          cor="brand"
-          icone="M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
-        />
+      {/* Engajamento: grupo + formulários respondidos */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <EngCard titulo="No grupo do WhatsApp" valor={dados?.engajamento.no_grupo ?? 0} total={dados?.engajamento.total ?? 0} cor="emerald"
+          icone="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75" />
+        <EngCard titulo="Responderam matrícula" valor={dados?.engajamento.matricula ?? 0} total={dados?.engajamento.total ?? 0} cor="brand"
+          icone="M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+        <EngCard titulo="Responderam ficha HM" valor={dados?.engajamento.ficha_hm ?? 0} total={dados?.engajamento.total ?? 0} cor="brand"
+          icone="M9 11l3 3L22 4 M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
       </div>
+
+      {/* Termômetro de leads — potencial de compra do HM */}
+      <Card className="mt-4 p-5">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Termômetro de leads — potencial HM</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">{dados?.engajamento.total ?? 0} alunos</span>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+          <div><div className="text-3xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{dados?.engajamento.quentes ?? 0}</div><div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">🟢 Quentes</div></div>
+          <div><div className="text-3xl font-bold tabular-nums text-amber-600 dark:text-amber-400">{dados?.engajamento.mornos ?? 0}</div><div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">🟡 Mornos</div></div>
+          <div><div className="text-3xl font-bold tabular-nums text-sky-600 dark:text-sky-400">{Math.max(0, (dados?.engajamento.total ?? 0) - (dados?.engajamento.quentes ?? 0) - (dados?.engajamento.mornos ?? 0))}</div><div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">🔴 Frios</div></div>
+        </div>
+      </Card>
 
       {carregando && !dados ? (
         <Card className="mt-4 flex items-center justify-center gap-3 py-12 text-slate-400 dark:text-slate-500">

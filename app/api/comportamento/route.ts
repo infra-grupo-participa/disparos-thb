@@ -45,14 +45,20 @@ export async function GET(req: Request) {
     [edicao],
   );
 
-  // 1b) Engajamento (tags das automações do Make): no grupo / respondeu o form.
-  const engajamento = await queryOne<{ no_grupo: number; respondeu_form: number; total: number }>(
+  // 1b) Engajamento: no grupo, formulários respondidos e distribuição do termômetro.
+  const engajamento = await queryOne<{ total: number; no_grupo: number; matricula: number; ficha_hm: number; quentes: number; mornos: number }>(
     `select
-        count(*) filter (where 'No grupo' = any(ct.tags))::int as no_grupo,
-        count(*) filter (where 'Respondeu form' = any(ct.tags))::int as respondeu_form,
-        count(*)::int as total
-       from cs.contatos ct
-       join cs.contatos_ht h on h.comprador_id = ct.comprador_id
+        count(*)::int as total,
+        count(*) filter (where (coalesce(ct.tags, '{}'::text[]) && array['No grupo'] or coalesce(h.legado_no_grupo, false)))::int as no_grupo,
+        count(fm.comprador_id)::int as matricula,
+        count(ff.comprador_id)::int as ficha_hm,
+        count(*) filter (where ls.score >= 60)::int as quentes,
+        count(*) filter (where ls.score >= 30 and ls.score < 60)::int as mornos
+       from cs.contatos_ht h
+       left join cs.contatos ct on ct.comprador_id = h.comprador_id
+       left join cs.formularios fm on fm.comprador_id = h.comprador_id and fm.tipo = 'matricula'
+       left join cs.formularios ff on ff.comprador_id = h.comprador_id and ff.tipo = 'ficha_hm'
+       left join cs.lead_scores ls on ls.comprador_id = h.comprador_id
       where ($1::text is null or h.edicao = $1)`,
     [edicao],
   );
@@ -151,7 +157,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     ciclo: ciclo ?? { onboarding: 0, ongoing: 0, total: 0 },
-    engajamento: engajamento ?? { no_grupo: 0, respondeu_form: 0, total: 0 },
+    engajamento: engajamento ?? { total: 0, no_grupo: 0, matricula: 0, ficha_hm: 0, quentes: 0, mornos: 0 },
     funil,
     totalConversas,
     totalMensagens: msgs.length,
