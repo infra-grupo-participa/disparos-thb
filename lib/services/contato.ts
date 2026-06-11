@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/lib/drizzle";
+import { query } from "@/lib/db";
 import { contatos, estagios, interacoes } from "@/db/schema";
 
 // Serviço de Contato (CRM): regras de negócio reutilizadas pelas rotas (detalhe,
@@ -70,4 +71,20 @@ export async function setOptOut(compradorId: string, optOut: boolean) {
       autor: "cs",
     });
   }
+}
+
+// Garante que cada contato tem a tag da sua edição do HT (ex: "HT27"), derivada
+// de cs.contatos_ht. Idempotente — só adiciona onde falta. Roda no backfill e no
+// cron, para que novos alunos recebam a tag da turma automaticamente.
+export async function sincronizarTagsEdicao(): Promise<number> {
+  const r = await query(
+    `update cs.contatos ct
+        set tags = array_append(ct.tags, v.edicao), atualizado_em = now()
+       from cs.contatos_ht v
+      where v.comprador_id = ct.comprador_id
+        and v.edicao is not null and v.edicao <> ''
+        and not (v.edicao = any(ct.tags))
+      returning ct.id`,
+  );
+  return r.length;
 }

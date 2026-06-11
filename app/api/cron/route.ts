@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { retomarTravados } from "@/lib/services/disparo";
+import { sincronizarTagsEdicao } from "@/lib/services/contato";
 import { sincronizarLote } from "@/lib/sync-conversas";
 import { logger } from "@/lib/log";
 
@@ -21,9 +22,10 @@ function autorizado(req: Request): boolean {
 
 async function executar() {
   const retomados = await retomarTravados(15);
+  const tagsEdicao = await sincronizarTagsEdicao();
   const sync = await sincronizarLote(60);
-  log.info("cron executado", { retomados, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes });
-  return { retomados, sync };
+  log.info("cron executado", { retomados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes });
+  return { retomados, tagsEdicao, sync };
 }
 
 export async function GET(req: Request) {
