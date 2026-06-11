@@ -1,57 +1,73 @@
-import { query, queryOne } from "@/lib/db";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { getDb } from "@/lib/drizzle";
+import { contatos, estagios, interacoes } from "@/db/schema";
 
-// Serviço de Contato (CRM): regras de negócio reutilizadas pelas rotas de
-// detalhe do contato, do Kanban e de ações em lote. Centraliza a escrita para
-// manter a timeline e os campos consistentes (DRY — antes duplicado por rota).
+// Serviço de Contato (CRM): regras de negócio reutilizadas pelas rotas (detalhe,
+// Kanban, lote). Queries type-safe via Drizzle sobre o pool pg existente.
+
+async function contatoIdDe(compradorId: string): Promise<string | null> {
+  const [c] = await getDb().select({ id: contatos.id }).from(contatos).where(eq(contatos.compradorId, compradorId)).limit(1);
+  return c?.id ?? null;
+}
 
 // Move o contato de etapa (valida etapa ativa) e registra na timeline com os
 // estágios anterior/novo. Retorna false se a etapa não existe/está inativa.
 export async function moverEstagio(compradorId: string, estagioChave: string): Promise<boolean> {
-  const novo = await queryOne<{ id: number; nome: string }>(
-    `select id, nome from cs.estagios where chave = $1 and ativo`,
-    [estagioChave],
-  );
+  const db = getDb();
+  const [novo] = await db
+    .select({ id: estagios.id, nome: estagios.nome })
+    .from(estagios)
+    .where(and(eq(estagios.chave, estagioChave), eq(estagios.ativo, true)))
+    .limit(1);
   if (!novo) return false;
-  const atual = await queryOne<{ estagio_id: number | null }>(
-    `select estagio_id from cs.contatos where comprador_id = $1`,
-    [compradorId],
-  );
-  await query(`update cs.contatos set estagio_id = $2, atualizado_em = now() where comprador_id = $1`, [compradorId, novo.id]);
-  await query(
-    `insert into cs.interacoes (contato_id, tipo, descricao, estagio_anterior_id, estagio_novo_id, autor)
-     select id, 'mudanca_estagio', $2, $3, $4, 'cs' from cs.contatos where comprador_id = $1`,
-    [compradorId, `Movido para "${novo.nome}"`, atual?.estagio_id ?? null, novo.id],
-  );
+
+  const [c] = await db
+    .select({ id: contatos.id, estagioId: contatos.estagioId })
+    .from(contatos)
+    .where(eq(contatos.compradorId, compradorId))
+    .limit(1);
+  if (!c) return false;
+
+  await db.update(contatos).set({ estagioId: novo.id, atualizadoEm: sql`now()` }).where(eq(contatos.id, c.id));
+  await db.insert(interacoes).values({
+    contatoId: c.id,
+    tipo: "mudanca_estagio",
+    descricao: `Movido para "${novo.nome}"`,
+    estagioAnteriorId: c.estagioId ?? null,
+    estagioNovoId: novo.id,
+    autor: "cs",
+  });
   return true;
 }
 
 export async function setTags(compradorId: string, tags: string[]) {
-  await query(`update cs.contatos set tags = $2, atualizado_em = now() where comprador_id = $1`, [compradorId, tags]);
+  await getDb().update(contatos).set({ tags, atualizadoEm: sql`now()` }).where(eq(contatos.compradorId, compradorId));
 }
 
 export async function addTagEmLote(compradorIds: string[], tag: string) {
-  await query(
-    `update cs.contatos set tags = array_append(tags, $2), atualizado_em = now()
-      where comprador_id = any($1::uuid[]) and not ($2 = any(tags))`,
-    [compradorIds, tag],
-  );
+  await getDb()
+    .update(contatos)
+    .set({ tags: sql`array_append(${contatos.tags}, ${tag})`, atualizadoEm: sql`now()` })
+    .where(and(inArray(contatos.compradorId, compradorIds), sql`not (${tag} = any(${contatos.tags}))`));
 }
 
 export async function setResponsavel(compradorIds: string[], responsavel: string | null) {
-  await query(
-    `update cs.contatos set responsavel = $2, atualizado_em = now() where comprador_id = any($1::uuid[])`,
-    [compradorIds, responsavel],
-  );
+  await getDb().update(contatos).set({ responsavel, atualizadoEm: sql`now()` }).where(inArray(contatos.compradorId, compradorIds));
 }
 
 export async function setOptOut(compradorId: string, optOut: boolean) {
-  await query(
-    `update cs.contatos set opt_out = $2, opt_out_em = case when $2 then now() else null end, atualizado_em = now() where comprador_id = $1`,
-    [compradorId, optOut],
-  );
-  await query(
-    `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-     select id, 'sistema', $2, 'cs' from cs.contatos where comprador_id = $1`,
-    [compradorId, optOut ? "Marcado como opt-out (manual)" : "Opt-out removido (manual)"],
-  );
+  const db = getDb();
+  await db
+    .update(contatos)
+    .set({ optOut, optOutEm: optOut ? sql`now()` : null, atualizadoEm: sql`now()` })
+    .where(eq(contatos.compradorId, compradorId));
+  const contatoId = await contatoIdDe(compradorId);
+  if (contatoId) {
+    await db.insert(interacoes).values({
+      contatoId,
+      tipo: "sistema",
+      descricao: optOut ? "Marcado como opt-out (manual)" : "Opt-out removido (manual)",
+      autor: "cs",
+    });
+  }
 }
