@@ -42,6 +42,7 @@ export default function DashboardPage() {
   const [edicao, setEdicao] = useState("");
 
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
+  const [aba, setAba] = useState<"disparos" | "comportamento">("disparos");
   const carregandoRef = useRef(false);
 
   const carregar = useCallback(async () => {
@@ -143,6 +144,25 @@ export default function DashboardPage() {
         </div>
       </Card>
 
+      {/* Abas — organiza o dashboard por área */}
+      <div className="mb-5 flex gap-1 border-b border-slate-200 dark:border-slate-800">
+        {([["disparos", "Disparos"], ["comportamento", "Comportamento dos clientes"]] as const).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setAba(k)}
+            className={cn(
+              "relative px-4 py-2.5 text-sm font-medium transition-colors",
+              aba === k ? "text-brand dark:text-brand-300" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
+            )}
+          >
+            {label}
+            {aba === k && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand dark:bg-brand-400" />}
+          </button>
+        ))}
+      </div>
+
+      {aba === "disparos" && (
+        <>
       <ProximaAcao acao={proximaAcao} />
 
       <div data-testid="kpis" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -186,13 +206,15 @@ export default function DashboardPage() {
         />
       </div>
 
-      <Comportamento edicao={edicao} />
-
       <SectionTitle>Detalhamento · Edição → Template → Disparo</SectionTitle>
       <Arvore arvore={arvore} />
 
       <SectionTitle>Atividade de disparos</SectionTitle>
       <Atividades itens={atividade} />
+        </>
+      )}
+
+      {aba === "comportamento" && <Comportamento edicao={edicao} />}
     </div>
   );
 }
