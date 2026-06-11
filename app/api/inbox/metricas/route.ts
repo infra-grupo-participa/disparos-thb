@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
+import { getConfig } from "@/lib/services/config";
 
 export const runtime = "nodejs";
 
 // GET /api/inbox/metricas — desempenho do CS no atendimento.
-// FRT = tempo de primeiro contato (lead falou → CS respondeu). SLA = ≤ 15 min.
-const SLA_MIN = 15;
-
+// FRT = tempo de primeiro contato (lead falou → CS respondeu). SLA configurável.
 export async function GET() {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const SLA_MIN = Number(await getConfig("inbox.sla_min", 15)) || 15;
 
   const kpis = await queryOne(
     `select
