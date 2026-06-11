@@ -5,10 +5,12 @@ import Link from "next/link";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, PageHeader, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
+import { TagsIcon } from "@/app/_components/tags";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
 const EDICOES_HT = ["HT21", "HT22", "HT23", "HT24", "HT25", "HT26", "HT27"];
+const TAGS_FILTRO = ["No grupo", "Respondeu qualificação", "Respondeu ficha HM"];
 
 type Estagio = {
   id: number;
@@ -29,6 +31,7 @@ type Contato = {
   ultima_compra_ht: string | null;
   proxima_acao_em: string | null;
   ultima_resposta_em: string | null;
+  tags: string[];
 };
 
 function fmtData(iso: string | null): string {
@@ -45,6 +48,8 @@ export default function ContatosPage() {
   const [fEdicao, setFEdicao] = useState("");
   const [fQ, setFQ] = useState("");
   const [fComTelefone, setFComTelefone] = useState(true);
+  const [fComTag, setFComTag] = useState("");
+  const [fSemTag, setFSemTag] = useState("");
 
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [dispararSelecao, setDispararSelecao] = useState<SelDisparo[] | null>(null);
@@ -69,6 +74,8 @@ export default function ContatosPage() {
     if (fEdicao) params.set("edicao", fEdicao);
     if (fQ) params.set("q", fQ);
     if (fComTelefone) params.set("com_telefone", "1");
+    if (fComTag) params.set("com_tag", fComTag);
+    if (fSemTag) params.set("sem_tag", fSemTag);
     try {
       const r = await fetch(`/api/contatos?${params.toString()}`);
       const d = await r.json();
@@ -76,7 +83,7 @@ export default function ContatosPage() {
     } finally {
       setCarregando(false);
     }
-  }, [fEstagio, fEdicao, fQ, fComTelefone]);
+  }, [fEstagio, fEdicao, fQ, fComTelefone, fComTag, fSemTag]);
 
   // debounce simples nos filtros
   useEffect(() => {
@@ -86,12 +93,14 @@ export default function ContatosPage() {
 
   const todosVisiveis = contatos.filter((c) => c.telefone);
   const todosSelecionados = todosVisiveis.length > 0 && todosVisiveis.every((c) => selecionados.has(c.comprador_id));
-  const temFiltro = Boolean(fEstagio || fEdicao || fQ);
+  const temFiltro = Boolean(fEstagio || fEdicao || fQ || fComTag || fSemTag);
 
   function limparFiltros() {
     setFEstagio("");
     setFEdicao("");
     setFQ("");
+    setFComTag("");
+    setFSemTag("");
   }
 
   function limparSelecao() {
@@ -180,6 +189,14 @@ export default function ContatosPage() {
               <option key={ed} value={ed}>{ed}</option>
             ))}
           </select>
+          <select value={fComTag} onChange={(e) => setFComTag(e.target.value)} className={cn(fieldClass, "w-auto")} title="Inclui só quem TEM a tag">
+            <option value="">Com a tag…</option>
+            {TAGS_FILTRO.map((t) => <option key={t} value={t}>✓ {t}</option>)}
+          </select>
+          <select value={fSemTag} onChange={(e) => setFSemTag(e.target.value)} className={cn(fieldClass, "w-auto")} title="Exclui quem TEM a tag">
+            <option value="">Sem a tag…</option>
+            {TAGS_FILTRO.map((t) => <option key={t} value={t}>✗ {t}</option>)}
+          </select>
           <input
             placeholder="Buscar nome, e-mail ou telefone"
             value={fQ}
@@ -256,6 +273,7 @@ export default function ContatosPage() {
                 <th className="px-4 py-3">Telefone</th>
                 <th className="px-4 py-3">Edição</th>
                 <th className="px-4 py-3">Estágio</th>
+                <th className="px-4 py-3">Tags</th>
                 <th className="px-4 py-3">Última compra</th>
               </tr>
             </thead>
@@ -302,6 +320,7 @@ export default function ContatosPage() {
                       <span className="text-slate-300 dark:text-slate-600">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-3"><TagsIcon tags={c.tags} /></td>
                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{fmtData(c.ultima_compra_ht)}</td>
                 </tr>
               ))}
