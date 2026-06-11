@@ -460,22 +460,25 @@ function Horarios({ horas, pico }: { horas: number[]; pico: number }) {
 }
 
 function Funil({ estagios }: { estagios: FunilEstagio[] }) {
+  const total = estagios.reduce((s, e) => s + e.qtd, 0) || 1;
   const max = Math.max(...estagios.map((e) => e.qtd), 1);
   return (
     <div className="space-y-2">
       {estagios.map((e) => {
-        const w = Math.max((e.qtd / max) * 100, 3);
+        const w = Math.max((e.qtd / max) * 100, 4);
+        const pct = Math.round((e.qtd / total) * 100);
         return (
           <div key={e.chave} className="flex items-center gap-3">
-            <span className="w-32 shrink-0 truncate text-[13px] text-slate-600 dark:text-slate-300">{e.nome}</span>
-            <div className="h-7 flex-1 rounded-lg bg-slate-100 dark:bg-slate-800">
+            <span className="w-28 shrink-0 truncate text-[13px] text-slate-600 dark:text-slate-300">{e.nome}</span>
+            <div className="h-7 flex-1 overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
               <div
-                className="flex h-full items-center justify-end rounded-lg px-2.5 text-[11px] font-semibold text-white shadow-sm"
+                className="flex h-full items-center justify-end rounded-lg px-2.5 text-[11px] font-bold text-white shadow-sm transition-all"
                 style={{ width: `${w}%`, backgroundColor: e.cor || "#94a3b8" }}
               >
                 {e.qtd}
               </div>
             </div>
+            <span className="w-9 shrink-0 text-right text-xs font-medium tabular-nums text-slate-400 dark:text-slate-500">{pct}%</span>
           </div>
         );
       })}
