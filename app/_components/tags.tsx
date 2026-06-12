@@ -41,13 +41,14 @@ export function TagsIcon({ tags }: { tags: string[] | null | undefined }) {
   if (!tags || tags.length === 0) return null;
   const abrir = (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = Math.max(8, Math.min(r.right - 210, window.innerWidth - 218));
-    setPos({ x, y: r.bottom + 6 });
+    // Ancora o popup à esquerda do ícone, abrindo para a direita logo abaixo —
+    // perto do cursor. Só recua se fosse vazar pela borda direita da janela.
+    const x = Math.max(8, Math.min(r.left, window.innerWidth - 218));
+    setPos({ x, y: r.bottom + 4 });
   };
   return (
     <span
       className="inline-flex h-5 w-5 cursor-default items-center justify-center rounded text-brand dark:text-brand-300"
-      title={tags.join("  ·  ")}
       onMouseEnter={abrir}
       onMouseLeave={() => setPos(null)}
     >
