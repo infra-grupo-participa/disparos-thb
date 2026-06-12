@@ -28,11 +28,38 @@ type Card = {
 type Coluna = { chave: string; nome: string; cor: string; total: number };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 type Metricas = { disparos_recebidos: number; disparos_respondidos: number; sla_medio: number | null; ultima_resposta_disparo: string | null };
+type Formulario = { tipo: string; respostas: Record<string, string> | null; pontuacao: number | string | null; respondido_em: string | null };
 type Detalhe = {
-  contato: { nome: string; email: string; telefone: string | null; edicao: string | null; estagio_chave: string | null; estagio_nome: string | null; ultima_compra_ht: string | null; tags: string[] | null; responsavel: string | null; opt_out: boolean };
+  contato: {
+    nome: string; email: string; telefone: string | null; edicao: string | null; estagio_chave: string | null; estagio_nome: string | null;
+    ultima_compra_ht: string | null; tags: string[] | null; responsavel: string | null; opt_out: boolean;
+    legado_no_grupo: boolean | null; legado_ativado: boolean | null;
+  };
   timeline: Interacao[];
   metricas: Metricas;
+  formularios?: Formulario[];
+  score?: number;
 };
+
+const FORM_TITULO: Record<string, string> = { matricula: "Qualificação", ficha_hm: "Ficha de Interesse HM" };
+
+function nivelScore(score: number) {
+  if (score >= 60) return { label: "Quente", txt: "text-emerald-600 dark:text-emerald-400", bar: "bg-emerald-500" };
+  if (score >= 30) return { label: "Morno", txt: "text-amber-600 dark:text-amber-400", bar: "bg-amber-500" };
+  return { label: "Frio", txt: "text-sky-600 dark:text-sky-400", bar: "bg-sky-500" };
+}
+
+// Sinal sim/não — situação do lead num relance (no grupo, formulários, etc).
+function Sinal({ on, label }: { on: boolean; label: string }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+      on ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30"
+         : "bg-slate-50 text-slate-400 ring-slate-200 dark:bg-slate-800/50 dark:text-slate-500 dark:ring-slate-700")}>
+      <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d={on ? "M20 6 9 17l-5-5" : "M18 6 6 18M6 6l12 12"} /></svg>
+      {label}
+    </span>
+  );
+}
 
 const AVATAR = ["bg-brand-100 text-brand-700", "bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-800", "bg-violet-100 text-violet-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700"];
 const AVATAR_DARK = ["dark:bg-brand-400/20 dark:text-brand-300", "dark:bg-blue-500/20 dark:text-blue-300", "dark:bg-emerald-500/20 dark:text-emerald-300", "dark:bg-amber-500/20 dark:text-amber-300", "dark:bg-violet-500/20 dark:text-violet-300", "dark:bg-rose-500/20 dark:text-rose-300", "dark:bg-cyan-500/20 dark:text-cyan-300"];
@@ -473,6 +500,7 @@ function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onA
 }) {
   const [det, setDet] = useState<Detalhe | null>(null);
   const [tagNova, setTagNova] = useState("");
+  const [aba, setAba] = useState<"resumo" | "forms" | "historico">("resumo");
 
   const recarregar = useCallback(
     () => fetch(`/api/contato/${card.comprador_id}`).then((r) => r.json()).then((d) => { if (d.ok) setDet(d); }).catch(() => {}),
@@ -496,11 +524,15 @@ function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onA
   const m = det?.metricas;
   const taxa = m && m.disparos_recebidos ? Math.round((m.disparos_respondidos / m.disparos_recebidos) * 100) : 0;
   const respondeu = !!(m && m.disparos_respondidos > 0);
+  const forms = det?.formularios ?? [];
+  const score = det?.score ?? 0;
+  const nivel = nivelScore(score);
+  const noGrupo = !!(det?.contato.tags?.includes("No grupo") || det?.contato.legado_no_grupo);
 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-pop animate-fade-in dark:border-slate-800 dark:bg-slate-900">
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col overflow-hidden border-l border-slate-200 bg-white shadow-pop animate-fade-in dark:border-slate-800 dark:bg-slate-900">
         {/* Header */}
         <div className="flex items-start gap-3 border-b border-slate-100 p-5 dark:border-slate-800">
           <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base font-semibold", corAvatar(card.nome))}>{inicial(card.nome)}</span>
@@ -513,94 +545,167 @@ function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onA
           </button>
         </div>
 
-        <div className="flex-1 space-y-5 p-5">
-          {/* Respondeu? + métricas */}
-          <div className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium",
-            respondeu ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400")}>
-            {respondeu ? "✓ Já respondeu a disparo" : "Ainda não respondeu a disparos"}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <MiniM label="Disparos" valor={m?.disparos_recebidos ?? "—"} />
-            <MiniM label="Respondidos" valor={m?.disparos_respondidos ?? "—"} />
-            <MiniM label="Taxa" valor={m ? `${taxa}%` : "—"} />
-            <MiniM label="SLA médio" valor={m?.sla_medio != null ? `${m.sla_medio} min` : "—"} />
-          </div>
-
-          {/* Mover etapa */}
-          <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Etapa da jornada</label>
-            <select
-              value={card.estagio_chave}
-              onChange={(e) => onMover(e.target.value)}
-              className={fieldClass}
+        {/* Abas */}
+        <div className="flex gap-1 border-b border-slate-100 px-3 dark:border-slate-800">
+          {([["resumo", "Resumo"], ["forms", `Formulários${forms.length ? ` (${forms.length})` : ""}`], ["historico", "Histórico"]] as const).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setAba(k)}
+              className={cn(
+                "relative px-3 py-2.5 text-sm font-medium transition-colors",
+                aba === k ? "text-brand dark:text-brand-300" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
+              )}
             >
-              {colunas.map((c) => <option key={c.chave} value={c.chave}>{c.nome}</option>)}
-            </select>
-          </div>
+              {label}
+              {aba === k && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand dark:bg-brand-400" />}
+            </button>
+          ))}
+        </div>
 
-          {/* Tags, responsável e opt-out */}
-          {det && (
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Tags</label>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {tagsAtuais.map((t) => (
-                    <span key={t} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset", tagTone(t))}>
-                      {t}
-                      <button onClick={() => removeTag(t)} className="opacity-60 transition hover:opacity-100" aria-label={`Remover ${t}`}>×</button>
-                    </span>
-                  ))}
-                  <input
-                    value={tagNova}
-                    onChange={(e) => setTagNova(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-                    onBlur={addTag}
-                    placeholder="+ nova"
-                    className="w-20 rounded-full border border-dashed border-slate-300 bg-transparent px-2 py-0.5 text-xs outline-none placeholder:text-slate-400 focus:border-brand dark:border-slate-600 dark:text-slate-200"
-                  />
-                </div>
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {TAGS_PADRAO.filter((t) => !tagsAtuais.includes(t)).map((t) => (
-                    <button key={t} onClick={() => patch({ tags: [...tagsAtuais, t] })} className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70 ring-1 ring-inset transition hover:opacity-100", tagTone(t))}>+ {t}</button>
-                  ))}
-                </div>
+        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+          {/* ===== Aba RESUMO ===== */}
+          {aba === "resumo" && (
+            <>
+              {/* Respondeu? + métricas */}
+              <div className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium",
+                respondeu ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400")}>
+                {respondeu ? "✓ Já respondeu a disparo" : "Ainda não respondeu a disparos"}
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Responsável (CS)</label>
-                <div className="flex items-center gap-2">
-                  {det.contato.responsavel && <Avatar nome={det.contato.responsavel} className="h-8 w-8 text-xs" />}
-                  <select
-                    value={det.contato.responsavel ?? ""}
-                    onChange={(e) => { const v = e.target.value; patch({ responsavel: v || null }); }}
-                    className={fieldClass}
-                  >
-                    <option value="">— Sem responsável —</option>
-                    {/* Garante que um responsável legado fora da lista de usuários ainda apareça. */}
-                    {det.contato.responsavel && !responsaveis.includes(det.contato.responsavel) && (
-                      <option value={det.contato.responsavel}>{det.contato.responsavel}</option>
-                    )}
-                    {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
+
+              {/* Termômetro + situação do lead */}
+              {det && (
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-800/40">
+                  <div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Termômetro</span>
+                      <span className={cn("font-bold", nivel.txt)}>{nivel.label} · {score}/100</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-700/50">
+                      <div className={cn("h-full rounded-full", nivel.bar)} style={{ width: `${Math.max(2, score)}%` }} />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Sinal on={noGrupo} label="No grupo" />
+                    <Sinal on={forms.some((f) => f.tipo === "matricula")} label="Qualificação" />
+                    <Sinal on={forms.some((f) => f.tipo === "ficha_hm")} label="Ficha HM" />
+                    <Sinal on={!!det.contato.legado_ativado} label="Ativado" />
+                  </div>
                 </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <MiniM label="Disparos" valor={m?.disparos_recebidos ?? "—"} />
+                <MiniM label="Respondidos" valor={m?.disparos_respondidos ?? "—"} />
+                <MiniM label="Taxa" valor={m ? `${taxa}%` : "—"} />
+                <MiniM label="SLA médio" valor={m?.sla_medio != null ? `${m.sla_medio} min` : "—"} />
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                <input type="checkbox" checked={!!det.contato.opt_out} onChange={(e) => patch({ opt_out: e.target.checked })} className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600" />
-                Opt-out — não recebe disparos
-              </label>
-            </div>
+
+              {/* Mover etapa */}
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Etapa da jornada</label>
+                <select value={card.estagio_chave} onChange={(e) => onMover(e.target.value)} className={fieldClass}>
+                  {colunas.map((c) => <option key={c.chave} value={c.chave}>{c.nome}</option>)}
+                </select>
+              </div>
+
+              {/* Tags, responsável e opt-out */}
+              {det && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Tags</label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {tagsAtuais.map((t) => (
+                        <span key={t} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset", tagTone(t))}>
+                          {t}
+                          <button onClick={() => removeTag(t)} className="opacity-60 transition hover:opacity-100" aria-label={`Remover ${t}`}>×</button>
+                        </span>
+                      ))}
+                      <input
+                        value={tagNova}
+                        onChange={(e) => setTagNova(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                        onBlur={addTag}
+                        placeholder="+ nova"
+                        className="w-20 rounded-full border border-dashed border-slate-300 bg-transparent px-2 py-0.5 text-xs outline-none placeholder:text-slate-400 focus:border-brand dark:border-slate-600 dark:text-slate-200"
+                      />
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {TAGS_PADRAO.filter((t) => !tagsAtuais.includes(t)).map((t) => (
+                        <button key={t} onClick={() => patch({ tags: [...tagsAtuais, t] })} className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70 ring-1 ring-inset transition hover:opacity-100", tagTone(t))}>+ {t}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Responsável (CS)</label>
+                    <div className="flex items-center gap-2">
+                      {det.contato.responsavel && <Avatar nome={det.contato.responsavel} className="h-8 w-8 text-xs" />}
+                      <select
+                        value={det.contato.responsavel ?? ""}
+                        onChange={(e) => { const v = e.target.value; patch({ responsavel: v || null }); }}
+                        className={fieldClass}
+                      >
+                        <option value="">— Sem responsável —</option>
+                        {det.contato.responsavel && !responsaveis.includes(det.contato.responsavel) && (
+                          <option value={det.contato.responsavel}>{det.contato.responsavel}</option>
+                        )}
+                        {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                    <input type="checkbox" checked={!!det.contato.opt_out} onChange={(e) => patch({ opt_out: e.target.checked })} className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600" />
+                    Opt-out — não recebe disparos
+                  </label>
+                </div>
+              )}
+              {!det && <div className="flex items-center gap-2 py-4 text-sm text-slate-400 dark:text-slate-500"><Spinner className="h-4 w-4" /> Carregando…</div>}
+            </>
           )}
 
-          {/* Histórico */}
-          <div>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Histórico</h3>
-            {!det ? (
+          {/* ===== Aba FORMULÁRIOS ===== */}
+          {aba === "forms" && (
+            !det ? (
+              <div className="flex items-center gap-2 py-4 text-sm text-slate-400 dark:text-slate-500"><Spinner className="h-4 w-4" /> Carregando…</div>
+            ) : forms.length === 0 ? (
+              <p className="py-2 text-sm text-slate-400 dark:text-slate-500">Nenhum formulário respondido por este contato.</p>
+            ) : (
+              <div className="space-y-4">
+                {forms.map((f, i) => {
+                  const respostas = f.respostas && typeof f.respostas === "object" ? Object.entries(f.respostas) : [];
+                  return (
+                    <div key={i} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{FORM_TITULO[f.tipo] || f.tipo}</h4>
+                        {f.pontuacao != null && f.pontuacao !== "" && (
+                          <span className="shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-brand dark:bg-brand-400/15 dark:text-brand-300">{f.pontuacao} pts</span>
+                        )}
+                      </div>
+                      <dl className="space-y-2">
+                        {respostas.map(([q, a]) => (
+                          <div key={q}>
+                            <dt className="text-xs text-slate-400 dark:text-slate-500">{q}</dt>
+                            <dd className="text-sm font-medium text-slate-700 dark:text-slate-200">{String(a).trim() || "—"}</dd>
+                          </div>
+                        ))}
+                        {respostas.length === 0 && <p className="text-sm text-slate-400 dark:text-slate-500">Sem respostas registradas.</p>}
+                      </dl>
+                      {f.respondido_em && <p className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-400 dark:border-slate-800 dark:text-slate-500">Respondido em {fmt(f.respondido_em)}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          )}
+
+          {/* ===== Aba HISTÓRICO ===== */}
+          {aba === "historico" && (
+            !det ? (
               <div className="flex items-center gap-2 py-4 text-sm text-slate-400 dark:text-slate-500"><Spinner className="h-4 w-4" /> Carregando…</div>
             ) : det.timeline.length === 0 ? (
               <p className="py-2 text-sm text-slate-400 dark:text-slate-500">Sem interações ainda.</p>
             ) : (
               <ul className="space-y-3">
-                {det.timeline.slice(0, 30).map((it, i) => {
+                {det.timeline.slice(0, 50).map((it, i) => {
                   const ic = TL_ICONE[it.tipo] || TL_ICONE.sistema;
                   return (
                     <li key={i} className="flex gap-2.5">
@@ -615,8 +720,8 @@ function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onA
                   );
                 })}
               </ul>
-            )}
-          </div>
+            )
+          )}
         </div>
 
         {/* Ações */}

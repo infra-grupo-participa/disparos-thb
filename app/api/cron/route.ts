@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { retomarTravados } from "@/lib/services/disparo";
+import { sincronizarStatusRecentes } from "@/lib/services/disparo-status";
 import { sincronizarTagsEdicao } from "@/lib/services/contato";
 import { sincronizarLote } from "@/lib/sync-conversas";
 import { logger } from "@/lib/log";
@@ -24,8 +25,13 @@ async function executar() {
   const retomados = await retomarTravados(15);
   const tagsEdicao = await sincronizarTagsEdicao();
   const sync = await sincronizarLote(60);
-  log.info("cron executado", { retomados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes });
-  return { retomados, tagsEdicao, sync };
+  // Mantém o status de entrega (Meta) fresco para o painel de saúde do disparo.
+  const statusEntrega = await sincronizarStatusRecentes(80).catch((e) => {
+    log.error("falha ao sincronizar status de entrega", e);
+    return { atualizados: 0, verificados: 0 };
+  });
+  log.info("cron executado", { retomados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes, status_atualizados: statusEntrega.atualizados });
+  return { retomados, tagsEdicao, sync, statusEntrega };
 }
 
 export async function GET(req: Request) {
