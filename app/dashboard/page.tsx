@@ -164,7 +164,7 @@ export default function DashboardPage() {
 
       {aba === "disparos" && (
         <>
-      <Reveal>
+      <Reveal id="dash-disparos">
       <ProximaAcao acao={proximaAcao} />
 
       <div data-testid="kpis" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -172,6 +172,7 @@ export default function DashboardPage() {
           titulo="Enviados"
           valor={env.toString()}
           valorNum={env}
+          animKey="kpi-enviados"
           tom="blue"
           icone={
             <path d="m22 2-7 20-4-9-9-4Z M22 2 11 13" />
@@ -181,6 +182,7 @@ export default function DashboardPage() {
           titulo="Respondidos"
           valor={resp.toString()}
           valorNum={resp}
+          animKey="kpi-respondidos"
           tom="emerald"
           sub={`de ${env} enviados`}
           icone={
@@ -192,6 +194,7 @@ export default function DashboardPage() {
           valor={`${taxa(resp, env)}%`}
           valorNum={taxa(resp, env)}
           sufixo="%"
+          animKey="kpi-taxa"
           tom="brand"
           barra={taxa(resp, env)}
           icone={
@@ -206,6 +209,7 @@ export default function DashboardPage() {
           valor={kpis?.sla_medio != null ? `${kpis.sla_medio} min` : "—"}
           valorNum={kpis?.sla_medio ?? undefined}
           sufixo=" min"
+          animKey="kpi-sla"
           tom="amber"
           icone={
             <>
@@ -534,6 +538,7 @@ function Kpi({
   sub,
   valorNum,
   sufixo,
+  animKey,
 }: {
   titulo: string;
   valor: string;
@@ -543,6 +548,7 @@ function Kpi({
   sub?: string;
   valorNum?: number;
   sufixo?: string;
+  animKey?: string;
 }) {
   const t = KPI_TOM[tom];
   return (
@@ -556,7 +562,7 @@ function Kpi({
         </span>
       </div>
       <div className={cn("mt-3 text-3xl font-semibold tabular-nums", t.valor)}>
-        {valorNum != null ? <AnimNum value={valorNum} suffix={sufixo ?? ""} /> : valor}
+        {valorNum != null ? <AnimNum value={valorNum} suffix={sufixo ?? ""} animKey={animKey} /> : valor}
       </div>
       {barra != null && (
         <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">

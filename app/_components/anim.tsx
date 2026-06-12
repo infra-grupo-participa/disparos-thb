@@ -5,19 +5,29 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { cn } from "@/app/_components/ui";
 
-// Utilitários de animação (GSAP). Mantidos sutis e só na entrada — é uma
-// ferramenta de trabalho, não uma vitrine. Respeitam prefers-reduced-motion.
+// Utilitários de animação (GSAP). Filosofia anti-enjoo: animar UMA vez por
+// sessão (não a cada visita/troca de aba) e só na entrada — é uma ferramenta de
+// trabalho. Respeitam prefers-reduced-motion. Use `id`/`animKey` p/ o "1x/sessão".
 
 const prefersReduced = () =>
   typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-// Revela em cascata os filhos com a classe .js-reveal e faz as barras
-// .js-bar crescerem da esquerda. Roda uma vez, na montagem.
-export function Reveal({ children, className }: { children: React.ReactNode; className?: string }) {
+function sessionGet(key: string): string | null {
+  try { return sessionStorage.getItem(key); } catch { return null; }
+}
+function sessionSet(key: string, v: string) {
+  try { sessionStorage.setItem(key, v); } catch { /* noop */ }
+}
+
+// Revela em cascata os filhos .js-reveal e faz as barras .js-bar crescerem.
+// Com `id`, roda só na 1ª vez da sessão; depois entra seco (sem replay).
+export function Reveal({ children, className, id }: { children: React.ReactNode; className?: string; id?: string }) {
   const scope = useRef<HTMLDivElement>(null);
   useGSAP(
     () => {
       if (prefersReduced()) return;
+      const key = id ? `reveal:${id}` : null;
+      if (key && sessionGet(key)) return; // já animou nesta sessão → entra direto
       const root = scope.current!;
       const itens = root.querySelectorAll(".js-reveal");
       if (itens.length) {
@@ -27,6 +37,7 @@ export function Reveal({ children, className }: { children: React.ReactNode; cla
         const alvo = el.style.width || getComputedStyle(el).width;
         gsap.fromTo(el, { width: 0 }, { width: alvo, duration: 0.9, ease: "power3.out", delay: 0.2 });
       });
+      if (key) sessionSet(key, "1");
     },
     { scope },
   );
@@ -37,39 +48,44 @@ export function Reveal({ children, className }: { children: React.ReactNode; cla
   );
 }
 
-// Conta de 0 (ou do valor anterior) até `value`, reanimando quando muda — bom
-// para os KPIs do dashboard, que repollam ao vivo. SSR-safe (já renderiza o valor).
+// Conta até `value`. Com `animKey`: na 1ª vez da sessão rola de 0→valor; em
+// revisitas entra direto no valor; e quando o valor muda ao vivo, anima só o
+// delta (prev→novo). Sem `animKey`, rola de 0 a cada montagem. SSR-safe.
 export function AnimNum({
   value,
   suffix = "",
   duration = 1,
   className,
+  animKey,
 }: {
   value: number;
   suffix?: string;
   duration?: number;
   className?: string;
+  animKey?: string;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const prev = useRef(0);
   const fmt = (n: number) => Math.round(n).toLocaleString("pt-BR") + suffix;
   useGSAP(
     () => {
       const el = ref.current!;
+      const key = animKey ? `num:${animKey}` : null;
       if (prefersReduced()) {
         el.textContent = fmt(value);
-        prev.current = value;
+        if (key) sessionSet(key, String(value));
         return;
       }
-      const obj = { v: prev.current };
-      el.textContent = fmt(prev.current);
+      const baseRaw = key ? sessionGet(key) : null;
+      const base = baseRaw != null ? parseFloat(baseRaw) : 0;
+      const obj = { v: base };
+      el.textContent = fmt(base);
       gsap.to(obj, {
         v: value,
-        duration,
+        duration: Math.abs(value - base) < 0.5 ? 0 : duration,
         ease: "power2.out",
         onUpdate: () => { el.textContent = fmt(obj.v); },
       });
-      prev.current = value;
+      if (key) sessionSet(key, String(value));
     },
     { dependencies: [value], scope: ref },
   );

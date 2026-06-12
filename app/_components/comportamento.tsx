@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, Spinner, cn } from "@/app/_components/ui";
+import { AnimNum } from "@/app/_components/anim";
 
 // Seção executiva de Inteligência de Comportamento. Lê /api/comportamento e
 // renderiza visualizações intuitivas, com acesso rápido aos números-chave no
@@ -115,13 +116,13 @@ export default function Comportamento({ edicao }: { edicao: string }) {
 
       {/* KPIs de acesso rápido — leitura imediata dos números-chave */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <MiniKpi label="Conversas" valor={dados?.totalConversas ?? 0} tom="brand"
+        <MiniKpi label="Conversas" valor={dados?.totalConversas ?? 0} valorNum={dados?.totalConversas ?? 0} animKey="comp-conversas" tom="brand"
           icone={<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />} />
-        <MiniKpi label="Sentimento positivo" valor={`${pctPositivo}%`} tom="emerald"
+        <MiniKpi label="Sentimento positivo" valor={`${pctPositivo}%`} valorNum={pctPositivo} sufixo="%" animKey="comp-positivo" tom="emerald"
           icone={<><path d="M8 14s1.5 2 4 2 4-2 4-2" /><circle cx="9" cy="9" r="1" /><circle cx="15" cy="9" r="1" /><circle cx="12" cy="12" r="9" /></>} />
         <MiniKpi label="Pico de resposta" valor={dados ? `${String(dados.melhorHora).padStart(2, "0")}h` : "—"} tom="sky"
           icone={<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>} />
-        <MiniKpi label="Pedem atenção" valor={`${pctAtencao}%`} tom="amber"
+        <MiniKpi label="Pedem atenção" valor={`${pctAtencao}%`} valorNum={pctAtencao} sufixo="%" animKey="comp-atencao" tom="amber"
           icone={<><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><path d="M12 9v4M12 17h.01" /></>} />
       </div>
 
@@ -220,7 +221,7 @@ const KPI_TOM: Record<string, { wrap: string; valor: string }> = {
   amber: { wrap: "bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400", valor: "text-amber-600 dark:text-amber-400" },
 };
 
-function MiniKpi({ label, valor, tom, icone }: { label: string; valor: string | number; tom: keyof typeof KPI_TOM; icone: React.ReactNode }) {
+function MiniKpi({ label, valor, tom, icone, valorNum, sufixo, animKey }: { label: string; valor: string | number; tom: keyof typeof KPI_TOM; icone: React.ReactNode; valorNum?: number; sufixo?: string; animKey?: string }) {
   const t = KPI_TOM[tom];
   return (
     <Card className="flex items-center gap-3 p-4">
@@ -228,7 +229,9 @@ function MiniKpi({ label, valor, tom, icone }: { label: string; valor: string | 
         <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{icone}</svg>
       </span>
       <div className="min-w-0">
-        <div className={cn("text-2xl font-semibold leading-none tabular-nums", t.valor)}>{valor}</div>
+        <div className={cn("text-2xl font-semibold leading-none tabular-nums", t.valor)}>
+          {valorNum != null ? <AnimNum value={valorNum} suffix={sufixo ?? ""} animKey={animKey} /> : valor}
+        </div>
         <div className="mt-1 truncate text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</div>
       </div>
     </Card>
