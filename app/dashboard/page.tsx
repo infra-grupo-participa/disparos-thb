@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
+import { AnimNum, Reveal } from "@/app/_components/anim";
 import Comportamento from "@/app/_components/comportamento";
 
 type Kpis = { enviados: number; respondidos: number; sla_medio: number | null };
@@ -163,12 +164,14 @@ export default function DashboardPage() {
 
       {aba === "disparos" && (
         <>
+      <Reveal>
       <ProximaAcao acao={proximaAcao} />
 
       <div data-testid="kpis" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi
           titulo="Enviados"
           valor={env.toString()}
+          valorNum={env}
           tom="blue"
           icone={
             <path d="m22 2-7 20-4-9-9-4Z M22 2 11 13" />
@@ -177,6 +180,7 @@ export default function DashboardPage() {
         <Kpi
           titulo="Respondidos"
           valor={resp.toString()}
+          valorNum={resp}
           tom="emerald"
           sub={`de ${env} enviados`}
           icone={
@@ -186,6 +190,8 @@ export default function DashboardPage() {
         <Kpi
           titulo="Taxa de resposta"
           valor={`${taxa(resp, env)}%`}
+          valorNum={taxa(resp, env)}
+          sufixo="%"
           tom="brand"
           barra={taxa(resp, env)}
           icone={
@@ -198,6 +204,8 @@ export default function DashboardPage() {
         <Kpi
           titulo="SLA médio"
           valor={kpis?.sla_medio != null ? `${kpis.sla_medio} min` : "—"}
+          valorNum={kpis?.sla_medio ?? undefined}
+          sufixo=" min"
           tom="amber"
           icone={
             <>
@@ -207,6 +215,7 @@ export default function DashboardPage() {
           }
         />
       </div>
+      </Reveal>
 
       <SectionTitle>Detalhamento · Edição → Template → Disparo</SectionTitle>
       <Arvore arvore={arvore} />
@@ -301,7 +310,7 @@ const ACAO_ESTILO: Record<
 function ProximaAcao({ acao }: { acao: Acao }) {
   const estilo = ACAO_ESTILO[acao.tom];
   return (
-    <Card className={cn("mb-5 flex items-start gap-4 border p-5", estilo.card)}>
+    <Card className={cn("js-reveal mb-5 flex items-start gap-4 border p-5", estilo.card)}>
       <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", estilo.iconWrap)} aria-hidden="true">
         {acao.tom === "alerta" ? (
           <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -523,6 +532,8 @@ function Kpi({
   icone,
   barra,
   sub,
+  valorNum,
+  sufixo,
 }: {
   titulo: string;
   valor: string;
@@ -530,10 +541,12 @@ function Kpi({
   icone: ReactNode;
   barra?: number;
   sub?: string;
+  valorNum?: number;
+  sufixo?: string;
 }) {
   const t = KPI_TOM[tom];
   return (
-    <Card className="p-4 transition hover:shadow-soft">
+    <Card className="js-reveal p-4 transition hover:shadow-soft">
       <div className="flex items-start justify-between gap-2">
         <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{titulo}</div>
         <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset", t.iconWrap)} aria-hidden="true">
@@ -542,10 +555,12 @@ function Kpi({
           </svg>
         </span>
       </div>
-      <div className={cn("mt-3 text-3xl font-semibold tabular-nums", t.valor)}>{valor}</div>
+      <div className={cn("mt-3 text-3xl font-semibold tabular-nums", t.valor)}>
+        {valorNum != null ? <AnimNum value={valorNum} suffix={sufixo ?? ""} /> : valor}
+      </div>
       {barra != null && (
         <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-          <div className={cn("h-full rounded-full transition-all", t.bar)} style={{ width: `${Math.max(2, Math.min(100, barra))}%` }} />
+          <div className={cn("js-bar h-full rounded-full", t.bar)} style={{ width: `${Math.max(2, Math.min(100, barra))}%` }} />
         </div>
       )}
       {sub && <div className="mt-2 text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
