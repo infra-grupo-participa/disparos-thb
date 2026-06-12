@@ -6,6 +6,7 @@ import Link from "next/link";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { CardLigacoes } from "@/app/_components/ligacao";
+import { Reveal, AnimNum } from "@/app/_components/anim";
 
 type Estagio = { chave: string; nome: string; cor: string | null };
 type Contato = {
@@ -48,11 +49,11 @@ function Termometro({ score }: { score: number }) {
         <span className={cn("text-xs font-bold", n.txt)}>{n.label}</span>
       </div>
       <div className="mt-0.5 flex items-baseline gap-1">
-        <span className="text-3xl font-bold tabular-nums text-slate-900 dark:text-white">{score}</span>
+        <AnimNum value={score} className="text-3xl font-bold text-slate-900 dark:text-white" />
         <span className="text-sm text-slate-400 dark:text-slate-500">/ 100</span>
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-700/50">
-        <div className={cn("h-full rounded-full transition-all", n.bar)} style={{ width: `${Math.max(2, score)}%` }} />
+        <div className={cn("js-bar h-full rounded-full", n.bar)} style={{ width: `${Math.max(2, score)}%` }} />
       </div>
     </div>
   );
@@ -199,7 +200,8 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
       </Link>
 
       {/* Painel 360° — identidade, termômetro, sinais e ações num relance */}
-      <Card className="mt-2 p-5">
+      <Reveal>
+      <Card className="js-reveal mt-2 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -243,6 +245,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
           )}
         </div>
       </Card>
+      </Reveal>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_380px]">
         {/* Coluna principal — Formulários + Timeline */}

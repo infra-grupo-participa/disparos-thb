@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagsIcon, TAGS_PADRAO, tagTone } from "@/app/_components/tags";
+import { Reveal } from "@/app/_components/anim";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
@@ -209,7 +210,7 @@ export default function KanbanPage() {
           <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando jornada…</span>
         </div>
       ) : (
-        <div className={cn("-mx-4 flex gap-3 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6", selecaoMulti.size > 0 && "pb-20")}>
+        <Reveal className={cn("-mx-4 flex gap-3 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6", selecaoMulti.size > 0 && "pb-20")}>
           {colunas.map((col) => {
             const doCol = cards.filter((c) => c.estagio_chave === col.chave);
             const ativa = sobre === col.chave;
@@ -220,7 +221,7 @@ export default function KanbanPage() {
                 onDragLeave={() => setSobre((s) => (s === col.chave ? null : s))}
                 onDrop={() => { if (arrastando.current) mover(arrastando.current, col.chave); arrastando.current = null; setSobre(null); }}
                 className={cn(
-                  "flex w-72 shrink-0 flex-col rounded-xl border bg-slate-50/60 transition dark:bg-slate-900/40",
+                  "js-reveal flex w-72 shrink-0 flex-col rounded-xl border bg-slate-50/60 transition dark:bg-slate-900/40",
                   ativa ? "border-brand/40 bg-brand/5 dark:border-brand-400/40 dark:bg-brand-400/10" : "border-slate-200 dark:border-slate-800",
                 )}
               >
@@ -263,7 +264,7 @@ export default function KanbanPage() {
               </div>
             );
           })}
-        </div>
+        </Reveal>
       )}
 
       {selecionado && (
