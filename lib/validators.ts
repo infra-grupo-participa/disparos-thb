@@ -45,6 +45,16 @@ export const ContatoPatchSchema = z.object({
   opt_out: z.boolean().optional(),
 });
 
+export const LigacaoRegistrarSchema = z.object({
+  compradorId: id,
+  telefone: z.string().trim().min(1),
+  operador: z.string().nullable().optional(),
+  resultado: z.enum(["atendeu", "nao_atendeu", "caixa_postal", "ocupado", "numero_errado"]).optional(),
+  duracaoSeg: z.number().int().nonnegative().optional(),
+  anotacao: z.string().trim().optional(),
+  retornoEm: z.string().nullable().optional(),
+});
+
 export const KanbanMoverSchema = z.object({ compradorId: id, estagioChave: z.string().min(1) });
 export const KanbanLoteSchema = z.object({
   compradorIds: z.array(id).min(1),

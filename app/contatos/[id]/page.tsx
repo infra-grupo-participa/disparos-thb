@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, Spinner, cn, fieldClass } from "@/app/_components/ui";
+import { CardLigacoes } from "@/app/_components/ligacao";
 
 type Estagio = { chave: string; nome: string; cor: string | null };
 type Contato = {
@@ -87,6 +88,7 @@ const ICONE_TL: Record<string, { path: string; wrap: string }> = {
   resposta: { path: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", wrap: "bg-emerald-50 text-emerald-600 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:ring-emerald-500/30" },
   nota: { path: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z", wrap: "bg-amber-50 text-amber-600 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-400 dark:ring-amber-500/30" },
   mudanca_estagio: { path: "M16 3h5v5 M21 3l-7 7 M8 21H3v-5 M3 21l7-7", wrap: "bg-violet-50 text-violet-600 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-400 dark:ring-violet-500/30" },
+  ligacao: { path: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z", wrap: "bg-teal-50 text-teal-600 ring-teal-200 dark:bg-teal-500/15 dark:text-teal-400 dark:ring-teal-500/30" },
   sistema: { path: "M13 2 3 14h9l-1 8 10-12h-9l1-8z", wrap: "bg-slate-100 text-slate-500 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700" },
 };
 function fmt(iso: string | null) {
@@ -280,6 +282,9 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
 
         {/* Painel de CS */}
         <div className="space-y-5">
+          {/* Ligações */}
+          <CardLigacoes compradorId={id} telefone={contato.telefone} onRegistrado={carregar} />
+
           {/* Estágio */}
           <Card className="p-4">
             <SectionTitle>Estágio</SectionTitle>

@@ -48,6 +48,23 @@ export const interacoes = cs.table("interacoes", {
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const ligacoes = cs.table("ligacoes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  compradorId: uuid("comprador_id").notNull(),
+  operador: text("operador"),
+  telefone: text("telefone").notNull(),
+  resultado: text("resultado"),
+  duracaoSeg: integer("duracao_seg"),
+  anotacao: text("anotacao"),
+  retornoEm: timestamp("retorno_em", { withTimezone: true }),
+  urlGravacao: text("url_gravacao"),
+  provider: text("provider").notNull(),
+  providerCallId: text("provider_call_id"),
+  status: text("status").notNull(),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const atendimentos = cs.table("atendimentos", {
   id: uuid("id").primaryKey().defaultRandom(),
   compradorId: uuid("comprador_id"),
