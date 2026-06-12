@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import ThemeToggle from "./theme-toggle";
 import BuscaGlobal from "./busca-global";
+import UserMenu from "./user-menu";
 
 type LinkDef = { href: string; label: string; icon: string };
 
@@ -26,15 +27,8 @@ function Icon({ d }: { d: string }) {
 
 export default function TopNav() {
   const pathname = usePathname();
-  const router = useRouter();
 
   if (pathname === "/login") return null;
-
-  async function logout() {
-    await fetch("/api/auth", { method: "DELETE" });
-    router.push("/login");
-    router.refresh();
-  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/80">
@@ -67,9 +61,7 @@ export default function TopNav() {
 
         <BuscaGlobal />
         <ThemeToggle />
-        <button onClick={logout} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100">
-          Sair
-        </button>
+        <UserMenu />
       </div>
     </header>
   );

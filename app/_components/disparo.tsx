@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { primeiroNome } from "@/lib/phone";
 import { Button, Card, PageHeader, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
+import { SaudeDisparo } from "@/app/_components/saude-disparo";
 
 type Selecionado = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 type Template = { id: string; nome: string; unnichat_id: string; variaveis: number; preview: string | null; ativo: boolean };
@@ -358,6 +359,9 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
       />
 
       <div className="space-y-5">
+        {/* Termômetro anti-ban — saúde do número antes de disparar */}
+        <SaudeDisparo />
+
         {/* Template */}
         <Card className="p-5">
           <label htmlFor="template" className="block text-sm font-semibold text-slate-700 dark:text-slate-200">Template</label>

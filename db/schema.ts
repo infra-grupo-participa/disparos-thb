@@ -65,6 +65,17 @@ export const ligacoes = cs.table("ligacoes", {
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const usuarios = cs.table("usuarios", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  nome: text("nome").notNull(),
+  email: text("email").notNull(),
+  senhaHash: text("senha_hash").notNull(),
+  papel: text("papel").notNull(),
+  ativo: boolean("ativo").notNull(),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const atendimentos = cs.table("atendimentos", {
   id: uuid("id").primaryKey().defaultRandom(),
   compradorId: uuid("comprador_id"),

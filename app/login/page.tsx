@@ -6,6 +6,7 @@ import { Button, Card, Spinner, cn, fieldClass } from "@/app/_components/ui";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
@@ -18,13 +19,13 @@ export default function LoginPage() {
       const res = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email: email.trim(), senha: password }),
       });
       if (res.ok) {
         router.push("/kanban");
         router.refresh();
       } else {
-        setErro("Senha incorreta.");
+        setErro("E-mail ou senha incorretos.");
       }
     } catch {
       setErro("Erro de conexão.");
@@ -50,8 +51,32 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Campo de senha */}
+          {/* Campo de e-mail */}
           <div className="mt-8">
+            <label
+              htmlFor="email"
+              className="block text-sm font-medium text-slate-700 dark:text-slate-200"
+            >
+              E-mail
+            </label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoFocus
+              placeholder="seu@email.com"
+              className={cn(
+                fieldClass,
+                "mt-1.5",
+                erro && "border-rose-400 focus:border-rose-500",
+              )}
+            />
+          </div>
+
+          {/* Campo de senha */}
+          <div className="mt-4">
             <label
               htmlFor="password"
               className="block text-sm font-medium text-slate-700 dark:text-slate-200"
@@ -61,9 +86,9 @@ export default function LoginPage() {
             <input
               id="password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoFocus
               placeholder="Digite sua senha"
               className={cn(
                 fieldClass,

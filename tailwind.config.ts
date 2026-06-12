@@ -6,20 +6,22 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Marca (azul-marinho) com escala completa para hierarquia consistente.
+        // Marca (laranja Grupo Participa/advmais) com escala completa para
+        // hierarquia consistente. Base na paleta orange — #f97316 (accent-1) e
+        // #ea580c (accent-2) são as cores oficiais usadas nos demais projetos.
         brand: {
-          DEFAULT: "#1e3a5f",
-          light: "#2c5282",
-          50: "#f1f5fa",
-          100: "#dde8f3",
-          200: "#bcd0e6",
-          300: "#8fb0d4",
-          400: "#5d88bd",
-          500: "#3a6aa0",
-          600: "#2c5282",
-          700: "#1e3a5f",
-          800: "#1a2f4a",
-          900: "#16273d",
+          DEFAULT: "#ea580c",
+          light: "#f97316",
+          50: "#fff7ed",
+          100: "#ffedd5",
+          200: "#fed7aa",
+          300: "#fdba74",
+          400: "#fb923c",
+          500: "#f97316",
+          600: "#ea580c",
+          700: "#c2410c",
+          800: "#9a3412",
+          900: "#7c2d12",
         },
       },
       fontFamily: {

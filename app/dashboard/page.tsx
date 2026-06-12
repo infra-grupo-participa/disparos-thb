@@ -6,6 +6,7 @@ import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
 import { AnimNum, Reveal } from "@/app/_components/anim";
 import Comportamento from "@/app/_components/comportamento";
+import { SaudeDisparo } from "@/app/_components/saude-disparo";
 
 type Kpis = { enviados: number; respondidos: number; sla_medio: number | null };
 
@@ -220,6 +221,9 @@ export default function DashboardPage() {
         />
       </div>
       </Reveal>
+
+      <SectionTitle>Saúde do disparo · anti-ban Meta</SectionTitle>
+      <SaudeDisparo />
 
       <SectionTitle>Detalhamento · Edição → Template → Disparo</SectionTitle>
       <Arvore arvore={arvore} />

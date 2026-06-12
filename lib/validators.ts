@@ -23,7 +23,33 @@ export async function parseBody<T extends z.ZodTypeAny>(
 
 const id = z.string().min(1);
 
-export const AuthSchema = z.object({ password: z.string().min(1) });
+export const AuthSchema = z.object({
+  email: z.string().trim().min(1).email(),
+  senha: z.string().min(1),
+});
+
+// ----- Usuários (gestão por admin + perfil) -----
+const senhaForte = z.string().min(6, "mínimo de 6 caracteres");
+
+export const UsuarioCriarSchema = z.object({
+  nome: z.string().trim().min(2),
+  email: z.string().trim().email(),
+  senha: senhaForte,
+  papel: z.enum(["admin", "operador"]).default("operador"),
+});
+
+export const UsuarioPatchSchema = z.object({
+  nome: z.string().trim().min(2).optional(),
+  papel: z.enum(["admin", "operador"]).optional(),
+  ativo: z.boolean().optional(),
+});
+
+// Troca de senha: admin reseta (só novaSenha) ou o próprio usuário troca
+// (atualSenha + novaSenha — validado na rota).
+export const SenhaSchema = z.object({
+  atualSenha: z.string().optional(),
+  novaSenha: senhaForte,
+});
 
 export const SendSchema = z.object({
   templateId: id,

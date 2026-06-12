@@ -8,8 +8,17 @@ import { PageFade } from "@/app/_components/anim";
 type Conversa = {
   comprador_id: string; nome: string; telefone: string | null; edicao: string | null;
   estagio_nome: string | null; ultima_resposta_em: string | null; ultima_msg: string | null;
+  ultima_de_cs: boolean | null; ultima_msg_em: string | null;
   inbox_status: string; aguardando_desde: string | null; opt_out: boolean; responsavel: string | null;
 };
+
+// Limpa os prefixos internos ("Respondeu:" do lead, "CS respondeu:" do CS) e,
+// quando a última mensagem foi do operador, mostra "Você:" como no WhatsApp.
+function previewMsg(c: Conversa): string {
+  const txt = (c.ultima_msg || "").replace(/^(CS )?[Rr]espondeu:\s*/, "").trim();
+  if (!txt) return "—";
+  return c.ultima_de_cs ? `Você: ${txt}` : txt;
+}
 type Mensagem = { id: string; de: "lead" | "cs"; tipo: string; texto: string; data: string | null };
 type Metricas = {
   kpis: { pendentes: number; total_atendimentos: number; atendidas_hoje: number; frt_medio: number | null; frt_hoje: number | null; sla_pct: number | null; maior_espera_min: number | null; sla_min: number };
@@ -231,10 +240,10 @@ export default function InboxPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <span className={cn("truncate font-semibold", ativo ? "text-brand-700 dark:text-brand-300" : "text-slate-800 dark:text-slate-200")}>{c.nome}</span>
-                            <span className="shrink-0 text-[11px] tabular-nums text-slate-400 dark:text-slate-500">{fmtData(c.ultima_resposta_em)}</span>
+                            <span className="shrink-0 text-[11px] tabular-nums text-slate-400 dark:text-slate-500">{fmtData(c.ultima_msg_em ?? c.ultima_resposta_em)}</span>
                           </div>
                           <div className="mt-0.5 flex items-center justify-between gap-2">
-                            <span className="truncate text-xs text-slate-500 dark:text-slate-400">{(c.ultima_msg || "—").replace(/^Respondeu:\s*/, "")}</span>
+                            <span className={cn("truncate text-xs", c.ultima_de_cs ? "text-slate-400 dark:text-slate-500" : "text-slate-500 dark:text-slate-400")}>{previewMsg(c)}</span>
                             <EdicaoBadge edicao={c.edicao} className="shrink-0" />
                           </div>
                           {pend && (

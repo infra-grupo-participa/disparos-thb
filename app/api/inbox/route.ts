@@ -14,11 +14,19 @@ export async function GET(req: Request) {
     `select v.comprador_id, v.nome, v.telefone, v.edicao,
             v.estagio_chave, v.estagio_nome, v.ultima_resposta_em, v.ultimo_contato_em,
             ct.inbox_status, ct.aguardando_desde, ct.opt_out, ct.responsavel,
-            (select i.descricao from cs.interacoes i
-               where i.contato_id = ct.id and i.tipo = 'resposta'
-               order by i.criado_em desc limit 1) as ultima_msg
+            um.descricao as ultima_msg, um.de_cs as ultima_de_cs, um.criado_em as ultima_msg_em
        from cs.contatos_ht v
        join cs.contatos ct on ct.comprador_id = v.comprador_id
+       left join lateral (
+         -- Última mensagem da conversa, seja do lead (resposta) ou do CS
+         -- (nota "CS respondeu: ...", como o inbox registra ao enviar).
+         select i.descricao, i.criado_em, (i.tipo = 'nota') as de_cs
+           from cs.interacoes i
+          where i.contato_id = ct.id
+            and (i.tipo = 'resposta' or (i.tipo = 'nota' and i.descricao like 'CS respondeu:%'))
+          order by i.criado_em desc
+          limit 1
+       ) um on true
       where v.ultima_resposta_em is not null
         and ($1::text is null or ct.inbox_status = $1)
       order by (ct.inbox_status = 'pendente') desc,

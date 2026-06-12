@@ -7,6 +7,7 @@ import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagsIcon, TAGS_PADRAO, tagTone } from "@/app/_components/tags";
 import { Reveal } from "@/app/_components/anim";
+import { Avatar } from "@/app/_components/avatar";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
@@ -87,6 +88,7 @@ export default function KanbanPage() {
   const [edicoes, setEdicoes] = useState<string[]>([]);
   const [edicao, setEdicao] = useState<string | null>(null);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
+  const [usuarios, setUsuarios] = useState<string[]>([]); // nomes dos CS ativos (atribuição)
   const [tags, setTags] = useState<string[]>([]);
   const [filtroResp, setFiltroResp] = useState("");
   const [filtroTag, setFiltroTag] = useState("");
@@ -121,6 +123,17 @@ export default function KanbanPage() {
   }, [edicao, filtroResp, filtroTag]);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  // CS ativos (para atribuir como responsável). 1x na montagem.
+  useEffect(() => {
+    fetch("/api/usuarios")
+      .then((r) => r.json())
+      .then((d) => { if (d.ok) setUsuarios(d.usuarios.filter((u: { ativo: boolean }) => u.ativo).map((u: { nome: string }) => u.nome)); })
+      .catch(() => {});
+  }, []);
+
+  // União dos nomes de CS cadastrados com responsáveis já gravados (legado).
+  const opcoesResponsavel = [...new Set([...usuarios, ...responsaveis])].sort();
 
   async function mover(card: Card, estagioChave: string) {
     if (card.estagio_chave === estagioChave) return;
@@ -169,10 +182,6 @@ export default function KanbanPage() {
     const t = window.prompt("Tag para adicionar aos selecionados:");
     if (t && t.trim()) lote({ addTag: t.trim() });
   }
-  function responsavelLote() {
-    const r = window.prompt("Atribuir responsável aos selecionados (vazio = remover):");
-    if (r !== null) lote({ responsavel: r.trim() || null });
-  }
 
   const totalGeral = colunas.reduce((s, c) => s + c.total, 0);
 
@@ -190,10 +199,10 @@ export default function KanbanPage() {
             <option value="">Todas as edições</option>
             {edicoes.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
           </select>
-          {responsaveis.length > 0 && (
+          {opcoesResponsavel.length > 0 && (
             <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto")}>
               <option value="">Todos os responsáveis</option>
-              {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+              {opcoesResponsavel.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           )}
           {tags.length > 0 && (
@@ -271,7 +280,7 @@ export default function KanbanPage() {
         <Drawer
           card={selecionado}
           colunas={colunas}
-          responsaveis={responsaveis}
+          responsaveis={opcoesResponsavel}
           onAtualizar={carregar}
           onClose={() => setSelecionado(null)}
           onMover={(chave) => { mover(selecionado, chave); setSelecionado({ ...selecionado, estagio_chave: chave }); }}
@@ -296,7 +305,16 @@ export default function KanbanPage() {
             <Button variant="ghost" size="sm" onClick={() => setSelecaoMulti(new Set())}>Limpar</Button>
             <div className="flex-1" />
             <Button variant="secondary" size="sm" onClick={addTagLote}>+ Tag</Button>
-            <Button variant="secondary" size="sm" onClick={responsavelLote}>Responsável</Button>
+            <select
+              value=""
+              onChange={(e) => { const v = e.target.value; if (v) lote({ responsavel: v === "__nenhum__" ? null : v }); e.target.value = ""; }}
+              className={cn(fieldClass, "w-auto py-1.5 text-xs")}
+              title="Atribuir responsável aos selecionados"
+            >
+              <option value="">Atribuir CS…</option>
+              {opcoesResponsavel.map((r) => <option key={r} value={r}>{r}</option>)}
+              <option value="__nenhum__">— Remover responsável —</option>
+            </select>
             <Button variant="primary" onClick={() => dispararCards(cardsSelecionados())}>Disparar para {selecaoMulti.size}</Button>
           </div>
         </div>
@@ -384,24 +402,27 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
         <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", corAvatar(card.nome))}>{inicial(card.nome)}</span>
       </div>
       <p className="mt-1.5 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{card.nome}</p>
-      {card.responsavel && (
-        <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-slate-400 dark:text-slate-500">
-          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-          {card.responsavel}
-        </p>
-      )}
       <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
         <svg className="h-3.5 w-3.5 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.76.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Z" /></svg>
         <span className="flex-1 truncate">{card.ultima_msg ? card.ultima_msg.replace(/^Respondeu:\s*/, "") : "—"}</span>
         {card.ultima_resposta_em && <span className="shrink-0 tabular-nums">{relativo(card.ultima_resposta_em)}</span>}
       </div>
 
-      {/* Tempo na etapa (noção visual) + ações rápidas estilo CRM */}
+      {/* Rodapé: responsável (canto inferior esquerdo) + tempo na etapa + ações */}
       <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 dark:border-slate-800">
-        <span className={cn("inline-flex items-center gap-1 text-[11px] font-medium tabular-nums", tempoTom(card.entrou_estagio_em))} title="Tempo nesta etapa">
-          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-          {card.entrou_estagio_em ? `${relativo(card.entrou_estagio_em)} na etapa` : "sem registro"}
-        </span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {card.responsavel ? (
+            <Avatar nome={card.responsavel} className="h-5 w-5 text-[9px] ring-2 ring-white dark:ring-slate-900" />
+          ) : (
+            <span title="Sem responsável" className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600 dark:text-slate-600">
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+            </span>
+          )}
+          <span className={cn("inline-flex items-center gap-1 truncate text-[11px] font-medium tabular-nums", tempoTom(card.entrou_estagio_em))} title="Tempo nesta etapa">
+            <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            {card.entrou_estagio_em ? `${relativo(card.entrou_estagio_em)} na etapa` : "sem registro"}
+          </span>
+        </div>
         <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           {waLink(card.telefone) && (
             <AcaoCard href={waLink(card.telefone)!} title="Abrir no WhatsApp" cor="hover:text-emerald-600 dark:hover:text-emerald-400">
@@ -546,15 +567,22 @@ function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onA
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Responsável</label>
-                <input
-                  list="resp-list"
-                  defaultValue={det.contato.responsavel ?? ""}
-                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (det.contato.responsavel ?? "")) patch({ responsavel: v || null }); }}
-                  placeholder="Atribuir a…"
-                  className={fieldClass}
-                />
-                <datalist id="resp-list">{responsaveis.map((r) => <option key={r} value={r} />)}</datalist>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Responsável (CS)</label>
+                <div className="flex items-center gap-2">
+                  {det.contato.responsavel && <Avatar nome={det.contato.responsavel} className="h-8 w-8 text-xs" />}
+                  <select
+                    value={det.contato.responsavel ?? ""}
+                    onChange={(e) => { const v = e.target.value; patch({ responsavel: v || null }); }}
+                    className={fieldClass}
+                  >
+                    <option value="">— Sem responsável —</option>
+                    {/* Garante que um responsável legado fora da lista de usuários ainda apareça. */}
+                    {det.contato.responsavel && !responsaveis.includes(det.contato.responsavel) && (
+                      <option value={det.contato.responsavel}>{det.contato.responsavel}</option>
+                    )}
+                    {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
               </div>
               <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                 <input type="checkbox" checked={!!det.contato.opt_out} onChange={(e) => patch({ opt_out: e.target.checked })} className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600" />
