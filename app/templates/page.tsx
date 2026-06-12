@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
+import { Reveal } from "@/app/_components/anim";
 
 type Template = {
   id: string;
@@ -107,7 +108,7 @@ export default function TemplatesPage() {
 
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_400px]">
         {/* ---- Coluna esquerda: lista ---- */}
-        <div className="space-y-3">
+        <Reveal className="space-y-3">
           {templates.length === 0 ? (
             <EmptyState
               title="Nenhum template ainda"
@@ -115,7 +116,7 @@ export default function TemplatesPage() {
             />
           ) : (
             templates.map((t) => (
-              <Card key={t.id} className="p-4">
+              <Card key={t.id} className="js-reveal p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -163,7 +164,7 @@ export default function TemplatesPage() {
               </Card>
             ))
           )}
-        </div>
+        </Reveal>
 
         {/* ---- Coluna direita: formulário sticky ---- */}
         <Card className="p-5 lg:sticky lg:top-6">

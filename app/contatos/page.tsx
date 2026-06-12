@@ -6,6 +6,7 @@ import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, PageHeader, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagsIcon } from "@/app/_components/tags";
+import { PageFade } from "@/app/_components/anim";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
@@ -163,7 +164,7 @@ export default function ContatosPage() {
   );
 
   return (
-    <div className="pb-24">
+    <PageFade className="pb-24">
       <PageHeader
         title="Contatos HT"
         description={descricao}
@@ -394,6 +395,6 @@ export default function ContatosPage() {
           onClose={() => { setDispararSelecao(null); limparSelecao(); carregar(); }}
         />
       )}
-    </div>
+    </PageFade>
   );
 }

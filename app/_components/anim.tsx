@@ -40,6 +40,24 @@ export function Reveal({ children, className, id }: { children: React.ReactNode;
   );
 }
 
+// Fade sutil do bloco inteiro na entrada — ideal p/ telas de lista (Contatos,
+// Inbox), onde animar item a item travaria/cansaria. Anima o próprio container.
+export function PageFade({ children, className }: { children: React.ReactNode; className?: string }) {
+  const scope = useRef<HTMLDivElement>(null);
+  useGSAP(
+    () => {
+      if (prefersReduced()) return;
+      gsap.from(scope.current!, { opacity: 0, y: 8, duration: 0.4, ease: "power2.out" });
+    },
+    { scope },
+  );
+  return (
+    <div ref={scope} className={className}>
+      {children}
+    </div>
+  );
+}
+
 // Conta até `value`. No mount rola de 0→valor; quando o valor muda ao vivo,
 // anima só o delta (prev→novo) — sutil e informativo. SSR-safe.
 export function AnimNum({

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
+import { PageFade } from "@/app/_components/anim";
 
 type Conversa = {
   comprador_id: string; nome: string; telefone: string | null; edicao: string | null;
@@ -167,7 +168,7 @@ export default function InboxPage() {
   const k = metricas?.kpis;
 
   return (
-    <div>
+    <PageFade>
       {/* KPIs de desempenho do CS */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Inbox</h1>
@@ -336,7 +337,7 @@ export default function InboxPage() {
       {showDesempenho && metricas && (
         <Desempenho metricas={metricas} onClose={() => setShowDesempenho(false)} />
       )}
-    </div>
+    </PageFade>
   );
 }
 
