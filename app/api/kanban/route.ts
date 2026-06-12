@@ -35,7 +35,7 @@ export async function GET(req: Request) {
 
   const cards = await query(
     `with base as (
-       select h.comprador_id, h.nome, h.telefone, h.edicao, h.estagio_chave,
+       select h.comprador_id, h.nome, h.email, h.telefone, h.edicao, h.estagio_chave,
               ct.tags, ct.responsavel, ct.opt_out, ct.id as contato_id, h.ultima_resposta_em, ct.atualizado_em,
               row_number() over (partition by h.estagio_chave order by ct.atualizado_em desc nulls last, h.nome) as rk
          from cs.contatos_ht h
@@ -44,14 +44,20 @@ export async function GET(req: Request) {
           and ($2::text is null or ct.responsavel = $2)
           and ($3::text is null or $3 = any(ct.tags))
      )
-     select b.comprador_id, b.nome, b.telefone, b.edicao, b.estagio_chave, b.tags, b.responsavel, b.opt_out, b.ultima_resposta_em,
-            um.descricao as ultima_msg
+     select b.comprador_id, b.nome, b.email, b.telefone, b.edicao, b.estagio_chave, b.tags, b.responsavel, b.opt_out, b.ultima_resposta_em,
+            um.descricao as ultima_msg,
+            me.criado_em as entrou_estagio_em
        from base b
        left join lateral (
          select i.descricao from cs.interacoes i
           where i.contato_id = b.contato_id
           order by i.criado_em desc limit 1
        ) um on true
+       left join lateral (
+         select i.criado_em from cs.interacoes i
+          where i.contato_id = b.contato_id and i.tipo = 'mudanca_estagio'
+          order by i.criado_em desc limit 1
+       ) me on true
       where b.rk <= ${MAX_POR_COLUNA}
       order by b.estagio_chave, b.rk`,
     f,

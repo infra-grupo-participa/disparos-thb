@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
@@ -11,6 +12,7 @@ type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao
 type Card = {
   comprador_id: string;
   nome: string;
+  email: string | null;
   telefone: string | null;
   edicao: string | null;
   estagio_chave: string;
@@ -19,6 +21,7 @@ type Card = {
   opt_out: boolean;
   ultima_resposta_em: string | null;
   ultima_msg: string | null;
+  entrou_estagio_em: string | null;
 };
 type Coluna = { chave: string; nome: string; cor: string; total: number };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
@@ -48,6 +51,23 @@ function relativo(iso: string | null): string {
 }
 function fmt(iso: string | null) {
   return iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+}
+
+// Monta o link do WhatsApp (wa.me) a partir do telefone, prefixando 55 quando necessário.
+function waLink(tel: string | null): string | null {
+  if (!tel) return null;
+  let d = tel.replace(/\D/g, "");
+  if (d.length < 8) return null;
+  if (!d.startsWith("55")) d = "55" + d;
+  return `https://wa.me/${d}`;
+}
+// Cor do indicador de tempo na etapa — esfria/esquenta conforme o card "envelhece" na esteira.
+function tempoTom(iso: string | null): string {
+  if (!iso) return "text-slate-400 dark:text-slate-500";
+  const dias = (Date.now() - new Date(iso).getTime()) / 86_400_000;
+  if (dias >= 7) return "text-rose-500 dark:text-rose-400";
+  if (dias >= 3) return "text-amber-500 dark:text-amber-400";
+  return "text-slate-400 dark:text-slate-500";
 }
 
 const EDICAO_COR: Record<string, string> = {
@@ -374,7 +394,47 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
         <span className="flex-1 truncate">{card.ultima_msg ? card.ultima_msg.replace(/^Respondeu:\s*/, "") : "—"}</span>
         {card.ultima_resposta_em && <span className="shrink-0 tabular-nums">{relativo(card.ultima_resposta_em)}</span>}
       </div>
+
+      {/* Tempo na etapa (noção visual) + ações rápidas estilo CRM */}
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 dark:border-slate-800">
+        <span className={cn("inline-flex items-center gap-1 text-[11px] font-medium tabular-nums", tempoTom(card.entrou_estagio_em))} title="Tempo nesta etapa">
+          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+          {card.entrou_estagio_em ? `${relativo(card.entrou_estagio_em)} na etapa` : "sem registro"}
+        </span>
+        <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          {waLink(card.telefone) && (
+            <AcaoCard href={waLink(card.telefone)!} title="Abrir no WhatsApp" cor="hover:text-emerald-600 dark:hover:text-emerald-400">
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.76.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Z" /></svg>
+            </AcaoCard>
+          )}
+          {card.telefone && (
+            <AcaoCard href={`tel:${card.telefone.replace(/[^0-9+]/g, "")}`} title="Ligar" cor="hover:text-blue-600 dark:hover:text-blue-400">
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" /></svg>
+            </AcaoCard>
+          )}
+          {card.email && (
+            <AcaoCard href={`mailto:${card.email}`} title="Enviar e-mail" cor="hover:text-violet-600 dark:hover:text-violet-400">
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></svg>
+            </AcaoCard>
+          )}
+          <AcaoCard link href={`/inbox?c=${card.comprador_id}`} title="Conversar no inbox" cor="hover:text-brand dark:hover:text-brand-300">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+          </AcaoCard>
+        </div>
+      </div>
     </div>
+  );
+}
+
+// Botão de ação rápida no card (WhatsApp / ligar / e-mail / inbox). Para de propagar o clique p/ não abrir o detalhe.
+function AcaoCard({ href, title, cor, link, children }: { href: string; title: string; cor: string; link?: boolean; children: ReactNode }) {
+  const cls = cn("flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-slate-800", cor);
+  const stop = (e: MouseEvent) => e.stopPropagation();
+  if (link) return <Link href={href} title={title} aria-label={title} onClick={stop} className={cls}>{children}</Link>;
+  return (
+    <a href={href} title={title} aria-label={title} onClick={stop} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className={cls}>
+      {children}
+    </a>
   );
 }
 

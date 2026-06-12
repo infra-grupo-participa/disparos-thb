@@ -64,6 +64,7 @@ export default function InboxPage() {
   const [metricas, setMetricas] = useState<Metricas | null>(null);
   const [showDesempenho, setShowDesempenho] = useState(false);
   const [snippets, setSnippets] = useState<string[]>(SNIPPETS_DEFAULT);
+  const [deepLink, setDeepLink] = useState<string | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -89,6 +90,14 @@ export default function InboxPage() {
   useEffect(() => { carregarConversas(); }, [carregarConversas]);
   useEffect(() => { carregarMetricas(); }, [carregarMetricas]);
 
+  // Deep-link vindo do Kanban (/inbox?c=comprador_id): abre todas as conversas e seleciona a do cliente.
+  useEffect(() => {
+    try {
+      const c = new URLSearchParams(window.location.search).get("c");
+      if (c) { setDeepLink(c); setFiltro(""); }
+    } catch { /* noop */ }
+  }, []);
+
   const abrir = useCallback(async (c: Conversa) => {
     setSel(c); setMensagens([]); setAviso(null); setCarregandoMsg(true);
     try {
@@ -97,6 +106,13 @@ export default function InboxPage() {
       if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); }
     } finally { setCarregandoMsg(false); }
   }, []);
+
+  // Quando a lista carrega e há um deep-link pendente, seleciona a conversa-alvo.
+  useEffect(() => {
+    if (!deepLink || !conversas.length) return;
+    const c = conversas.find((x) => x.comprador_id === deepLink);
+    if (c) { abrir(c); setDeepLink(null); }
+  }, [deepLink, conversas, abrir]);
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [mensagens]);
 
