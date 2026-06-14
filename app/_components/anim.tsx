@@ -24,11 +24,18 @@ export function Reveal({ children, className, id }: { children: React.ReactNode;
       const root = scope.current!;
       const itens = root.querySelectorAll(".js-reveal");
       if (itens.length) {
-        gsap.from(itens, { opacity: 0, y: 10, duration: 0.4, ease: "power2.out", stagger: 0.05 });
+        // fromTo + clearProps: ao concluir (ou se a animação for interrompida por
+        // um re-render/poll), o GSAP remove os estilos inline e o elemento volta
+        // ao estado natural (opacity 1). Evita cards "presos" semitransparentes.
+        gsap.fromTo(
+          itens,
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 0.4, ease: "power2.out", stagger: 0.05, clearProps: "opacity,transform", overwrite: "auto" },
+        );
       }
       root.querySelectorAll<HTMLElement>(".js-bar").forEach((el) => {
         const alvo = el.style.width || getComputedStyle(el).width;
-        gsap.fromTo(el, { width: 0 }, { width: alvo, duration: 0.7, ease: "power3.out", delay: 0.1 });
+        gsap.fromTo(el, { width: 0 }, { width: alvo, duration: 0.7, ease: "power3.out", delay: 0.1, clearProps: "width" });
       });
     },
     { scope },
@@ -47,7 +54,11 @@ export function PageFade({ children, className }: { children: React.ReactNode; c
   useGSAP(
     () => {
       if (prefersReduced()) return;
-      gsap.from(scope.current!, { opacity: 0, y: 8, duration: 0.4, ease: "power2.out" });
+      gsap.fromTo(
+        scope.current!,
+        { opacity: 0, y: 8 },
+        { opacity: 1, y: 0, duration: 0.4, ease: "power2.out", clearProps: "opacity,transform", overwrite: "auto" },
+      );
     },
     { scope },
   );
