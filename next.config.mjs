@@ -5,6 +5,18 @@ const nextConfig = {
     // pg é dependência só-servidor; não deve ser bundlada no client.
     serverComponentsExternalPackages: ["pg"],
   },
+  // URLs antigas (sem portal) → portal HT, para não quebrar links/bookmarks
+  // anteriores à separação em /ht/* e /seminario/*.
+  async redirects() {
+    return [
+      { source: "/kanban", destination: "/ht/kanban", permanent: false },
+      { source: "/contatos", destination: "/ht/contatos", permanent: false },
+      { source: "/contatos/:id", destination: "/ht/contatos/:id", permanent: false },
+      { source: "/inbox", destination: "/ht/inbox", permanent: false },
+      { source: "/dashboard", destination: "/ht/dashboard", permanent: false },
+      { source: "/templates", destination: "/ht/templates", permanent: false },
+    ];
+  },
   async headers() {
     return [
       {

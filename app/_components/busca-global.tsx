@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { usePortal } from "@/app/_components/use-portal";
 
 type Res = { comprador_id: string; nome: string; email: string; telefone: string | null; edicao: string | null };
 
-// Busca global de aluno (atalho Ctrl/Cmd+K ou ícone no menu). Leva ao detalhe.
+// Busca global de contato no portal atual (Ctrl/Cmd+K). Leva ao detalhe do portal.
 export default function BuscaGlobal() {
   const router = useRouter();
+  const { evento, base } = usePortal();
   const [aberto, setAberto] = useState(false);
   const [q, setQ] = useState("");
   const [res, setRes] = useState<Res[]>([]);
@@ -29,15 +31,15 @@ export default function BuscaGlobal() {
     const t = setTimeout(async () => {
       if (q.trim().length < 2) { setRes([]); return; }
       try {
-        const r = await fetch(`/api/contatos?q=${encodeURIComponent(q.trim())}`);
+        const r = await fetch(`/api/contatos?evento=${evento}&q=${encodeURIComponent(q.trim())}`);
         const d = await r.json();
         if (d.ok) setRes(d.contatos.slice(0, 12));
       } catch { /* noop */ }
     }, 250);
     return () => clearTimeout(t);
-  }, [q, aberto]);
+  }, [q, aberto, evento]);
 
-  function ir(id: string) { setAberto(false); setQ(""); setRes([]); router.push(`/contatos/${id}`); }
+  function ir(id: string) { setAberto(false); setQ(""); setRes([]); router.push(`${base}/contatos/${id}`); }
 
   return (
     <>

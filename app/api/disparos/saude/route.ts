@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { getConfig } from "@/lib/services/config";
+import { eventoDe } from "@/lib/services/evento";
 import { motivoMeta, type SeveridadeMeta } from "@/lib/meta-codigos";
 
 export const runtime = "nodejs";
@@ -37,28 +38,33 @@ type CodigoRow = { code: number; qtd: number; ultima: string | null };
 // GET /api/disparos/saude — termômetro anti-ban do número. Cruza volume/ritmo
 // (dados de envio) com os sinais REAIS de qualidade da Meta (status de entrega +
 // códigos de erro sincronizados) para um veredito claro de quando PARAR.
-export async function GET() {
+export async function GET(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
 
+  // Saúde anti-ban por evento: cada portal tem seu número/canal, então o
+  // volume/ritmo/qualidade é avaliado isoladamente (HT não contamina Seminário).
+  const evento = eventoDe(req);
   const limiteDia = await getConfig<number>("disparo_limite_diario", 200);
   const limiteHora = await getConfig<number>("disparo_limite_hora", 40);
 
   const v = (await queryOne<Volume>(
-    `with dc24 as (
-       select dc.* from cs.disparo_contatos dc
-       join cs.disparos d on d.id = dc.disparo_id
-      where d.iniciado_em > now() - interval '24 hours'
-     )
+    `with dce as (
+       select dc.*, d.iniciado_em as d_iniciado
+         from cs.disparo_contatos dc
+         join cs.disparos d on d.id = dc.disparo_id and d.evento = $1
+     ),
+     dc24 as (select * from dce where d_iniciado > now() - interval '24 hours')
      select
-       (select count(*) from cs.disparo_contatos where enviado and enviado_em > now() - interval '24 hours')::int as enviados_24h,
-       (select count(*) from cs.disparo_contatos where enviado and enviado_em > now() - interval '1 hour')::int  as enviados_1h,
+       (select count(*) from dce where enviado and enviado_em > now() - interval '24 hours')::int as enviados_24h,
+       (select count(*) from dce where enviado and enviado_em > now() - interval '1 hour')::int  as enviados_1h,
        (select count(*) from dc24 where enviado)::int as enviados_disp24,
        (select count(*) from dc24 where not enviado and (erro is not null or erro_contato is not null))::int as falhas_24h,
        (select count(*) from dc24 where respondeu)::int as respondidos_24h,
-       (select count(*) from cs.contatos where opt_out and opt_out_em > now() - interval '24 hours')::int as optout_24h,
-       (select count(*) from cs.contatos where opt_out and opt_out_em > now() - interval '7 days')::int  as optout_7d,
-       (select count(distinct template_id) from cs.disparos where iniciado_em > now() - interval '24 hours')::int as templates_24h,
-       (select max(iniciado_em) from cs.disparos) as ultimo_disparo_em`,
+       (select count(*) from cs.contatos where evento = $1 and opt_out and opt_out_em > now() - interval '24 hours')::int as optout_24h,
+       (select count(*) from cs.contatos where evento = $1 and opt_out and opt_out_em > now() - interval '7 days')::int  as optout_7d,
+       (select count(distinct template_id) from cs.disparos where evento = $1 and iniciado_em > now() - interval '24 hours')::int as templates_24h,
+       (select max(iniciado_em) from cs.disparos where evento = $1) as ultimo_disparo_em`,
+    [evento],
   )) ?? {
     enviados_24h: 0, enviados_1h: 0, enviados_disp24: 0, falhas_24h: 0, respondidos_24h: 0,
     optout_24h: 0, optout_7d: 0, templates_24h: 0, ultimo_disparo_em: null,
@@ -70,7 +76,7 @@ export async function GET() {
        select dc.status_meta, dc.status_em
          from cs.disparo_contatos dc
          join cs.disparos d on d.id = dc.disparo_id
-        where d.iniciado_em > now() - interval '7 days' and dc.enviado
+        where d.evento = $1 and d.iniciado_em > now() - interval '7 days' and dc.enviado
      )
      select
        count(*) filter (where status_meta is not null)::int as com_status,
@@ -81,6 +87,7 @@ export async function GET() {
        count(*) filter (where status_meta = 'failed')::int as falhas_meta_7d,
        count(*) filter (where status_meta = 'failed' and status_em > now() - interval '24 hours')::int as falhas_meta_24h
        from j`,
+    [evento],
   )) ?? { com_status: 0, com_status_24h: 0, entregues: 0, lidas: 0, so_enviadas: 0, falhas_meta_7d: 0, falhas_meta_24h: 0 };
 
   // Códigos de erro da Meta nos últimos 7 dias (motivo da queima).
@@ -88,9 +95,10 @@ export async function GET() {
     `select dc.erro_meta_code as code, count(*)::int as qtd, max(dc.status_em) as ultima
        from cs.disparo_contatos dc
        join cs.disparos d on d.id = dc.disparo_id
-      where d.iniciado_em > now() - interval '7 days' and dc.erro_meta_code is not null
+      where d.evento = $1 and d.iniciado_em > now() - interval '7 days' and dc.erro_meta_code is not null
       group by dc.erro_meta_code
       order by qtd desc`,
+    [evento],
   );
   const codigos = codigosRows.map((c) => ({ code: c.code, qtd: c.qtd, ultima: c.ultima, ...motivoMeta(c.code) }));
   const criticosMeta = codigos.filter((c) => c.severidade === "critico");

@@ -35,12 +35,12 @@ export const UsuarioCriarSchema = z.object({
   nome: z.string().trim().min(2),
   email: z.string().trim().email(),
   senha: senhaForte,
-  papel: z.enum(["admin", "operador"]).default("operador"),
+  papel: z.enum(["admin", "disparador", "operador"]).default("operador"),
 });
 
 export const UsuarioPatchSchema = z.object({
   nome: z.string().trim().min(2).optional(),
-  papel: z.enum(["admin", "operador"]).optional(),
+  papel: z.enum(["admin", "disparador", "operador"]).optional(),
   ativo: z.boolean().optional(),
 });
 
@@ -55,6 +55,24 @@ export const SendSchema = z.object({
   templateId: id,
   compradorIds: z.array(id).min(1),
   edicao: z.string().optional(),
+});
+
+// ----- Canais de disparo (credencial de API por evento, admin) -----
+export const CanalCriarSchema = z.object({
+  evento_chave: z.string().trim().min(1),
+  nome: z.string().trim().min(2),
+  provider: z.string().trim().min(1).default("unnichat"),
+  api_key: z.string().trim().min(1),
+  base_url: z.string().trim().url().optional().or(z.literal("")),
+  numero: z.string().trim().optional(),
+});
+
+export const CanalPatchSchema = z.object({
+  nome: z.string().trim().min(2).optional(),
+  api_key: z.string().trim().min(1).optional(),
+  base_url: z.string().trim().optional(),
+  numero: z.string().trim().optional(),
+  ativo: z.boolean().optional(),
 });
 
 export const InboxMsgSchema = z.object({ texto: z.string().trim().min(1), atendente: z.string().optional() });

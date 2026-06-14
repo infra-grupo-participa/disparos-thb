@@ -6,7 +6,13 @@ import { useRouter } from "next/navigation";
 import { Avatar } from "@/app/_components/avatar";
 import { Button, Spinner, cn, fieldClass } from "@/app/_components/ui";
 
-type Me = { id: string; nome: string; email: string; papel: "admin" | "operador" };
+type Me = { id: string; nome: string; email: string; papel: "admin" | "disparador" | "operador" };
+
+const PAPEL_LABEL: Record<Me["papel"], string> = {
+  admin: "Administrador",
+  disparador: "Operador de disparos",
+  operador: "Operador",
+};
 
 export default function UserMenu() {
   const router = useRouter();
@@ -59,14 +65,22 @@ export default function UserMenu() {
             <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{me.nome}</p>
             <p className="truncate text-xs text-slate-500 dark:text-slate-400">{me.email}</p>
             <span className={cn("mt-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-              me.papel === "admin" ? "bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}>
-              {me.papel === "admin" ? "Administrador" : "Operador"}
+              me.papel === "admin" ? "bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300"
+              : me.papel === "disparador" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
+              : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}>
+              {PAPEL_LABEL[me.papel]}
             </span>
           </div>
           {me.papel === "admin" && (
             <Link href="/usuarios" onClick={() => setAberto(false)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
               <svg className="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
               Gerenciar usuários
+            </Link>
+          )}
+          {me.papel === "admin" && (
+            <Link href="/canais" onClick={() => setAberto(false)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
+              <svg className="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V5a2 2 0 0 1 2-2h2M4 17v2a2 2 0 0 0 2 2h2M16 3h2a2 2 0 0 1 2 2v2M16 21h2a2 2 0 0 0 2-2v-2" /><path d="m9 12 2 2 4-4" /></svg>
+              Canais de disparo
             </Link>
           )}
           <button onClick={() => { setTrocarSenha(true); setAberto(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">

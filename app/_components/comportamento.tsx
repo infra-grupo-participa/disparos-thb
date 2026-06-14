@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePortal } from "@/app/_components/use-portal";
 import { Button, Card, Spinner, cn } from "@/app/_components/ui";
 import { AnimNum } from "@/app/_components/anim";
 
@@ -44,6 +45,7 @@ function fmtData(iso: string | null) {
 }
 
 export default function Comportamento({ edicao }: { edicao: string }) {
+  const { evento } = usePortal();
   const [dados, setDados] = useState<Dados | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
@@ -53,6 +55,7 @@ export default function Comportamento({ edicao }: { edicao: string }) {
     setCarregando(true);
     try {
       const params = new URLSearchParams();
+      params.set("evento", evento);
       if (edicao) params.set("edicao", edicao);
       const r = await fetch(`/api/comportamento?${params.toString()}`);
       const d = await r.json();
@@ -60,7 +63,7 @@ export default function Comportamento({ edicao }: { edicao: string }) {
     } finally {
       setCarregando(false);
     }
-  }, [edicao]);
+  }, [edicao, evento]);
 
   useEffect(() => { carregar(); }, [carregar]);
 

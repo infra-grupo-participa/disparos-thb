@@ -20,7 +20,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
             v.legado_ja_hm, v.legado_e_aluno, v.legado_instrucao, v.primeiro_contato_em,
             v.legado_t_primeiro_contato_h, v.legado_t_ativacao_h,
             ct.tags, ct.opt_out, ct.opt_out_em
-       from cs.contatos_ht v
+       from cs.contatos_evento v
        left join cs.contatos ct on ct.comprador_id = v.comprador_id
       where v.comprador_id = $1`,
 

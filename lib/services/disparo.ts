@@ -1,5 +1,6 @@
 import { query, queryOne } from "@/lib/db";
-import { sendTemplate, createContact, type BodyParam, type EnvioResultado } from "@/lib/unnichat";
+import { sendTemplate, createContact, type BodyParam, type CanalCfg, type EnvioResultado } from "@/lib/unnichat";
+import { getCanal } from "@/lib/services/canais";
 import { primeiroNome } from "@/lib/phone";
 import { logger } from "@/lib/log";
 
@@ -17,12 +18,12 @@ const FALLBACK_VAR = "tudo bem";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const ehTransitorio = (status: number) => status === 0 || status === 429 || status >= 500;
 
-type Template = { id: string; nome: string; unnichat_id: string; variaveis: number };
+type Template = { id: string; nome: string; unnichat_id: string; variaveis: number; evento: string };
 type LinhaDB = { id: string; comprador_id: string; telefone: string; contato_criado: boolean; nome: string | null };
 
 export async function processarDisparo(disparoId: string): Promise<void> {
   const template = await queryOne<Template>(
-    `select t.id, t.nome, t.unnichat_id, t.variaveis
+    `select t.id, t.nome, t.unnichat_id, t.variaveis, coalesce(d.evento, 'HT') as evento
        from cs.disparos d join cs.templates t on t.id = d.template_id
       where d.id = $1`,
     [disparoId],
@@ -33,11 +34,15 @@ export async function processarDisparo(disparoId: string): Promise<void> {
     return;
   }
 
+  // Credencial do canal do evento (ex.: número do HT vs número do Seminário).
+  // Sem canal cadastrado, getCanal devolve {} e a unnichat cai na env global.
+  const canal = await getCanal(template.evento);
+
   // Só o que ainda não foi enviado (idempotência / retomada).
   const pendentes = await query<LinhaDB>(
     `select dc.id, dc.comprador_id, dc.telefone, dc.contato_criado, v.nome
        from cs.disparo_contatos dc
-       left join cs.contatos_ht v on v.comprador_id = dc.comprador_id
+       left join cs.contatos_evento v on v.comprador_id = dc.comprador_id
       where dc.disparo_id = $1 and dc.enviado = false`,
     [disparoId],
   );
@@ -46,7 +51,7 @@ export async function processarDisparo(disparoId: string): Promise<void> {
   await query(`update cs.disparos set fase = 'criando_contatos' where id = $1`, [disparoId]);
   for (const l of pendentes) {
     if (l.contato_criado) continue;
-    const r = await createContact({ name: l.nome || l.telefone, phone: l.telefone });
+    const r = await createContact({ name: l.nome || l.telefone, phone: l.telefone, cfg: canal });
     if (r.ok) {
       l.contato_criado = true;
       await query(
@@ -81,7 +86,7 @@ export async function processarDisparo(disparoId: string): Promise<void> {
       params = [{ type: "text", text: texto }];
     }
 
-    const r = await enviarComRetry(l.telefone, template.unnichat_id, params, l.id);
+    const r = await enviarComRetry(l.telefone, template.unnichat_id, params, l.id, canal);
     const pausaProximo = r.status === 429 ? DELAY_429_MS : DELAY_MS;
 
     if (r.ok) {
@@ -132,14 +137,15 @@ async function enviarComRetry(
   templateId: string,
   bodyParameters: BodyParam[] | undefined,
   contatoId: string,
+  cfg?: CanalCfg,
 ): Promise<EnvioResultado> {
-  let r = await sendTemplate({ phone, templateId, bodyParameters });
+  let r = await sendTemplate({ phone, templateId, bodyParameters, cfg });
   let tentativa = 0;
   while (!r.ok && ehTransitorio(r.status) && tentativa < RETRY_BACKOFF_MS.length) {
     const espera = RETRY_BACKOFF_MS[tentativa];
     log.warn("envio falhou; agendando retry", { contatoId, status: r.status, erro: r.erro, tentativa: tentativa + 1, de: RETRY_BACKOFF_MS.length, esperaMs: espera });
     await sleep(espera);
-    r = await sendTemplate({ phone, templateId, bodyParameters });
+    r = await sendTemplate({ phone, templateId, bodyParameters, cfg });
     tentativa++;
   }
   if (!r.ok && tentativa > 0) {

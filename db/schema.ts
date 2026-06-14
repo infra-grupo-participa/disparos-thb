@@ -15,6 +15,7 @@ export const estagios = cs.table("estagios", {
   isInicial: boolean("is_inicial").notNull(),
   isFinal: boolean("is_final").notNull(),
   ativo: boolean("ativo").notNull(),
+  evento: text("evento").notNull(),
 });
 
 export const contatos = cs.table("contatos", {
@@ -33,6 +34,7 @@ export const contatos = cs.table("contatos", {
   optOutEm: timestamp("opt_out_em", { withTimezone: true }),
   inboxStatus: text("inbox_status").notNull(),
   aguardandoDesde: timestamp("aguardando_desde", { withTimezone: true }),
+  evento: text("evento").notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -71,6 +73,29 @@ export const usuarios = cs.table("usuarios", {
   email: text("email").notNull(),
   senhaHash: text("senha_hash").notNull(),
   papel: text("papel").notNull(),
+  ativo: boolean("ativo").notNull(),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const eventos = cs.table("eventos", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  chave: text("chave").notNull(),
+  nome: text("nome").notNull(),
+  cor: text("cor"),
+  ativo: boolean("ativo").notNull(),
+  ordem: integer("ordem").notNull(),
+  criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const canaisDisparo = cs.table("canais_disparo", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  eventoChave: text("evento_chave").notNull(),
+  nome: text("nome").notNull(),
+  provider: text("provider").notNull(),
+  baseUrl: text("base_url"),
+  apiKey: text("api_key").notNull(),
+  numero: text("numero"),
   ativo: boolean("ativo").notNull(),
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),

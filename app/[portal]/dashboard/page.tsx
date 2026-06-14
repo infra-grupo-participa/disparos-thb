@@ -7,6 +7,7 @@ import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_com
 import { AnimNum, Reveal } from "@/app/_components/anim";
 import Comportamento from "@/app/_components/comportamento";
 import { SaudeDisparo } from "@/app/_components/saude-disparo";
+import { usePortal } from "@/app/_components/use-portal";
 
 type Kpis = { enviados: number; respondidos: number; sla_medio: number | null };
 
@@ -33,6 +34,7 @@ function hms(d: Date) {
 }
 
 export default function DashboardPage() {
+  const { evento, nome: eventoNome, ehHT } = usePortal();
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [arvore, setArvore] = useState<NoEdicao[]>([]);
   const [atividade, setAtividade] = useState<Atividade[]>([]);
@@ -52,6 +54,7 @@ export default function DashboardPage() {
     carregandoRef.current = true;
     try {
       const params = new URLSearchParams();
+      params.set("evento", evento);
       if (desde) params.set("desde", new Date(`${desde}T00:00:00`).toISOString());
       if (ate) params.set("ate", new Date(`${ate}T23:59:59`).toISOString());
       if (edicao) params.set("edicao", edicao);
@@ -68,7 +71,7 @@ export default function DashboardPage() {
     } finally {
       carregandoRef.current = false;
     }
-  }, [desde, ate, edicao]);
+  }, [desde, ate, edicao, evento]);
 
   // Recarrega ao montar, quando um filtro muda e a cada POLL_MS (auto-refresh).
   useEffect(() => {
@@ -95,7 +98,7 @@ export default function DashboardPage() {
   return (
     <div>
       <PageHeader
-        title="Dashboard"
+        title={ehHT ? "Dashboard" : `Dashboard · ${eventoNome}`}
         actions={
           <div className="flex items-center gap-3">
             {atualizadoEm && (
@@ -126,7 +129,7 @@ export default function DashboardPage() {
             <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className={fieldClass} />
           </div>
           <div className="min-w-[9rem] flex-1 sm:flex-none">
-            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Edição HT</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">{ehHT ? "Edição HT" : "Turma"}</label>
             <select value={edicao} onChange={(e) => setEdicao(e.target.value)} className={fieldClass}>
               <option value="">Todas</option>
               {edicoes.map((ed) => <option key={ed} value={ed}>{ed}</option>)}

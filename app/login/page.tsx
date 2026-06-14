@@ -22,7 +22,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email: email.trim(), senha: password }),
       });
       if (res.ok) {
-        router.push("/kanban");
+        router.push("/");
         router.refresh();
       } else {
         setErro("E-mail ou senha incorretos.");

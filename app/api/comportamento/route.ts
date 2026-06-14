@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
+import { eventoDe } from "@/lib/services/evento";
 import { metaAssunto, extrairPalavrasChave } from "@/lib/classificar";
 
 export const runtime = "nodejs";
@@ -32,17 +33,20 @@ export async function GET(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
 
   const edicao = new URL(req.url).searchParams.get("edicao") || null;
+  const evento = eventoDe(req);
+  const f = [edicao, evento];
 
-  // 1) Onboarding (≤30d) x Ongoing (>30d) — base de compradores HT com data.
+  // 1) Onboarding (≤30d) x Ongoing (>30d) — base com data de compra (HT). No
+  // Seminário não há compra, então estes números ficam naturalmente zerados.
   const ciclo = await queryOne<{ onboarding: number; ongoing: number; total: number }>(
     `select
         count(*) filter (where ultima_compra_ht >= now() - interval '30 days')::int as onboarding,
         count(*) filter (where ultima_compra_ht <  now() - interval '30 days')::int as ongoing,
         count(*)::int as total
-       from cs.contatos_ht
-      where ultima_compra_ht is not null
+       from cs.contatos_evento
+      where evento = $2 and ultima_compra_ht is not null
         and ($1::text is null or edicao = $1)`,
-    [edicao],
+    f,
   );
 
   // 1b) Engajamento: no grupo, formulários respondidos e distribuição do termômetro.
@@ -54,25 +58,25 @@ export async function GET(req: Request) {
         count(ff.comprador_id)::int as ficha_hm,
         count(*) filter (where ls.score >= 60)::int as quentes,
         count(*) filter (where ls.score >= 30 and ls.score < 60)::int as mornos
-       from cs.contatos_ht h
-       left join cs.contatos ct on ct.comprador_id = h.comprador_id
+       from cs.contatos_evento h
+       left join cs.contatos ct on ct.comprador_id = h.comprador_id and ct.evento = h.evento
        left join cs.formularios fm on fm.comprador_id = h.comprador_id and fm.tipo = 'matricula'
        left join cs.formularios ff on ff.comprador_id = h.comprador_id and ff.tipo = 'ficha_hm'
        left join cs.lead_scores ls on ls.comprador_id = h.comprador_id
-      where ($1::text is null or h.edicao = $1)`,
-    [edicao],
+      where h.evento = $2 and ($1::text is null or h.edicao = $1)`,
+    f,
   );
 
   // 2) Funil — distribuição atual por estágio.
   const funil = await query<{ chave: string; nome: string; cor: string | null; qtd: number }>(
     `select e.chave, e.nome, e.cor, count(ct.id)::int as qtd
        from cs.estagios e
-       left join cs.contatos ct on ct.estagio_id = e.id
-       ${edicao ? `and ct.comprador_id in (select comprador_id from cs.contatos_ht where edicao = $1)` : ``}
-      where e.ativo
+       left join cs.contatos ct on ct.estagio_id = e.id and ct.evento = $2
+        and ($1::text is null or ct.comprador_id in (select comprador_id from cs.contatos_evento where evento = $2 and edicao = $1))
+      where e.ativo and e.evento = $2
       group by e.id, e.chave, e.nome, e.cor, e.ordem
       order by e.ordem`,
-    edicao ? [edicao] : [],
+    f,
   );
 
   // 3) Mensagens de lead (para assunto dominante, horário, categoria, sentimento, palavras-chave).
@@ -80,10 +84,11 @@ export async function GET(req: Request) {
     `select m.telefone_norm, m.assunto, m.categoria, m.sentimento, m.texto, m.enviada_em
        from cs.lead_mensagens m
       where m.direcao = 'lead'
-        and ($1::text is null or exists (
-              select 1 from cs.contatos_ht h
-               where h.comprador_id = m.comprador_id and h.edicao = $1))`,
-    [edicao],
+        and exists (
+              select 1 from cs.contatos_evento h
+               where h.comprador_id = m.comprador_id and h.evento = $2
+                 and ($1::text is null or h.edicao = $1))`,
+    f,
   );
 
   // --- Conversas por assunto (assunto dominante de cada lead = maior prioridade) ---
@@ -148,10 +153,11 @@ export async function GET(req: Request) {
   const sync = await queryOne<{ ultima: string | null; contatos: number; pendentes: number }>(
     `select max(ultima_sincronizacao) as ultima,
             count(*) filter (where ultima_sincronizacao is not null)::int as contatos,
-            (select count(*)::int from cs.contatos_ht h
+            (select count(*)::int from cs.contatos_evento h
               left join cs.sync_conversas s on s.telefone_norm = h.telefone
-             where h.telefone is not null and s.ultima_sincronizacao is null) as pendentes
+             where h.evento = $1 and h.telefone is not null and s.ultima_sincronizacao is null) as pendentes
        from cs.sync_conversas`,
+    [evento],
   );
 
   return NextResponse.json({

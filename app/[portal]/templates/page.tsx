@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
 import { Reveal } from "@/app/_components/anim";
+import { usePortal } from "@/app/_components/use-portal";
 
 type Template = {
   id: string;
@@ -25,6 +26,7 @@ function montarPreview(texto: string): string {
 }
 
 export default function TemplatesPage() {
+  const { evento } = usePortal();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [form, setForm] = useState({ ...vazio });
   const [salvando, setSalvando] = useState(false);
@@ -32,11 +34,11 @@ export default function TemplatesPage() {
   const [alternando, setAlternando] = useState<string | null>(null);
 
   async function carregar() {
-    const r = await fetch("/api/templates");
+    const r = await fetch(`/api/templates?evento=${evento}`);
     const d = await r.json();
     if (d.ok) setTemplates(d.templates);
   }
-  useEffect(() => { carregar(); }, []);
+  useEffect(() => { carregar(); }, [evento]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Validação amigável antes de enviar.
   function validar(): string | null {
@@ -57,7 +59,7 @@ export default function TemplatesPage() {
     setErro(null);
     setSalvando(true);
     try {
-      const r = await fetch("/api/templates", {
+      const r = await fetch(`/api/templates?evento=${evento}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, variaveis: Number(form.variaveis) }),

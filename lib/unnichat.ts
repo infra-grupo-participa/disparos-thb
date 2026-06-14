@@ -1,11 +1,20 @@
 // Cliente da API Unnichat (só-servidor). Contrato: https://unnichat.com.br/api
 // Auth: header Authorization: Bearer <key>. Envelope de resposta: { success, data }.
-const BASE = process.env.UNNICHAT_BASE_URL || "https://unnichat.com.br/api";
+const DEFAULT_BASE = "https://unnichat.com.br/api";
 const TIMEOUT_MS = 20000; // não pendura se a Unnichat ficar lenta/instável
 
-function headers() {
-  const key = process.env.UNNICHAT_API_KEY;
-  if (!key) throw new Error("UNNICHAT_API_KEY não configurada");
+// Credencial do canal de disparo. Quando omitida, cai na env global (o HT
+// legado e fluxos que não passam canal continuam funcionando). Ver
+// lib/services/canais.ts, que resolve o canal ativo por evento.
+export type CanalCfg = { baseUrl?: string | null; apiKey?: string | null };
+
+function resolveBase(cfg?: CanalCfg): string {
+  return cfg?.baseUrl || process.env.UNNICHAT_BASE_URL || DEFAULT_BASE;
+}
+
+function headers(cfg?: CanalCfg) {
+  const key = cfg?.apiKey || process.env.UNNICHAT_API_KEY;
+  if (!key) throw new Error("Nenhuma credencial de disparo: configure um canal (admin) ou UNNICHAT_API_KEY");
   return { "Content-Type": "application/json", Authorization: `Bearer ${key}` };
 }
 
@@ -27,11 +36,12 @@ export async function sendTemplate(opts: {
   phone: string;
   templateId: string;
   bodyParameters?: BodyParam[];
+  cfg?: CanalCfg;
 }): Promise<EnvioResultado> {
   try {
-    const res = await fetch(`${BASE}/meta/templates`, {
+    const res = await fetch(`${resolveBase(opts.cfg)}/meta/templates`, {
       method: "POST",
-      headers: headers(),
+      headers: headers(opts.cfg),
       signal: AbortSignal.timeout(TIMEOUT_MS),
       body: JSON.stringify({
         phone: opts.phone,
@@ -65,11 +75,12 @@ export async function createContact(opts: {
   name: string;
   phone: string;
   email?: string;
+  cfg?: CanalCfg;
 }): Promise<EnvioResultado & { contactId?: string }> {
   try {
-    const res = await fetch(`${BASE}/contact`, {
+    const res = await fetch(`${resolveBase(opts.cfg)}/contact`, {
       method: "POST",
-      headers: headers(),
+      headers: headers(opts.cfg),
       signal: AbortSignal.timeout(TIMEOUT_MS),
       body: JSON.stringify({
         name: opts.name || opts.phone,
@@ -101,14 +112,14 @@ export async function createContact(opts: {
 // GET /meta/messages/{id} — status de entrega de uma mensagem
 // (sent | delivered | read | failed). Em failed, traz o código de erro da Meta
 // (ex.: 130472 = "User's number is part of an experiment").
-export async function getMessageStatus(messageId: string): Promise<{
+export async function getMessageStatus(messageId: string, cfg?: CanalCfg): Promise<{
   ok: boolean;
   status?: string;
   ref?: string;
   errorCode?: number;
 }> {
   try {
-    const res = await fetch(`${BASE}/meta/messages/${encodeURIComponent(messageId)}`, { headers: headers() });
+    const res = await fetch(`${resolveBase(cfg)}/meta/messages/${encodeURIComponent(messageId)}`, { headers: headers(cfg) });
     if (!res.ok) return { ok: false };
     const json = (await res.json()) as { data?: Record<string, unknown> };
     const d = json?.data ?? {};
@@ -131,12 +142,12 @@ export async function getMessageStatus(messageId: string): Promise<{
 // GET /contact/{id}/messages — lista as mensagens trocadas com o contato.
 // Usado para localizar o id da última mensagem template enviada, quando o
 // message id não foi capturado no envio.
-export async function getContactMessages(contactId: string): Promise<{
+export async function getContactMessages(contactId: string, cfg?: CanalCfg): Promise<{
   ok: boolean;
   messages: Array<{ id: string; type: string; text: string; templateId?: string; senderBy?: string; date?: string }>;
 }> {
   try {
-    const res = await fetch(`${BASE}/contact/${encodeURIComponent(contactId)}/messages`, { headers: headers(), signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const res = await fetch(`${resolveBase(cfg)}/contact/${encodeURIComponent(contactId)}/messages`, { headers: headers(cfg), signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (!res.ok) return { ok: false, messages: [] };
     const json = (await res.json()) as { data?: unknown };
     const arr = Array.isArray(json?.data) ? (json.data as Record<string, unknown>[]) : [];
@@ -163,11 +174,11 @@ export async function getContactMessages(contactId: string): Promise<{
 // POST /contact/search — localiza um contato por telefone. Retorna `data` como
 // array; usamos o primeiro. Necessário para a sincronização do histórico de
 // conversas (não há listagem em massa de contatos na Unnichat).
-export async function searchContactByPhone(phone: string): Promise<{ ok: boolean; contactId?: string }> {
+export async function searchContactByPhone(phone: string, cfg?: CanalCfg): Promise<{ ok: boolean; contactId?: string }> {
   try {
-    const res = await fetch(`${BASE}/contact/search`, {
+    const res = await fetch(`${resolveBase(cfg)}/contact/search`, {
       method: "POST",
-      headers: headers(),
+      headers: headers(cfg),
       signal: AbortSignal.timeout(TIMEOUT_MS),
       body: JSON.stringify({ phone }),
     });
@@ -184,11 +195,11 @@ export async function searchContactByPhone(phone: string): Promise<{ ok: boolean
 // POST /meta/messages — envia mensagem de texto livre ao contato. Só funciona
 // dentro da janela de 24h (a Meta exige uma interação recente do contato);
 // fora dela, a API retorna erro de "janela de envio fechada".
-export async function sendMessage(opts: { phone: string; text: string }): Promise<EnvioResultado> {
+export async function sendMessage(opts: { phone: string; text: string; cfg?: CanalCfg }): Promise<EnvioResultado> {
   try {
-    const res = await fetch(`${BASE}/meta/messages`, {
+    const res = await fetch(`${resolveBase(opts.cfg)}/meta/messages`, {
       method: "POST",
-      headers: headers(),
+      headers: headers(opts.cfg),
       body: JSON.stringify({ phone: opts.phone, messageText: opts.text }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });

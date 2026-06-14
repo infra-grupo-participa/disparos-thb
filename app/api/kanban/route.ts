@@ -3,31 +3,34 @@ import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, KanbanMoverSchema } from "@/lib/validators";
 import { moverEstagio } from "@/lib/services/contato";
+import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 
 const MAX_POR_COLUNA = 40; // limita o DOM; o total real vai no header da coluna
 
-// GET /api/kanban?edicao=HT27 — colunas (estágios da jornada) + cards (compradores).
+// GET /api/kanban?edicao=HT27 — colunas (estágios do evento ativo) + cards.
+// Filtra tudo pelo evento (HT/Seminário) do contexto (cookie/querystring).
 export async function GET(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
   const sp = new URL(req.url).searchParams;
   const edicao = sp.get("edicao") || null;
   const responsavel = sp.get("responsavel") || null;
   const tag = sp.get("tag") || null;
-  const f = [edicao, responsavel, tag];
+  const evento = eventoDe(req);
+  const f = [edicao, responsavel, tag, evento];
 
-  // Filtros ($1 edição, $2 responsável, $3 tag) aplicados em colunas e cards.
+  // Filtros ($1 edição, $2 responsável, $3 tag, $4 evento) em colunas e cards.
   const colunas = await query(
     `select e.chave, e.nome, e.cor,
             count(ct.id) filter (
-              where ($1::text is null or ct.comprador_id in (select comprador_id from cs.contatos_ht where edicao = $1))
+              where ($1::text is null or ct.comprador_id in (select comprador_id from cs.contatos_evento where evento = $4 and edicao = $1))
                 and ($2::text is null or ct.responsavel = $2)
                 and ($3::text is null or $3 = any(ct.tags))
             )::int as total
        from cs.estagios e
-       left join cs.contatos ct on ct.estagio_id = e.id
-      where e.ativo
+       left join cs.contatos ct on ct.estagio_id = e.id and ct.evento = $4
+      where e.ativo and e.evento = $4
       group by e.id, e.chave, e.nome, e.cor, e.ordem
       order by e.ordem`,
     f,
@@ -38,9 +41,10 @@ export async function GET(req: Request) {
        select h.comprador_id, h.nome, h.email, h.telefone, h.edicao, h.estagio_chave,
               ct.tags, ct.responsavel, ct.opt_out, ct.id as contato_id, h.ultima_resposta_em, ct.atualizado_em,
               row_number() over (partition by h.estagio_chave order by ct.atualizado_em desc nulls last, h.nome) as rk
-         from cs.contatos_ht h
-         join cs.contatos ct on ct.comprador_id = h.comprador_id
-        where ($1::text is null or h.edicao = $1)
+         from cs.contatos_evento h
+         join cs.contatos ct on ct.comprador_id = h.comprador_id and ct.evento = h.evento
+        where h.evento = $4
+          and ($1::text is null or h.edicao = $1)
           and ($2::text is null or ct.responsavel = $2)
           and ($3::text is null or $3 = any(ct.tags))
      )
@@ -64,13 +68,16 @@ export async function GET(req: Request) {
   );
 
   const edicoesRows = await query<{ edicao: string }>(
-    `select distinct edicao from cs.contatos_ht where edicao is not null order by edicao desc`,
+    `select distinct edicao from cs.contatos_evento where evento = $1 and edicao is not null order by edicao desc`,
+    [evento],
   );
   const respRows = await query<{ responsavel: string }>(
-    `select distinct responsavel from cs.contatos where responsavel is not null and responsavel <> '' order by responsavel`,
+    `select distinct responsavel from cs.contatos where evento = $1 and responsavel is not null and responsavel <> '' order by responsavel`,
+    [evento],
   );
   const tagRows = await query<{ tag: string }>(
-    `select distinct unnest(tags) as tag from cs.contatos where array_length(tags, 1) > 0 order by tag`,
+    `select distinct unnest(tags) as tag from cs.contatos where evento = $1 and array_length(tags, 1) > 0 order by tag`,
+    [evento],
   );
 
   return NextResponse.json({

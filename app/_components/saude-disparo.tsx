@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Spinner, cn } from "@/app/_components/ui";
+import { usePortal } from "@/app/_components/use-portal";
 
 type Nivel = "ok" | "atencao" | "alerta";
 type Acao = "seguir" | "desacelerar" | "parar";
@@ -64,17 +65,18 @@ const SEV_TOM: Record<Severidade, string> = {
 // reais da Meta (entrega + códigos de erro). Reutilizado no modal de disparo e
 // no dashboard. Dados de /api/disparos/saude.
 export function SaudeDisparo() {
+  const { evento } = usePortal();
   const [d, setD] = useState<Saude | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [verPraticas, setVerPraticas] = useState(false);
 
   useEffect(() => {
-    fetch("/api/disparos/saude")
+    fetch(`/api/disparos/saude?evento=${evento}`)
       .then((r) => r.json())
       .then((res) => { if (res.ok) setD(res); })
       .catch(() => {})
       .finally(() => setCarregando(false));
-  }, []);
+  }, [evento]);
 
   if (carregando) {
     return <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-400 dark:border-slate-800 dark:bg-slate-900"><Spinner /> Avaliando saúde do número…</div>;

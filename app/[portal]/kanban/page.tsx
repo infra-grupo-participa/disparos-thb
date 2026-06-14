@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MouseEvent, ReactNode } from "react";
+import type { MouseEvent, ReactNode, WheelEvent } from "react";
 import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagsIcon, TAGS_PADRAO, tagTone } from "@/app/_components/tags";
 import { Reveal } from "@/app/_components/anim";
 import { Avatar } from "@/app/_components/avatar";
+import { useMe } from "@/app/_components/use-me";
+import { usePortal } from "@/app/_components/use-portal";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
@@ -90,6 +92,27 @@ function waLink(tel: string | null): string | null {
   if (!d.startsWith("55")) d = "55" + d;
   return `https://wa.me/${d}`;
 }
+// Rola o board na horizontal com a roda do mouse — assim todas as colunas
+// ficam acessíveis sem depender de trackpad/scrollbar. Deixa as colunas com
+// muitos cards rolarem na vertical primeiro (não sequestra o scroll interno).
+function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
+  const board = e.currentTarget;
+  if (board.scrollWidth <= board.clientWidth) return; // nada a rolar
+  let node = e.target as HTMLElement | null;
+  while (node && node !== board) {
+    if (node.hasAttribute?.("data-col-scroll") && node.scrollHeight > node.clientHeight) {
+      const aindaRola =
+        (e.deltaY < 0 && node.scrollTop > 0) ||
+        (e.deltaY > 0 && node.scrollTop + node.clientHeight < node.scrollHeight - 1);
+      if (aindaRola) return; // a coluna sob o cursor ainda pode rolar na vertical
+    }
+    node = node.parentElement;
+  }
+  if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+    board.scrollLeft += e.deltaY;
+  }
+}
+
 // Cor do indicador de tempo na etapa — esfria/esquenta conforme o card "envelhece" na esteira.
 function tempoTom(iso: string | null): string {
   if (!iso) return "text-slate-400 dark:text-slate-500";
@@ -110,6 +133,8 @@ const EDICAO_COR: Record<string, string> = {
 };
 
 export default function KanbanPage() {
+  const { podeDisparar } = useMe();
+  const { evento, base, nome: eventoNome, ehHT } = usePortal();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [edicoes, setEdicoes] = useState<string[]>([]);
@@ -131,6 +156,7 @@ export default function KanbanPage() {
     setCarregando(true);
     try {
       const params = new URLSearchParams();
+      params.set("evento", evento);
       if (edicao) params.set("edicao", edicao);
       if (filtroResp) params.set("responsavel", filtroResp);
       if (filtroTag) params.set("tag", filtroTag);
@@ -147,7 +173,7 @@ export default function KanbanPage() {
     } finally {
       setCarregando(false);
     }
-  }, [edicao, filtroResp, filtroTag]);
+  }, [edicao, filtroResp, filtroTag, evento]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -175,7 +201,7 @@ export default function KanbanPage() {
   }
 
   async function dispararEtapa(col: Coluna) {
-    const params = new URLSearchParams({ estagio: col.chave, com_telefone: "1" });
+    const params = new URLSearchParams({ estagio: col.chave, com_telefone: "1", evento });
     if (edicao) params.set("edicao", edicao);
     const r = await fetch(`/api/contatos?${params.toString()}`);
     const d = await r.json();
@@ -216,9 +242,9 @@ export default function KanbanPage() {
     <div>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Jornada do HT</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{ehHT ? "Jornada do HT" : `Jornada · ${eventoNome}`}</h1>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {totalGeral} comprador(es){edicao ? ` · ${edicao}` : ""} — arraste os cards entre as etapas, clique para ver detalhes.
+            {totalGeral} {ehHT ? "comprador(es)" : "contato(s)"}{edicao ? ` · ${edicao}` : ""} — arraste os cards entre as etapas, clique para ver detalhes.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -246,7 +272,11 @@ export default function KanbanPage() {
           <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando jornada…</span>
         </div>
       ) : (
-        <Reveal className={cn("-mx-4 flex gap-3 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6", selecaoMulti.size > 0 && "pb-20")}>
+        <div
+          className={cn("-mx-4 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6", selecaoMulti.size > 0 && "pb-20")}
+          onWheel={rolarBoardHorizontal}
+        >
+        <Reveal className="flex gap-3">
           {colunas.map((col) => {
             const doCol = cards.filter((c) => c.estagio_chave === col.chave);
             const ativa = sobre === col.chave;
@@ -265,7 +295,7 @@ export default function KanbanPage() {
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: col.cor }} />
                   <span className="flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{col.nome}</span>
                   <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">{col.total}</span>
-                  {col.total > 0 && (
+                  {col.total > 0 && podeDisparar && (
                     <button
                       onClick={() => dispararEtapa(col)}
                       title="Disparar para esta etapa"
@@ -276,7 +306,7 @@ export default function KanbanPage() {
                   )}
                 </div>
 
-                <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto p-2">
+                <div data-col-scroll className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto p-2">
                   {doCol.length === 0 ? (
                     <p className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-600">Sem cards</p>
                   ) : (
@@ -301,6 +331,7 @@ export default function KanbanPage() {
             );
           })}
         </Reveal>
+        </div>
       )}
 
       {selecionado && (
@@ -308,6 +339,7 @@ export default function KanbanPage() {
           card={selecionado}
           colunas={colunas}
           responsaveis={opcoesResponsavel}
+          podeDisparar={podeDisparar}
           onAtualizar={carregar}
           onClose={() => setSelecionado(null)}
           onMover={(chave) => { mover(selecionado, chave); setSelecionado({ ...selecionado, estagio_chave: chave }); }}
@@ -342,7 +374,9 @@ export default function KanbanPage() {
               {opcoesResponsavel.map((r) => <option key={r} value={r}>{r}</option>)}
               <option value="__nenhum__">— Remover responsável —</option>
             </select>
-            <Button variant="primary" onClick={() => dispararCards(cardsSelecionados())}>Disparar para {selecaoMulti.size}</Button>
+            {podeDisparar && (
+              <Button variant="primary" onClick={() => dispararCards(cardsSelecionados())}>Disparar para {selecaoMulti.size}</Button>
+            )}
           </div>
         </div>
       )}
@@ -359,10 +393,14 @@ export default function KanbanPage() {
               {selecaoMulti.has(menu.card.comprador_id) ? "Desselecionar" : "Selecionar"}
             </MenuItem>
             <MenuItem onClick={() => { selecionarEtapa(menu.card.estagio_chave); setMenu(null); }}>Selecionar todos desta etapa</MenuItem>
-            <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-            <MenuItem onClick={() => { dispararCards([menu.card]); setMenu(null); }}>Disparar para este</MenuItem>
-            {selecaoMulti.size > 0 && (
-              <MenuItem onClick={() => { dispararCards(cardsSelecionados()); setMenu(null); }}>Disparar para selecionados ({selecaoMulti.size})</MenuItem>
+            {podeDisparar && (
+              <>
+                <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                <MenuItem onClick={() => { dispararCards([menu.card]); setMenu(null); }}>Disparar para este</MenuItem>
+                {selecaoMulti.size > 0 && (
+                  <MenuItem onClick={() => { dispararCards(cardsSelecionados()); setMenu(null); }}>Disparar para selecionados ({selecaoMulti.size})</MenuItem>
+                )}
+              </>
             )}
             <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
             <MenuItem onClick={() => { setSelecionado(menu.card); setMenu(null); }}>Abrir detalhes</MenuItem>
@@ -385,6 +423,7 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
   card: Card; selecionado: boolean; modoSelecao: boolean;
   onDragStart: () => void; onClick: () => void; onToggleSel: () => void; onMenu: (x: number, y: number) => void;
 }) {
+  const { base } = usePortal();
   return (
     <div
       role="button"
@@ -466,7 +505,7 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></svg>
             </AcaoCard>
           )}
-          <AcaoCard link href={`/inbox?c=${card.comprador_id}`} title="Conversar no inbox" cor="hover:text-brand dark:hover:text-brand-300">
+          <AcaoCard link href={`${base}/inbox?c=${card.comprador_id}`} title="Conversar no inbox" cor="hover:text-brand dark:hover:text-brand-300">
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
           </AcaoCard>
         </div>
@@ -495,9 +534,10 @@ const TL_ICONE: Record<string, { path: string; wrap: string }> = {
   sistema: { path: "M13 2 3 14h9l-1 8 10-12h-9l1-8z", wrap: "bg-slate-100 text-slate-500 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700" },
 };
 
-function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onAtualizar }: {
-  card: Card; colunas: Coluna[]; responsaveis: string[]; onClose: () => void; onMover: (chave: string) => void; onDisparar: () => void; onAtualizar: () => void;
+function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, onDisparar, onAtualizar }: {
+  card: Card; colunas: Coluna[]; responsaveis: string[]; podeDisparar: boolean; onClose: () => void; onMover: (chave: string) => void; onDisparar: () => void; onAtualizar: () => void;
 }) {
+  const { base } = usePortal();
   const [det, setDet] = useState<Detalhe | null>(null);
   const [tagNova, setTagNova] = useState("");
   const [aba, setAba] = useState<"resumo" | "forms" | "historico">("resumo");
@@ -726,10 +766,10 @@ function Drawer({ card, colunas, responsaveis, onClose, onMover, onDisparar, onA
 
         {/* Ações */}
         <div className="sticky bottom-0 flex gap-2 border-t border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-          <Link href={`/contatos/${card.comprador_id}`} className="flex-1">
+          <Link href={`${base}/contatos/${card.comprador_id}`} className="flex-1">
             <Button variant="secondary" className="w-full">Ficha completa</Button>
           </Link>
-          {card.telefone && <Button variant="primary" onClick={onDisparar} className="flex-1">Disparar</Button>}
+          {card.telefone && podeDisparar && <Button variant="primary" onClick={onDisparar} className="flex-1">Disparar</Button>}
         </div>
       </aside>
     </>

@@ -5,7 +5,8 @@ import { Avatar } from "@/app/_components/avatar";
 import { Button, Card, EmptyState, PageHeader, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
 
-type Usuario = { id: string; nome: string; email: string; papel: "admin" | "operador"; ativo: boolean; criado_em: string };
+type Papel = "admin" | "disparador" | "operador";
+type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean; criado_em: string };
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
@@ -81,6 +82,7 @@ export default function UsuariosPage() {
                         className={cn(fieldClass, "w-auto py-1 text-xs")}
                       >
                         <option value="operador">Operador</option>
+                        <option value="disparador">Operador de disparos</option>
                         <option value="admin">Administrador</option>
                       </select>
                     </td>
@@ -127,7 +129,7 @@ function ModalNovo({ onClose, onCriado }: { onClose: () => void; onCriado: () =>
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [papel, setPapel] = useState<"admin" | "operador">("operador");
+  const [papel, setPapel] = useState<Papel>("operador");
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -152,8 +154,9 @@ function ModalNovo({ onClose, onCriado }: { onClose: () => void; onCriado: () =>
           <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome completo" className={fieldClass} />
           <input type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" className={fieldClass} />
           <input type="password" autoComplete="new-password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha inicial" className={fieldClass} />
-          <select value={papel} onChange={(e) => setPapel(e.target.value as "admin" | "operador")} className={fieldClass}>
+          <select value={papel} onChange={(e) => setPapel(e.target.value as Papel)} className={fieldClass}>
             <option value="operador">Operador</option>
+            <option value="disparador">Operador de disparos</option>
             <option value="admin">Administrador</option>
           </select>
         </div>

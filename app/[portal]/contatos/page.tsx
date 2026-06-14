@@ -7,6 +7,8 @@ import { Button, Card, PageHeader, EmptyState, Spinner, cn, fieldClass } from "@
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagsIcon } from "@/app/_components/tags";
 import { PageFade } from "@/app/_components/anim";
+import { useMe } from "@/app/_components/use-me";
+import { usePortal } from "@/app/_components/use-portal";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
@@ -48,6 +50,8 @@ function fmtData(iso: string | null): string {
 }
 
 export default function ContatosPage() {
+  const { podeDisparar } = useMe();
+  const { evento, base, nome: eventoNome, ehHT } = usePortal();
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [contatos, setContatos] = useState<Contato[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -70,15 +74,16 @@ export default function ContatosPage() {
   }, [estagios]);
 
   useEffect(() => {
-    fetch("/api/estagios")
+    fetch(`/api/estagios?evento=${evento}`)
       .then((r) => r.json())
       .then((d) => d.ok && setEstagios(d.estagios))
       .catch(() => {});
-  }, []);
+  }, [evento]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     const params = new URLSearchParams();
+    params.set("evento", evento);
     if (fEstagio) params.set("estagio", fEstagio);
     if (fEdicao) params.set("edicao", fEdicao);
     if (fQ) params.set("q", fQ);
@@ -93,7 +98,7 @@ export default function ContatosPage() {
     } finally {
       setCarregando(false);
     }
-  }, [fEstagio, fEdicao, fQ, fComTelefone, fComTag, fSemTag, fFaixa]);
+  }, [fEstagio, fEdicao, fQ, fComTelefone, fComTag, fSemTag, fFaixa, evento]);
 
   // debounce simples nos filtros
   useEffect(() => {
@@ -166,16 +171,18 @@ export default function ContatosPage() {
   return (
     <PageFade className="pb-24">
       <PageHeader
-        title="Contatos HT"
+        title={ehHT ? "Contatos HT" : `Contatos · ${eventoNome}`}
         description={descricao}
         actions={
-          <Button
-            variant="primary"
-            onClick={dispararSelecionados}
-            disabled={selecionados.size === 0}
-          >
-            Disparar{selecionados.size > 0 ? ` para ${selecionados.size}` : ""}
-          </Button>
+          podeDisparar ? (
+            <Button
+              variant="primary"
+              onClick={dispararSelecionados}
+              disabled={selecionados.size === 0}
+            >
+              Disparar{selecionados.size > 0 ? ` para ${selecionados.size}` : ""}
+            </Button>
+          ) : null
         }
       />
 
@@ -381,9 +388,11 @@ export default function ContatosPage() {
               Limpar seleção
             </Button>
             <div className="flex-1" />
-            <Button variant="primary" onClick={dispararSelecionados}>
-              Disparar para {selecionados.size}
-            </Button>
+            {podeDisparar && (
+              <Button variant="primary" onClick={dispararSelecionados}>
+                Disparar para {selecionados.size}
+              </Button>
+            )}
           </div>
         </div>
       )}

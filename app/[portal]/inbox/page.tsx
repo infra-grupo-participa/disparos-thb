@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
+import { usePortal } from "@/app/_components/use-portal";
 
 type Conversa = {
   comprador_id: string; nome: string; telefone: string | null; edicao: string | null;
@@ -45,6 +46,15 @@ function esperaMin(iso: string | null) {
   return iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)) : 0;
 }
 const inicial = (nome: string) => (nome?.trim()?.[0] || "?").toUpperCase();
+// Link do WhatsApp (wa.me) — o comercial inicia a conversa direto, útil para
+// leads de prospecção (ex.: Seminário) fora da janela de 24h da Unnichat.
+function waLink(tel: string | null): string | null {
+  if (!tel) return null;
+  let d = tel.replace(/\D/g, "");
+  if (d.length < 8) return null;
+  if (!d.startsWith("55")) d = "55" + d;
+  return `https://wa.me/${d}`;
+}
 const AVATAR_CORES = [
   "bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300", "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
   "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300", "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
@@ -61,6 +71,7 @@ function Avatar({ nome, size = "md" }: { nome: string; size?: "sm" | "md" }) {
 }
 
 export default function InboxPage() {
+  const { evento } = usePortal();
   const [conversas, setConversas] = useState<Conversa[]>([]);
   const [pendentes, setPendentes] = useState(0);
   const [filtro, setFiltro] = useState<"pendente" | "" | "resolvido">("pendente");
@@ -87,15 +98,15 @@ export default function InboxPage() {
   function salvarAtendente(v: string) { setAtendente(v); try { localStorage.setItem("cs_atendente", v); } catch { /* noop */ } }
 
   const carregarConversas = useCallback(async () => {
-    const r = await fetch(`/api/inbox${filtro ? `?status=${filtro}` : ""}`);
+    const r = await fetch(`/api/inbox?evento=${evento}${filtro ? `&status=${filtro}` : ""}`);
     const d = await r.json();
     if (d.ok) { setConversas(d.conversas); setPendentes(d.pendentes ?? 0); }
-  }, [filtro]);
+  }, [filtro, evento]);
   const carregarMetricas = useCallback(async () => {
-    const r = await fetch("/api/inbox/metricas");
+    const r = await fetch(`/api/inbox/metricas?evento=${evento}`);
     const d = await r.json();
     if (d.ok) setMetricas(d);
-  }, []);
+  }, [evento]);
 
   useEffect(() => { carregarConversas(); }, [carregarConversas]);
   useEffect(() => { carregarMetricas(); }, [carregarMetricas]);
@@ -287,6 +298,18 @@ export default function InboxPage() {
                     {sel.inbox_status === "pendente" && sel.aguardando_desde ? <span className="text-rose-500 dark:text-rose-400"> · aguardando {fmtMin(esperaMin(sel.aguardando_desde))}</span> : null}
                   </p>
                 </div>
+                {waLink(sel.telefone) && (
+                  <a
+                    href={waLink(sel.telefone)!}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Abrir conversa no WhatsApp"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-600"
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.76.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Z" /></svg>
+                    WhatsApp
+                  </a>
+                )}
                 {sel.inbox_status === "pendente"
                   ? <Button variant="secondary" size="sm" onClick={() => resolver(sel, "resolvido")}>Resolver</Button>
                   : <Button variant="ghost" size="sm" onClick={() => resolver(sel, "pendente")}>Reabrir</Button>}

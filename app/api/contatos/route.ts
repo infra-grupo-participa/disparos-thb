@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 
@@ -26,10 +27,11 @@ export async function GET(req: Request) {
             v.proxima_acao_em, v.ultima_resposta_em, v.ultimo_contato_em,
             coalesce(ct.tags, '{}'::text[]) as tags,
             coalesce(ls.score, 0)::int as score
-       from cs.contatos_ht v
-       left join cs.contatos ct on ct.comprador_id = v.comprador_id
+       from cs.contatos_evento v
+       left join cs.contatos ct on ct.comprador_id = v.comprador_id and ct.evento = v.evento
        left join cs.lead_scores ls on ls.comprador_id = v.comprador_id
-      where ($1::text is null or v.estagio_chave = $1)
+      where v.evento = $8
+        and ($1::text is null or v.estagio_chave = $1)
         and ($2::text is null or v.edicao_ht = $2 or v.edicao ilike '%' || $2 || '%')
         and ($3::text is null or v.nome ilike '%' || $3 || '%'
              or v.email ilike '%' || $3 || '%' or v.telefone ilike '%' || $3 || '%')
@@ -40,9 +42,9 @@ export async function GET(req: Request) {
              or ($7 = 'quente' and coalesce(ls.score, 0) >= 60)
              or ($7 = 'morno'  and coalesce(ls.score, 0) between 30 and 59)
              or ($7 = 'frio'   and coalesce(ls.score, 0) < 30))
-      order by v.ultima_compra_ht desc nulls last
+      order by v.ultima_compra_ht desc nulls last, v.ultima_resposta_em desc nulls last
       limit 1000`,
-    [estagio, edicao, q, comTelefone, comTag, semTag, faixa],
+    [estagio, edicao, q, comTelefone, comTag, semTag, faixa, eventoDe(req)],
   );
 
   return NextResponse.json({ ok: true, total: contatos.length, contatos });

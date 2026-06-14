@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
-import { createContact, getContactMessages, sendMessage } from "@/lib/unnichat";
+import { createContact, getContactMessages, sendMessage, type CanalCfg } from "@/lib/unnichat";
+import { getCanal } from "@/lib/services/canais";
 import { normalizePhone } from "@/lib/phone";
 import { parseBody, InboxMsgSchema, InboxStatusSchema } from "@/lib/validators";
 import { registrarRespostaCS, mudarStatus } from "@/lib/services/atendimento";
@@ -9,11 +10,12 @@ import { registrarRespostaCS, mudarStatus } from "@/lib/services/atendimento";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Contato = { comprador_id: string; nome: string; telefone: string | null };
+type Contato = { comprador_id: string; nome: string; telefone: string | null; evento: string };
 
 // Obtém o id do contato na Unnichat: do disparo mais recente (já guardado) ou,
 // na falta, via createContact (idempotente — retorna o existente pelo telefone).
-async function resolverContactId(c: Contato): Promise<string | null> {
+// Usa a credencial do canal do evento (HT vs Seminário podem ter contas distintas).
+async function resolverContactId(c: Contato, cfg: CanalCfg): Promise<string | null> {
   const existente = await queryOne<{ unnichat_contact_id: string }>(
     `select unnichat_contact_id from cs.disparo_contatos
       where comprador_id = $1 and unnichat_contact_id is not null
@@ -23,13 +25,15 @@ async function resolverContactId(c: Contato): Promise<string | null> {
   if (existente?.unnichat_contact_id) return existente.unnichat_contact_id;
   const tel = normalizePhone(c.telefone);
   if (!tel) return null;
-  const r = await createContact({ name: c.nome || tel, phone: tel });
+  const r = await createContact({ name: c.nome || tel, phone: tel, cfg });
   return r.contactId ?? null;
 }
 
 async function carregarContato(id: string): Promise<Contato | null> {
+  // Via unificada (HT + Seminário): leads do Seminário não estão em contatos_ht,
+  // então usamos contatos_evento para o inbox funcionar em qualquer portal.
   return queryOne<Contato>(
-    `select comprador_id, nome, telefone from cs.contatos_ht where comprador_id = $1`,
+    `select comprador_id, nome, telefone, evento from cs.contatos_evento where comprador_id = $1`,
     [id],
   );
 }
@@ -41,12 +45,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const c = await carregarContato(params.id);
   if (!c) return NextResponse.json({ ok: false, reason: "contato não encontrado" }, { status: 404 });
 
-  const contactId = await resolverContactId(c);
+  const canal = await getCanal(c.evento);
+  const contactId = await resolverContactId(c, canal);
   if (!contactId) {
     return NextResponse.json({ ok: true, contato: c, mensagens: [], aviso: "Contato sem registro na Unnichat ainda." });
   }
 
-  const { messages } = await getContactMessages(contactId);
+  const { messages } = await getContactMessages(contactId, canal);
   const mensagens = messages.map((m) => ({
     id: m.id,
     de: m.senderBy === "contact" ? "lead" : "cs",
@@ -72,7 +77,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const tel = normalizePhone(c.telefone);
   if (!tel) return NextResponse.json({ ok: false, reason: "contato sem telefone" }, { status: 400 });
 
-  const r = await sendMessage({ phone: tel, text: texto });
+  const canal = await getCanal(c.evento);
+  const r = await sendMessage({ phone: tel, text: texto, cfg: canal });
   if (!r.ok) {
     return NextResponse.json({ ok: false, reason: r.erro || "falha ao enviar" }, { status: 400 });
   }

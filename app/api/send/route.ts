@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { getSessao, podeDisparar } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
 import { logger } from "@/lib/log";
 import { parseBody, SendSchema } from "@/lib/validators";
 import { processarDisparo } from "@/lib/services/disparo";
+import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -13,12 +14,20 @@ const log = logger("send");
 // Cria a campanha (disparo + linhas) e delega o processamento ao serviço, que
 // é idempotente e resiliente (retomável pelo cron). Bloqueia quem deu opt-out.
 export async function POST(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Trava de papel: só admin e disparador podem efetuar disparos. Operador
+  // comum opera o Kanban/contatos normalmente, mas não envia. Esta é a fonte
+  // da verdade — a UI apenas espelha (esconde os botões).
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  if (!podeDisparar(sessao.papel)) {
+    return NextResponse.json({ ok: false, reason: "sem_permissao_disparo" }, { status: 403 });
+  }
 
   const p = await parseBody(req, SendSchema);
   if (!p.ok) return p.res;
   const { templateId, compradorIds } = p.data;
   const edicao = p.data.edicao ? String(p.data.edicao) : null;
+  const evento = eventoDe(req);
 
   const template = await queryOne<{ id: string }>(
     `select id from cs.templates where id = $1 and ativo`,
@@ -29,10 +38,10 @@ export async function POST(req: Request) {
   }
 
   const contatos = await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
-    `select comprador_id, telefone, edicao from cs.contatos_ht
-      where comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
+    `select comprador_id, telefone, edicao from cs.contatos_evento
+      where evento = $2 and comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
         and comprador_id not in (select comprador_id from cs.contatos where opt_out)`,
-    [compradorIds],
+    [compradorIds, evento],
   );
   const optOut = await queryOne<{ n: number }>(
     `select count(*)::int as n from cs.contatos where comprador_id = any($1::uuid[]) and opt_out`,
@@ -53,9 +62,9 @@ export async function POST(req: Request) {
   }
 
   const disparo = await queryOne<{ id: string }>(
-    `insert into cs.disparos (template_id, edicao_ht, status, operador)
-     values ($1, $2, 'em_andamento', 'cs') returning id`,
-    [templateId, edicaoFinal],
+    `insert into cs.disparos (template_id, edicao_ht, status, operador, evento)
+     values ($1, $2, 'em_andamento', 'cs', $3) returning id`,
+    [templateId, edicaoFinal, evento],
   );
   const disparoId = disparo!.id;
 

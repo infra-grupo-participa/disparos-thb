@@ -5,6 +5,7 @@ import Link from "next/link";
 import { primeiroNome } from "@/lib/phone";
 import { Button, Card, PageHeader, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { SaudeDisparo } from "@/app/_components/saude-disparo";
+import { usePortal } from "@/app/_components/use-portal";
 
 type Selecionado = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 type Template = { id: string; nome: string; unnichat_id: string; variaveis: number; preview: string | null; ativo: boolean };
@@ -63,6 +64,7 @@ export function DisparoModal({ selecao, onClose }: { selecao: Selecionado[]; onC
 }
 
 export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecionado[]; aoFechar?: () => void }) {
+  const { evento, base } = usePortal();
   const wrap = aoFechar ? "animate-fade-in" : "mx-auto max-w-3xl animate-fade-in";
   const [selecao, setSelecao] = useState<Selecionado[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -78,7 +80,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
 
   useEffect(() => {
     if (selecaoInicial?.length) setSelecao(selecaoInicial);
-    fetch("/api/templates")
+    fetch(`/api/templates?evento=${evento}`)
       .then((r) => r.json())
       .then((d) => d.ok && setTemplates(d.templates.filter((t: Template) => t.ativo)))
       .catch(() => {});
@@ -127,7 +129,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
     if (!templateId || selecao.length === 0) return;
     setEnviando(true);
     try {
-      const r = await fetch("/api/send", {
+      const r = await fetch(`/api/send?evento=${evento}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ templateId, compradorIds: selecao.map((s) => s.comprador_id), edicao: edicao || undefined }),
@@ -320,10 +322,10 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
               <Button variant={resumo.erros > 0 ? "secondary" : "primary"} onClick={aoFechar}>Concluir</Button>
             ) : (
               <>
-                <Link href="/contatos">
+                <Link href={`${base}/contatos`}>
                   <Button variant={resumo.erros > 0 ? "secondary" : "primary"}>Voltar aos contatos</Button>
                 </Link>
-                <Link href="/dashboard">
+                <Link href={`${base}/dashboard`}>
                   <Button variant="secondary">Ver métricas</Button>
                 </Link>
               </>
@@ -342,7 +344,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
           title="Nenhum contato selecionado"
           description="Vá em Contatos, selecione os destinatários e clique em “Disparar” para começar."
           action={
-            <Link href="/contatos">
+            <Link href={`${base}/contatos`}>
               <Button variant="primary">Ir para Contatos</Button>
             </Link>
           }
@@ -378,7 +380,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
           </select>
           {templates.length === 0 && (
             <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
-              Nenhum template ativo. Cadastre em <Link href="/templates" className="font-medium underline">Templates</Link>.
+              Nenhum template ativo. Cadastre em <Link href={`${base}/templates`} className="font-medium underline">Templates</Link>.
             </p>
           )}
         </Card>

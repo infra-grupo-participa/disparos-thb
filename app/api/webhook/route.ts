@@ -119,9 +119,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, matched: true, sla_minutos: upd.sla_minutos ?? null });
   }
 
-  // 2) Sem disparo pendente — registra a resposta no contato HT (se existir), sem SLA.
+  // 2) Sem disparo pendente — registra a resposta no contato (HT ou Seminário,
+  // via contatos_evento), sem SLA. Match por telefone normalizado.
   const contato = await queryOne<{ comprador_id: string }>(
-    `select comprador_id from cs.contatos_ht where telefone = $1 limit 1`,
+    `select comprador_id from cs.contatos_evento where telefone = $1 limit 1`,
     [tel],
   );
   if (contato) {

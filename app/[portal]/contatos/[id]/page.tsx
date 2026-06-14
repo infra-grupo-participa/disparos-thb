@@ -7,6 +7,7 @@ import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { CardLigacoes } from "@/app/_components/ligacao";
 import { Reveal, AnimNum } from "@/app/_components/anim";
+import { usePortal } from "@/app/_components/use-portal";
 
 type Estagio = { chave: string; nome: string; cor: string | null };
 type Contato = {
@@ -147,6 +148,7 @@ function FormularioCard({ f }: { f: Formulario }) {
 
 export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   const id = params.id;
+  const { evento, base } = usePortal();
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [contato, setContato] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
@@ -174,9 +176,9 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   }, [id]);
 
   useEffect(() => {
-    fetch("/api/estagios").then((r) => r.json()).then((d) => d.ok && setEstagios(d.estagios)).catch(() => {});
+    fetch(`/api/estagios?evento=${evento}`).then((r) => r.json()).then((d) => d.ok && setEstagios(d.estagios)).catch(() => {});
     carregar();
-  }, [carregar]);
+  }, [carregar, evento]);
 
   async function patch(payload: Record<string, unknown>) {
     await fetch(`/api/contato/${id}`, {
@@ -195,7 +197,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
 
   return (
     <div className="pb-12">
-      <Link href="/contatos" className="text-sm text-slate-500 transition-colors hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+      <Link href={`${base}/contatos`} className="text-sm text-slate-500 transition-colors hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
         ← Contatos
       </Link>
 
