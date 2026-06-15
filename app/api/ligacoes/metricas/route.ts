@@ -55,6 +55,17 @@ export async function GET(req: Request) {
     recusadas: 0, nao_atendidas: 0, falhou: 0, dur_total_seg: 0, dur_media_seg: null, vinculadas_evento: 0,
   };
 
+  // Série por dia (volume + atendidas) — para ver picos e vazios de atividade.
+  const serie = await query<{ dia: string; total: number; atendidas: number }>(
+    `select to_char(date_trunc('day', criado_em), 'YYYY-MM-DD') as dia,
+            count(*)::int as total,
+            count(*) filter (where resultado = 'atendeu')::int as atendidas
+       from cs.ligacoes
+      where ${filtros}
+      group by 1 order by 1`,
+    params,
+  );
+
   const porAtendente = await query<Atendente>(
     `select
        coalesce(nullif(operador, ''), nullif(attendant_email, ''), '—') as atendente,
@@ -70,5 +81,5 @@ export async function GET(req: Request) {
     params,
   );
 
-  return NextResponse.json({ ok: true, totais, porAtendente });
+  return NextResponse.json({ ok: true, totais, serie, porAtendente });
 }

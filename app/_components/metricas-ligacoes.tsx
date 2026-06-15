@@ -10,6 +10,7 @@ type Totais = {
   dur_total_seg: number; dur_media_seg: number | null; vinculadas_evento: number;
 };
 type Atendente = { atendente: string; total: number; atendidas: number; feitas: number; dur_total_seg: number };
+type DiaSerie = { dia: string; total: number; atendidas: number };
 
 const taxa = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
 function dur(seg: number | null) {
@@ -24,6 +25,7 @@ function dur(seg: number | null) {
 export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string }) {
   const { evento, nome } = usePortal();
   const [totais, setTotais] = useState<Totais | null>(null);
+  const [serie, setSerie] = useState<DiaSerie[]>([]);
   const [porAtendente, setPorAtendente] = useState<Atendente[]>([]);
   const [carregando, setCarregando] = useState(true);
 
@@ -34,7 +36,7 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
     try {
       const r = await fetch(`/api/ligacoes/metricas?${params.toString()}`);
       const d = await r.json();
-      if (d.ok) { setTotais(d.totais); setPorAtendente(d.porAtendente); }
+      if (d.ok) { setTotais(d.totais); setPorAtendente(d.porAtendente); setSerie(d.serie ?? []); }
     } catch {
       /* mantém dados anteriores */
     } finally {
@@ -76,6 +78,14 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
         <Kpi titulo="Sem êxito" valor={`${t.nao_atendidas + t.abandonadas + t.recusadas + t.falhou}`} sub={`${t.nao_atendidas} não atend · ${t.abandonadas} aband · ${t.recusadas} recus`} />
       </div>
 
+      {/* Série por dia — volume + atendidas */}
+      {serie.length > 0 && (
+        <Card className="p-4">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ligações por dia</span>
+          <SerieDia serie={serie} />
+        </Card>
+      )}
+
       {/* Ranking por atendente */}
       <Card className="overflow-hidden">
         <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
@@ -110,6 +120,33 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
         </div>
       </Card>
     </div>
+  );
+}
+
+function SerieDia({ serie }: { serie: DiaSerie[] }) {
+  const max = Math.max(1, ...serie.map((d) => d.total));
+  const fmtDia = (iso: string) => { const [, m, d] = iso.split("-"); return `${d}/${m}`; };
+  return (
+    <>
+      <div className="mt-3 flex items-end gap-1.5 overflow-x-auto pb-1">
+        {serie.map((d) => {
+          const h = Math.max(4, Math.round((d.total / max) * 84));
+          const hAt = d.total > 0 ? Math.round((d.atendidas / d.total) * h) : 0;
+          return (
+            <div key={d.dia} className="flex shrink-0 flex-col items-center gap-1" title={`${fmtDia(d.dia)} · ${d.total} ligações · ${d.atendidas} atendidas`}>
+              <div className="flex w-6 flex-col justify-end rounded-t bg-slate-200 dark:bg-slate-700" style={{ height: h }}>
+                <div className="w-full rounded-t bg-violet-500" style={{ height: hAt }} />
+              </div>
+              <span className="text-[9px] tabular-nums text-slate-400 dark:text-slate-500">{fmtDia(d.dia)}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-400 dark:text-slate-500">
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-violet-500" /> atendidas</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-slate-200 dark:bg-slate-700" /> não atendidas</span>
+      </div>
+    </>
   );
 }
 
