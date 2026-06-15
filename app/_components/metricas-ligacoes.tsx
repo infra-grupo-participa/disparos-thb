@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Card, EmptyState, Spinner, cn } from "@/app/_components/ui";
+import { Kpi, SecaoTitulo } from "@/app/_components/kpi";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Totais = {
@@ -84,7 +85,7 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
       {/* Série por dia — volume + atendidas */}
       {serie.length > 0 && (
         <Card className="p-4">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ligações por dia</span>
+          <SecaoTitulo cor="violet">Ligações por dia</SecaoTitulo>
           <SerieDia serie={serie} />
         </Card>
       )}
@@ -92,7 +93,7 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
       {/* Melhor horário — atendimento por faixa do dia */}
       {porHora.length > 0 && (
         <Card className="p-4">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Melhor horário para ligar <span className="font-normal normal-case text-slate-400">(horário de Brasília · % atendidas)</span></span>
+          <SecaoTitulo cor="emerald">Melhor horário para ligar <span className="ml-1 font-normal normal-case text-slate-400">(Brasília · % atendidas)</span></SecaoTitulo>
           <MelhorHorario porHora={porHora} />
         </Card>
       )}
@@ -100,7 +101,7 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
       {/* Ranking por atendente */}
       <Card className="overflow-hidden">
         <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Produtividade por atendente</span>
+          <SecaoTitulo cor="slate">Produtividade por atendente</SecaoTitulo>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -191,12 +192,3 @@ function MelhorHorario({ porHora }: { porHora: HoraSerie[] }) {
   );
 }
 
-function Kpi({ titulo, valor, sub }: { titulo: string; valor: string; sub?: string }) {
-  return (
-    <Card className="p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{titulo}</div>
-      <div className="mt-2 text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{valor}</div>
-      {sub && <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
-    </Card>
-  );
-}

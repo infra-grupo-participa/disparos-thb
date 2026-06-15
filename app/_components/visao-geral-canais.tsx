@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Card, Spinner, cn } from "@/app/_components/ui";
+import { SecaoTitulo } from "@/app/_components/kpi";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Resumo = {
@@ -93,7 +94,7 @@ export function VisaoGeralCanais({ desde, ate, edicao }: { desde?: string; ate?:
                 <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">{c.fonte}</span>
               </div>
               <div className="mt-3 flex items-baseline gap-2">
-                <span className="text-3xl font-semibold tabular-nums text-slate-900 dark:text-white">{fmt(c.volume)}</span>
+                <span className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{fmt(c.volume)}</span>
                 <span className="text-xs text-slate-400 dark:text-slate-500">{c.volLabel} · {pct(c.volume)}% do total</span>
               </div>
               <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-sm dark:border-slate-800">
@@ -108,8 +109,8 @@ export function VisaoGeralCanais({ desde, ate, edicao }: { desde?: string; ate?:
 
       {/* Barra de proporção de volume entre os canais */}
       <Card className="p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Proporção das ações</span>
+        <div className="flex items-center justify-between">
+          <SecaoTitulo cor="brand">Proporção das ações</SecaoTitulo>
           <span className="text-[11px] text-slate-400 dark:text-slate-500">{fmt(totalVol)} ações no período</span>
         </div>
         {totalVol === 0 ? (

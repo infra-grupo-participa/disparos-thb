@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, EmptyState, Spinner, cn } from "@/app/_components/ui";
+import { Kpi, SecaoTitulo } from "@/app/_components/kpi";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Nivel = "ok" | "atencao" | "alerta";
@@ -140,33 +141,27 @@ export function MetricasEmail({ desde, ate }: { desde?: string; ate?: string }) 
           {/* Engajamento DOS NOSSOS CONTATOS (pessoas do sistema, por evento) */}
           {nossos && (
             <div>
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                <span className="h-3.5 w-1 rounded-full bg-brand/60 dark:bg-brand-400/70" aria-hidden="true" />
+              <SecaoTitulo cor="brand">
                 Nossos contatos · {evento}
-                <span className="font-normal normal-case text-slate-400 dark:text-slate-500">
-                  {nossos.no_ac}/{nossos.contatos} encontrados no AC
-                </span>
-              </div>
+                <span className="ml-1 font-normal normal-case text-slate-400 dark:text-slate-500">{nossos.no_ac}/{nossos.contatos} no AC</span>
+              </SecaoTitulo>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <KpiEmail titulo="Receberam" valor={`${taxa(nossos.receberam, nossos.contatos)}%`} sub={`${nossos.receberam.toLocaleString("pt-BR")} de ${nossos.contatos.toLocaleString("pt-BR")}`} />
-                <KpiEmail titulo="Abriram" valor={`${taxa(nossos.abriram, nossos.receberam)}%`} sub={`${nossos.abriram.toLocaleString("pt-BR")} (de quem recebeu)`} />
-                <KpiEmail titulo="Clicaram" valor={`${taxa(nossos.clicaram, nossos.abriram)}%`} sub={`${nossos.clicaram.toLocaleString("pt-BR")} (de quem abriu)`} />
-                <KpiEmail titulo="Com bounce" valor={nossos.com_bounce.toLocaleString("pt-BR")} sub="hard bounce" />
+                <Kpi titulo="Receberam" valor={`${taxa(nossos.receberam, nossos.contatos)}%`} sub={`${nossos.receberam.toLocaleString("pt-BR")} de ${nossos.contatos.toLocaleString("pt-BR")}`} />
+                <Kpi titulo="Abriram" valor={`${taxa(nossos.abriram, nossos.receberam)}%`} sub={`${nossos.abriram.toLocaleString("pt-BR")} (de quem recebeu)`} />
+                <Kpi titulo="Clicaram" valor={`${taxa(nossos.clicaram, nossos.abriram)}%`} sub={`${nossos.clicaram.toLocaleString("pt-BR")} (de quem abriu)`} />
+                <Kpi titulo="Com bounce" valor={nossos.com_bounce.toLocaleString("pt-BR")} sub="hard bounce" alerta={nossos.com_bounce > 0} />
               </div>
             </div>
           )}
 
           {/* KPIs da CAMPANHA (totais do AC — base inteira, contexto) */}
           <div>
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              <span className="h-3.5 w-1 rounded-full bg-slate-300 dark:bg-slate-600" aria-hidden="true" />
-              Campanhas no AC · totais
-            </div>
+            <SecaoTitulo cor="slate">Campanhas no AC · totais</SecaoTitulo>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <KpiEmail titulo="Campanhas" valor={`${k!.campanhas}`} />
-              <KpiEmail titulo="Enviados" valor={k!.enviados.toLocaleString("pt-BR")} />
-              <KpiEmail titulo="Abertura" valor={`${taxa(k!.aberturas_unicas, k!.enviados)}%`} sub={`${k!.aberturas_unicas.toLocaleString("pt-BR")} únicas`} />
-              <KpiEmail titulo="Cliques" valor={`${taxa(k!.cliques_unicos, k!.aberturas_unicas)}%`} sub={`${k!.cliques_unicos.toLocaleString("pt-BR")} (sobre aberturas)`} />
+              <Kpi titulo="Campanhas" valor={`${k!.campanhas}`} />
+              <Kpi titulo="Enviados" valor={k!.enviados.toLocaleString("pt-BR")} />
+              <Kpi titulo="Abertura" valor={`${taxa(k!.aberturas_unicas, k!.enviados)}%`} sub={`${k!.aberturas_unicas.toLocaleString("pt-BR")} únicas`} />
+              <Kpi titulo="Cliques" valor={`${taxa(k!.cliques_unicos, k!.aberturas_unicas)}%`} sub={`${k!.cliques_unicos.toLocaleString("pt-BR")} (sobre aberturas)`} />
             </div>
           </div>
 
@@ -229,16 +224,6 @@ export function MetricasEmail({ desde, ate }: { desde?: string; ate?: string }) 
         </>
       )}
     </div>
-  );
-}
-
-function KpiEmail({ titulo, valor, sub }: { titulo: string; valor: string; sub?: string }) {
-  return (
-    <Card className="p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{titulo}</div>
-      <div className="mt-2 text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{valor}</div>
-      {sub && <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
-    </Card>
   );
 }
 

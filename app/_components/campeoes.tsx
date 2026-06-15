@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Card, EmptyState, Spinner, cn } from "@/app/_components/ui";
+import { SecaoTitulo } from "@/app/_components/kpi";
 import { usePortal } from "@/app/_components/use-portal";
 
 type WaCampeao = { template: string; enviados: number; respondidos: number };
@@ -49,10 +50,7 @@ export function Campeoes({ desde, ate, edicao }: { desde?: string; ate?: string;
 
       {/* WhatsApp */}
       <div>
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          <span className="h-3.5 w-1 rounded-full bg-emerald-500" aria-hidden="true" />
-          Templates de WhatsApp · taxa de resposta
-        </div>
+        <SecaoTitulo cor="emerald">Templates de WhatsApp · taxa de resposta</SecaoTitulo>
         {wa.length === 0 ? (
           <EmptyState title="Sem dados suficientes" description="Os templates campeões aparecem aqui após disparos com volume mínimo." />
         ) : (
@@ -71,10 +69,7 @@ export function Campeoes({ desde, ate, edicao }: { desde?: string; ate?: string;
 
       {/* E-mail */}
       <div>
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          <span className="h-3.5 w-1 rounded-full bg-sky-500" aria-hidden="true" />
-          Campanhas de e-mail · taxa de abertura
-        </div>
+        <SecaoTitulo cor="sky">Campanhas de e-mail · taxa de abertura</SecaoTitulo>
         {email.length === 0 ? (
           <EmptyState title="Sem campanhas de e-mail" description="Rode “Atualizar do AC” na aba E-mail para popular as campanhas do ActiveCampaign." />
         ) : (
