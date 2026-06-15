@@ -7,6 +7,9 @@ import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_com
 import { AnimNum, Reveal } from "@/app/_components/anim";
 import Comportamento from "@/app/_components/comportamento";
 import { SaudeDisparo } from "@/app/_components/saude-disparo";
+import { MetricasEmail } from "@/app/_components/metricas-email";
+import { MetricasLigacoes } from "@/app/_components/metricas-ligacoes";
+import { VisaoGeralCanais } from "@/app/_components/visao-geral-canais";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Kpis = { enviados: number; respondidos: number; sla_medio: number | null };
@@ -46,7 +49,7 @@ export default function DashboardPage() {
   const [edicao, setEdicao] = useState("");
 
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
-  const [aba, setAba] = useState<"disparos" | "comportamento">("disparos");
+  const [aba, setAba] = useState<"geral" | "disparos" | "email" | "ligacoes" | "comportamento">("geral");
   const carregandoRef = useRef(false);
 
   const carregar = useCallback(async () => {
@@ -151,7 +154,7 @@ export default function DashboardPage() {
 
       {/* Abas — organiza o dashboard por área */}
       <div className="mb-5 flex gap-1 border-b border-slate-200 dark:border-slate-800">
-        {([["disparos", "Disparos"], ["comportamento", "Comportamento dos clientes"]] as const).map(([k, label]) => (
+        {([["geral", "Visão geral"], ["disparos", "WhatsApp"], ["email", "E-mail"], ["ligacoes", "Ligações"], ["comportamento", "Comportamento dos clientes"]] as const).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setAba(k)}
@@ -165,6 +168,13 @@ export default function DashboardPage() {
           </button>
         ))}
       </div>
+
+      {aba === "geral" && (
+        <>
+          <SectionTitle>Visão geral · proporção e resultados por canal</SectionTitle>
+          <VisaoGeralCanais desde={desde} ate={ate} />
+        </>
+      )}
 
       {aba === "disparos" && (
         <>
@@ -233,6 +243,20 @@ export default function DashboardPage() {
 
       <SectionTitle>Atividade de disparos</SectionTitle>
       <Atividades itens={atividade} />
+        </>
+      )}
+
+      {aba === "email" && (
+        <>
+          <SectionTitle>Métricas de e-mail · ActiveCampaign</SectionTitle>
+          <MetricasEmail desde={desde} ate={ate} />
+        </>
+      )}
+
+      {aba === "ligacoes" && (
+        <>
+          <SectionTitle>Produtividade do comercial · ligações (Atende Simples)</SectionTitle>
+          <MetricasLigacoes desde={desde} ate={ate} />
         </>
       )}
 
