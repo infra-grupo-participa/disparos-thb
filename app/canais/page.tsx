@@ -18,6 +18,7 @@ export default function CanaisPage() {
   const [carregando, setCarregando] = useState(true);
   const [novo, setNovo] = useState(false);
   const [editar, setEditar] = useState<Canal | null>(null);
+  const [teste, setTeste] = useState<Record<string, { ok: boolean; msg: string; loading?: boolean }>>({});
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -35,6 +36,17 @@ export default function CanaisPage() {
     const d = await r.json();
     if (!d.ok) { alert("Não foi possível atualizar o canal."); return; }
     await carregar();
+  }
+
+  async function testar(id: string) {
+    setTeste((t) => ({ ...t, [id]: { ok: false, msg: "", loading: true } }));
+    try {
+      const r = await fetch("/api/canais/testar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+      const d = await r.json();
+      setTeste((t) => ({ ...t, [id]: { ok: !!d.ok, msg: d.detalhe || d.reason || (d.ok ? "OK" : "Falha") } }));
+    } catch {
+      setTeste((t) => ({ ...t, [id]: { ok: false, msg: "Falha de conexão ao testar." } }));
+    }
   }
 
   if (souAdmin === false) {
@@ -86,9 +98,19 @@ export default function CanaisPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Button variant="secondary" size="sm" onClick={() => setEditar(c)}>Editar / trocar chave</Button>
-                        {!c.ativo && <Button variant="ghost" size="sm" onClick={() => patch(c.id, { ativo: true })}>Ativar</Button>}
+                      <div className="flex flex-col items-end gap-1.5">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button variant="secondary" size="sm" onClick={() => testar(c.id)} disabled={teste[c.id]?.loading}>
+                            {teste[c.id]?.loading ? "Testando…" : "Testar"}
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => setEditar(c)}>Editar / trocar chave</Button>
+                          {!c.ativo && <Button variant="ghost" size="sm" onClick={() => patch(c.id, { ativo: true })}>Ativar</Button>}
+                        </div>
+                        {teste[c.id] && !teste[c.id].loading && (
+                          <span className={cn("text-right text-xs", teste[c.id].ok ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
+                            {teste[c.id].ok ? "✓ " : "✗ "}{teste[c.id].msg}
+                          </span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -114,6 +136,28 @@ function ModalCanal({ canal, eventos, onClose, onSalvo }: { canal?: Canal; event
   const [numero, setNumero] = useState(canal?.numero || "");
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [teste, setTeste] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [testando, setTestando] = useState(false);
+
+  async function testarChave() {
+    if (!apiKey) { setErro("Digite a chave de API para testar."); return; }
+    setErro(null);
+    setTestando(true);
+    setTeste(null);
+    try {
+      const r = await fetch("/api/canais/testar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey, base_url: baseUrl || undefined }),
+      });
+      const d = await r.json();
+      setTeste({ ok: !!d.ok, msg: d.detalhe || d.reason || (d.ok ? "OK" : "Falha") });
+    } catch {
+      setTeste({ ok: false, msg: "Falha de conexão ao testar." });
+    } finally {
+      setTestando(false);
+    }
+  }
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
@@ -152,9 +196,19 @@ function ModalCanal({ canal, eventos, onClose, onSalvo }: { canal?: Canal; event
           <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="Base URL (opcional — padrão Unnichat)" className={fieldClass} />
         </div>
         {erro && <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{erro}</p>}
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button type="submit" disabled={salvando}>{salvando && <Spinner className="text-white" />}{edicao ? "Salvar" : "Criar canal"}</Button>
+        {teste && (
+          <p className={cn("mt-2 text-sm", teste.ok ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
+            {teste.ok ? "✓ " : "✗ "}{teste.msg}
+          </p>
+        )}
+        <div className="mt-5 flex justify-between gap-2">
+          <Button type="button" variant="ghost" onClick={testarChave} disabled={testando || !apiKey}>
+            {testando && <Spinner />}{testando ? "Testando…" : "Testar chave"}
+          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+            <Button type="submit" disabled={salvando}>{salvando && <Spinner className="text-white" />}{edicao ? "Salvar" : "Criar canal"}</Button>
+          </div>
         </div>
       </form>
     </div>

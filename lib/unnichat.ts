@@ -171,6 +171,26 @@ export async function getContactMessages(contactId: string, cfg?: CanalCfg): Pro
   }
 }
 
+// Valida a credencial do canal SEM enviar nada a ninguém: faz uma busca de
+// contato (read-only). 401/403 = credencial recusada pela Unnichat; qualquer
+// outra resposta indica que a chave foi aceita. Usado no "testar canal".
+export async function validarCredencial(cfg?: CanalCfg): Promise<{ ok: boolean; status: number; erro?: string }> {
+  try {
+    const res = await fetch(`${resolveBase(cfg)}/contact/search`, {
+      method: "POST",
+      headers: headers(cfg),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      body: JSON.stringify({ phone: "5521999999999" }),
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, status: res.status, erro: "Credencial recusada pela Unnichat (401/403)." };
+    }
+    return { ok: true, status: res.status };
+  } catch (e) {
+    return { ok: false, status: 0, erro: e instanceof Error ? e.message : "erro de rede" };
+  }
+}
+
 // POST /contact/search — localiza um contato por telefone. Retorna `data` como
 // array; usamos o primeiro. Necessário para a sincronização do histórico de
 // conversas (não há listagem em massa de contatos na Unnichat).
