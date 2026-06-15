@@ -3,8 +3,7 @@ import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
 import { logger } from "@/lib/log";
 import {
-  verificarAssinatura, assinarCorpo, mapearResultado, numeroDoCliente, RESULTADO_LABEL,
-  type WebhookPayload,
+  verificarAssinatura, assinarCorpo, parsePayload, mapearResultado, numeroDoCliente, RESULTADO_LABEL,
 } from "@/lib/atendesimples";
 
 export const runtime = "nodejs";
@@ -33,41 +32,33 @@ export async function POST(req: Request) {
   const assinatura = req.headers.get("x-hub-signature");
   const secret = process.env.ATENDESIMPLES_WEBHOOK_SECRET;
   const assinaturaOk = verificarAssinatura(corpoCru, assinatura, secret);
+  const headerEvento = req.headers.get("x-atendesimples-event") || "";
 
-  let body: WebhookPayload;
-  try { body = JSON.parse(corpoCru) as WebhookPayload; } catch { body = {}; }
-  const evento = body.event_code || req.headers.get("x-atendesimples-event") || "";
-
-  // Ping: teste de conectividade da ativação. Responde 200 SEMPRE (não grava
-  // nada), mas loga se a assinatura bateu — é o autodiagnóstico da fórmula HMAC
-  // com o ping real. Se "assinatura_ok: false" aqui, comparar recebida×calculada.
-  if (evento === "ping") {
-    log.info("ping recebido", {
-      assinatura_ok: assinaturaOk,
-      recebida: assinatura ?? null,
-      calculada: secret ? assinarCorpo(corpoCru, secret) : null,
-      secret_configurado: Boolean(secret),
-    });
-    return NextResponse.json({ ok: true, pong: true, assinatura_ok: assinaturaOk });
-  }
-
-  // Eventos reais (gravam dados) EXIGEM assinatura válida.
-  if (!assinaturaOk) {
-    log.warn("webhook com assinatura inválida", {
-      evento,
-      recebida: assinatura ?? null,
-      calculada: secret ? assinarCorpo(corpoCru, secret) : null,
-      tamanho: corpoCru.length,
-      secret_configurado: Boolean(secret),
-    });
-    return NextResponse.json({ ok: false }, { status: 401 });
-  }
-
+  // Parse tolerante (JSON ou urlencoded — a Atende Simples permite os dois).
+  const body = parsePayload(corpoCru);
+  const evento = body.event_code || headerEvento || "";
   const call = body.call;
   const callId = call?.call_id != null ? String(call.call_id) : "";
-  if (!callId) {
-    log.warn("evento sem call_id", { evento });
-    return NextResponse.json({ ok: true }); // 200 evita retry infinito
+
+  // Diagnóstico (não expõe o secret — "calculada" é o HMAC, irreversível).
+  const diag = {
+    evento, callId: callId || null, assinatura_ok: assinaturaOk,
+    recebida: assinatura ?? null, calculada: secret ? assinarCorpo(corpoCru, secret) : null,
+    tamanho: corpoCru.length, content_type: req.headers.get("content-type"), secret_configurado: Boolean(secret),
+  };
+
+  // Ping ou requisição sem chamada com dados → 200 SEMPRE (ativação/health-check;
+  // não grava nada). Loga se a assinatura bateu — o ping real vira o teste da
+  // fórmula HMAC sem travar a ativação.
+  if (evento === "ping" || !callId) {
+    log.info("webhook ping/no-op", diag);
+    return NextResponse.json({ ok: true, pong: evento === "ping" || undefined, assinatura_ok: assinaturaOk });
+  }
+
+  // Evento com dados de chamada → EXIGE assinatura válida (segurança da gravação).
+  if (!assinaturaOk) {
+    log.warn("webhook com assinatura inválida", diag);
+    return NextResponse.json({ ok: false }, { status: 401 });
   }
 
   // Número do aluno (depende da direção) → casa por telefone com um comprador.

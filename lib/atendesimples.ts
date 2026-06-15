@@ -82,6 +82,28 @@ export type WebhookPayload = {
   call?: CallPayload;
 };
 
+// Parser tolerante do corpo do webhook. A Atende Simples permite enviar como
+// application/json OU application/x-www-form-urlencoded — aceitamos os dois para
+// não falhar a ativação/ping. No urlencoded, o JSON pode vir no campo "payload"
+// ou como campos soltos (event_code, call_id...). Nunca lança.
+export function parsePayload(corpoCru: string): WebhookPayload {
+  if (!corpoCru) return {};
+  const t = corpoCru.trim();
+  if (t.startsWith("{") || t.startsWith("[")) {
+    try { return JSON.parse(t) as WebhookPayload; } catch { /* tenta urlencoded */ }
+  }
+  try {
+    const p = new URLSearchParams(corpoCru);
+    const payload = p.get("payload");
+    if (payload) { try { return JSON.parse(payload) as WebhookPayload; } catch { /* segue */ } }
+    const evento = p.get("event_code") || undefined;
+    const callId = p.get("call_id") || p.get("call[call_id]") || undefined;
+    if (evento || callId) return { event_code: evento, call: callId ? { call_id: callId } : undefined };
+  } catch { /* ignore */ }
+  // Última tentativa: JSON mesmo sem começar com { (ex.: BOM/espaços estranhos).
+  try { return JSON.parse(corpoCru) as WebhookPayload; } catch { return {}; }
+}
+
 // O número do ALUNO depende da direção: em chamada de saída (comercial liga
 // para o aluno) o destino é o dnis; em entrada, a origem é o from_number.
 export function numeroDoCliente(call: CallPayload): string | null {
