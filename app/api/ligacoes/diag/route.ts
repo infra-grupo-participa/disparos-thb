@@ -11,6 +11,23 @@ export const runtime = "nodejs";
 export async function GET() {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
 
+  // Verifica antes se a migration 0024 (colunas do Atende Simples) foi aplicada.
+  // Se faltar, o webhook também não consegue gravar — então a checagem aponta a
+  // causa raiz em vez de estourar 500 genérico.
+  const col = await queryOne<{ existe: boolean }>(
+    `select exists (
+       select 1 from information_schema.columns
+        where table_schema = 'cs' and table_name = 'ligacoes' and column_name = 'direction'
+     ) as existe`,
+  );
+  if (!col?.existe) {
+    return NextResponse.json({
+      ok: false,
+      reason: "migration_0024_pendente",
+      detalhe: "A coluna cs.ligacoes.direction não existe — aplique a migration 0024_cs_ligacoes_atendesimples.sql. Sem ela, o webhook não grava as chamadas.",
+    });
+  }
+
   const resumo = await queryOne(
     `select
        count(*)::int as total,
