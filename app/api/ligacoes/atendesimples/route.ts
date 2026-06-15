@@ -9,14 +9,49 @@ import {
 export const runtime = "nodejs";
 const log = logger("ligacoes:atendesimples");
 
-// GET — diagnóstico do setup (não expõe o secret). Útil para confirmar, ANTES
-// de "Enviar ping" no painel do Atende Simples, que o deploy subiu e a env do
-// secret está configurada. Não processa chamadas.
+// GET — diagnóstico PÚBLICO do setup (não expõe segredos nem dados). Confirma
+// que o deploy subiu, que o secret está configurado e se a migration 0024
+// (colunas do Atende Simples) já foi aplicada no banco — sem precisar logar.
 export async function GET() {
+  // Conta as chamadas já gravadas + checa o schema. Tudo em uma ida ao banco,
+  // tolerante a falha (se a tabela/coluna não existir, retorna o motivo).
+  let migracao0024: boolean | null = null;
+  let gravadas: number | null = null;
+  let casadas: number | null = null;
+  let ultima: string | null = null;
+  let erro: string | undefined;
+  try {
+    const col = await queryOne<{ e: boolean }>(
+      `select exists (
+         select 1 from information_schema.columns
+          where table_schema = 'cs' and table_name = 'ligacoes' and column_name = 'direction'
+       ) as e`,
+    );
+    migracao0024 = Boolean(col?.e);
+    if (migracao0024) {
+      const r = await queryOne<{ total: number; com_aluno: number; ultima: string | null }>(
+        `select count(*)::int as total,
+                count(*) filter (where comprador_id is not null)::int as com_aluno,
+                max(criado_em) as ultima
+           from cs.ligacoes where provider = 'atendesimples'`,
+      );
+      gravadas = r?.total ?? 0;
+      casadas = r?.com_aluno ?? 0;
+      ultima = r?.ultima ?? null;
+    }
+  } catch (e) {
+    erro = e instanceof Error ? e.message : "erro ao consultar o banco";
+  }
+
   return NextResponse.json({
     ok: true,
     endpoint: "atendesimples-webhook",
     secret_configurado: Boolean(process.env.ATENDESIMPLES_WEBHOOK_SECRET),
+    migration_0024_ok: migracao0024,
+    chamadas_gravadas: gravadas,
+    chamadas_com_aluno: casadas,
+    ultima_chamada_em: ultima,
+    ...(erro ? { erro } : {}),
   });
 }
 
