@@ -5,10 +5,10 @@ import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 
-// GET /api/ligacoes/metricas?evento=HT&desde=&ate= — produtividade do comercial
-// (ligações do Atende Simples), por evento. Totais + ranking por atendente.
-// Espelha o padrão do /api/dashboard: filtra por evento (chamadas casadas com
-// alunos daquele portal) e período sobre criado_em.
+// GET /api/ligacoes/metricas?evento=HT&desde=&ate= — produtividade GERAL do
+// comercial (todas as chamadas do Atende Simples no período); não depende de o
+// número estar na base. `vinculadas_evento` conta quantas casaram com alunos do
+// portal. Totais + série por dia + ranking por atendente.
 type Totais = {
   total: number; feitas: number; recebidas: number; atendidas: number;
   abandonadas: number; recusadas: number; nao_atendidas: number; falhou: number;
@@ -26,14 +26,13 @@ export async function GET(req: Request) {
   const desde = url.searchParams.get("desde");
   const ate = url.searchParams.get("ate");
 
-  // Produtividade do comercial é GERAL (todas as chamadas do Atende Simples no
-  // período) — não depende de o número estar na base. `evento = $1` é usado só
-  // para contar quantas casaram com alunos daquele portal (vinculadas_evento).
-  const filtros = `provider = 'atendesimples'
-    and ($2::timestamptz is null or criado_em >= $2)
-    and ($3::timestamptz is null or criado_em <= $3)`;
-  const params = [evento, desde, ate];
+  // Filtro de período ($1 = desde, $2 = ate) — comum a todas as queries.
+  const periodo = `provider = 'atendesimples'
+    and ($1::timestamptz is null or criado_em >= $1)
+    and ($2::timestamptz is null or criado_em <= $2)`;
+  const periodoParams = [desde, ate];
 
+  // Totais: período ($1,$2) + evento ($3) só para contar as vinculadas.
   const totais = (await queryOne<Totais>(
     `select
        count(*)::int as total,
@@ -46,24 +45,24 @@ export async function GET(req: Request) {
        count(*) filter (where resultado = 'falhou')::int as falhou,
        coalesce(sum(duracao_seg), 0)::int as dur_total_seg,
        round(avg(duracao_seg) filter (where resultado = 'atendeu'))::int as dur_media_seg,
-       count(*) filter (where evento = $1)::int as vinculadas_evento
+       count(*) filter (where evento = $3)::int as vinculadas_evento
      from cs.ligacoes
-     where ${filtros}`,
-    params,
+     where ${periodo}`,
+    [...periodoParams, evento],
   )) ?? {
     total: 0, feitas: 0, recebidas: 0, atendidas: 0, abandonadas: 0,
     recusadas: 0, nao_atendidas: 0, falhou: 0, dur_total_seg: 0, dur_media_seg: null, vinculadas_evento: 0,
   };
 
-  // Série por dia (volume + atendidas) — para ver picos e vazios de atividade.
+  // Série por dia (volume + atendidas) — picos e vazios de atividade.
   const serie = await query<{ dia: string; total: number; atendidas: number }>(
     `select to_char(date_trunc('day', criado_em), 'YYYY-MM-DD') as dia,
             count(*)::int as total,
             count(*) filter (where resultado = 'atendeu')::int as atendidas
        from cs.ligacoes
-      where ${filtros}
+      where ${periodo}
       group by 1 order by 1`,
-    params,
+    periodoParams,
   );
 
   const porAtendente = await query<Atendente>(
@@ -74,11 +73,11 @@ export async function GET(req: Request) {
        count(*) filter (where direction = 'outbound')::int as feitas,
        coalesce(sum(duracao_seg), 0)::int as dur_total_seg
      from cs.ligacoes
-     where ${filtros}
+     where ${periodo}
      group by 1
      order by total desc
      limit 50`,
-    params,
+    periodoParams,
   );
 
   return NextResponse.json({ ok: true, totais, serie, porAtendente });
