@@ -172,7 +172,7 @@ export default function DashboardPage() {
       {aba === "geral" && (
         <>
           <SectionTitle>Visão geral · proporção e resultados por canal</SectionTitle>
-          <VisaoGeralCanais desde={desde} ate={ate} />
+          <VisaoGeralCanais desde={desde} ate={ate} edicao={edicao} />
         </>
       )}
 

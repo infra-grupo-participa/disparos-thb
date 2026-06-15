@@ -16,7 +16,7 @@ const fmt = (n: number) => n.toLocaleString("pt-BR");
 // Visão geral comparativa dos 3 canais de ação (volume + resultado + proporção).
 // Cada canal tem cor própria; a barra mostra a proporção de volume entre eles.
 // Dados de /api/dashboard/canais. Só dados reais.
-export function VisaoGeralCanais({ desde, ate }: { desde?: string; ate?: string }) {
+export function VisaoGeralCanais({ desde, ate, edicao }: { desde?: string; ate?: string; edicao?: string }) {
   const { evento } = usePortal();
   const [d, setD] = useState<Resumo | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -25,6 +25,7 @@ export function VisaoGeralCanais({ desde, ate }: { desde?: string; ate?: string 
     const params = new URLSearchParams({ evento });
     if (desde) params.set("desde", new Date(`${desde}T00:00:00`).toISOString());
     if (ate) params.set("ate", new Date(`${ate}T23:59:59`).toISOString());
+    if (edicao) params.set("edicao", edicao);
     try {
       const r = await fetch(`/api/dashboard/canais?${params.toString()}`);
       const j = await r.json();
@@ -34,7 +35,7 @@ export function VisaoGeralCanais({ desde, ate }: { desde?: string; ate?: string 
     } finally {
       setCarregando(false);
     }
-  }, [evento, desde, ate]);
+  }, [evento, desde, ate, edicao]);
 
   useEffect(() => { carregar(); }, [carregar]);
 

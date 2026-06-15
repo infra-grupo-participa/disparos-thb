@@ -5,12 +5,15 @@ import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 
-// GET /api/dashboard/canais?evento=&desde=&ate= — resumo COMPARATIVO dos 3
-// canais de ação do evento (volume + resultado), para ver as proporções num
-// relance. Cada canal lê sua própria fonte; só dados reais (zera se não houver).
-//   WhatsApp (Unnichat):    cs.disparo_contatos  → enviados / respondidos
-//   E-mail (ActiveCampaign): cs.campanhas_email   → enviados / aberturas únicas
-//   Ligações (Atende Simples): cs.ligacoes        → feitas / atendidas
+// GET /api/dashboard/canais?evento=&desde=&ate=&edicao= — resumo COMPARATIVO dos
+// 3 canais de ação (volume + resultado), para ver as proporções num relance.
+// Só dados reais (zera se não houver). O filtro de edição vale para cada canal
+// na medida em que cada um "tem" edição:
+//   WhatsApp (Unnichat):     cs.disparos.edicao_ht (nativo)
+//   E-mail (ActiveCampaign): pelo NOME da campanha (ex.: "[HT20]") — best-effort
+//   Ligações (Atende Simples): herda a edição do ALUNO casado (cs.contatos_evento).
+//     Sem edição selecionada, ligações mostram o total geral (produtividade do
+//     comercial não depende de o número estar na base).
 export async function GET(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
 
@@ -18,7 +21,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const desde = url.searchParams.get("desde");
   const ate = url.searchParams.get("ate");
-  const p = [evento, desde, ate];
+  const edicao = url.searchParams.get("edicao");
+  const p = [evento, desde, ate, edicao];
 
   const whatsapp = (await queryOne<{ enviados: number; respondidos: number }>(
     `select
@@ -27,7 +31,8 @@ export async function GET(req: Request) {
      from cs.disparo_contatos dc
      join cs.disparos d on d.id = dc.disparo_id and d.evento = $1
      where ($2::timestamptz is null or d.iniciado_em >= $2)
-       and ($3::timestamptz is null or d.iniciado_em <= $3)`,
+       and ($3::timestamptz is null or d.iniciado_em <= $3)
+       and ($4::text is null or d.edicao_ht = $4)`,
     p,
   )) ?? { enviados: 0, respondidos: 0 };
 
@@ -38,19 +43,22 @@ export async function GET(req: Request) {
      from cs.campanhas_email
      where evento = $1
        and ($2::timestamptz is null or enviada_em >= $2)
-       and ($3::timestamptz is null or enviada_em <= $3)`,
+       and ($3::timestamptz is null or enviada_em <= $3)
+       and ($4::text is null or nome ilike '%' || $4 || '%')`,
     p,
   )) ?? { enviados: 0, aberturas: 0 };
 
   const ligacoes = (await queryOne<{ total: number; feitas: number; atendidas: number }>(
     `select
        count(*)::int as total,
-       count(*) filter (where direction = 'outbound')::int as feitas,
-       count(*) filter (where resultado = 'atendeu')::int as atendidas
-     from cs.ligacoes
-     where provider = 'atendesimples' and evento = $1
-       and ($2::timestamptz is null or criado_em >= $2)
-       and ($3::timestamptz is null or criado_em <= $3)`,
+       count(*) filter (where l.direction = 'outbound')::int as feitas,
+       count(*) filter (where l.resultado = 'atendeu')::int as atendidas
+     from cs.ligacoes l
+     left join cs.contatos_evento v on v.comprador_id = l.comprador_id and v.evento = $1
+     where l.provider = 'atendesimples'
+       and ($2::timestamptz is null or l.criado_em >= $2)
+       and ($3::timestamptz is null or l.criado_em <= $3)
+       and ($4::text is null or v.edicao_ht = $4)`,
     p,
   )) ?? { total: 0, feitas: 0, atendidas: 0 };
 
