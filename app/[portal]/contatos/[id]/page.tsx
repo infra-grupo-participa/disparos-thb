@@ -35,6 +35,10 @@ type Contato = {
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 type Formulario = { tipo: string; respostas: Record<string, string> | null; pontuacao: number | string | null; respondido_em: string | null };
 type Metricas = { disparos_recebidos: number; disparos_respondidos: number; sla_medio: number | null; ultima_resposta_disparo: string | null };
+type EmailAc = {
+  encontrado: boolean; recebidos: number; abriu_em: string | null; clicou_em: string | null;
+  bounce_hard: number; bounce_soft: number; sincronizado_em: string | null;
+} | null;
 
 function nivelLead(score: number) {
   if (score >= 60) return { label: "Quente", txt: "text-emerald-600 dark:text-emerald-400", bar: "bg-emerald-500", ring: "ring-emerald-200 dark:ring-emerald-500/30", bg: "bg-emerald-50 dark:bg-emerald-500/10" };
@@ -155,6 +159,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   const [formularios, setFormularios] = useState<Formulario[]>([]);
   const [score, setScore] = useState(0);
   const [metricas, setMetricas] = useState<Metricas | null>(null);
+  const [emailAc, setEmailAc] = useState<EmailAc>(null);
   const [nota, setNota] = useState("");
   const [obs, setObs] = useState("");
   const [proxData, setProxData] = useState("");
@@ -169,6 +174,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
       setFormularios(d.formularios || []);
       setScore(d.score ?? 0);
       setMetricas(d.metricas ?? null);
+      setEmailAc(d.emailAc ?? null);
       setObs(d.contato.observacoes || "");
       setProxNota(d.contato.proxima_acao_nota || "");
       setProxData(d.contato.proxima_acao_em ? d.contato.proxima_acao_em.slice(0, 16) : "");
@@ -289,6 +295,40 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
         <div className="space-y-5">
           {/* Ligações */}
           <CardLigacoes compradorId={id} telefone={contato.telefone} onRegistrado={carregar} />
+
+          {/* E-mail (ActiveCampaign) — engajamento desta pessoa */}
+          <Card className="p-4">
+            <SectionTitle>E-mail (ActiveCampaign)</SectionTitle>
+            {!emailAc ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não sincronizado. O sistema busca o engajamento de e-mail automaticamente.</p>
+            ) : !emailAc.encontrado ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500">Contato não encontrado no ActiveCampaign (por e-mail).</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5 dark:border-slate-800 dark:bg-slate-800/40">
+                    <div className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{emailAc.recebidos}</div>
+                    <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Recebidos</div>
+                  </div>
+                  <div className={cn("rounded-lg border p-2.5", emailAc.abriu_em ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-emerald-500/10" : "border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-800/40")}>
+                    <div className={cn("text-sm font-semibold", emailAc.abriu_em ? "text-emerald-700 dark:text-emerald-300" : "text-slate-400 dark:text-slate-500")}>{emailAc.abriu_em ? "Sim" : "—"}</div>
+                    <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Abriu</div>
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500">{fmtData(emailAc.abriu_em)}</div>
+                  </div>
+                  <div className={cn("rounded-lg border p-2.5", emailAc.clicou_em ? "border-brand-200 bg-brand-50/60 dark:border-brand-400/30 dark:bg-brand-400/10" : "border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-800/40")}>
+                    <div className={cn("text-sm font-semibold", emailAc.clicou_em ? "text-brand dark:text-brand-300" : "text-slate-400 dark:text-slate-500")}>{emailAc.clicou_em ? "Sim" : "—"}</div>
+                    <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Clicou</div>
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500">{fmtData(emailAc.clicou_em)}</div>
+                  </div>
+                </div>
+                {(emailAc.bounce_hard > 0 || emailAc.bounce_soft > 0) && (
+                  <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">
+                    Bounce: {emailAc.bounce_hard} hard · {emailAc.bounce_soft} soft
+                  </p>
+                )}
+              </>
+            )}
+          </Card>
 
           {/* Estágio */}
           <Card className="p-4">
