@@ -48,7 +48,7 @@ export async function GET() {
 
   const recentes = await query(
     `select criado_em, direction, status_pabx, resultado, from_number, dnis,
-            attendant_name, (comprador_id is not null) as casou_aluno, evento, duracao_seg
+            operador as atendente, (comprador_id is not null) as casou_aluno, evento, duracao_seg
        from cs.ligacoes where provider = 'atendesimples'
       order by criado_em desc limit 20`,
   );
