@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { sincronizarCampanhasEmail } from "@/lib/services/email";
+import { getCanal } from "@/lib/services/canais";
+import { listarCampanhas } from "@/lib/activecampaign";
 import { logger } from "@/lib/log";
 
 export const runtime = "nodejs";
@@ -13,10 +15,30 @@ const log = logger("email-sync");
 // também serve como credencial — por isso pode funcionar mesmo sem as envs.
 export async function GET() {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const url_configurada = Boolean(process.env.ACTIVECAMPAIGN_API_URL);
+  const token_configurado = Boolean(process.env.ACTIVECAMPAIGN_API_TOKEN);
+
+  // Testa a CONEXÃO real (não só a env): puxa 1 campanha. conexao_ok=false com
+  // erro = token inválido OU bloqueio de IP do servidor na conta do AC.
+  let conexao_ok: boolean | null = null;
+  let total_campanhas: number | null = null;
+  let erro: string | undefined;
+  if (url_configurada && token_configurado) {
+    try {
+      const canal = await getCanal("HT", "activecampaign");
+      const r = await listarCampanhas({ limit: 1, cfg: canal });
+      conexao_ok = r.ok;
+      total_campanhas = r.ok ? r.total : null;
+      if (!r.ok) erro = r.erro;
+    } catch (e) {
+      conexao_ok = false;
+      erro = e instanceof Error ? e.message : "erro ao conectar no AC";
+    }
+  }
+
   return NextResponse.json({
-    ok: true,
-    url_configurada: Boolean(process.env.ACTIVECAMPAIGN_API_URL),
-    token_configurado: Boolean(process.env.ACTIVECAMPAIGN_API_TOKEN),
+    ok: true, url_configurada, token_configurado, conexao_ok, total_campanhas,
+    ...(erro ? { erro } : {}),
   });
 }
 
