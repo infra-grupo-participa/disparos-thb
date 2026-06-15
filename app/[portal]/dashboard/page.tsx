@@ -153,20 +153,30 @@ export default function DashboardPage() {
         </div>
       </Card>
 
-      {/* Abas — organiza o dashboard por área */}
-      <div className="mb-5 flex gap-1 border-b border-slate-200 dark:border-slate-800">
-        {([["geral", "Visão geral"], ["disparos", "WhatsApp"], ["email", "E-mail"], ["ligacoes", "Ligações"], ["campeoes", "Campeões"], ["comportamento", "Comportamento dos clientes"]] as const).map(([k, label]) => (
-          <button
-            key={k}
-            onClick={() => setAba(k)}
-            className={cn(
-              "relative px-4 py-2.5 text-sm font-medium transition-colors",
-              aba === k ? "text-brand dark:text-brand-300" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
-            )}
-          >
-            {label}
-            {aba === k && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand dark:bg-brand-400" />}
-          </button>
+      {/* Abas em dois grupos: Resumo (visões cross-canal) e Canais (cada canal). */}
+      <div className="mb-5 space-y-1.5">
+        {([
+          ["Resumo", [["geral", "Visão geral"], ["campeoes", "Campeões"], ["comportamento", "Clientes"]]],
+          ["Canais", [["disparos", "WhatsApp"], ["email", "E-mail"], ["ligacoes", "Ligações"]]],
+        ] as const).map(([grupo, abas]) => (
+          <div key={grupo} className="flex items-center gap-3">
+            <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{grupo}</span>
+            <div className="flex flex-1 gap-1 border-b border-slate-200 dark:border-slate-800">
+              {abas.map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setAba(k)}
+                  className={cn(
+                    "relative px-3.5 py-2.5 text-sm font-medium transition-colors sm:px-4",
+                    aba === k ? "text-brand dark:text-brand-300" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
+                  )}
+                >
+                  {label}
+                  {aba === k && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand dark:bg-brand-400" />}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 
