@@ -3,7 +3,7 @@ import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
 import { logger } from "@/lib/log";
 import {
-  verificarAssinatura, assinarCorpo, parsePayload, mapearResultado, numeroDoCliente, RESULTADO_LABEL,
+  verificarAssinatura, assinarCorpo, parsePayload, mapearResultado, RESULTADO_LABEL,
 } from "@/lib/atendesimples";
 
 export const runtime = "nodejs";
@@ -101,21 +101,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
-  // Número do aluno (depende da direção) → casa por telefone com um comprador.
-  const numCliente = numeroDoCliente(call!);
-  const telNorm = normalizePhone(numCliente);
-  const sufixo = telNorm ? telNorm.slice(-8) : null;
+  // Casa o aluno por telefone tentando AMBOS os números da chamada. Em chamada
+  // de saída, a Atende Simples coloca o número do CLIENTE no from_number; o dnis
+  // é o número fixo da plataforma. Tenta os dois e usa o primeiro que casar.
+  const candidatos = [call?.from_number, call?.dnis]
+    .map((n) => (n ? normalizePhone(String(n)) : null))
+    .filter((n): n is string => !!n);
   let compradorId: string | null = null;
   let eventoAluno: string | null = null;
-  if (sufixo) {
+  let telCasado: string | null = null;
+  for (const norm of candidatos) {
     const m = await queryOne<{ comprador_id: string; evento: string }>(
       `select comprador_id, evento from cs.contatos_evento
         where telefone is not null and right(regexp_replace(telefone, '\\D', '', 'g'), 8) = $1
         limit 1`,
-      [sufixo],
+      [norm.slice(-8)],
     );
-    if (m) { compradorId = m.comprador_id; eventoAluno = m.evento; }
+    if (m) { compradorId = m.comprador_id; eventoAluno = m.evento; telCasado = norm; break; }
   }
+  // Telefone do registro = o que casou; senão o from_number (lado do cliente).
+  const telNorm = telCasado || normalizePhone(call?.from_number ?? null) || normalizePhone(call?.dnis ?? null);
 
   const { resultado, status } = mapearResultado(call?.status);
   const dur = Number(call?.inbound_duration ?? 0) || null;
@@ -169,9 +174,17 @@ export async function POST(req: Request) {
        select id, 'ligacao', $2, $3 from cs.contatos where comprador_id = $1`,
       [compradorId, `📞 ${partes.join(" · ")}`, call?.attendant_name ?? "atende-simples"],
     );
+    // Marca os timestamps de contato (base do SLA de ligação): primeiro/último
+    // contato sempre; quando ATENDIDA, conta como contato efetivo (resposta).
+    const atendeu = resultado === "atendeu";
     await query(
-      `update cs.contatos set ultimo_contato_em = now(), atualizado_em = now() where comprador_id = $1`,
-      [compradorId],
+      `update cs.contatos set
+         ultimo_contato_em   = now(),
+         primeiro_contato_em = coalesce(primeiro_contato_em, now()),
+         ultima_resposta_em  = case when $2 then now() else ultima_resposta_em end,
+         atualizado_em       = now()
+       where comprador_id = $1`,
+      [compradorId, atendeu],
     );
   }
 

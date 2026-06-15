@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 type Totais = {
   total: number; feitas: number; recebidas: number; atendidas: number;
   abandonadas: number; recusadas: number; nao_atendidas: number; falhou: number;
-  dur_total_seg: number; dur_media_seg: number | null;
+  dur_total_seg: number; dur_media_seg: number | null; vinculadas_evento: number;
 };
 type Atendente = {
   atendente: string; total: number; atendidas: number; feitas: number; dur_total_seg: number;
@@ -26,7 +26,10 @@ export async function GET(req: Request) {
   const desde = url.searchParams.get("desde");
   const ate = url.searchParams.get("ate");
 
-  const filtros = `provider = 'atendesimples' and evento = $1
+  // Produtividade do comercial é GERAL (todas as chamadas do Atende Simples no
+  // período) — não depende de o número estar na base. `evento = $1` é usado só
+  // para contar quantas casaram com alunos daquele portal (vinculadas_evento).
+  const filtros = `provider = 'atendesimples'
     and ($2::timestamptz is null or criado_em >= $2)
     and ($3::timestamptz is null or criado_em <= $3)`;
   const params = [evento, desde, ate];
@@ -42,13 +45,14 @@ export async function GET(req: Request) {
        count(*) filter (where resultado = 'nao_atendeu')::int as nao_atendidas,
        count(*) filter (where resultado = 'falhou')::int as falhou,
        coalesce(sum(duracao_seg), 0)::int as dur_total_seg,
-       round(avg(duracao_seg) filter (where resultado = 'atendeu'))::int as dur_media_seg
+       round(avg(duracao_seg) filter (where resultado = 'atendeu'))::int as dur_media_seg,
+       count(*) filter (where evento = $1)::int as vinculadas_evento
      from cs.ligacoes
      where ${filtros}`,
     params,
   )) ?? {
     total: 0, feitas: 0, recebidas: 0, atendidas: 0, abandonadas: 0,
-    recusadas: 0, nao_atendidas: 0, falhou: 0, dur_total_seg: 0, dur_media_seg: null,
+    recusadas: 0, nao_atendidas: 0, falhou: 0, dur_total_seg: 0, dur_media_seg: null, vinculadas_evento: 0,
   };
 
   const porAtendente = await query<Atendente>(

@@ -7,7 +7,7 @@ import { usePortal } from "@/app/_components/use-portal";
 type Totais = {
   total: number; feitas: number; recebidas: number; atendidas: number;
   abandonadas: number; recusadas: number; nao_atendidas: number; falhou: number;
-  dur_total_seg: number; dur_media_seg: number | null;
+  dur_total_seg: number; dur_media_seg: number | null; vinculadas_evento: number;
 };
 type Atendente = { atendente: string; total: number; atendidas: number; feitas: number; dur_total_seg: number };
 
@@ -22,7 +22,7 @@ function dur(seg: number | null) {
 // Produtividade do comercial nas ligações (Atende Simples), por evento.
 // Dados de /api/ligacoes/metricas. Espelha o painel de e-mail.
 export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string }) {
-  const { evento } = usePortal();
+  const { evento, nome } = usePortal();
   const [totais, setTotais] = useState<Totais | null>(null);
   const [porAtendente, setPorAtendente] = useState<Atendente[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -64,6 +64,10 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
   const t = totais;
   return (
     <div className="space-y-5">
+      <p className="text-xs text-slate-400 dark:text-slate-500">
+        Produtividade geral do comercial no período · <span className="font-medium text-slate-500 dark:text-slate-400">{t.vinculadas_evento}</span> de {t.total} vinculadas a alunos do {nome}
+      </p>
+
       {/* KPIs principais */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi titulo="Ligações" valor={`${t.total}`} sub={`${t.feitas} feitas · ${t.recebidas} recebidas`} />
