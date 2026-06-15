@@ -20,6 +20,7 @@ export async function GET() {
   let casadas: number | null = null;
   let ultima: string | null = null;
   let erro: string | undefined;
+  const extra: Record<string, number> = {};
   try {
     const col = await queryOne<{ e: boolean }>(
       `select exists (
@@ -29,15 +30,19 @@ export async function GET() {
     );
     migracao0024 = Boolean(col?.e);
     if (migracao0024) {
-      const r = await queryOne<{ total: number; com_aluno: number; ultima: string | null }>(
+      const r = await queryOne<{ total: number; distintas: number; com_aluno: number; hoje: number; ultima: string | null }>(
         `select count(*)::int as total,
+                count(distinct provider_call_id)::int as distintas,
                 count(*) filter (where comprador_id is not null)::int as com_aluno,
+                count(*) filter (where criado_em > now() - interval '24 hours')::int as hoje,
                 max(criado_em) as ultima
            from cs.ligacoes where provider = 'atendesimples'`,
       );
       gravadas = r?.total ?? 0;
       casadas = r?.com_aluno ?? 0;
       ultima = r?.ultima ?? null;
+      // distintas == total → sem duplicação (1 linha por chamada).
+      Object.assign(extra, { chamadas_distintas: r?.distintas ?? 0, chamadas_24h: r?.hoje ?? 0 });
     }
   } catch (e) {
     erro = e instanceof Error ? e.message : "erro ao consultar o banco";
@@ -50,6 +55,7 @@ export async function GET() {
     migration_0024_ok: migracao0024,
     chamadas_gravadas: gravadas,
     chamadas_com_aluno: casadas,
+    ...extra,
     ultima_chamada_em: ultima,
     ...(erro ? { erro } : {}),
   });
