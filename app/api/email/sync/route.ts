@@ -7,6 +7,19 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 const log = logger("email-sync");
 
+// GET /api/email/sync — diagnóstico do setup do ActiveCampaign (não expõe os
+// valores, só se estão presentes). Confirma, antes de tentar o sync, se as envs
+// chegaram ao runtime. Um canal em cs.canais_disparo (provider activecampaign)
+// também serve como credencial — por isso pode funcionar mesmo sem as envs.
+export async function GET() {
+  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  return NextResponse.json({
+    ok: true,
+    url_configurada: Boolean(process.env.ACTIVECAMPAIGN_API_URL),
+    token_configurado: Boolean(process.env.ACTIVECAMPAIGN_API_TOKEN),
+  });
+}
+
 // POST /api/email/sync — sincroniza as métricas das campanhas do AC sob demanda
 // (botão "Atualizar" no painel). Espelha POST /api/disparos/[id]/status. O cron
 // já roda o padrão periodicamente; aqui um operador pode forçar uma passada e,
