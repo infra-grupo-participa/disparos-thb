@@ -1,18 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Card, EmptyState, Spinner } from "@/app/_components/ui";
+import { Card, EmptyState, Spinner, cn } from "@/app/_components/ui";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Totais = {
   total: number; feitas: number; recebidas: number; atendidas: number;
   abandonadas: number; recusadas: number; nao_atendidas: number; falhou: number;
-  dur_total_seg: number; dur_media_seg: number | null; vinculadas_evento: number;
+  dur_total_seg: number; dur_media_seg: number | null; vinculadas_evento: number; numeros_distintos: number;
 };
 type Atendente = { atendente: string; total: number; atendidas: number; feitas: number; dur_total_seg: number };
 type DiaSerie = { dia: string; total: number; atendidas: number };
+type HoraSerie = { hora: number; total: number; atendidas: number };
 
 const taxa = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
+const fmt = (n: number) => n.toLocaleString("pt-BR");
 function dur(seg: number | null) {
   if (!seg) return "—";
   const m = Math.floor(seg / 60), s = seg % 60;
@@ -26,6 +28,7 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
   const { evento, nome } = usePortal();
   const [totais, setTotais] = useState<Totais | null>(null);
   const [serie, setSerie] = useState<DiaSerie[]>([]);
+  const [porHora, setPorHora] = useState<HoraSerie[]>([]);
   const [porAtendente, setPorAtendente] = useState<Atendente[]>([]);
   const [carregando, setCarregando] = useState(true);
 
@@ -36,7 +39,7 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
     try {
       const r = await fetch(`/api/ligacoes/metricas?${params.toString()}`);
       const d = await r.json();
-      if (d.ok) { setTotais(d.totais); setPorAtendente(d.porAtendente); setSerie(d.serie ?? []); }
+      if (d.ok) { setTotais(d.totais); setPorAtendente(d.porAtendente); setSerie(d.serie ?? []); setPorHora(d.porHora ?? []); }
     } catch {
       /* mantém dados anteriores */
     } finally {
@@ -73,9 +76,9 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
       {/* KPIs principais */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi titulo="Ligações" valor={`${t.total}`} sub={`${t.feitas} feitas · ${t.recebidas} recebidas`} />
-        <Kpi titulo="Atendidas" valor={`${taxa(t.atendidas, t.total)}%`} sub={`${t.atendidas} de ${t.total}`} />
-        <Kpi titulo="Tempo total" valor={dur(t.dur_total_seg)} sub={`média ${dur(t.dur_media_seg)}`} />
-        <Kpi titulo="Sem êxito" valor={`${t.nao_atendidas + t.abandonadas + t.recusadas + t.falhou}`} sub={`${t.nao_atendidas} não atend · ${t.abandonadas} aband · ${t.recusadas} recus`} />
+        <Kpi titulo="Atendidas" valor={`${taxa(t.atendidas, t.total)}%`} sub={`${t.atendidas} atendidas`} />
+        <Kpi titulo="Tempo falado" valor={dur(t.dur_total_seg)} sub={`média ${dur(t.dur_media_seg)} por atendida`} />
+        <Kpi titulo="Números discados" valor={fmt(t.numeros_distintos)} sub={t.numeros_distintos > 0 ? `${(t.total / t.numeros_distintos).toFixed(1)} tentativas/número` : "—"} />
       </div>
 
       {/* Série por dia — volume + atendidas */}
@@ -83,6 +86,14 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
         <Card className="p-4">
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ligações por dia</span>
           <SerieDia serie={serie} />
+        </Card>
+      )}
+
+      {/* Melhor horário — atendimento por faixa do dia */}
+      {porHora.length > 0 && (
+        <Card className="p-4">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Melhor horário para ligar <span className="font-normal normal-case text-slate-400">(horário de Brasília · % atendidas)</span></span>
+          <MelhorHorario porHora={porHora} />
         </Card>
       )}
 
@@ -146,6 +157,36 @@ function SerieDia({ serie }: { serie: DiaSerie[] }) {
         <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-violet-500" /> atendidas</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-slate-200 dark:bg-slate-700" /> não atendidas</span>
       </div>
+    </>
+  );
+}
+
+function MelhorHorario({ porHora }: { porHora: HoraSerie[] }) {
+  const comVolume = porHora.filter((h) => h.total >= 5);
+  const melhor = comVolume.length
+    ? comVolume.reduce((a, b) => (b.atendidas / b.total > a.atendidas / a.total ? b : a))
+    : null;
+  const maxTaxa = Math.max(1, ...porHora.map((h) => taxa(h.atendidas, h.total)));
+  return (
+    <>
+      <div className="mt-3 flex items-end gap-1 overflow-x-auto pb-1">
+        {porHora.map((h) => {
+          const tx = taxa(h.atendidas, h.total);
+          const alt = Math.max(4, Math.round((tx / maxTaxa) * 72));
+          const ehMelhor = melhor?.hora === h.hora;
+          return (
+            <div key={h.hora} className="flex shrink-0 flex-col items-center gap-1" title={`${h.hora}h · ${h.total} ligações · ${tx}% atendidas`}>
+              <div className={cn("w-6 rounded-t", ehMelhor ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600")} style={{ height: alt }} />
+              <span className="text-[9px] tabular-nums text-slate-400 dark:text-slate-500">{h.hora}h</span>
+            </div>
+          );
+        })}
+      </div>
+      {melhor && (
+        <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">
+          Melhor faixa: <strong>{melhor.hora}h</strong> — {taxa(melhor.atendidas, melhor.total)}% atendidas em {melhor.total} ligações.
+        </p>
+      )}
     </>
   );
 }
