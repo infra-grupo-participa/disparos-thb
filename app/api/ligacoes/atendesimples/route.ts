@@ -36,7 +36,12 @@ export async function POST(req: Request) {
 
   // Parse tolerante (JSON ou urlencoded — a Atende Simples permite os dois).
   const body = parsePayload(corpoCru);
-  const evento = body.event_code || headerEvento || "";
+  // O HEADER é a fonte canônica do código do evento. O Body é customizável no
+  // painel (vem como event_code = "call.{{event_code}}"), então no ping chega
+  // "call.ping" no corpo — por isso priorizamos o header e detectamos ping de
+  // forma tolerante (cobre "ping" e "call.ping").
+  const evento = headerEvento || body.event_code || "";
+  const ehPing = evento === "ping" || body.event_code === "ping" || /(^|\.)ping$/i.test(evento);
   const call = body.call;
   const callId = call?.call_id != null ? String(call.call_id) : "";
 
@@ -50,9 +55,9 @@ export async function POST(req: Request) {
   // Ping ou requisição sem chamada com dados → 200 SEMPRE (ativação/health-check;
   // não grava nada). Loga se a assinatura bateu — o ping real vira o teste da
   // fórmula HMAC sem travar a ativação.
-  if (evento === "ping" || !callId) {
+  if (ehPing || !callId) {
     log.info("webhook ping/no-op", diag);
-    return NextResponse.json({ ok: true, pong: evento === "ping" || undefined, assinatura_ok: assinaturaOk });
+    return NextResponse.json({ ok: true, pong: ehPing || undefined, assinatura_ok: assinaturaOk });
   }
 
   // Evento com dados de chamada → EXIGE assinatura válida (segurança da gravação).
