@@ -5,6 +5,7 @@ import Link from "next/link";
 import { primeiroNome } from "@/lib/phone";
 import { Button, Card, PageHeader, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { SaudeDisparo } from "@/app/_components/saude-disparo";
+import { DisparoEmail } from "@/app/_components/disparo-email";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Selecionado = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
@@ -38,6 +39,9 @@ function StatusEntrega({ status, code }: { status: string | null; code: number |
 // sem trocar de página). Envolve <Disparo> num overlay; onClose deve limpar a
 // seleção / recarregar a tela de origem conforme o caso.
 export function DisparoModal({ selecao, onClose }: { selecao: Selecionado[]; onClose: () => void }) {
+  // Canal do disparo: WhatsApp (Unnichat) ou E-mail (ActiveCampaign). Mesma
+  // seleção de contatos serve aos dois — o e-mail/telefone é resolvido no servidor.
+  const [canal, setCanal] = useState<"whatsapp" | "email">("whatsapp");
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 backdrop-blur-sm sm:p-8"
@@ -47,7 +51,7 @@ export function DisparoModal({ selecao, onClose }: { selecao: Selecionado[]; onC
         className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-slate-100 p-4 shadow-pop dark:border-slate-800 dark:bg-slate-950 sm:p-6"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Novo disparo</h2>
           <button
             onClick={onClose}
@@ -57,7 +61,24 @@ export function DisparoModal({ selecao, onClose }: { selecao: Selecionado[]; onC
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </div>
-        <Disparo selecaoInicial={selecao} aoFechar={onClose} />
+        {/* Seletor de canal */}
+        <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-800 dark:bg-slate-900">
+          {([["whatsapp", "WhatsApp"], ["email", "E-mail"]] as const).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setCanal(k)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm font-medium transition",
+                canal === k ? "bg-brand text-white shadow-sm" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {canal === "whatsapp"
+          ? <Disparo selecaoInicial={selecao} aoFechar={onClose} />
+          : <DisparoEmail selecaoInicial={selecao} aoFechar={onClose} />}
       </div>
     </div>
   );

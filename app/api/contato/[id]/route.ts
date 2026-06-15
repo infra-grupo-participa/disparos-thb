@@ -64,7 +64,15 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     [compradorId],
   );
 
-  return NextResponse.json({ ok: true, contato, timeline, metricas, formularios, score: score?.score ?? 0 });
+  // Engajamento de e-mail (ActiveCampaign), sincronizado por pessoa. Pode ser
+  // null se o contato ainda não foi sincronizado pelo cron.
+  const emailAc = await queryOne(
+    `select encontrado, recebidos, abriu_em, clicou_em, bounce_hard, bounce_soft, sincronizado_em
+       from cs.email_contato where comprador_id = $1`,
+    [compradorId],
+  );
+
+  return NextResponse.json({ ok: true, contato, timeline, metricas, formularios, score: score?.score ?? 0, emailAc });
 }
 
 // PATCH: atualiza estágio / próxima ação / observações; opcionalmente adiciona uma nota.

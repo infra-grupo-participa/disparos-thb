@@ -3,6 +3,7 @@ import { retomarTravados } from "@/lib/services/disparo";
 import { sincronizarStatusRecentes } from "@/lib/services/disparo-status";
 import { sincronizarTagsEdicao } from "@/lib/services/contato";
 import { sincronizarLote } from "@/lib/sync-conversas";
+import { sincronizarCampanhasEmail, retomarTravadosEmail, sincronizarEngajamentoEmail } from "@/lib/services/email";
 import { logger } from "@/lib/log";
 
 export const runtime = "nodejs";
@@ -30,8 +31,24 @@ async function executar() {
     log.error("falha ao sincronizar status de entrega", e);
     return { atualizados: 0, verificados: 0 };
   });
-  log.info("cron executado", { retomados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes, status_atualizados: statusEntrega.atualizados });
-  return { retomados, tagsEdicao, sync, statusEntrega };
+  // Métricas de e-mail (ActiveCampaign): polling das campanhas recentes. Não
+  // derruba o cron se o AC estiver indisponível ou sem credencial configurada.
+  const email = await sincronizarCampanhasEmail().catch((e) => {
+    log.error("falha ao sincronizar campanhas de e-mail", e);
+    return { sincronizadas: 0, casadas: 0, varridas: 0, total: 0 };
+  });
+  // Resiliência do disparo de e-mail: retoma o que ficou travado no meio.
+  const emailRetomados = await retomarTravadosEmail(15).catch((e) => {
+    log.error("falha ao retomar disparos de e-mail", e);
+    return 0;
+  });
+  // Engajamento de e-mail por pessoa: lote incremental (espelha o status da Meta).
+  const emailEngaj = await sincronizarEngajamentoEmail(60).catch((e) => {
+    log.error("falha ao sincronizar engajamento de e-mail", e);
+    return { verificados: 0, encontrados: 0 };
+  });
+  log.info("cron executado", { retomados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes, status_atualizados: statusEntrega.atualizados, email_sincronizadas: email.sincronizadas, email_casadas: email.casadas, email_retomados: emailRetomados, email_engaj: emailEngaj.verificados });
+  return { retomados, tagsEdicao, sync, statusEntrega, email, emailRetomados, emailEngaj };
 }
 
 export async function GET(req: Request) {
