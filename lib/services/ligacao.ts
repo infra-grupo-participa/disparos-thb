@@ -2,9 +2,10 @@ import { eq, desc, sql } from "drizzle-orm";
 import { getDb } from "@/lib/drizzle";
 import { ligacoes, contatos, interacoes } from "@/db/schema";
 
-// Serviço de Ligações. Desacoplado do discador: a ligação pode ser registrada
-// à mão (modo tel:) ou iniciada por um provedor (Nvoip) e completada pelo
-// webhook. Espelha no timeline (cs.interacoes) e atualiza o último contato.
+// Serviço de Ligações (registro MANUAL, modo tel:). As ligações automáticas vêm
+// do Atende Simples pelo webhook (app/api/ligacoes/atendesimples), que grava
+// direto em cs.ligacoes. Aqui tratamos só do registro à mão pelo operador.
+// Espelha no timeline (cs.interacoes) e atualiza o último contato.
 
 const RESULTADO_LABEL: Record<string, string> = {
   atendeu: "Atendeu",
@@ -90,15 +91,4 @@ export async function listarPorComprador(compradorId: string) {
     .where(eq(ligacoes.compradorId, compradorId))
     .orderBy(desc(ligacoes.criadoEm))
     .limit(50);
-}
-
-// Usado pelo webhook do provedor: completa uma ligação iniciada via discador.
-export async function atualizarPorProviderCallId(
-  providerCallId: string,
-  patch: { resultado?: string; duracaoSeg?: number; urlGravacao?: string; status?: string },
-) {
-  await getDb()
-    .update(ligacoes)
-    .set({ ...patch, atualizadoEm: sql`now()` })
-    .where(eq(ligacoes.providerCallId, providerCallId));
 }

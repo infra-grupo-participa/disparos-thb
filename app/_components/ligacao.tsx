@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, cn, fieldClass } from "@/app/_components/ui";
 
-// Registro de ligações do contato. Hoje funciona em modo "tel:" (abre o
-// discador e o operador registra o resultado); quando o discador Nvoip for
-// plugado, o botão passa a iniciar a chamada e o webhook completa os dados.
+// Registro de ligações do contato. O operador pode registrar à mão (modo
+// "tel:"), e as ligações do Atende Simples chegam pelo webhook e aparecem aqui
+// no mesmo histórico (com resultado, duração e gravação preenchidos).
 
 export type Ligacao = {
   id: string;
@@ -29,6 +29,10 @@ const RESULTADOS = [
 ] as const;
 const RES_LABEL: Record<string, string> = Object.fromEntries(RESULTADOS.map((r) => [r.v, r.label]));
 const RES_TOM: Record<string, string> = Object.fromEntries(RESULTADOS.map((r) => [r.v, r.tom]));
+// Resultados extras que só vêm do Atende Simples (webhook) — exibição apenas.
+RES_LABEL.abandonou = "Abandonada"; RES_TOM.abandonou = "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30";
+RES_LABEL.recusada = "Recusada"; RES_TOM.recusada = "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30";
+RES_LABEL.falhou = "Falhou"; RES_TOM.falhou = "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30";
 
 const telLink = (t: string) => `tel:${(t || "").replace(/[^0-9+]/g, "")}`;
 function relativo(iso: string | null) {
