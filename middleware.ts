@@ -5,7 +5,11 @@ import type { NextRequest } from "next/server";
 // APIs sem cookie com 401. A validação CRIPTOGRÁFICA da sessão acontece nas
 // rotas (runtime Node, via isAuthed) — o middleware só checa presença, porque
 // roda em Edge e não temos o segredo de HMAC de forma síncrona aqui.
-const ALLOW_PREFIX = ["/api/auth", "/api/webhook", "/api/cron", "/api/eventos", "/login"];
+// Rotas públicas: webhooks de provedores (autenticam por assinatura/segredo no
+// próprio handler, não por cookie) + login. O webhook do Atende Simples valida
+// X-Hub-Signature (HMAC) na rota, então é liberado aqui — mas SÓ ele, não as
+// demais rotas de /api/ligacoes (histórico/métricas seguem exigindo sessão).
+const ALLOW_PREFIX = ["/api/auth", "/api/webhook", "/api/cron", "/api/eventos", "/api/ligacoes/atendesimples", "/login"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
