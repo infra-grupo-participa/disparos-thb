@@ -12,6 +12,7 @@ import { MetricasLigacoes } from "@/app/_components/metricas-ligacoes";
 import { VisaoGeralCanais } from "@/app/_components/visao-geral-canais";
 import { Campeoes } from "@/app/_components/campeoes";
 import { Jornada } from "@/app/_components/jornada";
+import { PerfilCanais } from "@/app/_components/perfil-canais";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Kpis = { enviados: number; respondidos: number; sla_medio: number | null };
@@ -286,7 +287,12 @@ export default function DashboardPage() {
         </>
       )}
 
-      {aba === "comportamento" && <Comportamento edicao={edicao} />}
+      {aba === "comportamento" && (
+        <>
+          <PerfilCanais edicao={edicao} />
+          <Comportamento edicao={edicao} />
+        </>
+      )}
     </div>
   );
 }
