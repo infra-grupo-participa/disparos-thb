@@ -10,6 +10,7 @@ import { SaudeDisparo } from "@/app/_components/saude-disparo";
 import { MetricasEmail } from "@/app/_components/metricas-email";
 import { MetricasLigacoes } from "@/app/_components/metricas-ligacoes";
 import { VisaoGeralCanais } from "@/app/_components/visao-geral-canais";
+import { VisaoExecutiva } from "@/app/_components/visao-executiva";
 import { Campeoes } from "@/app/_components/campeoes";
 import { Jornada } from "@/app/_components/jornada";
 import { PerfilCanais } from "@/app/_components/perfil-canais";
@@ -52,7 +53,10 @@ export default function DashboardPage() {
   const [edicao, setEdicao] = useState("");
 
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
-  const [aba, setAba] = useState<"geral" | "disparos" | "email" | "ligacoes" | "campeoes" | "jornada" | "comportamento">("geral");
+  // Três níveis: Executiva (resultado) · Canais (operação) · Inteligência (análise).
+  const [aba, setAba] = useState<"executiva" | "canais" | "inteligencia">("executiva");
+  // Sub-seleção de canal dentro da aba Canais.
+  const [canalSel, setCanalSel] = useState<"wa" | "email" | "ligacoes">("wa");
   const carregandoRef = useRef(false);
 
   const carregar = useCallback(async () => {
@@ -155,143 +159,112 @@ export default function DashboardPage() {
         </div>
       </Card>
 
-      {/* Abas em dois grupos: Resumo (visões cross-canal) e Canais (cada canal). */}
-      <div className="mb-5 space-y-1.5">
+      {/* Abas em 3 níveis: Executiva (resultado) · Canais (operação) · Inteligência (análise). */}
+      <div className="mb-5 flex gap-1 border-b border-slate-200 dark:border-slate-800">
         {([
-          ["Resumo", [["geral", "Visão geral"], ["campeoes", "Campeões"], ["jornada", "Jornada 3³"], ["comportamento", "Clientes"]]],
-          ["Canais", [["disparos", "WhatsApp"], ["email", "E-mail"], ["ligacoes", "Ligações"]]],
-        ] as const).map(([grupo, abas]) => (
-          <div key={grupo} className="flex items-center gap-3">
-            <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{grupo}</span>
-            <div className="flex flex-1 gap-1 border-b border-slate-200 dark:border-slate-800">
-              {abas.map(([k, label]) => (
-                <button
-                  key={k}
-                  onClick={() => setAba(k)}
-                  className={cn(
-                    "relative px-3.5 py-2.5 text-sm font-medium transition-colors sm:px-4",
-                    aba === k ? "text-brand dark:text-brand-300" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
-                  )}
-                >
-                  {label}
-                  {aba === k && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand dark:bg-brand-400" />}
-                </button>
-              ))}
-            </div>
-          </div>
+          ["executiva", "Visão Executiva"],
+          ["canais", "Canais"],
+          ["inteligencia", "Inteligência"],
+        ] as const).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setAba(k)}
+            className={cn(
+              "relative px-4 py-2.5 text-sm font-medium transition-colors sm:px-5",
+              aba === k ? "text-brand dark:text-brand-300" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
+            )}
+          >
+            {label}
+            {aba === k && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand dark:bg-brand-400" />}
+          </button>
         ))}
       </div>
 
-      {aba === "geral" && (
-        <>
-          <SectionTitle>Visão geral · proporção e resultados por canal</SectionTitle>
-          <VisaoGeralCanais desde={desde} ate={ate} edicao={edicao} />
-        </>
+      {/* ── Visão Executiva — funil + KPIs + ritmo + alertas ── */}
+      {aba === "executiva" && <VisaoExecutiva desde={desde} ate={ate} edicao={edicao} />}
+
+      {/* ── Canais — comparativo + drill-down por canal ── */}
+      {aba === "canais" && (
+        <div className="space-y-6">
+          <div>
+            <SectionTitle>Comparativo · os 3 canais lado a lado</SectionTitle>
+            <VisaoGeralCanais desde={desde} ate={ate} edicao={edicao} />
+          </div>
+
+          <div className="flex gap-1.5">
+            {([["wa", "WhatsApp"], ["email", "E-mail"], ["ligacoes", "Ligações"]] as const).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setCanalSel(k)}
+                className={cn(
+                  "rounded-lg px-3.5 py-1.5 text-sm font-medium transition",
+                  canalSel === k
+                    ? "bg-brand text-white shadow-soft dark:bg-brand-500"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {canalSel === "wa" && (
+            <div>
+              <Reveal id="dash-disparos">
+                <ProximaAcao acao={proximaAcao} />
+                <div data-testid="kpis" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                  <Kpi titulo="Enviados" valor={env.toString()} valorNum={env} animKey="kpi-enviados" tom="blue" icone={<path d="m22 2-7 20-4-9-9-4Z M22 2 11 13" />} />
+                  <Kpi titulo="Respondidos" valor={resp.toString()} valorNum={resp} animKey="kpi-respondidos" tom="emerald" sub={`de ${env} enviados`} icone={<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />} />
+                  <Kpi titulo="Taxa de resposta" valor={`${taxa(resp, env)}%`} valorNum={taxa(resp, env)} sufixo="%" animKey="kpi-taxa" tom="brand" barra={taxa(resp, env)} icone={<><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-3 3" /></>} />
+                  <Kpi titulo="SLA médio" valor={kpis?.sla_medio != null ? `${kpis.sla_medio} min` : "—"} valorNum={kpis?.sla_medio ?? undefined} sufixo=" min" animKey="kpi-sla" tom="amber" icone={<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>} />
+                </div>
+              </Reveal>
+
+              <SectionTitle>Saúde do disparo · anti-ban Meta</SectionTitle>
+              <SaudeDisparo />
+
+              <SectionTitle>Detalhamento · Edição → Template → Disparo</SectionTitle>
+              <Arvore arvore={arvore} />
+
+              <SectionTitle>Atividade de disparos</SectionTitle>
+              <Atividades itens={atividade} />
+            </div>
+          )}
+
+          {canalSel === "email" && (
+            <div>
+              <SectionTitle>Métricas de e-mail · ActiveCampaign</SectionTitle>
+              <MetricasEmail desde={desde} ate={ate} />
+            </div>
+          )}
+
+          {canalSel === "ligacoes" && (
+            <div>
+              <SectionTitle>Produtividade do comercial · ligações (Atende Simples)</SectionTitle>
+              <MetricasLigacoes desde={desde} ate={ate} />
+            </div>
+          )}
+        </div>
       )}
 
-      {aba === "disparos" && (
-        <>
-      <Reveal id="dash-disparos">
-      <ProximaAcao acao={proximaAcao} />
-
-      <div data-testid="kpis" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Kpi
-          titulo="Enviados"
-          valor={env.toString()}
-          valorNum={env}
-          animKey="kpi-enviados"
-          tom="blue"
-          icone={
-            <path d="m22 2-7 20-4-9-9-4Z M22 2 11 13" />
-          }
-        />
-        <Kpi
-          titulo="Respondidos"
-          valor={resp.toString()}
-          valorNum={resp}
-          animKey="kpi-respondidos"
-          tom="emerald"
-          sub={`de ${env} enviados`}
-          icone={
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          }
-        />
-        <Kpi
-          titulo="Taxa de resposta"
-          valor={`${taxa(resp, env)}%`}
-          valorNum={taxa(resp, env)}
-          sufixo="%"
-          animKey="kpi-taxa"
-          tom="brand"
-          barra={taxa(resp, env)}
-          icone={
-            <>
-              <path d="M3 3v18h18" />
-              <path d="m19 9-5 5-4-4-3 3" />
-            </>
-          }
-        />
-        <Kpi
-          titulo="SLA médio"
-          valor={kpis?.sla_medio != null ? `${kpis.sla_medio} min` : "—"}
-          valorNum={kpis?.sla_medio ?? undefined}
-          sufixo=" min"
-          animKey="kpi-sla"
-          tom="amber"
-          icone={
-            <>
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 7v5l3 2" />
-            </>
-          }
-        />
-      </div>
-      </Reveal>
-
-      <SectionTitle>Saúde do disparo · anti-ban Meta</SectionTitle>
-      <SaudeDisparo />
-
-      <SectionTitle>Detalhamento · Edição → Template → Disparo</SectionTitle>
-      <Arvore arvore={arvore} />
-
-      <SectionTitle>Atividade de disparos</SectionTitle>
-      <Atividades itens={atividade} />
-        </>
-      )}
-
-      {aba === "email" && (
-        <>
-          <SectionTitle>Métricas de e-mail · ActiveCampaign</SectionTitle>
-          <MetricasEmail desde={desde} ate={ate} />
-        </>
-      )}
-
-      {aba === "ligacoes" && (
-        <>
-          <SectionTitle>Produtividade do comercial · ligações (Atende Simples)</SectionTitle>
-          <MetricasLigacoes desde={desde} ate={ate} />
-        </>
-      )}
-
-      {aba === "campeoes" && (
-        <>
-          <SectionTitle>Campeões · o que mais engaja, por canal</SectionTitle>
-          <Campeoes desde={desde} ate={ate} edicao={edicao} />
-        </>
-      )}
-
-      {aba === "jornada" && (
-        <>
-          <SectionTitle>Jornada 3³ · sequência de canais que mais converte</SectionTitle>
-          <Jornada desde={desde} ate={ate} />
-        </>
-      )}
-
-      {aba === "comportamento" && (
-        <>
-          <PerfilCanais edicao={edicao} />
-          <Comportamento edicao={edicao} />
-        </>
+      {/* ── Inteligência — o que funciona e quem são os leads ── */}
+      {aba === "inteligencia" && (
+        <div className="space-y-8">
+          <div>
+            <SectionTitle>Jornada 3³ · sequência de canais que mais converte</SectionTitle>
+            <Jornada desde={desde} ate={ate} />
+          </div>
+          <div>
+            <PerfilCanais edicao={edicao} />
+          </div>
+          <div>
+            <SectionTitle>Campeões · o que mais engaja, por canal</SectionTitle>
+            <Campeoes desde={desde} ate={ate} edicao={edicao} />
+          </div>
+          <div>
+            <Comportamento edicao={edicao} />
+          </div>
+        </div>
       )}
     </div>
   );
