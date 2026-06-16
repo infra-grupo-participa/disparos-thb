@@ -4,6 +4,7 @@ import { sincronizarStatusRecentes } from "@/lib/services/disparo-status";
 import { sincronizarTagsEdicao } from "@/lib/services/contato";
 import { sincronizarLote } from "@/lib/sync-conversas";
 import { sincronizarCampanhasEmail, retomarTravadosEmail, sincronizarEngajamentoEmail } from "@/lib/services/email";
+import { sincronizarAutomacoes } from "@/lib/services/ac-automacoes";
 import { logger } from "@/lib/log";
 
 export const runtime = "nodejs";
@@ -47,8 +48,15 @@ async function executar() {
     log.error("falha ao sincronizar engajamento de e-mail", e);
     return { verificados: 0, encontrados: 0 };
   });
-  log.info("cron executado", { retomados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes, status_atualizados: statusEntrega.atualizados, email_sincronizadas: email.sincronizadas, email_casadas: email.casadas, email_retomados: emailRetomados, email_engaj: emailEngaj.verificados });
-  return { retomados, tagsEdicao, sync, statusEntrega, email, emailRetomados, emailEngaj };
+  // Raio-x da automação: cableamento tag → automação do AC (com guarda de
+  // frescor; só varre o AC se o cache estiver velho). Base do bloqueio de
+  // disparo "às cegas" e do veredito na escolha do template.
+  const automacoes = await sincronizarAutomacoes("HT").catch((e) => {
+    log.error("falha ao sincronizar automações do AC", e);
+    return { ok: false, automacoes: 0, gatilhos: 0 };
+  });
+  log.info("cron executado", { retomados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes, status_atualizados: statusEntrega.atualizados, email_sincronizadas: email.sincronizadas, email_casadas: email.casadas, email_retomados: emailRetomados, email_engaj: emailEngaj.verificados, ac_automacoes: automacoes.automacoes });
+  return { retomados, tagsEdicao, sync, statusEntrega, email, emailRetomados, emailEngaj, automacoes };
 }
 
 export async function GET(req: Request) {

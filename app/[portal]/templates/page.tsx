@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
 import { Reveal } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
+import { VereditoBanner } from "@/app/_components/disparo-email";
 
 type Canal = "whatsapp" | "email";
 type Template = {
@@ -16,8 +17,12 @@ type Template = {
   ativo: boolean;
   canal: Canal;
   ac_tag_id: string | null;
+  ac_tag_nome?: string | null;
+  veredito?: Veredito;
 };
-type Tag = { id: string; nome: string };
+type StatusTag = "pronta" | "pausada" | "sem_automacao" | "desconhecido";
+type Veredito = { status: StatusTag; automacao: string | null; multientry: boolean; pronto: boolean; rotulo: string; detalhe: string };
+type Tag = { id: string; nome: string; veredito?: Veredito };
 
 const vazio = { nome: "", unnichat_id: "", categoria: "", variaveis: 0, preview: "", ac_tag_id: "" };
 const NOME_EXEMPLO = "Maria";
@@ -90,7 +95,7 @@ export default function TemplatesPage() {
     setSalvando(true);
     try {
       const corpo = canal === "email"
-        ? { nome: form.nome, categoria: form.categoria, canal: "email", ac_tag_id: form.ac_tag_id }
+        ? { nome: form.nome, categoria: form.categoria, canal: "email", ac_tag_id: form.ac_tag_id, ac_tag_nome: tagNome ?? undefined }
         : { ...form, canal: "whatsapp", variaveis: Number(form.variaveis) };
       const r = await fetch(`/api/templates?evento=${evento}`, {
         method: "POST",
@@ -129,10 +134,11 @@ export default function TemplatesPage() {
   const vars = Number(form.variaveis) || 0;
   const faltaVar = vars > 0 && form.preview.length > 0 && !/\{\{\s*1\s*\}\}/.test(form.preview);
   const previewRender = useMemo(() => montarPreview(form.preview), [form.preview]);
-  const tagNome = useMemo(
-    () => tags?.find((t) => t.id === form.ac_tag_id)?.nome ?? null,
+  const tagSel = useMemo(
+    () => tags?.find((t) => t.id === form.ac_tag_id) ?? null,
     [tags, form.ac_tag_id],
   );
+  const tagNome = tagSel?.nome ?? null;
 
   return (
     <div>
@@ -165,7 +171,10 @@ export default function TemplatesPage() {
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-400 dark:text-slate-500">
                       {t.canal === "email" ? (
-                        <span className="font-mono">tag AC {t.ac_tag_id ?? "—"}</span>
+                        <>
+                          <span className="font-mono">tag AC {t.ac_tag_nome ?? t.ac_tag_id ?? "—"}</span>
+                          {t.veredito && <><span>·</span><VereditoChip v={t.veredito} /></>}
+                        </>
                       ) : (
                         <>
                           <span className="font-mono">ID {t.unnichat_id}</span>
@@ -281,6 +290,7 @@ export default function TemplatesPage() {
                     </>
                   )}
                   {tagNome && <p className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-400">Tag selecionada: {tagNome}</p>}
+                  {tagSel?.veredito && <VereditoBanner v={tagSel.veredito} />}
                 </div>
 
                 <Campo
@@ -380,6 +390,21 @@ function CanalBadge({ canal }: { canal: Canal }) {
         : "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30",
     )}>
       {email ? "E-mail" : "WhatsApp"}
+    </span>
+  );
+}
+
+// Chip compacto do raio-x na lista: verde=pronta, vermelho=não envia, âmbar=verificando.
+function VereditoChip({ v }: { v: Veredito }) {
+  const cor = v.status === "pronta"
+    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+    : v.status === "desconhecido"
+    ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+    : "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300";
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium", cor)} title={v.detalhe}>
+      <span className={cn("h-1 w-1 rounded-full", v.status === "pronta" ? "bg-emerald-500" : v.status === "desconhecido" ? "bg-amber-500" : "bg-rose-500")} />
+      {v.rotulo}
     </span>
   );
 }

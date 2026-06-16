@@ -3,6 +3,7 @@ import { getSessao, podeDisparar } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { processarDisparoEmail } from "@/lib/services/email";
+import { diagnosticarTemplate } from "@/lib/services/ac-automacoes";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -40,6 +41,17 @@ export async function POST(req: Request) {
   }
   if (!template.ac_tag_id) {
     return NextResponse.json({ ok: false, reason: "template de e-mail sem tag do AC configurada" }, { status: 400 });
+  }
+
+  // Bloqueio "às cegas": só dispara se a tag do template realmente aciona uma
+  // automação ATIVA no AC. Sem isso, aplicar a tag não envia nada (incidente
+  // 2026-06-16). Decisão de produto: bloquear de vez (não só avisar).
+  const diag = await diagnosticarTemplate(templateId, evento).catch(() => null);
+  if (diag && !diag.pronto) {
+    return NextResponse.json(
+      { ok: false, reason: diag.detalhe, veredito: diag },
+      { status: 409 },
+    );
   }
 
   // Contatos do evento com e-mail válido e que não pediram opt-out.

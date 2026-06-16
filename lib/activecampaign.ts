@@ -238,6 +238,88 @@ export async function listarTags(opts: {
   }
 }
 
+// ===== Cableamento tag → automação (raio-x da automação) ===================
+// O envio de e-mail é feito por uma automação do AC com gatilho 'tagadd'. Para
+// o sistema dizer ao operador se uma tag REALMENTE envia, lemos as automações e
+// seus gatilhos. O gatilho casa a automação à tag pelo NOME da tag (params.tag),
+// não pelo id. status: '1' = ativa, '2' = pausada. multientry: '0' = entra só
+// uma vez. Pesado (1 chamada de gatilhos por automação) → usar no cron.
+export type AutomacaoAC = {
+  id: string;
+  nome: string;
+  status: string | null;   // bruto do AC: '1' ativa | '2' pausada
+  ativa: boolean;
+  multientry: boolean;
+  entrou: number;
+  triggerTags: string[];    // NOMES das tags que disparam (gatilho 'tagadd')
+};
+
+// GET /api/3/tags/{id} — resolve o NOME de uma tag pelo id (o gatilho casa por
+// nome, então precisamos do nome para diagnosticar a tag de um template).
+export async function buscarTag(id: string, cfg?: CanalCfg): Promise<{ ok: boolean; nome?: string; erro?: string }> {
+  try {
+    const res = await fetch(`${resolveBase(cfg)}/api/3/tags/${encodeURIComponent(id)}`, {
+      headers: headers(cfg),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) return { ok: false, erro: `HTTP ${res.status}` };
+    const json = (await res.json()) as { tag?: { tag?: unknown } };
+    return { ok: true, nome: json.tag?.tag != null ? String(json.tag.tag) : undefined };
+  } catch (e) {
+    return { ok: false, erro: e instanceof Error ? e.message : "erro de rede" };
+  }
+}
+
+// GET /api/3/automations/{id}/triggers — nomes das tags com gatilho 'tagadd'.
+async function gatilhosDeTag(id: string, cfg?: CanalCfg): Promise<string[]> {
+  const res = await fetch(`${resolveBase(cfg)}/api/3/automations/${id}/triggers`, {
+    headers: headers(cfg),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!res.ok) return [];
+  const json = (await res.json()) as { automationTriggers?: Array<{ type?: string; params?: { tag?: unknown } }> };
+  return (json.automationTriggers ?? [])
+    .filter((t) => t.type === "tagadd" && t.params?.tag != null)
+    .map((t) => String(t.params!.tag));
+}
+
+// Varre TODAS as automações da conta e, para cada uma, lê os gatilhos de tag.
+// Paginado. Espaça as chamadas (limite ~5 req/s do AC). `delayMs` entre páginas
+// e entre cada leitura de gatilho.
+export async function listarAutomacoes(cfg?: CanalCfg, delayMs = 120): Promise<{ ok: boolean; automacoes: AutomacaoAC[]; erro?: string }> {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const automacoes: AutomacaoAC[] = [];
+  try {
+    for (let offset = 0; ; offset += 100) {
+      const res = await fetch(`${resolveBase(cfg)}/api/3/automations?limit=100&offset=${offset}`, {
+        headers: headers(cfg),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!res.ok) return { ok: false, automacoes, erro: `HTTP ${res.status}` };
+      const json = (await res.json()) as { automations?: Record<string, unknown>[] };
+      const pagina = Array.isArray(json.automations) ? json.automations : [];
+      for (const a of pagina) {
+        const id = String(a.id);
+        const triggerTags = await gatilhosDeTag(id, cfg);
+        automacoes.push({
+          id,
+          nome: String(a.name ?? ""),
+          status: a.status != null ? String(a.status) : null,
+          ativa: String(a.status) === "1",
+          multientry: String(a.multientry) !== "0",
+          entrou: num(a.entered),
+          triggerTags,
+        });
+        if (delayMs) await sleep(delayMs);
+      }
+      if (pagina.length < 100) break;
+    }
+    return { ok: true, automacoes };
+  } catch (e) {
+    return { ok: false, automacoes, erro: e instanceof Error ? e.message : "erro de rede" };
+  }
+}
+
 // GET /api/3/campaigns — uma página de campanhas, mais recentes primeiro.
 // O AC limita a 100 por página; paginamos via offset no serviço de sync.
 export async function listarCampanhas(opts: {

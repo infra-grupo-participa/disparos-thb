@@ -6,7 +6,9 @@ import { Button, Card, EmptyState, PageHeader, Spinner, cn, fieldClass } from "@
 import { usePortal } from "@/app/_components/use-portal";
 
 type Selecionado = { comprador_id: string; nome: string; telefone?: string; edicao?: string | null };
-type TemplateEmail = { id: string; nome: string; ac_tag_id: string | null; ativo: boolean };
+type StatusTag = "pronta" | "pausada" | "sem_automacao" | "desconhecido";
+type Veredito = { status: StatusTag; automacao: string | null; multientry: boolean; pronto: boolean; rotulo: string; detalhe: string };
+type TemplateEmail = { id: string; nome: string; ac_tag_id: string | null; ativo: boolean; veredito?: Veredito };
 type Progresso = {
   disparo: { status: string; total_contatos: number; total_enviados: number; total_erros: number };
   resumo: { total: number; enviados: number; erros: number };
@@ -39,6 +41,9 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
   }, [evento]);
 
   const template = templates.find((t) => t.id === templateId);
+  // Bloqueio "às cegas": com veredito conhecido e não-pronto, trava o disparo
+  // (o servidor também bloqueia — isto é só o feedback imediato).
+  const bloqueado = !!template?.veredito && !template.veredito.pronto;
 
   async function disparar() {
     if (!templateId || selecao.length === 0) return;
@@ -165,9 +170,11 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
             </p>
           )}
           {template && (
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Ao disparar, o sistema aplica a tag do AC nos contatos; a automação ligada à tag envia o e-mail.
-            </p>
+            template.veredito
+              ? <VereditoBanner v={template.veredito} />
+              : <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Ao disparar, o sistema aplica a tag do AC nos contatos; a automação ligada à tag envia o e-mail.
+                </p>
           )}
         </Card>
 
@@ -177,18 +184,18 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
         </Card>
 
         <Card className="p-5">
-          <label className="flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-200">
-            <input type="checkbox" checked={confirmado} onChange={(e) => setConfirmado(e.target.checked)} className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-brand focus:ring-brand" />
+          <label className={cn("flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-200", bloqueado && "opacity-50")}>
+            <input type="checkbox" checked={confirmado} onChange={(e) => setConfirmado(e.target.checked)} disabled={bloqueado} className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-brand focus:ring-brand" />
             Confirmo o disparo de e-mail para <strong>{selecao.length}</strong> contato(s).
           </label>
-          <Button variant="primary" onClick={() => setShowConfirm(true)} disabled={!templateId || !confirmado || enviando} className="mt-4 w-full py-3 text-sm font-semibold">
+          <Button variant="primary" onClick={() => setShowConfirm(true)} disabled={!templateId || !confirmado || enviando || bloqueado} className="mt-4 w-full py-3 text-sm font-semibold">
             {enviando && <Spinner className="text-white" />}
-            {enviando ? "Iniciando…" : `Disparar e-mail para ${selecao.length} contato(s)`}
+            {enviando ? "Iniciando…" : bloqueado ? "Disparo bloqueado — veja o aviso acima" : `Disparar e-mail para ${selecao.length} contato(s)`}
           </Button>
         </Card>
       </div>
 
-      {showConfirm && template && (
+      {showConfirm && template && template.veredito?.pronto !== false && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={() => !enviando && setShowConfirm(false)}>
           <div className="w-full max-w-md animate-fade-in rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-pop" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Confirmar disparo de e-mail</h2>
@@ -205,6 +212,42 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Selo + frase mastigada do "raio-x da automação": diz ao operador se a tag do
+// template realmente envia (verde), está pausada/sem automação (vermelho) ou
+// ainda não foi verificada (âmbar). Compartilha o vocabulário com a tela de
+// Templates (ver app/[portal]/templates/page.tsx).
+const ESTILO_VEREDITO: Record<StatusTag, { card: string; ponto: string; rotulo: string }> = {
+  pronta: {
+    card: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200",
+    ponto: "bg-emerald-500", rotulo: "text-emerald-700 dark:text-emerald-300",
+  },
+  pausada: {
+    card: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200",
+    ponto: "bg-rose-500", rotulo: "text-rose-700 dark:text-rose-300",
+  },
+  sem_automacao: {
+    card: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200",
+    ponto: "bg-rose-500", rotulo: "text-rose-700 dark:text-rose-300",
+  },
+  desconhecido: {
+    card: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200",
+    ponto: "bg-amber-500", rotulo: "text-amber-700 dark:text-amber-300",
+  },
+};
+
+export function VereditoBanner({ v }: { v: Veredito }) {
+  const e = ESTILO_VEREDITO[v.status];
+  return (
+    <div className={cn("mt-3 rounded-lg border px-3 py-2.5 text-xs", e.card)}>
+      <p className={cn("flex items-center gap-1.5 font-semibold", e.rotulo)}>
+        <span className={cn("h-1.5 w-1.5 rounded-full", e.ponto)} />
+        {v.rotulo}
+      </p>
+      <p className="mt-1 leading-relaxed">{v.detalhe}</p>
     </div>
   );
 }
