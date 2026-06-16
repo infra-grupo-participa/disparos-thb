@@ -11,7 +11,6 @@ import { MetricasEmail } from "@/app/_components/metricas-email";
 import { MetricasLigacoes } from "@/app/_components/metricas-ligacoes";
 import { VisaoGeralCanais } from "@/app/_components/visao-geral-canais";
 import { Campeoes } from "@/app/_components/campeoes";
-import { Operadores } from "@/app/_components/operadores";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Kpis = { enviados: number; respondidos: number; sla_medio: number | null };
@@ -51,7 +50,7 @@ export default function DashboardPage() {
   const [edicao, setEdicao] = useState("");
 
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
-  const [aba, setAba] = useState<"geral" | "disparos" | "email" | "ligacoes" | "campeoes" | "operadores" | "comportamento">("geral");
+  const [aba, setAba] = useState<"geral" | "disparos" | "email" | "ligacoes" | "campeoes" | "comportamento">("geral");
   const carregandoRef = useRef(false);
 
   const carregar = useCallback(async () => {
@@ -157,7 +156,7 @@ export default function DashboardPage() {
       {/* Abas em dois grupos: Resumo (visões cross-canal) e Canais (cada canal). */}
       <div className="mb-5 space-y-1.5">
         {([
-          ["Resumo", [["geral", "Visão geral"], ["campeoes", "Campeões"], ["operadores", "Operadores"], ["comportamento", "Clientes"]]],
+          ["Resumo", [["geral", "Visão geral"], ["campeoes", "Campeões"], ["comportamento", "Clientes"]]],
           ["Canais", [["disparos", "WhatsApp"], ["email", "E-mail"], ["ligacoes", "Ligações"]]],
         ] as const).map(([grupo, abas]) => (
           <div key={grupo} className="flex items-center gap-3">
@@ -276,13 +275,6 @@ export default function DashboardPage() {
         <>
           <SectionTitle>Campeões · o que mais engaja, por canal</SectionTitle>
           <Campeoes desde={desde} ate={ate} edicao={edicao} />
-        </>
-      )}
-
-      {aba === "operadores" && (
-        <>
-          <SectionTitle>Operadores · controle de ações</SectionTitle>
-          <Operadores desde={desde} ate={ate} />
         </>
       )}
 

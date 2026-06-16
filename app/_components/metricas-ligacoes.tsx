@@ -11,7 +11,7 @@ type Totais = {
   dur_total_seg: number; dur_media_seg: number | null; vinculadas_evento: number; numeros_distintos: number;
 };
 type Atendente = { atendente: string; total: number; atendidas: number; feitas: number; dur_total_seg: number };
-type DiaSerie = { dia: string; total: number; atendidas: number };
+type DiaSerie = { dia: string; total: number; atendidas: number; atendentes: { operador: string; qtd: number }[] };
 type HoraSerie = { hora: number; total: number; atendidas: number };
 
 const taxa = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
@@ -142,8 +142,11 @@ function SerieDia({ serie }: { serie: DiaSerie[] }) {
         {serie.map((d) => {
           const h = Math.max(4, Math.round((d.total / max) * 84));
           const hAt = d.total > 0 ? Math.round((d.atendidas / d.total) * h) : 0;
+          // Tooltip sutil: quem ligou naquele dia e quanto (produtividade).
+          const quem = d.atendentes.map((a) => `${a.operador}: ${a.qtd}`).join("\n");
+          const title = `${fmtDia(d.dia)} · ${d.total} ligações · ${d.atendidas} atendidas${quem ? `\n\n${quem}` : ""}`;
           return (
-            <div key={d.dia} className="flex shrink-0 flex-col items-center gap-1" title={`${fmtDia(d.dia)} · ${d.total} ligações · ${d.atendidas} atendidas`}>
+            <div key={d.dia} className="flex shrink-0 flex-col items-center gap-1" title={title}>
               <div className="flex w-6 flex-col justify-end rounded-t bg-slate-200 dark:bg-slate-700" style={{ height: h }}>
                 <div className="w-full rounded-t bg-violet-500" style={{ height: hAt }} />
               </div>

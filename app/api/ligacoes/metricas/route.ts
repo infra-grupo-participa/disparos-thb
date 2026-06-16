@@ -70,7 +70,7 @@ export async function GET(req: Request) {
 
   // Série por dia e por hora usam o horário REAL da chamada (iniciada_em); só
   // caem no criado_em quando a chamada antiga não tem o started_at gravado.
-  const serie = await query<{ dia: string; total: number; atendidas: number }>(
+  const serieBase = await query<{ dia: string; total: number; atendidas: number }>(
     `select to_char(date_trunc('day', coalesce(iniciada_em, criado_em) at time zone 'America/Sao_Paulo'), 'YYYY-MM-DD') as dia,
             count(*)::int as total,
             count(*) filter (where resultado = 'atendeu')::int as atendidas
@@ -79,6 +79,24 @@ export async function GET(req: Request) {
       group by 1 order by 1`,
     periodoParams,
   );
+
+  // Quebra por atendente em cada dia (alimenta o tooltip de "ligações por dia").
+  const serieAtend = await query<{ dia: string; operador: string; qtd: number }>(
+    `select to_char(date_trunc('day', coalesce(iniciada_em, criado_em) at time zone 'America/Sao_Paulo'), 'YYYY-MM-DD') as dia,
+            coalesce(nullif(operador, ''), '—') as operador,
+            count(*)::int as qtd
+       from cs.ligacoes
+      where ${periodo}
+      group by 1, 2 order by 1, qtd desc`,
+    periodoParams,
+  );
+  const porDiaAtend = new Map<string, { operador: string; qtd: number }[]>();
+  for (const r of serieAtend) {
+    const arr = porDiaAtend.get(r.dia) ?? [];
+    arr.push({ operador: r.operador, qtd: r.qtd });
+    porDiaAtend.set(r.dia, arr);
+  }
+  const serie = serieBase.map((d) => ({ ...d, atendentes: porDiaAtend.get(d.dia) ?? [] }));
 
   const porAtendente = await query<Atendente>(
     `select
