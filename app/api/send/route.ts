@@ -63,8 +63,8 @@ export async function POST(req: Request) {
 
   const disparo = await queryOne<{ id: string }>(
     `insert into cs.disparos (template_id, edicao_ht, status, operador, evento)
-     values ($1, $2, 'em_andamento', 'cs', $3) returning id`,
-    [templateId, edicaoFinal, evento],
+     values ($1, $2, 'em_andamento', $4, $3) returning id`,
+    [templateId, edicaoFinal, evento, sessao.nome || "cs"],
   );
   const disparoId = disparo!.id;
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { isAuthed, getSessao } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, ContatoPatchSchema } from "@/lib/validators";
 import { moverEstagio, setTags, setResponsavel, setOptOut } from "@/lib/services/contato";
@@ -77,14 +77,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
 // PATCH: atualiza estágio / próxima ação / observações; opcionalmente adiciona uma nota.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const operador = sessao.nome || "cs";
   const compradorId = params.id;
   const parsed = await parseBody(req, ContatoPatchSchema);
   if (!parsed.ok) return parsed.res;
   const b = parsed.data;
 
   // mudança de estágio (com log na timeline) — via serviço de contato
-  if (b.estagio_chave) await moverEstagio(compradorId, b.estagio_chave);
+  if (b.estagio_chave) await moverEstagio(compradorId, b.estagio_chave, operador);
 
   // campos de follow-up / observações (atualiza só os enviados)
   await query(
@@ -111,8 +113,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.nota && b.nota.trim()) {
     await query(
       `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-       select id, 'nota', $2, 'cs' from cs.contatos where comprador_id = $1`,
-      [compradorId, b.nota.trim()],
+       select id, 'nota', $2, $3 from cs.contatos where comprador_id = $1`,
+      [compradorId, b.nota.trim(), operador],
     );
   }
 

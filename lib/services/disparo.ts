@@ -18,12 +18,12 @@ const FALLBACK_VAR = "tudo bem";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const ehTransitorio = (status: number) => status === 0 || status === 429 || status >= 500;
 
-type Template = { id: string; nome: string; unnichat_id: string; variaveis: number; evento: string };
+type Template = { id: string; nome: string; unnichat_id: string; variaveis: number; evento: string; operador: string | null };
 type LinhaDB = { id: string; comprador_id: string; telefone: string; contato_criado: boolean; nome: string | null };
 
 export async function processarDisparo(disparoId: string): Promise<void> {
   const template = await queryOne<Template>(
-    `select t.id, t.nome, t.unnichat_id, t.variaveis, coalesce(d.evento, 'HT') as evento
+    `select t.id, t.nome, t.unnichat_id, t.variaveis, coalesce(d.evento, 'HT') as evento, d.operador
        from cs.disparos d join cs.templates t on t.id = d.template_id
       where d.id = $1`,
     [disparoId],
@@ -99,8 +99,8 @@ export async function processarDisparo(disparoId: string): Promise<void> {
       );
       await query(
         `insert into cs.interacoes (contato_id, tipo, descricao, disparo_id, autor)
-         select id, 'disparo', $2, $3, 'cs' from cs.contatos where comprador_id = $1`,
-        [l.comprador_id, `Template "${template.nome}" enviado`, disparoId],
+         select id, 'disparo', $2, $3, $4 from cs.contatos where comprador_id = $1`,
+        [l.comprador_id, `Template "${template.nome}" enviado`, disparoId, template.operador || "cs"],
       );
     } else {
       await query(`update cs.disparo_contatos set enviado = false, erro = $2 where id = $1`, [l.id, r.erro || "falha no envio"]);

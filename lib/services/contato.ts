@@ -13,7 +13,7 @@ async function contatoIdDe(compradorId: string): Promise<string | null> {
 
 // Move o contato de etapa (valida etapa ativa) e registra na timeline com os
 // estágios anterior/novo. Retorna false se a etapa não existe/está inativa.
-export async function moverEstagio(compradorId: string, estagioChave: string): Promise<boolean> {
+export async function moverEstagio(compradorId: string, estagioChave: string, autor = "cs"): Promise<boolean> {
   const db = getDb();
   const [novo] = await db
     .select({ id: estagios.id, nome: estagios.nome })
@@ -36,7 +36,7 @@ export async function moverEstagio(compradorId: string, estagioChave: string): P
     descricao: `Movido para "${novo.nome}"`,
     estagioAnteriorId: c.estagioId ?? null,
     estagioNovoId: novo.id,
-    autor: "cs",
+    autor,
   });
   return true;
 }

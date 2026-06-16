@@ -63,12 +63,12 @@ export async function sincronizarCampanhasEmail(maxPaginas = PADRAO_PAGINAS): Pr
 // serve para o envio inicial e para retomar disparos travados (cron).
 const DELAY_EMAIL_MS = 250; // espaça as chamadas ao AC
 
-type TemplateEmail = { ac_tag_id: string | null; nome: string; evento: string };
+type TemplateEmail = { ac_tag_id: string | null; nome: string; evento: string; operador: string | null };
 type LinhaEmail = { id: string; comprador_id: string | null; email: string; nome: string | null };
 
 export async function processarDisparoEmail(disparoId: string): Promise<void> {
   const template = await queryOne<TemplateEmail>(
-    `select t.ac_tag_id, t.nome, coalesce(d.evento, 'HT') as evento
+    `select t.ac_tag_id, t.nome, coalesce(d.evento, 'HT') as evento, d.operador
        from cs.disparos_email d join cs.templates t on t.id = d.template_id
       where d.id = $1`,
     [disparoId],
@@ -106,8 +106,8 @@ export async function processarDisparoEmail(disparoId: string): Promise<void> {
       if (l.comprador_id) {
         await query(
           `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-           select id, 'disparo', $2, 'cs' from cs.contatos where comprador_id = $1`,
-          [l.comprador_id, `E-mail disparado (${template.nome})`],
+           select id, 'disparo', $2, $3 from cs.contatos where comprador_id = $1`,
+          [l.comprador_id, `E-mail disparado (${template.nome})`, template.operador || "cs"],
         );
       }
     } else {
