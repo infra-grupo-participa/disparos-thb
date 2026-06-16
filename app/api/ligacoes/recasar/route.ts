@@ -56,8 +56,8 @@ export async function POST() {
     if (l.duracao_seg) partes.push(`${Math.max(1, Math.round(l.duracao_seg / 60))}min`);
     if (l.operador) partes.push(l.operador);
     await query(
-      `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-       select id, 'ligacao', $2, $3 from cs.contatos where comprador_id = $1`,
+      `insert into cs.interacoes (contato_id, tipo, canal, descricao, autor)
+       select id, 'ligacao', 'ligacao', $2, $3 from cs.contatos where comprador_id = $1`,
       [m.comprador_id, `📞 ${partes.join(" · ")}`, l.operador ?? "atende-simples"],
     );
 

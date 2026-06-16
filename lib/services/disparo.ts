@@ -98,8 +98,8 @@ export async function processarDisparo(disparoId: string): Promise<void> {
         [l.comprador_id],
       );
       await query(
-        `insert into cs.interacoes (contato_id, tipo, descricao, disparo_id, autor)
-         select id, 'disparo', $2, $3, $4 from cs.contatos where comprador_id = $1`,
+        `insert into cs.interacoes (contato_id, tipo, canal, descricao, disparo_id, autor)
+         select id, 'disparo', 'whatsapp', $2, $3, $4 from cs.contatos where comprador_id = $1`,
         [l.comprador_id, `Template "${template.nome}" enviado`, disparoId, template.operador || "cs"],
       );
     } else {

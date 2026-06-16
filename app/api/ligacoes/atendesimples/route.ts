@@ -183,8 +183,8 @@ export async function POST(req: Request) {
     if (dur) partes.push(`${Math.max(1, Math.round(dur / 60))}min`);
     if (call?.attendant_name) partes.push(call.attendant_name);
     await query(
-      `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-       select id, 'ligacao', $2, $3 from cs.contatos where comprador_id = $1`,
+      `insert into cs.interacoes (contato_id, tipo, canal, descricao, autor)
+       select id, 'ligacao', 'ligacao', $2, $3 from cs.contatos where comprador_id = $1`,
       [compradorId, `📞 ${partes.join(" · ")}`, call?.attendant_name ?? "atende-simples"],
     );
     // Marca os timestamps de contato (base do SLA de ligação): primeiro/último

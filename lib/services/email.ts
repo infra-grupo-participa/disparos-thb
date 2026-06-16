@@ -105,8 +105,8 @@ export async function processarDisparoEmail(disparoId: string): Promise<void> {
       );
       if (l.comprador_id) {
         await query(
-          `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-           select id, 'disparo', $2, $3 from cs.contatos where comprador_id = $1`,
+          `insert into cs.interacoes (contato_id, tipo, canal, descricao, autor)
+           select id, 'disparo', 'email', $2, $3 from cs.contatos where comprador_id = $1`,
           [l.comprador_id, `E-mail disparado (${template.nome})`, template.operador || "cs"],
         );
       }
