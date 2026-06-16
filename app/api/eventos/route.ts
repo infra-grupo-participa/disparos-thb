@@ -75,6 +75,15 @@ export async function POST(req: Request) {
         returning ct.id`,
       [u6, cfg.tag],
     );
+    // Registra o evento (ex.: entrada no grupo) na timeline de cada recém-marcado,
+    // com a data — antes só a tag era adicionada e o histórico ficava sem o marco.
+    if (r.length) {
+      await query(
+        `insert into cs.interacoes (contato_id, tipo, descricao, autor)
+         select id, 'sistema', $2, 'make' from cs.contatos where id = any($1::uuid[])`,
+        [r.map((x) => x.id), cfg.descricao({ grupo: body.grupo })],
+      );
+    }
     return NextResponse.json({ ok: true, marcados: r.length, recebidos: u6.length });
   }
 
