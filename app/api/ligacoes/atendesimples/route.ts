@@ -16,19 +16,22 @@ export async function GET() {
   // Conta as chamadas já gravadas + checa o schema. Tudo em uma ida ao banco,
   // tolerante a falha (se a tabela/coluna não existir, retorna o motivo).
   let migracao0024: boolean | null = null;
+  let migracao0025: boolean | null = null;
   let gravadas: number | null = null;
   let casadas: number | null = null;
   let ultima: string | null = null;
   let erro: string | undefined;
   const extra: Record<string, number> = {};
   try {
-    const col = await queryOne<{ e: boolean }>(
-      `select exists (
-         select 1 from information_schema.columns
-          where table_schema = 'cs' and table_name = 'ligacoes' and column_name = 'direction'
-       ) as e`,
+    const col = await queryOne<{ m24: boolean; m25: boolean }>(
+      `select bool_or(column_name = 'direction') as m24,
+              bool_or(column_name = 'iniciada_em') as m25
+         from information_schema.columns
+        where table_schema = 'cs' and table_name = 'ligacoes'
+          and column_name in ('direction', 'iniciada_em')`,
     );
-    migracao0024 = Boolean(col?.e);
+    migracao0024 = Boolean(col?.m24);
+    migracao0025 = Boolean(col?.m25);
     if (migracao0024) {
       const r = await queryOne<{ total: number; distintas: number; com_aluno: number; hoje: number; ultima: string | null }>(
         `select count(*)::int as total,
@@ -53,6 +56,7 @@ export async function GET() {
     endpoint: "atendesimples-webhook",
     secret_configurado: Boolean(process.env.ATENDESIMPLES_WEBHOOK_SECRET),
     migration_0024_ok: migracao0024,
+    migration_0025_ok: migracao0025,
     chamadas_gravadas: gravadas,
     chamadas_com_aluno: casadas,
     ...extra,
