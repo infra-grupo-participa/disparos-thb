@@ -131,6 +131,8 @@ export async function POST(req: Request) {
   const { resultado, status } = mapearResultado(call?.status);
   const dur = Number(call?.inbound_duration ?? 0) || null;
   const billed = Number(call?.billed_duration ?? 0) || null;
+  // Horário REAL da chamada (started_at ISO do AC) — base das métricas de hora/dia.
+  const iniciadaEm = call?.started_at ? String(call.started_at) : null;
 
   // Upsert idempotente por (provider, provider_call_id). Eventos posteriores
   // (answered → finished → audio_available) atualizam a mesma linha sem apagar
@@ -139,9 +141,9 @@ export async function POST(req: Request) {
     `insert into cs.ligacoes (
        comprador_id, evento, operador, attendant_email, telefone, from_number, dnis,
        direction, status_pabx, resultado, duracao_seg, billed_duration, url_gravacao,
-       provider, provider_call_id, status, criado_em, atualizado_em
+       provider, provider_call_id, status, iniciada_em, criado_em, atualizado_em
      ) values (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'atendesimples', $14, $15, now(), now()
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'atendesimples', $14, $15, $16, now(), now()
      )
      on conflict (provider, provider_call_id) where provider_call_id is not null
      do update set
@@ -158,13 +160,14 @@ export async function POST(req: Request) {
        duracao_seg     = coalesce(excluded.duracao_seg, ligacoes.duracao_seg),
        billed_duration = coalesce(excluded.billed_duration, ligacoes.billed_duration),
        url_gravacao    = coalesce(excluded.url_gravacao, ligacoes.url_gravacao),
+       iniciada_em     = coalesce(excluded.iniciada_em, ligacoes.iniciada_em),
        status          = excluded.status,
        atualizado_em   = now()`,
     [
       compradorId, eventoAluno, call?.attendant_name ?? null, call?.attendant_email ?? null,
       telNorm, call?.from_number ?? null, call?.dnis ?? null,
       call?.direction ?? null, call?.status ?? null, resultado, dur, billed, call?.audio_url ?? null,
-      callId, status,
+      callId, status, iniciadaEm,
     ],
   );
 

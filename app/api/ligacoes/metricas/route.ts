@@ -59,7 +59,7 @@ export async function GET(req: Request) {
   // Atendimento por hora do dia (horário de Brasília) — revela o melhor horário
   // para o comercial ligar (faixa com mais atendimento).
   const porHora = await query<{ hora: number; total: number; atendidas: number }>(
-    `select extract(hour from criado_em at time zone 'America/Sao_Paulo')::int as hora,
+    `select extract(hour from coalesce(iniciada_em, criado_em) at time zone 'America/Sao_Paulo')::int as hora,
             count(*)::int as total,
             count(*) filter (where resultado = 'atendeu')::int as atendidas
        from cs.ligacoes
@@ -68,9 +68,10 @@ export async function GET(req: Request) {
     periodoParams,
   );
 
-  // Série por dia (volume + atendidas) — picos e vazios de atividade.
+  // Série por dia e por hora usam o horário REAL da chamada (iniciada_em); só
+  // caem no criado_em quando a chamada antiga não tem o started_at gravado.
   const serie = await query<{ dia: string; total: number; atendidas: number }>(
-    `select to_char(date_trunc('day', criado_em), 'YYYY-MM-DD') as dia,
+    `select to_char(date_trunc('day', coalesce(iniciada_em, criado_em) at time zone 'America/Sao_Paulo'), 'YYYY-MM-DD') as dia,
             count(*)::int as total,
             count(*) filter (where resultado = 'atendeu')::int as atendidas
        from cs.ligacoes

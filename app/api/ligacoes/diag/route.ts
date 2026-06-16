@@ -46,6 +46,18 @@ export async function GET() {
       group by 1, 2 order by qtd desc`,
   );
 
+  // Distribuição por hora (Brasília) usando o horário REAL quando houver
+  // (iniciada_em); senão o criado_em. `com_started_at` diz quantas já têm o
+  // horário real gravado — ajuda a ver se o "melhor horário" antigo era artefato.
+  const por_hora = await query(
+    `select extract(hour from coalesce(iniciada_em, criado_em) at time zone 'America/Sao_Paulo')::int as hora,
+            count(*)::int as total,
+            count(*) filter (where resultado = 'atendeu')::int as atendidas,
+            count(*) filter (where iniciada_em is not null)::int as com_started_at
+       from cs.ligacoes where provider = 'atendesimples'
+      group by 1 order by 1`,
+  );
+
   const recentes = await query(
     `select criado_em, direction, status_pabx, resultado, from_number, dnis,
             operador as atendente, (comprador_id is not null) as casou_aluno, evento, duracao_seg
@@ -53,5 +65,5 @@ export async function GET() {
       order by criado_em desc limit 20`,
   );
 
-  return NextResponse.json({ ok: true, resumo, por_status, recentes });
+  return NextResponse.json({ ok: true, resumo, por_status, por_hora, recentes });
 }
