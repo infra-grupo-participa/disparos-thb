@@ -6,6 +6,7 @@ import { primeiroNome } from "@/lib/phone";
 import { Button, Card, PageHeader, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { SaudeDisparo } from "@/app/_components/saude-disparo";
 import { DisparoEmail } from "@/app/_components/disparo-email";
+import { Portal } from "@/app/_components/portal";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Selecionado = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
@@ -527,7 +528,10 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
       </div>
 
       {/* Dupla confirmação: modal com template + contagem e ação rotulada pela ação real. */}
+      {/* Em Portal (document.body) p/ o fixed centralizar na viewport, e não no
+          DisparoModal (backdrop-blur cria containing block). */}
       {showConfirm && template && (
+        <Portal>
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
           role="dialog"
@@ -574,6 +578,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button, Card, EmptyState, PageHeader, Spinner, cn } from "@/app/_components/ui";
+import { Portal } from "@/app/_components/portal";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Selecionado = { comprador_id: string; nome: string; telefone?: string; edicao?: string | null };
@@ -239,6 +240,7 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
       </div>
 
       {showConfirm && template && template.veredito?.pronto !== false && (
+        <Portal>
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={() => !enviando && setShowConfirm(false)}>
           <div className="w-full max-w-md animate-fade-in rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-pop" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Confirmar disparo de e-mail</h2>
@@ -254,6 +256,7 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );
