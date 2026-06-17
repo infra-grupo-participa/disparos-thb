@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
-import { query, queryOne } from "@/lib/db";
-import { normalizePhone } from "@/lib/phone";
+import { query } from "@/lib/db";
 import { RESULTADO_LABEL } from "@/lib/atendesimples";
+import { casarTelefone } from "@/lib/services/ligacoes";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -29,26 +29,12 @@ export async function POST() {
 
   let casadas = 0;
   for (const l of semAluno) {
-    const candidatos = [l.from_number, l.dnis]
-      .map((n) => (n ? normalizePhone(String(n)) : null))
-      .filter((n): n is string => !!n);
-
-    let m: { comprador_id: string; evento: string } | null = null;
-    let tel: string | null = null;
-    for (const norm of candidatos) {
-      m = await queryOne<{ comprador_id: string; evento: string }>(
-        `select comprador_id, evento from cs.contatos_evento
-          where telefone is not null and right(regexp_replace(telefone, '\\D', '', 'g'), 8) = $1
-          limit 1`,
-        [norm.slice(-8)],
-      );
-      if (m) { tel = norm; break; }
-    }
+    const m = await casarTelefone([l.from_number, l.dnis]);
     if (!m) continue;
 
     await query(
       `update cs.ligacoes set comprador_id = $2, evento = $3, telefone = coalesce($4, telefone) where id = $1`,
-      [l.id, m.comprador_id, m.evento, tel],
+      [l.id, m.compradorId, m.evento, m.telefone],
     );
 
     const rotulo = l.resultado ? RESULTADO_LABEL[l.resultado] ?? l.resultado : "Ligação";
@@ -58,7 +44,7 @@ export async function POST() {
     await query(
       `insert into cs.interacoes (contato_id, tipo, canal, descricao, autor)
        select id, 'ligacao', 'ligacao', $2, $3 from cs.contatos where comprador_id = $1`,
-      [m.comprador_id, `📞 ${partes.join(" · ")}`, l.operador ?? "atende-simples"],
+      [m.compradorId, `📞 ${partes.join(" · ")}`, l.operador ?? "atende-simples"],
     );
 
     // Timestamps de contato com a data REAL da chamada (não now), para o SLA.
@@ -70,7 +56,7 @@ export async function POST() {
          ultima_resposta_em  = case when $3 then greatest(coalesce(ultima_resposta_em, $2::timestamptz), $2::timestamptz) else ultima_resposta_em end,
          atualizado_em       = now()
        where comprador_id = $1`,
-      [m.comprador_id, l.criado_em, atendeu],
+      [m.compradorId, l.criado_em, atendeu],
     );
     casadas++;
   }

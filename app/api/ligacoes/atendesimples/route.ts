@@ -5,6 +5,7 @@ import { logger } from "@/lib/log";
 import {
   verificarAssinatura, assinarCorpo, parsePayload, mapearResultado, RESULTADO_LABEL,
 } from "@/lib/atendesimples";
+import { casarTelefone } from "@/lib/services/ligacoes";
 
 export const runtime = "nodejs";
 const log = logger("ligacoes:atendesimples");
@@ -113,24 +114,13 @@ export async function POST(req: Request) {
 
   // Casa o aluno por telefone tentando AMBOS os números da chamada. Em chamada
   // de saída, a Atende Simples coloca o número do CLIENTE no from_number; o dnis
-  // é o número fixo da plataforma. Tenta os dois e usa o primeiro que casar.
-  const candidatos = [call?.from_number, call?.dnis]
-    .map((n) => (n ? normalizePhone(String(n)) : null))
-    .filter((n): n is string => !!n);
-  let compradorId: string | null = null;
-  let eventoAluno: string | null = null;
-  let telCasado: string | null = null;
-  for (const norm of candidatos) {
-    const m = await queryOne<{ comprador_id: string; evento: string }>(
-      `select comprador_id, evento from cs.contatos_evento
-        where telefone is not null and right(regexp_replace(telefone, '\\D', '', 'g'), 8) = $1
-        limit 1`,
-      [norm.slice(-8)],
-    );
-    if (m) { compradorId = m.comprador_id; eventoAluno = m.evento; telCasado = norm; break; }
-  }
+  // é o número fixo da plataforma. O casamento é robusto: maior sufixo de
+  // dígitos coincidente + sem ambiguidade (ver casarTelefone).
+  const casamento = await casarTelefone([call?.from_number, call?.dnis]);
+  const compradorId: string | null = casamento?.compradorId ?? null;
+  const eventoAluno: string | null = casamento?.evento ?? null;
   // Telefone do registro = o que casou; senão o from_number (lado do cliente).
-  const telNorm = telCasado || normalizePhone(call?.from_number ?? null) || normalizePhone(call?.dnis ?? null);
+  const telNorm = casamento?.telefone || normalizePhone(call?.from_number ?? null) || normalizePhone(call?.dnis ?? null);
 
   const { resultado, status } = mapearResultado(call?.status);
   const dur = Number(call?.inbound_duration ?? 0) || null;

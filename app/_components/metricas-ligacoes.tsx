@@ -8,8 +8,10 @@ import { usePortal } from "@/app/_components/use-portal";
 type Totais = {
   total: number; feitas: number; recebidas: number; atendidas: number;
   abandonadas: number; recusadas: number; nao_atendidas: number; falhou: number;
-  dur_total_seg: number; dur_media_seg: number | null; vinculadas_evento: number; numeros_distintos: number;
+  dur_total_seg: number; dur_media_seg: number | null;
+  compradores_distintos: number; compradores_atendidos: number;
 };
+type Fora = { geral: number; sem_aluno: number; outro_evento: number };
 type Atendente = { atendente: string; total: number; atendidas: number; feitas: number; dur_total_seg: number };
 type DiaSerie = { dia: string; total: number; atendidas: number; atendentes: { operador: string; qtd: number }[] };
 type HoraSerie = { hora: number; total: number; atendidas: number };
@@ -28,6 +30,7 @@ function dur(seg: number | null) {
 export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string }) {
   const { evento, nome } = usePortal();
   const [totais, setTotais] = useState<Totais | null>(null);
+  const [fora, setFora] = useState<Fora | null>(null);
   const [serie, setSerie] = useState<DiaSerie[]>([]);
   const [porHora, setPorHora] = useState<HoraSerie[]>([]);
   const [porAtendente, setPorAtendente] = useState<Atendente[]>([]);
@@ -40,7 +43,7 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
     try {
       const r = await fetch(`/api/ligacoes/metricas?${params.toString()}`);
       const d = await r.json();
-      if (d.ok) { setTotais(d.totais); setPorAtendente(d.porAtendente); setSerie(d.serie ?? []); setPorHora(d.porHora ?? []); }
+      if (d.ok) { setTotais(d.totais); setFora(d.fora ?? null); setPorAtendente(d.porAtendente); setSerie(d.serie ?? []); setPorHora(d.porHora ?? []); }
     } catch {
       /* mantém dados anteriores */
     } finally {
@@ -56,8 +59,10 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
   if (!totais || totais.total === 0) {
     return (
       <EmptyState
-        title="Nenhuma ligação registrada"
-        description="As ligações do Atende Simples aparecem aqui assim que o webhook estiver configurado e as chamadas começarem a chegar."
+        title={`Nenhuma ligação para compradores do ${nome}`}
+        description={fora && fora.geral > 0
+          ? `O discador registrou ${fmt(fora.geral)} chamada(s) no período, mas nenhuma casou com um comprador do ${nome} no sistema (${fmt(fora.sem_aluno)} sem aluno, ${fmt(fora.outro_evento)} de outro evento).`
+          : "As ligações do Atende Simples aparecem aqui assim que casarem com compradores no sistema."}
         icon={
           <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />
@@ -71,15 +76,18 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
   return (
     <div className="space-y-5">
       <p className="text-xs text-slate-400 dark:text-slate-500">
-        Discador automático (Atende Simples) · <span className="font-medium text-slate-500 dark:text-slate-400">{t.vinculadas_evento}</span> de {fmt(t.total)} vinculadas a alunos do {nome}
+        Ligações a compradores do <span className="font-medium text-slate-500 dark:text-slate-400">{nome}</span> no sistema · {fmt(t.total)} chamada(s)
+        {fora && (fora.sem_aluno + fora.outro_evento) > 0 && (
+          <> · {fmt(fora.sem_aluno + fora.outro_evento)} do discador ficaram fora do escopo ({fmt(fora.sem_aluno)} sem aluno{fora.outro_evento > 0 ? `, ${fmt(fora.outro_evento)} de outro evento` : ""})</>
+        )}
       </p>
 
-      {/* KPIs — o que importa primeiro (atendimento e tempo); tentativas é volume de discador. */}
+      {/* KPIs — só compradores do evento: atendimento, tempo, volume e alcance. */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi titulo="Atendidas" valor={fmt(t.atendidas)} sub={`${taxa(t.atendidas, t.total)}% das ${fmt(t.total)} tentativas`} />
+        <Kpi titulo="Atendidas" valor={fmt(t.atendidas)} sub={`${taxa(t.atendidas, t.total)}% das ${fmt(t.total)} ligações`} />
         <Kpi titulo="Tempo falado" valor={dur(t.dur_total_seg)} sub={`média ${dur(t.dur_media_seg)} por atendida`} />
-        <Kpi titulo="Tentativas (discador)" valor={fmt(t.total)} sub={`${fmt(t.feitas)} feitas · ${fmt(t.recebidas)} recebidas`} />
-        <Kpi titulo="Números discados" valor={fmt(t.numeros_distintos)} sub={t.numeros_distintos > 0 ? `${(t.total / t.numeros_distintos).toFixed(1)} tentativas/número` : "—"} />
+        <Kpi titulo="Ligações" valor={fmt(t.total)} sub={`${fmt(t.feitas)} feitas · ${fmt(t.recebidas)} recebidas`} />
+        <Kpi titulo="Compradores alcançados" valor={fmt(t.compradores_distintos)} sub={`${fmt(t.compradores_atendidos)} atenderam`} />
       </div>
 
       {/* Série por dia — volume + atendidas */}
