@@ -17,13 +17,15 @@ export async function casarTelefone(
     .filter((n): n is string => !!n);
 
   for (const norm of candidatos) {
+    // Nunca derruba quem chama (o webhook não pode falhar a gravação por causa
+    // do casamento): erro na busca → trata como "não casou" e segue.
     const linhas = await query<{ comprador_id: string; evento: string; tel: string }>(
       `select comprador_id, evento, regexp_replace(telefone, '\\D', '', 'g') as tel
          from cs.contatos_evento
         where telefone is not null
           and right(regexp_replace(telefone, '\\D', '', 'g'), 8) = $1`,
       [norm.slice(-8)],
-    );
+    ).catch(() => [] as { comprador_id: string; evento: string; tel: string }[]);
     if (linhas.length === 0) continue;
 
     // Pontua cada candidato pela quantidade de dígitos finais que batem com o
