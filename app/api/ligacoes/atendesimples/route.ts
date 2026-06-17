@@ -116,7 +116,10 @@ export async function POST(req: Request) {
   // de saída, a Atende Simples coloca o número do CLIENTE no from_number; o dnis
   // é o número fixo da plataforma. O casamento é robusto: maior sufixo de
   // dígitos coincidente + sem ambiguidade (ver casarTelefone).
-  const casamento = await casarTelefone([call?.from_number, call?.dnis]);
+  const casamento = await casarTelefone([call?.from_number, call?.dnis]).catch((e) => {
+    log.warn("casamento de telefone falhou (chamada gravada sem aluno)", { erro: e instanceof Error ? e.message : "erro" });
+    return null;
+  });
   const compradorId: string | null = casamento?.compradorId ?? null;
   const eventoAluno: string | null = casamento?.evento ?? null;
   // Telefone do registro = o que casou; senão o from_number (lado do cliente).
