@@ -25,6 +25,30 @@ type Veredito = { status: StatusTag; automacao: string | null; multientry: boole
 type Tag = { id: string; nome: string; veredito?: Veredito };
 
 const vazio = { nome: "", unnichat_id: "", categoria: "", variaveis: 0, preview: "", ac_tag_id: "" };
+
+// Agrupa as tags do dropdown pelo veredito da automação, para o operador ver
+// quais DISPARAM antes de selecionar. As "prontas" vêm primeiro; cada option
+// ganha um símbolo (select nativo não aceita cor por item, então usamos texto).
+const TAG_GRUPO: Record<StatusTag, { label: string; prefixo: string }> = {
+  pronta: { label: "✓ Com automação ativa — dispara e-mail", prefixo: "✓" },
+  sem_automacao: { label: "⛔ Sem automação — NÃO envia e-mail", prefixo: "⛔" },
+  pausada: { label: "⏸ Automação pausada — não envia agora", prefixo: "⏸" },
+  desconhecido: { label: "❓ Verificando automação…", prefixo: "❓" },
+};
+const TAG_ORDEM: StatusTag[] = ["pronta", "sem_automacao", "pausada", "desconhecido"];
+
+function agruparTags(tags: Tag[]) {
+  const porStatus = new Map<StatusTag, Tag[]>();
+  for (const t of tags) {
+    const st = t.veredito?.status ?? "desconhecido";
+    const arr = porStatus.get(st) ?? [];
+    arr.push(t);
+    porStatus.set(st, arr);
+  }
+  return TAG_ORDEM
+    .filter((st) => (porStatus.get(st)?.length ?? 0) > 0)
+    .map((st) => ({ chave: st, label: TAG_GRUPO[st].label, prefixo: TAG_GRUPO[st].prefixo, tags: porStatus.get(st)! }));
+}
 const NOME_EXEMPLO = "Maria";
 
 function montarPreview(texto: string): string {
@@ -263,7 +287,13 @@ export default function TemplatesPage() {
                         className={cn(fieldClass, "mt-1.5")}
                       >
                         <option value="">Selecione a tag…</option>
-                        {tags.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                        {agruparTags(tags).map((g) => (
+                          <optgroup key={g.chave} label={g.label}>
+                            {g.tags.map((t) => (
+                              <option key={t.id} value={t.id}>{g.prefixo} {t.nome}</option>
+                            ))}
+                          </optgroup>
+                        ))}
                       </select>
                       <button type="button" onClick={() => setTagManual(true)} className="mt-1.5 text-xs font-medium text-brand hover:underline dark:text-brand-300">
                         Não achou? Digitar o ID da tag
