@@ -112,14 +112,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
-  // Casa o aluno por telefone tentando AMBOS os números da chamada. Em chamada
-  // de saída, a Atende Simples coloca o número do CLIENTE no from_number; o dnis
-  // é o número fixo da plataforma. O casamento é robusto: maior sufixo de
-  // dígitos coincidente + sem ambiguidade (ver casarTelefone).
-  const casamento = await casarTelefone([call?.from_number, call?.dnis]).catch((e) => {
-    log.warn("casamento de telefone falhou (chamada gravada sem aluno)", { erro: e instanceof Error ? e.message : "erro" });
-    return null;
-  });
+  // O casamento usa a view cs.contatos_evento (cara — agrega compras). O discador
+  // manda VÁRIOS eventos por chamada (newcall→answered→finished…); casar em todos
+  // seria desperdício. Como as MÉTRICAS cruzam por telefone na hora (não dependem
+  // disto) e a timeline só é escrita no finished, casamos APENAS nesse evento.
+  // Em chamada de saída, o número do CLIENTE vem no from_number; o dnis é a
+  // plataforma. casarTelefone tenta ambos (maior sufixo + sem ambiguidade).
+  const ehFinished = evento === "call.finished";
+  const casamento = ehFinished
+    ? await casarTelefone([call?.from_number, call?.dnis]).catch((e) => {
+        log.warn("casamento de telefone falhou (chamada gravada sem aluno)", { erro: e instanceof Error ? e.message : "erro" });
+        return null;
+      })
+    : null;
   const compradorId: string | null = casamento?.compradorId ?? null;
   const eventoAluno: string | null = casamento?.evento ?? null;
   // Telefone do registro = o que casou; senão o from_number (lado do cliente).
