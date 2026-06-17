@@ -6,18 +6,15 @@ import { eventoDe } from "@/lib/services/evento";
 export const runtime = "nodejs";
 
 // GET /api/ligacoes/metricas?evento=HT&desde=&ate= — métricas das ligações
-// (Atende Simples) RESTRITAS aos compradores do evento dentro do sistema:
-// escopo = chamadas que casaram com um aluno (comprador_id) E são do evento.
-// Nada de chamada solta do discador entra nas contas. `fora_escopo`/`geral`
-// existem só para diagnóstico (quanto ficou de fora e por quê).
-type Totais = {
-  total: number; feitas: number; recebidas: number; atendidas: number;
-  abandonadas: number; recusadas: number; nao_atendidas: number; falhou: number;
-  dur_total_seg: number; dur_media_seg: number | null;
-  compradores_distintos: number; compradores_atendidos: number;
-};
-type Atendente = {
-  atendente: string; total: number; atendidas: number; feitas: number; dur_total_seg: number;
+// (Atende Simples) dos COMPRADORES do evento. O escopo é calculado CRUZANDO na
+// hora cada chamada com a base de compradores por telefone (últimos 8 dígitos),
+// e não pelo comprador_id congelado na gravação — assim reflete sempre a base
+// atual e independe de re-casar. "Sem chance de erro": uma chamada que bate com
+// 2+ compradores diferentes é AMBÍGUA e fica de fora (nunca atribui errado).
+// `comprador_id` da própria ligação segue servindo à timeline; aqui não é usado.
+type Linha = {
+  resultado: string | null; direction: string | null; duracao_seg: number | null;
+  atendente: string | null; dia: string; hora: number; comprador_id: string;
 };
 
 export async function GET(req: Request) {
@@ -27,105 +24,113 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const desde = url.searchParams.get("desde");
   const ate = url.searchParams.get("ate");
-
-  // Escopo (comum a todas as queries): só chamadas de compradores DO EVENTO que
-  // estão no sistema. $1 = desde, $2 = ate, $3 = evento.
-  const escopo = `provider = 'atendesimples'
-    and evento = $3 and comprador_id is not null
-    and ($1::timestamptz is null or criado_em >= $1)
-    and ($2::timestamptz is null or criado_em <= $2)`;
   const params = [desde, ate, evento];
 
-  const totais = (await queryOne<Totais>(
-    `select
-       count(*)::int as total,
-       count(*) filter (where direction = 'outbound')::int as feitas,
-       count(*) filter (where direction = 'inbound')::int as recebidas,
-       count(*) filter (where resultado = 'atendeu')::int as atendidas,
-       count(*) filter (where resultado = 'abandonou')::int as abandonadas,
-       count(*) filter (where resultado = 'recusada')::int as recusadas,
-       count(*) filter (where resultado = 'nao_atendeu')::int as nao_atendidas,
-       count(*) filter (where resultado = 'falhou')::int as falhou,
-       coalesce(sum(duracao_seg), 0)::int as dur_total_seg,
-       round(avg(duracao_seg) filter (where resultado = 'atendeu'))::int as dur_media_seg,
-       count(distinct comprador_id)::int as compradores_distintos,
-       count(distinct comprador_id) filter (where resultado = 'atendeu')::int as compradores_atendidos
-     from cs.ligacoes
-     where ${escopo}`,
+  // CTEs do cruzamento (compartilhadas pela query de linhas e a de diagnóstico):
+  //  chamadas — do Atende Simples no período, com os últimos 8 dígitos de cada
+  //             número (from = cliente; dnis = plataforma, mas testamos os dois);
+  //  parts    — compradores do evento com os últimos 8 dígitos do telefone;
+  //  casados  — por chamada: quantos compradores DISTINTOS batem (n) e qual (=1).
+  const ctes = `
+    with chamadas as (
+      select l.id, l.resultado, l.direction, l.duracao_seg,
+             coalesce(nullif(l.operador, ''), nullif(l.attendant_email, '')) as atendente,
+             coalesce(l.iniciada_em, l.criado_em) as quando,
+             right(regexp_replace(coalesce(l.from_number, ''), '\\D', '', 'g'), 8) as f8,
+             right(regexp_replace(coalesce(l.dnis, ''),        '\\D', '', 'g'), 8) as d8
+        from cs.ligacoes l
+       where l.provider = 'atendesimples'
+         and ($1::timestamptz is null or l.criado_em >= $1)
+         and ($2::timestamptz is null or l.criado_em <= $2)
+    ),
+    parts as (
+      select comprador_id, right(regexp_replace(telefone, '\\D', '', 'g'), 8) as t8
+        from cs.contatos_evento
+       where evento = $3 and telefone is not null
+         and length(regexp_replace(telefone, '\\D', '', 'g')) >= 8
+    ),
+    casados as (
+      select c.id,
+             count(distinct p.comprador_id) as n,
+             min(p.comprador_id::text) as comprador_id
+        from chamadas c
+        join lateral (values (c.f8), (c.d8)) s(t8) on length(s.t8) = 8
+        join parts p on p.t8 = s.t8
+       group by c.id
+    )`;
+
+  // Linhas das chamadas que casaram com EXATAMENTE 1 comprador (não-ambíguas).
+  const linhas = await query<Linha>(
+    `${ctes}
+     select c.resultado, c.direction, c.duracao_seg, c.atendente,
+            to_char(c.quando at time zone 'America/Sao_Paulo', 'YYYY-MM-DD') as dia,
+            extract(hour from c.quando at time zone 'America/Sao_Paulo')::int as hora,
+            k.comprador_id
+       from chamadas c
+       join casados k on k.id = c.id and k.n = 1`,
     params,
-  )) ?? {
-    total: 0, feitas: 0, recebidas: 0, atendidas: 0, abandonadas: 0,
-    recusadas: 0, nao_atendidas: 0, falhou: 0, dur_total_seg: 0, dur_media_seg: null,
-    compradores_distintos: 0, compradores_atendidos: 0,
+  );
+
+  // Diagnóstico: do total do discador no período, quanto casou / ficou ambíguo /
+  // não bateu com nenhum comprador (não-participante).
+  const diag = (await queryOne<{ geral: number; casadas: number; ambiguas: number; sem_participante: number }>(
+    `${ctes}
+     select
+       (select count(*) from chamadas)::int as geral,
+       count(*) filter (where k.n = 1)::int as casadas,
+       count(*) filter (where k.n > 1)::int as ambiguas,
+       (select count(*) from chamadas)::int - count(*)::int as sem_participante
+       from casados k`,
+    params,
+  )) ?? { geral: 0, casadas: 0, ambiguas: 0, sem_participante: 0 };
+
+  // --- Agregações em JS (≤ ~milhar de linhas) -----------------------------
+  const atendeu = (r: Linha) => r.resultado === "atendeu";
+  const durAtend = linhas.filter((r) => atendeu(r) && r.duracao_seg);
+  const totais = {
+    total: linhas.length,
+    feitas: linhas.filter((r) => r.direction === "outbound").length,
+    recebidas: linhas.filter((r) => r.direction === "inbound").length,
+    atendidas: linhas.filter(atendeu).length,
+    abandonadas: linhas.filter((r) => r.resultado === "abandonou").length,
+    recusadas: linhas.filter((r) => r.resultado === "recusada").length,
+    nao_atendidas: linhas.filter((r) => r.resultado === "nao_atendeu").length,
+    falhou: linhas.filter((r) => r.resultado === "falhou").length,
+    dur_total_seg: linhas.reduce((a, r) => a + (r.duracao_seg || 0), 0),
+    dur_media_seg: durAtend.length ? Math.round(durAtend.reduce((a, r) => a + (r.duracao_seg || 0), 0) / durAtend.length) : null,
+    compradores_distintos: new Set(linhas.map((r) => r.comprador_id)).size,
+    compradores_atendidos: new Set(linhas.filter(atendeu).map((r) => r.comprador_id)).size,
   };
 
-  // Diagnóstico: do total do discador no período, quanto NÃO entrou no escopo.
-  const fora = (await queryOne<{ geral: number; sem_aluno: number; outro_evento: number }>(
-    `select
-       count(*)::int as geral,
-       count(*) filter (where comprador_id is null)::int as sem_aluno,
-       count(*) filter (where comprador_id is not null and (evento is distinct from $3))::int as outro_evento
-     from cs.ligacoes
-     where provider = 'atendesimples'
-       and ($1::timestamptz is null or criado_em >= $1)
-       and ($2::timestamptz is null or criado_em <= $2)`,
-    params,
-  )) ?? { geral: 0, sem_aluno: 0, outro_evento: 0 };
+  const diaMap = new Map<string, { total: number; atendidas: number; atend: Map<string, number> }>();
+  const horaMap = new Map<number, { total: number; atendidas: number }>();
+  const atMap = new Map<string, { total: number; atendidas: number; feitas: number; dur_total_seg: number }>();
+  for (const r of linhas) {
+    const d = diaMap.get(r.dia) ?? { total: 0, atendidas: 0, atend: new Map() };
+    d.total++; if (atendeu(r)) d.atendidas++;
+    const op = r.atendente || "—";
+    d.atend.set(op, (d.atend.get(op) || 0) + 1);
+    diaMap.set(r.dia, d);
 
-  // Atendimento por hora do dia (horário de Brasília) — melhor horário p/ ligar.
-  const porHora = await query<{ hora: number; total: number; atendidas: number }>(
-    `select extract(hour from coalesce(iniciada_em, criado_em) at time zone 'America/Sao_Paulo')::int as hora,
-            count(*)::int as total,
-            count(*) filter (where resultado = 'atendeu')::int as atendidas
-       from cs.ligacoes
-      where ${escopo}
-      group by 1 order by 1`,
-    params,
-  );
+    const h = horaMap.get(r.hora) ?? { total: 0, atendidas: 0 };
+    h.total++; if (atendeu(r)) h.atendidas++;
+    horaMap.set(r.hora, h);
 
-  // Série por dia (horário REAL da chamada quando há started_at).
-  const serieBase = await query<{ dia: string; total: number; atendidas: number }>(
-    `select to_char(date_trunc('day', coalesce(iniciada_em, criado_em) at time zone 'America/Sao_Paulo'), 'YYYY-MM-DD') as dia,
-            count(*)::int as total,
-            count(*) filter (where resultado = 'atendeu')::int as atendidas
-       from cs.ligacoes
-      where ${escopo}
-      group by 1 order by 1`,
-    params,
-  );
-
-  // Quebra por atendente em cada dia (alimenta o tooltip de "ligações por dia").
-  const serieAtend = await query<{ dia: string; operador: string; qtd: number }>(
-    `select to_char(date_trunc('day', coalesce(iniciada_em, criado_em) at time zone 'America/Sao_Paulo'), 'YYYY-MM-DD') as dia,
-            coalesce(nullif(operador, ''), '—') as operador,
-            count(*)::int as qtd
-       from cs.ligacoes
-      where ${escopo}
-      group by 1, 2 order by 1, qtd desc`,
-    params,
-  );
-  const porDiaAtend = new Map<string, { operador: string; qtd: number }[]>();
-  for (const r of serieAtend) {
-    const arr = porDiaAtend.get(r.dia) ?? [];
-    arr.push({ operador: r.operador, qtd: r.qtd });
-    porDiaAtend.set(r.dia, arr);
+    const a = atMap.get(op) ?? { total: 0, atendidas: 0, feitas: 0, dur_total_seg: 0 };
+    a.total++; if (atendeu(r)) a.atendidas++; if (r.direction === "outbound") a.feitas++;
+    a.dur_total_seg += r.duracao_seg || 0;
+    atMap.set(op, a);
   }
-  const serie = serieBase.map((d) => ({ ...d, atendentes: porDiaAtend.get(d.dia) ?? [] }));
 
-  const porAtendente = await query<Atendente>(
-    `select
-       coalesce(nullif(operador, ''), nullif(attendant_email, ''), '—') as atendente,
-       count(*)::int as total,
-       count(*) filter (where resultado = 'atendeu')::int as atendidas,
-       count(*) filter (where direction = 'outbound')::int as feitas,
-       coalesce(sum(duracao_seg), 0)::int as dur_total_seg
-     from cs.ligacoes
-     where ${escopo}
-     group by 1
-     order by total desc
-     limit 50`,
-    params,
-  );
+  const serie = [...diaMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([dia, d]) => ({
+    dia, total: d.total, atendidas: d.atendidas,
+    atendentes: [...d.atend.entries()].map(([operador, qtd]) => ({ operador, qtd })).sort((a, b) => b.qtd - a.qtd),
+  }));
+  const porHora = [...horaMap.entries()].sort((a, b) => a[0] - b[0]).map(([hora, h]) => ({ hora, ...h }));
+  const porAtendente = [...atMap.entries()].map(([atendente, a]) => ({ atendente, ...a })).sort((a, b) => b.total - a.total).slice(0, 50);
 
-  return NextResponse.json({ ok: true, totais, serie, porHora, porAtendente, fora });
+  return NextResponse.json({
+    ok: true, totais, serie, porHora, porAtendente,
+    fora: { geral: diag.geral, sem_participante: diag.sem_participante, ambiguas: diag.ambiguas },
+  });
 }

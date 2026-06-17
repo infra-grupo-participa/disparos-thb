@@ -11,7 +11,7 @@ type Totais = {
   dur_total_seg: number; dur_media_seg: number | null;
   compradores_distintos: number; compradores_atendidos: number;
 };
-type Fora = { geral: number; sem_aluno: number; outro_evento: number };
+type Fora = { geral: number; sem_participante: number; ambiguas: number };
 type Atendente = { atendente: string; total: number; atendidas: number; feitas: number; dur_total_seg: number };
 type DiaSerie = { dia: string; total: number; atendidas: number; atendentes: { operador: string; qtd: number }[] };
 type HoraSerie = { hora: number; total: number; atendidas: number };
@@ -61,7 +61,7 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
       <EmptyState
         title={`Nenhuma ligação para compradores do ${nome}`}
         description={fora && fora.geral > 0
-          ? `O discador registrou ${fmt(fora.geral)} chamada(s) no período, mas nenhuma casou com um comprador do ${nome} no sistema (${fmt(fora.sem_aluno)} sem aluno, ${fmt(fora.outro_evento)} de outro evento).`
+          ? `O discador registrou ${fmt(fora.geral)} chamada(s) no período, mas nenhuma bateu com um comprador do ${nome} por telefone (${fmt(fora.sem_participante)} sem participante${fora.ambiguas > 0 ? `, ${fmt(fora.ambiguas)} ambíguas` : ""}).`
           : "As ligações do Atende Simples aparecem aqui assim que casarem com compradores no sistema."}
         icon={
           <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -76,9 +76,9 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
   return (
     <div className="space-y-5">
       <p className="text-xs text-slate-400 dark:text-slate-500">
-        Ligações a compradores do <span className="font-medium text-slate-500 dark:text-slate-400">{nome}</span> no sistema · {fmt(t.total)} chamada(s)
-        {fora && (fora.sem_aluno + fora.outro_evento) > 0 && (
-          <> · {fmt(fora.sem_aluno + fora.outro_evento)} do discador ficaram fora do escopo ({fmt(fora.sem_aluno)} sem aluno{fora.outro_evento > 0 ? `, ${fmt(fora.outro_evento)} de outro evento` : ""})</>
+        Ligações a compradores do <span className="font-medium text-slate-500 dark:text-slate-400">{nome}</span> (cruzadas por telefone) · {fmt(t.total)} chamada(s)
+        {fora && (fora.geral - t.total) > 0 && (
+          <> · {fmt(fora.geral - t.total)} do discador fora do escopo ({fmt(fora.sem_participante)} sem participante{fora.ambiguas > 0 ? `, ${fmt(fora.ambiguas)} ambíguas` : ""})</>
         )}
       </p>
 
