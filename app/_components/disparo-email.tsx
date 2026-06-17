@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Button, Card, EmptyState, PageHeader, Spinner, cn, fieldClass } from "@/app/_components/ui";
+import { Button, Card, EmptyState, PageHeader, Spinner, cn } from "@/app/_components/ui";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Selecionado = { comprador_id: string; nome: string; telefone?: string; edicao?: string | null };
@@ -44,6 +44,9 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
   // Bloqueio "às cegas": com veredito conhecido e não-pronto, trava o disparo
   // (o servidor também bloqueia — isto é só o feedback imediato).
   const bloqueado = !!template?.veredito && !template.veredito.pronto;
+  // Quantos templates realmente disparam (automação ativa) — mostrado no topo da
+  // lista para o operador saber de cara o que está pronto, sem clicar um a um.
+  const prontos = templates.filter((t) => t.veredito?.pronto).length;
 
   async function disparar() {
     if (!templateId || selecao.length === 0) return;
@@ -159,22 +162,62 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
 
       <div className="space-y-5">
         <Card className="p-5">
-          <label htmlFor="tpl-email" className="block text-sm font-semibold text-slate-700 dark:text-slate-200">Template de e-mail</label>
-          <select id="tpl-email" value={templateId} onChange={(e) => setTemplateId(e.target.value)} className={cn(fieldClass, "mt-2")}>
-            <option value="">Selecione…</option>
-            {templates.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
-          </select>
-          {templates.length === 0 && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Template de e-mail</span>
+            {templates.length > 0 && (
+              <span className={cn("text-[11px] font-medium", prontos > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
+                {prontos} de {templates.length} {prontos === 1 ? "pronto" : "prontos"} p/ disparar
+              </span>
+            )}
+          </div>
+
+          {templates.length === 0 ? (
             <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
               Nenhum template de e-mail ativo. Cadastre em <Link href={`${base}/templates`} className="font-medium underline">Templates</Link> (canal e-mail, com a tag do AC).
             </p>
+          ) : (
+            <div className="mt-3 space-y-2" role="radiogroup" aria-label="Template de e-mail">
+              {templates.map((t) => {
+                const st = t.veredito?.status ?? "desconhecido";
+                const e = ESTILO_LINHA[st];
+                const sel = templateId === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={sel}
+                    onClick={() => setTemplateId(t.id)}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition",
+                      sel
+                        ? "border-brand bg-brand-50/60 ring-1 ring-brand/40 dark:border-brand-400/50 dark:bg-brand-400/10"
+                        : "border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700",
+                      !t.veredito?.pronto && "opacity-75",
+                    )}
+                  >
+                    <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white", e.dot)} aria-hidden="true">
+                      {e.icone}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{t.nome}</span>
+                      <span className={cn("block truncate text-[11px]", e.txt)}>
+                        {t.veredito?.rotulo ?? "Verificando…"}{t.veredito?.automacao ? ` · ${t.veredito.automacao}` : ""}
+                      </span>
+                    </span>
+                    {sel && <span className="h-2 w-2 shrink-0 rounded-full bg-brand dark:bg-brand-400" aria-hidden="true" />}
+                  </button>
+                );
+              })}
+            </div>
           )}
-          {template && (
-            template.veredito
-              ? <VereditoBanner v={template.veredito} />
-              : <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Ao disparar, o sistema aplica a tag do AC nos contatos; a automação ligada à tag envia o e-mail.
-                </p>
+
+          {/* Detalhe do veredito do selecionado (sobretudo quando bloqueado). */}
+          {template?.veredito && <VereditoBanner v={template.veredito} />}
+          {template && !template.veredito && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Ao disparar, o sistema aplica a tag do AC nos contatos; a automação ligada à tag envia o e-mail.
+            </p>
           )}
         </Card>
 
@@ -220,6 +263,28 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
 // template realmente envia (verde), está pausada/sem automação (vermelho) ou
 // ainda não foi verificada (âmbar). Compartilha o vocabulário com a tela de
 // Templates (ver app/[portal]/templates/page.tsx).
+// Selo compacto por linha da lista de templates: cor + ícone do status, para o
+// operador bater o olho e ver quais disparos estão prontos (✓), bloqueados (✗/⏸)
+// ou ainda em verificação (?) — sem precisar selecionar um a um.
+const ESTILO_LINHA: Record<StatusTag, { dot: string; txt: string; icone: ReactNode }> = {
+  pronta: {
+    dot: "bg-emerald-500", txt: "text-emerald-600 dark:text-emerald-400",
+    icone: <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>,
+  },
+  pausada: {
+    dot: "bg-rose-500", txt: "text-rose-600 dark:text-rose-400",
+    icone: <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>,
+  },
+  sem_automacao: {
+    dot: "bg-rose-500", txt: "text-rose-600 dark:text-rose-400",
+    icone: <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>,
+  },
+  desconhecido: {
+    dot: "bg-amber-500", txt: "text-amber-600 dark:text-amber-400",
+    icone: <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></svg>,
+  },
+};
+
 const ESTILO_VEREDITO: Record<StatusTag, { card: string; ponto: string; rotulo: string }> = {
   pronta: {
     card: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200",
