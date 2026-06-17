@@ -66,8 +66,8 @@ export function VisaoExecutiva({ desde, ate, edicao }: { desde?: string; ate?: s
     <div className="space-y-6">
       {/* KPIs de topo — Ativados é o North Star, em destaque. */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiExec titulo="Leads no evento" valor={fmt(kpis.leads)} sub="na base (com filtro)" />
-        <KpiExec titulo="Ativados" valor={fmt(kpis.ativados)} sub={`${kpis.taxa_ativacao}% dos leads`} barra={kpis.taxa_ativacao} estrela />
+        <KpiExec titulo="Leads no evento" valor={fmt(kpis.leads)} sub="total de vendas da edição" />
+        <KpiExec titulo="Ativados" valor={fmt(kpis.ativados)} sub={`${kpis.taxa_ativacao}% das vendas`} barra={kpis.taxa_ativacao} estrela />
         <KpiExec titulo="Engajaram" valor={`${kpis.taxa_engajamento}%`} sub={`${fmt(kpis.engajados)} responderam`} barra={kpis.taxa_engajamento} />
         <KpiExec titulo="Cobertura" valor={`${kpis.cobertura}%`} sub={`${fmt(kpis.tocados)} de ${fmt(kpis.leads)} tocados`} barra={kpis.cobertura} alerta={kpis.cobertura < 60} />
         <KpiExec titulo="Tempo p/ ativar" valor={tempoLabel} sub={tempo == null ? "sem histórico" : "média"} />
