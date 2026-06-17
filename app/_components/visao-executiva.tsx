@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, Spinner, cn } from "@/app/_components/ui";
 import { SecaoTitulo } from "@/app/_components/kpi";
+import { Reveal, AnimNum } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
 
 type Kpis = {
@@ -63,18 +64,18 @@ export function VisaoExecutiva({ desde, ate, edicao }: { desde?: string; ate?: s
   const tempoLabel = tempo == null ? "—" : tempo >= 48 ? `${Math.round(tempo / 24)} d` : `${tempo} h`;
 
   return (
-    <div className="space-y-6">
+    <Reveal className="space-y-6">
       {/* KPIs de topo — Ativados é o North Star, em destaque. */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiExec titulo="Leads no evento" valor={fmt(kpis.leads)} sub="total de vendas da edição" />
-        <KpiExec titulo="Ativados" valor={fmt(kpis.ativados)} sub={`${kpis.taxa_ativacao}% das vendas`} barra={kpis.taxa_ativacao} estrela />
-        <KpiExec titulo="Engajaram" valor={`${kpis.taxa_engajamento}%`} sub={`${fmt(kpis.engajados)} responderam`} barra={kpis.taxa_engajamento} />
-        <KpiExec titulo="Cobertura" valor={`${kpis.cobertura}%`} sub={`${fmt(kpis.tocados)} de ${fmt(kpis.leads)} tocados`} barra={kpis.cobertura} alerta={kpis.cobertura < 60} />
+        <KpiExec titulo="Leads no evento" valorNum={kpis.leads} sub="total de vendas da edição" />
+        <KpiExec titulo="Ativados" valorNum={kpis.ativados} sub={`${kpis.taxa_ativacao}% das vendas`} barra={kpis.taxa_ativacao} estrela />
+        <KpiExec titulo="Engajaram" valorNum={kpis.taxa_engajamento} sufixo="%" sub={`${fmt(kpis.engajados)} responderam`} barra={kpis.taxa_engajamento} />
+        <KpiExec titulo="Cobertura" valorNum={kpis.cobertura} sufixo="%" sub={`${fmt(kpis.tocados)} de ${fmt(kpis.leads)} tocados`} barra={kpis.cobertura} alerta={kpis.cobertura < 60} />
         <KpiExec titulo="Tempo p/ ativar" valor={tempoLabel} sub={tempo == null ? "sem histórico" : "média"} />
       </div>
 
       {/* Funil de ativação — o coração da tela. */}
-      <Card className="p-5">
+      <Card className="js-reveal p-5">
         <div className="mb-3 flex items-center justify-between">
           <SecaoTitulo cor="brand">Funil de ativação</SecaoTitulo>
           <span className="text-[11px] text-slate-400 dark:text-slate-500">cada etapa = quem chegou nela ou adiante</span>
@@ -84,7 +85,7 @@ export function VisaoExecutiva({ desde, ate, edicao }: { desde?: string; ate?: s
 
       {/* Ritmo + Alertas lado a lado em telas largas. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="p-5 lg:col-span-2">
+        <Card className="js-reveal p-5 lg:col-span-2">
           <div className="mb-3 flex items-center justify-between">
             <SecaoTitulo cor="brand">Ritmo · ações por dia</SecaoTitulo>
             <Legenda />
@@ -102,15 +103,15 @@ export function VisaoExecutiva({ desde, ate, edicao }: { desde?: string; ate?: s
           )}
         </div>
       </div>
-    </div>
+    </Reveal>
   );
 }
 
-function KpiExec({ titulo, valor, sub, barra, estrela, alerta }: {
-  titulo: string; valor: string; sub?: string; barra?: number; estrela?: boolean; alerta?: boolean;
+function KpiExec({ titulo, valor, valorNum, sufixo, sub, barra, estrela, alerta }: {
+  titulo: string; valor?: string; valorNum?: number; sufixo?: string; sub?: string; barra?: number; estrela?: boolean; alerta?: boolean;
 }) {
   return (
-    <Card className={cn("p-4", estrela && "border-brand/30 bg-gradient-to-br from-brand/5 to-white dark:border-brand-400/30 dark:from-brand-400/10 dark:to-slate-900")}>
+    <Card className={cn("js-reveal p-4", estrela && "border-brand/30 bg-gradient-to-br from-brand/5 to-white dark:border-brand-400/30 dark:from-brand-400/10 dark:to-slate-900")}>
       <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
         {estrela && (
           <svg className="h-3.5 w-3.5 text-brand dark:text-brand-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -119,10 +120,12 @@ function KpiExec({ titulo, valor, sub, barra, estrela, alerta }: {
         )}
         {titulo}
       </div>
-      <div className={cn("mt-2 text-2xl font-semibold tabular-nums", alerta ? "text-rose-600 dark:text-rose-300" : estrela ? "text-brand dark:text-brand-300" : "text-slate-900 dark:text-white")}>{valor}</div>
+      <div className={cn("mt-2 text-2xl font-semibold tabular-nums", alerta ? "text-rose-600 dark:text-rose-300" : estrela ? "text-brand dark:text-brand-300" : "text-slate-900 dark:text-white")}>
+        {valorNum != null ? <AnimNum value={valorNum} suffix={sufixo ?? ""} /> : valor}
+      </div>
       {barra != null && (
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-          <div className={cn("h-full rounded-full", alerta ? "bg-rose-500" : estrela ? "bg-brand dark:bg-brand-400" : "bg-slate-400 dark:bg-slate-500")} style={{ width: `${Math.max(2, Math.min(100, barra))}%` }} />
+          <div className={cn("js-bar h-full rounded-full", alerta ? "bg-rose-500" : estrela ? "bg-brand dark:bg-brand-400" : "bg-slate-400 dark:bg-slate-500")} style={{ width: `${Math.max(2, Math.min(100, barra))}%` }} />
         </div>
       )}
       {sub && <div className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
@@ -157,7 +160,7 @@ function Funil({ etapas, alvo }: { etapas: Etapa[]; alvo: string }) {
                 {ehAlvo && <span className="rounded bg-brand/10 px-1 text-[9px] font-bold uppercase text-brand dark:bg-brand-400/15 dark:text-brand-300">meta</span>}
               </div>
               <div className="relative h-7 flex-1 overflow-hidden rounded-md bg-slate-100 dark:bg-slate-800">
-                <div className="h-full rounded-md transition-all" style={{ width: `${Math.max(1.5, larg)}%`, backgroundColor: (e.cor || "#94a3b8") + (ehAlvo ? "" : "cc") }} />
+                <div className="js-bar h-full rounded-md" style={{ width: `${Math.max(1.5, larg)}%`, backgroundColor: (e.cor || "#94a3b8") + (ehAlvo ? "" : "cc") }} />
               </div>
               <div className="flex w-24 shrink-0 items-baseline justify-end gap-1.5 tabular-nums">
                 <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{fmt(e.qtd)}</span>
@@ -229,7 +232,7 @@ function rotuloData(iso: string) {
 function AlertaCard({ a }: { a: Alerta }) {
   const alerta = a.tom === "alerta";
   return (
-    <Card className={cn("p-4", alerta ? "border-rose-200 bg-rose-50/50 dark:border-rose-500/30 dark:bg-rose-500/10" : "border-brand/20 bg-brand/5 dark:border-brand-400/25 dark:bg-brand-400/10")}>
+    <Card className={cn("js-reveal p-4", alerta ? "border-rose-200 bg-rose-50/50 dark:border-rose-500/30 dark:bg-rose-500/10" : "border-brand/20 bg-brand/5 dark:border-brand-400/25 dark:bg-brand-400/10")}>
       <p className={cn("text-sm font-semibold", alerta ? "text-rose-800 dark:text-rose-200" : "text-slate-800 dark:text-slate-100")}>{a.titulo}</p>
       <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{a.descricao}</p>
     </Card>

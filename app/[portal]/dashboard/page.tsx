@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
-import { AnimNum, Reveal } from "@/app/_components/anim";
+import { AnimNum, PageFade, Reveal } from "@/app/_components/anim";
 import Comportamento from "@/app/_components/comportamento";
 import { SaudeDisparo } from "@/app/_components/saude-disparo";
 import { MetricasEmail } from "@/app/_components/metricas-email";
@@ -185,7 +185,7 @@ export default function DashboardPage() {
 
       {/* ── Canais — comparativo + drill-down por canal ── */}
       {aba === "canais" && (
-        <div className="space-y-6">
+        <PageFade className="space-y-6">
           <div>
             <SectionTitle>Comparativo · os 3 canais lado a lado</SectionTitle>
             <VisaoGeralCanais desde={desde} ate={ate} edicao={edicao} />
@@ -244,12 +244,12 @@ export default function DashboardPage() {
               <MetricasLigacoes desde={desde} ate={ate} />
             </div>
           )}
-        </div>
+        </PageFade>
       )}
 
       {/* ── Inteligência — o que funciona e quem são os leads ── */}
       {aba === "inteligencia" && (
-        <div className="space-y-8">
+        <PageFade className="space-y-8">
           <div>
             <SectionTitle>Jornada 3³ · sequência de canais que mais converte</SectionTitle>
             <Jornada desde={desde} ate={ate} />
@@ -264,7 +264,7 @@ export default function DashboardPage() {
           <div>
             <Comportamento edicao={edicao} />
           </div>
-        </div>
+        </PageFade>
       )}
     </div>
   );
