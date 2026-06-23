@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     `with base as (
        select v.comprador_id
          from cs.contatos_evento v
-        where v.evento = $1 and ($2::text is null or v.edicao_ht = $2)
+        where v.evento = $1 and ($2::text is null or v.edicao = $2)
      ),
      flags as (
        select

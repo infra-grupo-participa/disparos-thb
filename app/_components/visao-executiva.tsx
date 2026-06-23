@@ -134,37 +134,46 @@ function KpiExec({ titulo, valor, valorNum, sufixo, sub, barra, estrela, alerta 
 }
 
 function Funil({ etapas, alvo }: { etapas: Etapa[]; alvo: string }) {
-  if (etapas.length === 0 || etapas[0].qtd === 0) {
+  const topo = etapas[0]?.qtd ?? 0;
+  if (etapas.length === 0 || topo === 0) {
     return <p className="text-sm text-slate-400 dark:text-slate-500">Sem contatos no funil ainda.</p>;
   }
-  const topo = etapas[0].qtd;
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-0.5">
       {etapas.map((e, i) => {
-        const larg = topo > 0 ? Math.round((e.qtd / topo) * 100) : 0;
+        const cor = e.cor || "#94a3b8";
+        // Largura relativa ao TOPO do funil → o afunilamento fica visível etapa a etapa.
+        const larg = Math.round((e.qtd / topo) * 100);
         const ant = i > 0 ? etapas[i - 1].qtd : null;
         const drop = ant != null && ant > 0 ? Math.round(((ant - e.qtd) / ant) * 100) : null;
         const ehAlvo = e.chave === alvo;
         return (
           <div key={e.chave}>
-            {drop != null && drop > 0 && (
-              <div className="flex items-center gap-1 pl-1 text-[10px] text-slate-400 dark:text-slate-500">
+            {/* Conector de conversão: o quanto caiu em relação à etapa anterior. */}
+            {drop != null && (
+              <div className="flex items-center gap-1 py-0.5 pl-32 text-[10px] font-medium text-slate-400 dark:text-slate-500 sm:pl-40">
                 <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M19 12l-7 7-7-7" /></svg>
-                −{drop}%
+                {drop > 0 ? `−${drop}%` : "sem queda"}
               </div>
             )}
-            <div className={cn("group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition", ehAlvo ? "bg-brand/5 ring-1 ring-inset ring-brand/30 dark:bg-brand-400/10 dark:ring-brand-400/30" : "hover:bg-slate-50 dark:hover:bg-slate-800/50")}>
-              <div className="flex w-40 shrink-0 items-center gap-2">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: e.cor || "#94a3b8" }} aria-hidden="true" />
-                <span className={cn("truncate text-sm", ehAlvo ? "font-semibold text-brand dark:text-brand-300" : "font-medium text-slate-700 dark:text-slate-200")}>{e.nome}</span>
-                {ehAlvo && <span className="rounded bg-brand/10 px-1 text-[9px] font-bold uppercase text-brand dark:bg-brand-400/15 dark:text-brand-300">meta</span>}
+            <div className={cn("group relative flex items-center gap-2.5 rounded-xl px-2.5 py-2 transition sm:gap-3 sm:px-3", ehAlvo ? "bg-brand/5 ring-1 ring-inset ring-brand/30 dark:bg-brand-400/10 dark:ring-brand-400/30" : "hover:bg-slate-50 dark:hover:bg-slate-800/50")}>
+              {/* Rótulo da etapa */}
+              <div className="flex w-28 shrink-0 items-center gap-2 sm:w-36">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white dark:ring-slate-900" style={{ backgroundColor: cor }} aria-hidden="true" />
+                <span className={cn("truncate text-[13px] sm:text-sm", ehAlvo ? "font-semibold text-brand dark:text-brand-300" : "font-medium text-slate-700 dark:text-slate-200")}>{e.nome}</span>
+                {ehAlvo && <span className="hidden rounded bg-brand/10 px-1 text-[9px] font-bold uppercase text-brand dark:bg-brand-400/15 dark:text-brand-300 sm:inline">meta</span>}
               </div>
-              <div className="relative h-7 flex-1 overflow-hidden rounded-md bg-slate-100 dark:bg-slate-800">
-                <div className="js-bar h-full rounded-md" style={{ width: `${Math.max(1.5, larg)}%`, backgroundColor: (e.cor || "#94a3b8") + (ehAlvo ? "" : "cc") }} />
+              {/* Trilho + barra proporcional ao topo. Cor sólida; não-alvo levemente atenuado. */}
+              <div className="relative h-8 flex-1 overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
+                <div
+                  className="js-bar h-full rounded-lg"
+                  style={{ width: e.qtd > 0 ? `${Math.max(2, larg)}%` : "0%", backgroundColor: cor, opacity: ehAlvo ? 1 : 0.82 }}
+                />
               </div>
-              <div className="flex w-24 shrink-0 items-baseline justify-end gap-1.5 tabular-nums">
+              {/* Valor absoluto + % do topo */}
+              <div className="flex w-16 shrink-0 flex-col items-end leading-tight tabular-nums sm:w-20">
                 <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{fmt(e.qtd)}</span>
-                <span className="text-xs text-slate-400 dark:text-slate-500">{larg}%</span>
+                <span className="text-[11px] text-slate-400 dark:text-slate-500">{larg}%</span>
               </div>
             </div>
           </div>

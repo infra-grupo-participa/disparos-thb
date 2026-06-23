@@ -58,7 +58,7 @@ export async function GET(req: Request) {
      where l.provider = 'atendesimples'
        and ($2::timestamptz is null or l.criado_em >= $2)
        and ($3::timestamptz is null or l.criado_em <= $3)
-       and ($4::text is null or v.edicao_ht = $4)`,
+       and ($4::text is null or v.edicao = $4)`,
     p,
   )) ?? { total: 0, feitas: 0, atendidas: 0 };
 
