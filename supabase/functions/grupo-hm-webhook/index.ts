@@ -41,6 +41,16 @@ serve(async (req) => {
     return new Response("Invalid JSON", { status: 400 });
   }
 
+  // Loga o payload cru (em cs.webhook_log via RPC) pra ajustar o mapeamento ao
+  // formato real do Sendflow. Best-effort — nunca quebra o fluxo.
+  console.log("[grupo] payload:", JSON.stringify(body));
+  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+      await sb.rpc("fn_log_webhook", { p_origem: "sendflow-grupo", p_resultado: "received", p_payload: body });
+    } catch (_) { /* ignora */ }
+  }
+
   if (GRUPO_SECRET) {
     const url = new URL(req.url);
     const recebido =
@@ -54,11 +64,16 @@ serve(async (req) => {
     }
   }
 
-  const acao = resolveAcao(body);
-  const email = pick(body, ["email", "e_mail"]).toLowerCase() || null;
-  const telDig = pick(body, ["telefone", "phone", "whatsapp", "celular", "number"]).replace(/\D/g, "");
-  const u6 = telDig.length >= 6 ? telDig.slice(-6) : null;
-  const grupo = pick(body, ["grupo", "group", "group_name", "grupo_nome"]) || null;
+  // Sendflow aninha os dados em `data` (ex.: data.number, data.groupName) e a
+  // ação em `event` (group.updated.members.removed/added). Achata os dois níveis.
+  const nested = body.data && typeof body.data === "object" ? (body.data as Record<string, unknown>) : {};
+  const flat: Record<string, unknown> = { ...body, ...nested };
+
+  const acao = resolveAcao(flat);
+  const email = pick(flat, ["email", "e_mail"]).toLowerCase() || null;
+  const telDig = pick(flat, ["number", "telefone", "phone", "whatsapp", "celular"]).replace(/\D/g, "");
+  const u6 = telDig.length >= 6 && !/^0+$/.test(telDig) ? telDig.slice(-6) : null;
+  const grupo = pick(flat, ["groupName", "grupo", "group", "group_name", "grupo_nome"]) || null;
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return new Response(JSON.stringify({ ok: false, reason: "server_misconfigured" }), {
