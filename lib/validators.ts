@@ -100,6 +100,26 @@ export const LigacaoRegistrarSchema = z.object({
 });
 
 export const KanbanMoverSchema = z.object({ compradorId: id, estagioChave: z.string().min(1) });
+
+// ----- Holding Masters (módulo de ativação, evento HM) -----
+export const HmMoverSchema = z.object({ compradorId: id, estagioChave: z.string().min(1) });
+
+export const HmContatoPatchSchema = z.object({
+  estagio_chave: z.string().optional(),
+  responsavel: z.string().nullable().optional(),
+  observacoes: z.string().nullable().optional(),
+  nota: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  plano: z.string().nullable().optional(),
+  reuniao_em: z.string().nullable().optional(),
+  reuniao_resultado: z.string().nullable().optional(),
+  entrevista_em: z.string().nullable().optional(),
+  entrevista_resultado: z.string().nullable().optional(),
+  // atalho de pagamento do saldo (14.700) — dispara a ida para a Ativação
+  pagamento_forma: z.enum(["avista", "parcelado"]).optional(),
+  pagamento_parcelas: z.number().int().positive().nullable().optional(),
+  marcar_pagamento: z.boolean().optional(),
+});
 export const KanbanLoteSchema = z.object({
   compradorIds: z.array(id).min(1),
   addTag: z.string().optional(),

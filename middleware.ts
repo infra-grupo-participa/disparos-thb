@@ -9,7 +9,7 @@ import type { NextRequest } from "next/server";
 // próprio handler, não por cookie) + login. O webhook do Atende Simples valida
 // X-Hub-Signature (HMAC) na rota, então é liberado aqui — mas SÓ ele, não as
 // demais rotas de /api/ligacoes (histórico/métricas seguem exigindo sessão).
-const ALLOW_PREFIX = ["/api/auth", "/api/webhook", "/api/cron", "/api/eventos", "/api/ligacoes/atendesimples", "/login"];
+const ALLOW_PREFIX = ["/api/auth", "/api/webhook", "/api/cron", "/api/eventos", "/api/hm/formularios", "/api/ligacoes/atendesimples", "/login"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

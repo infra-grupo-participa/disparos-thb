@@ -20,6 +20,14 @@ const PORTAIS = [
     de: "from-blue-600",
     para: "to-sky-400",
   },
+  {
+    id: "hm",
+    nome: "Holding Masters",
+    desc: "Ativação do HM (T39) — comercial, reunião, pagamento e ativação.",
+    cor: "#B45309",
+    de: "from-amber-700",
+    para: "to-amber-500",
+  },
 ];
 
 export default function SelecaoPortal() {

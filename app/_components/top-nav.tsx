@@ -18,6 +18,12 @@ const LINKS: LinkDef[] = [
   { sub: "/templates", label: "Templates", icon: "M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" },
 ];
 
+// Navegação reduzida do portal HM (módulo mais simples, sem disparos/inbox).
+const LINKS_HM: LinkDef[] = [
+  { sub: "/kanban", label: "Jornada", icon: LINKS[0].icon },
+  { sub: "/agendamentos", label: "Agendamentos", icon: "M8 2v4M16 2v4M3.5 9.09h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5ZM11.995 13.7h.009M8.294 13.7h.01M8.294 16.7h.01" },
+];
+
 function Icon({ d }: { d: string }) {
   return (
     <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -32,6 +38,8 @@ export default function TopNav() {
 
   // Sem cabeçalho na tela de seleção de portal e no login.
   if (pathname === "/login" || pathname === "/") return null;
+
+  const links = portal === "hm" ? LINKS_HM : LINKS;
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/80">
@@ -54,7 +62,7 @@ export default function TopNav() {
         </Link>
 
         <nav className="flex flex-1 items-center gap-0.5">
-          {LINKS.map((l) => {
+          {links.map((l) => {
             const href = `${base}${l.sub}`;
             const active = pathname.startsWith(`/${portal}${l.sub}`);
             return (
