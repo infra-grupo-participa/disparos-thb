@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WheelEvent } from "react";
-import Link from "next/link";
 import { cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
+import { HmDrawer } from "@/app/hm/_components/hm-drawer";
+
+type Estagio = { chave: string; nome: string; aba: string | null };
 
 type Card = {
   comprador_id: string;
@@ -82,10 +84,13 @@ export default function HmKanbanPage() {
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
+  const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [filtroResp, setFiltroResp] = useState("");
+  const [busca, setBusca] = useState("");
   const [aba, setAba] = useState("comercial");
   const [carregando, setCarregando] = useState(true);
   const [sobre, setSobre] = useState<string | null>(null);
+  const [selecionado, setSelecionado] = useState<string | null>(null);
   const arrastando = useRef<Card | null>(null);
 
   const carregar = useCallback(async () => {
@@ -106,6 +111,9 @@ export default function HmKanbanPage() {
   }, [filtroResp]);
 
   useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => {
+    fetch("/api/hm/estagios").then((r) => r.json()).then((d) => { if (d.ok) setEstagios(d.estagios); }).catch(() => {});
+  }, []);
 
   async function mover(card: Card, estagioChave: string) {
     if (card.estagio_chave === estagioChave) return;
@@ -124,6 +132,8 @@ export default function HmKanbanPage() {
     }
   }
 
+  const q = busca.trim().toLowerCase();
+  const cardsFiltrados = q ? cards.filter((c) => c.nome.toLowerCase().includes(q) || (c.telefone ?? "").includes(q)) : cards;
   const colunasAba = colunas.filter((c) => (c.aba ?? "comercial") === aba);
   const totalComercial = colunas.filter((c) => c.aba === "comercial").reduce((s, c) => s + c.total, 0);
   const totalAtivacao = colunas.filter((c) => c.aba === "ativacao").reduce((s, c) => s + c.total, 0);
@@ -137,12 +147,18 @@ export default function HmKanbanPage() {
             Turma T39 · {totalComercial + totalAtivacao} aluno(s) — arraste os cards entre as etapas.
           </p>
         </div>
-        {responsaveis.length > 0 && (
-          <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto")}>
-            <option value="">Todos os responsáveis</option>
-            {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar aluno…" className={cn(fieldClass, "w-48 pl-8")} />
+          </div>
+          {responsaveis.length > 0 && (
+            <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto")}>
+              <option value="">Todos os responsáveis</option>
+              {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          )}
+        </div>
       </div>
 
       {/* Abas Comercial / Ativação */}
@@ -174,7 +190,7 @@ export default function HmKanbanPage() {
         <div className="-mx-4 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6" onWheel={rolarBoardHorizontal}>
           <Reveal className="flex gap-3">
             {colunasAba.map((col) => {
-              const doCol = cards.filter((c) => c.estagio_chave === col.chave);
+              const doCol = cardsFiltrados.filter((c) => c.estagio_chave === col.chave);
               const ativa = sobre === col.chave;
               return (
                 <div
@@ -197,7 +213,7 @@ export default function HmKanbanPage() {
                       <p className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-600">Sem cards</p>
                     ) : (
                       doCol.map((card) => (
-                        <CardItem key={card.comprador_id} card={card} onDragStart={() => { arrastando.current = card; }} />
+                        <CardItem key={card.comprador_id} card={card} onDragStart={() => { arrastando.current = card; }} onAbrir={() => setSelecionado(card.comprador_id)} />
                       ))
                     )}
                   </div>
@@ -207,11 +223,21 @@ export default function HmKanbanPage() {
           </Reveal>
         </div>
       )}
+
+      {selecionado && (
+        <HmDrawer
+          compradorId={selecionado}
+          estagios={estagios}
+          responsaveis={responsaveis}
+          onClose={() => setSelecionado(null)}
+          onChanged={carregar}
+        />
+      )}
     </div>
   );
 }
 
-function CardItem({ card, onDragStart }: { card: Card; onDragStart: () => void }) {
+function CardItem({ card, onDragStart, onAbrir }: { card: Card; onDragStart: () => void; onAbrir: () => void }) {
   const cat = catLabel(card.categoria_entrada);
   const wa = waLink(card.telefone);
   // Data relevante à etapa: reunião (Comercial) ou entrevista (Ativação).
@@ -219,11 +245,14 @@ function CardItem({ card, onDragStart }: { card: Card; onDragStart: () => void }
     : card.estagio_chave === "hm_entrevista_agendada" ? { label: "Entrevista", quando: card.entrevista_em }
     : null;
   return (
-    <Link
-      href={`/hm/contatos/${card.comprador_id}`}
+    <div
+      role="button"
+      tabIndex={0}
       draggable
       onDragStart={onDragStart}
-      className="group relative block cursor-grab rounded-lg border border-slate-200 bg-white p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft active:cursor-grabbing dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-400/30"
+      onClick={onAbrir}
+      onKeyDown={(e) => { if (e.key === "Enter") onAbrir(); }}
+      className="group relative block cursor-pointer rounded-lg border border-slate-200 bg-white p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-400/30"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap gap-1">
@@ -275,6 +304,6 @@ function CardItem({ card, onDragStart }: { card: Card; onDragStart: () => void }
           </a>
         )}
       </div>
-    </Link>
+    </div>
   );
 }

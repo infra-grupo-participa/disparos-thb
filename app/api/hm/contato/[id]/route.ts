@@ -87,7 +87,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   if (b.entrevista_em) {
     await addNotaHm(compradorId, `Entrevista agendada para ${fmtBr(b.entrevista_em)}`, operador);
-    if (atual.estagio_chave && ["hm_pagamento_realizado", "hm_comprou", "hm_reuniao_agendada", "hm_reuniao_finalizada"].includes(atual.estagio_chave)) {
+    if (atual.estagio_chave && ["hm_apto_ativacao", "hm_pagamento_realizado", "hm_comprou", "hm_reuniao_agendada", "hm_reuniao_finalizada"].includes(atual.estagio_chave)) {
       await moverEstagioHm(compradorId, HM_STAGE_ENTREVISTA, operador);
     }
   }

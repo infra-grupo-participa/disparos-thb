@@ -5,6 +5,7 @@ import { query, queryOne } from "@/lib/db";
 // a timeline. NÃO toca cs.contatos (HT/SEM). Sem disparos — só esteira/ficha.
 
 export const HM_STAGE_PAGAMENTO = "hm_pagamento_realizado";
+export const HM_STAGE_APTO = "hm_apto_ativacao";
 export const HM_STAGE_ENTREVISTA = "hm_entrevista_agendada";
 
 type EstagioHm = { id: number; chave: string; nome: string; aba: string | null };
@@ -47,18 +48,19 @@ export async function moverEstagioHm(compradorId: string, chave: string, autor =
   if (ch.estagio_id === novo.id && chave !== HM_STAGE_PAGAMENTO) return true;
 
   // Transição automática Comercial → Ativação ao confirmar o pagamento do saldo.
+  // O card cai em "Apto para Ativação" (ponto de partida da aba Ativação).
   if (chave === HM_STAGE_PAGAMENTO) {
-    const entr = await estagioPorChave(HM_STAGE_ENTREVISTA);
-    if (!entr) return false;
+    const apto = await estagioPorChave(HM_STAGE_APTO);
+    if (!apto) return false;
     await query(
       `update cs.contatos_hm
           set estagio_id = $2, pagamento_em = coalesce(pagamento_em, now()),
               apto_ativacao = true, atualizado_em = now()
         where id = $1`,
-      [ch.id, entr.id],
+      [ch.id, apto.id],
     );
     await addInteracaoHm(ch.id, "sistema", "Pagamento realizado — apto para ativação", autor);
-    await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${entr.nome}"`, autor, ch.estagio_id, entr.id);
+    await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${apto.nome}"`, autor, ch.estagio_id, apto.id);
     return true;
   }
 
