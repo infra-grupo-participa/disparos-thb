@@ -5,8 +5,9 @@ import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial, Avatar } from "@/app/_components/avatar";
 
-// Checkout Hotmart do saldo do HM (R$ 14.700 de 15.000) — oferta 2vibw97m (à vista).
-const SALDO_LINK_AVISTA = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
+// Checkout Hotmart do saldo do HM (R$ 14.700 de 15.000) — oferta 2vibw97m.
+// No próprio checkout o cliente escolhe à vista ou parcelado.
+const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
 const SALDO_VALOR = "R$ 14.700";
 
 type Contato = {
@@ -190,9 +191,9 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                     Registrar pagamento realizado
                   </Button>
                 </div>
-                <a href={SALDO_LINK_AVISTA} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition hover:underline dark:text-brand-300">
+                <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition hover:underline dark:text-brand-300">
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
-                  Abrir checkout Hotmart (à vista)
+                  Abrir checkout do saldo na Hotmart
                 </a>
                 <p className="text-xs text-slate-400 dark:text-slate-500">Ao registrar, o card vai automaticamente para a Ativação (Entrevista Agendada) marcado como apto.</p>
               </div>
