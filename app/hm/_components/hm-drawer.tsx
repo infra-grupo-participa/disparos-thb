@@ -218,15 +218,15 @@ export function HmDrawer({
               )}
             </div>
 
-            <div className="sticky bottom-0 flex gap-2 border-t border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-              <Link href={`/hm/contatos/${c.comprador_id}`} className="flex-1">
+            <div className="sticky bottom-0 flex flex-wrap gap-2 border-t border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+              <Link href={`/hm/contatos/${c.comprador_id}`} className="min-w-[7rem] flex-1">
                 <Button variant="secondary" className="w-full">Ficha completa</Button>
               </Link>
               {podeDisparar && c.telefone && (
-                <Button variant="secondary" className="flex-1" onClick={() => setDisparar(true)}>Disparar</Button>
+                <Button variant="secondary" className="min-w-[7rem] flex-1" onClick={() => setDisparar(true)}>Disparar</Button>
               )}
               {c.telefone && (
-                <a href={`https://wa.me/${c.telefone.replace(/\D/g, "").replace(/^(?!55)/, "55")}`} target="_blank" rel="noreferrer" className="flex-1">
+                <a href={`https://wa.me/${c.telefone.replace(/\D/g, "").replace(/^(?!55)/, "55")}`} target="_blank" rel="noreferrer" className="w-full">
                   <Button variant="primary" className="w-full">WhatsApp</Button>
                 </a>
               )}
