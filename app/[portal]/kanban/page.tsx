@@ -133,7 +133,7 @@ const EDICAO_COR: Record<string, string> = {
 };
 
 export default function KanbanPage() {
-  const { podeDisparar } = useMe();
+  const { me, podeDisparar } = useMe();
   const { evento, base, nome: eventoNome, ehHT } = usePortal();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
@@ -538,6 +538,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
   card: Card; colunas: Coluna[]; responsaveis: string[]; podeDisparar: boolean; onClose: () => void; onMover: (chave: string) => void; onDisparar: () => void; onAtualizar: () => void;
 }) {
   const { base } = usePortal();
+  const { me } = useMe();
   const [det, setDet] = useState<Detalhe | null>(null);
   const [tagNova, setTagNova] = useState("");
   const [aba, setAba] = useState<"resumo" | "forms" | "historico">("resumo");
@@ -691,6 +692,17 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                         {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
                       </select>
                     </div>
+                    {me?.nome && det.contato.responsavel !== me.nome && (
+                      <button
+                        type="button"
+                        onClick={() => patch({ responsavel: me.nome })}
+                        className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline dark:text-brand-300"
+                        title={det.contato.responsavel ? `Assumir de ${det.contato.responsavel}` : "Assumir este contato"}
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+                        {det.contato.responsavel ? "Assumir para mim" : "Atribuir a mim"}
+                      </button>
+                    )}
                   </div>
                   <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                     <input type="checkbox" checked={!!det.contato.opt_out} onChange={(e) => patch({ opt_out: e.target.checked })} className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600" />

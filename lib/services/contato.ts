@@ -52,8 +52,33 @@ export async function addTagEmLote(compradorIds: string[], tag: string) {
     .where(and(inArray(contatos.compradorId, compradorIds), sql`not (${tag} = any(${contatos.tags}))`));
 }
 
-export async function setResponsavel(compradorIds: string[], responsavel: string | null) {
-  await getDb().update(contatos).set({ responsavel, atualizadoEm: sql`now()` }).where(inArray(contatos.compradorId, compradorIds));
+// Atribui (ou reatribui) o responsável de um ou mais contatos e registra a
+// mudança na timeline de cada um — controle de quem passou a responder por quem.
+// Só loga os contatos cujo responsável de fato mudou.
+export async function setResponsavel(compradorIds: string[], responsavel: string | null, autor = "cs") {
+  const db = getDb();
+  const antes = await db
+    .select({ id: contatos.id, compradorId: contatos.compradorId, responsavel: contatos.responsavel })
+    .from(contatos)
+    .where(inArray(contatos.compradorId, compradorIds));
+
+  await db.update(contatos).set({ responsavel, atualizadoEm: sql`now()` }).where(inArray(contatos.compradorId, compradorIds));
+
+  const novo = responsavel?.trim() || null;
+  for (const c of antes) {
+    const anterior = c.responsavel?.trim() || null;
+    if (anterior === novo) continue;
+    await db.insert(interacoes).values({
+      contatoId: c.id,
+      tipo: "sistema",
+      descricao: novo
+        ? anterior
+          ? `Responsável alterado de "${anterior}" para "${novo}"`
+          : `Responsável atribuído: "${novo}"`
+        : `Responsável removido (era "${anterior}")`,
+      autor,
+    });
+  }
 }
 
 export async function setOptOut(compradorId: string, optOut: boolean) {

@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial, Avatar } from "@/app/_components/avatar";
+import { DisparoModal } from "@/app/_components/disparo";
+import { TagChip } from "@/app/_components/tags";
+import { useMe } from "@/app/_components/use-me";
 
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
 
@@ -13,7 +16,7 @@ type Contato = {
   turma: string | null; plano: string | null; categoria_entrada: string | null;
   estagio_chave: string | null; estagio_nome: string | null; responsavel: string | null;
   reuniao_em: string | null; entrevista_em: string | null; pagamento_em: string | null;
-  pagamento_forma: string | null; apto_ativacao: boolean;
+  pagamento_forma: string | null; apto_ativacao: boolean; tags: string[] | null;
 };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 
@@ -41,12 +44,15 @@ export function HmDrawer({
   compradorId: string; estagios: Estagio[]; responsaveis: string[];
   onClose: () => void; onChanged: () => void;
 }) {
+  const { me, podeDisparar } = useMe();
   const [c, setC] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
   const [salvando, setSalvando] = useState(false);
   const [reuniao, setReuniao] = useState("");
   const [entrevista, setEntrevista] = useState("");
   const [nota, setNota] = useState("");
+  const [confirmarPagto, setConfirmarPagto] = useState(false);
+  const [disparar, setDisparar] = useState(false);
 
   const recarregar = useCallback(async () => {
     const r = await fetch(`/api/hm/contato/${compradorId}`);
@@ -72,6 +78,11 @@ export function HmDrawer({
   }
 
   const jaPagou = !!c?.pagamento_em;
+  const temHistorico = timeline.some((it) => it.tipo === "mudanca_estagio");
+
+  async function reverter() {
+    await patch({ reverter: true });
+  }
 
   return (
     <>
@@ -87,6 +98,11 @@ export function HmDrawer({
                 <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{c.nome}</h2>
                 <p className="truncate text-xs text-slate-500 dark:text-slate-400">{c.telefone || "sem telefone"}{c.turma ? ` · ${c.turma}` : ""}</p>
                 {c.plano && <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{c.plano}</p>}
+                {c.tags && c.tags.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {c.tags.map((t) => <TagChip key={t} tag={t} mini />)}
+                  </div>
+                )}
               </div>
               <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200">
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -105,6 +121,18 @@ export function HmDrawer({
                 <select value={c.estagio_chave ?? ""} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass} disabled={salvando}>
                   {estagios.map((s) => <option key={s.chave} value={s.chave}>{s.aba === "ativacao" ? "Ativação · " : "Comercial · "}{s.nome}</option>)}
                 </select>
+                {temHistorico && (
+                  <button
+                    type="button"
+                    onClick={reverter}
+                    disabled={salvando}
+                    className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 transition hover:text-brand disabled:opacity-50 dark:text-slate-400 dark:hover:text-brand-300"
+                    title="Desfazer o último movimento de etapa (miss click)"
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" /></svg>
+                    Voltar ao estágio anterior
+                  </button>
+                )}
               </Campo>
 
               <Campo label="Responsável (CS)">
@@ -116,6 +144,18 @@ export function HmDrawer({
                     {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
+                {me?.nome && c.responsavel !== me.nome && (
+                  <button
+                    type="button"
+                    onClick={() => patch({ responsavel: me.nome })}
+                    disabled={salvando}
+                    className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline disabled:opacity-50 dark:text-brand-300"
+                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir este aluno"}
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+                    {c.responsavel ? "Assumir para mim" : "Atribuir a mim"}
+                  </button>
+                )}
               </Campo>
 
               <Campo label="Reunião comercial (data e hora)">
@@ -135,10 +175,24 @@ export function HmDrawer({
               {!jaPagou && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Saldo — R$ 14.700</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button variant="primary" size="sm" disabled={salvando} onClick={() => patch({ pagamento_forma: "avista", marcar_pagamento: true })}>Registrar pagamento</Button>
-                    <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
-                  </div>
+                  {confirmarPagto ? (
+                    <div>
+                      <p className="mb-2 text-xs text-amber-800 dark:text-amber-200">
+                        Confirmar pagamento do saldo? O card vai para a <strong>Ativação</strong> (Apto para Ativação) e é marcado como pago.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="primary" size="sm" disabled={salvando} onClick={async () => { await patch({ pagamento_forma: "avista", marcar_pagamento: true }); setConfirmarPagto(false); }}>
+                          {salvando && <Spinner className="h-3.5 w-3.5" />}Sim, registrar pagamento
+                        </Button>
+                        <Button variant="secondary" size="sm" disabled={salvando} onClick={() => setConfirmarPagto(false)}>Cancelar</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="primary" size="sm" disabled={salvando} onClick={() => setConfirmarPagto(true)}>Registrar pagamento</Button>
+                      <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -168,6 +222,9 @@ export function HmDrawer({
               <Link href={`/hm/contatos/${c.comprador_id}`} className="flex-1">
                 <Button variant="secondary" className="w-full">Ficha completa</Button>
               </Link>
+              {podeDisparar && c.telefone && (
+                <Button variant="secondary" className="flex-1" onClick={() => setDisparar(true)}>Disparar</Button>
+              )}
               {c.telefone && (
                 <a href={`https://wa.me/${c.telefone.replace(/\D/g, "").replace(/^(?!55)/, "55")}`} target="_blank" rel="noreferrer" className="flex-1">
                   <Button variant="primary" className="w-full">WhatsApp</Button>
@@ -177,6 +234,13 @@ export function HmDrawer({
           </>
         )}
       </aside>
+
+      {disparar && c && c.telefone && (
+        <DisparoModal
+          selecao={[{ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone, edicao: null }]}
+          onClose={() => { setDisparar(false); onChanged(); }}
+        />
+      )}
     </>
   );
 }

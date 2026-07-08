@@ -119,6 +119,8 @@ export const HmContatoPatchSchema = z.object({
   pagamento_forma: z.enum(["avista", "parcelado"]).optional(),
   pagamento_parcelas: z.number().int().positive().nullable().optional(),
   marcar_pagamento: z.boolean().optional(),
+  // desfazer o último movimento de etapa (miss click)
+  reverter: z.boolean().optional(),
 });
 export const KanbanLoteSchema = z.object({
   compradorIds: z.array(id).min(1),

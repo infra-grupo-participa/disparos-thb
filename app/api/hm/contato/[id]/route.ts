@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthed, getSessao } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, HM_STAGE_ENTREVISTA } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, HM_STAGE_ENTREVISTA } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -61,6 +61,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   );
   if (!atual) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
+  // Desfazer o último movimento (miss click) — ação isolada, ignora os demais campos.
+  if (b.reverter) {
+    const ok = await reverterEstagioHm(compradorId, operador);
+    return NextResponse.json({ ok, reason: ok ? undefined : "sem_movimento_para_reverter" });
+  }
+
   // Campos simples da ficha (atualiza só os enviados; string vazia limpa).
   const sets: string[] = [];
   const vals: unknown[] = [atual.id];
@@ -68,7 +74,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     sets.push(`${col} = $${vals.length + 1}`);
     vals.push(v === "" ? null : v);
   };
-  if (b.responsavel !== undefined) add("responsavel", b.responsavel);
   if (b.observacoes !== undefined) add("observacoes", b.observacoes);
   if (b.plano !== undefined) add("plano", b.plano);
   if (b.reuniao_resultado !== undefined) add("reuniao_resultado", b.reuniao_resultado);
@@ -79,6 +84,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (sets.length) {
     await query(`update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now() where id = $1`, vals);
   }
+
+  // Responsável — via serviço (registra a mudança na timeline; permite reatribuir).
+  if (b.responsavel !== undefined) await setResponsavelHm(compradorId, b.responsavel || null, operador);
 
   // Agendou reunião estando em "Comprou HM" → avança para "Reunião Agendada".
   if (b.reuniao_em) {

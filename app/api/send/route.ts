@@ -37,16 +37,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, reason: "template inválido ou inativo" }, { status: 400 });
   }
 
-  const contatos = await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
-    `select comprador_id, telefone, edicao from cs.contatos_evento
-      where evento = $2 and comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
-        and comprador_id not in (select comprador_id from cs.contatos where opt_out)`,
-    [compradorIds, evento],
-  );
-  const optOut = await queryOne<{ n: number }>(
-    `select count(*)::int as n from cs.contatos where comprador_id = any($1::uuid[]) and opt_out`,
-    [compradorIds],
-  );
+  // HM vive num overlay isolado (cs.contatos_hm sobre `compradores`), fora de
+  // cs.contatos_evento e sem opt-out. Resolve os destinatários pela view do HM;
+  // os demais eventos (HT/SEM) seguem por cs.contatos_evento com filtro opt-out.
+  const ehHM = evento === "HM";
+  const contatos = ehHM
+    ? await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
+        `select comprador_id, telefone, null::text as edicao from cs.contatos_hm_kanban
+          where comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''`,
+        [compradorIds],
+      )
+    : await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
+        `select comprador_id, telefone, edicao from cs.contatos_evento
+          where evento = $2 and comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
+            and comprador_id not in (select comprador_id from cs.contatos where opt_out)`,
+        [compradorIds, evento],
+      );
+  const optOut = ehHM
+    ? { n: 0 }
+    : await queryOne<{ n: number }>(
+        `select count(*)::int as n from cs.contatos where comprador_id = any($1::uuid[]) and opt_out`,
+        [compradorIds],
+      );
   if (contatos.length === 0) {
     return NextResponse.json({
       ok: false,

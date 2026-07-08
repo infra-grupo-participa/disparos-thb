@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WheelEvent } from "react";
-import { cn, fieldClass, Spinner } from "@/app/_components/ui";
+import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
+import { DisparoModal } from "@/app/_components/disparo";
+import { TagChip } from "@/app/_components/tags";
+import { useMe } from "@/app/_components/use-me";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
 
@@ -81,34 +84,49 @@ function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
 }
 
 export default function HmKanbanPage() {
+  const { podeDisparar } = useMe();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [filtroResp, setFiltroResp] = useState("");
+  const [filtroTag, setFiltroTag] = useState("");
   const [busca, setBusca] = useState("");
   const [aba, setAba] = useState("comercial");
   const [carregando, setCarregando] = useState(true);
   const [sobre, setSobre] = useState<string | null>(null);
   const [selecionado, setSelecionado] = useState<string | null>(null);
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [dispararLote, setDispararLote] = useState(false);
   const arrastando = useRef<Card | null>(null);
+
+  function toggleMarcado(id: string) {
+    setMarcados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
       const params = new URLSearchParams();
       if (filtroResp) params.set("responsavel", filtroResp);
+      if (filtroTag) params.set("tag", filtroTag);
       const r = await fetch(`/api/hm/kanban?${params.toString()}`);
       const d = await r.json();
       if (d.ok) {
         setColunas(d.colunas);
         setCards(d.cards);
         if (Array.isArray(d.responsaveis)) setResponsaveis(d.responsaveis);
+        if (Array.isArray(d.tags)) setTags(d.tags);
       }
     } finally {
       setCarregando(false);
     }
-  }, [filtroResp]);
+  }, [filtroResp, filtroTag]);
 
   useEffect(() => { carregar(); }, [carregar]);
   useEffect(() => {
@@ -157,6 +175,27 @@ export default function HmKanbanPage() {
               <option value="">Todos os responsáveis</option>
               {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
+          )}
+          {tags.length > 0 && (
+            <select value={filtroTag} onChange={(e) => setFiltroTag(e.target.value)} className={cn(fieldClass, "w-auto")}>
+              <option value="">Todas as tags</option>
+              {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          {podeDisparar && cardsFiltrados.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const ids = cardsFiltrados.map((c) => c.comprador_id);
+                const todos = ids.length > 0 && ids.every((id) => marcados.has(id));
+                setMarcados(todos ? new Set() : new Set(ids));
+              }}
+            >
+              {cardsFiltrados.length > 0 && cardsFiltrados.every((c) => marcados.has(c.comprador_id))
+                ? "Limpar seleção"
+                : `Selecionar todos (${cardsFiltrados.length})`}
+            </Button>
           )}
         </div>
       </div>
@@ -213,7 +252,15 @@ export default function HmKanbanPage() {
                       <p className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-600">Sem cards</p>
                     ) : (
                       doCol.map((card) => (
-                        <CardItem key={card.comprador_id} card={card} onDragStart={() => { arrastando.current = card; }} onAbrir={() => setSelecionado(card.comprador_id)} />
+                        <CardItem
+                          key={card.comprador_id}
+                          card={card}
+                          onDragStart={() => { arrastando.current = card; }}
+                          onAbrir={() => setSelecionado(card.comprador_id)}
+                          selecionavel={podeDisparar}
+                          marcado={marcados.has(card.comprador_id)}
+                          onToggleMarcado={() => toggleMarcado(card.comprador_id)}
+                        />
                       ))
                     )}
                   </div>
@@ -222,6 +269,28 @@ export default function HmKanbanPage() {
             })}
           </Reveal>
         </div>
+      )}
+
+      {/* Barra de ação — disparo em lote dos cards marcados (só quem pode disparar) */}
+      {podeDisparar && marcados.size > 0 && (
+        <div className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+          <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white/95 px-4 py-2 shadow-pop backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              {marcados.size} selecionado{marcados.size > 1 ? "s" : ""}
+            </span>
+            <Button variant="secondary" size="sm" onClick={() => setMarcados(new Set())}>Limpar</Button>
+            <Button variant="primary" size="sm" onClick={() => setDispararLote(true)}>Disparar</Button>
+          </div>
+        </div>
+      )}
+
+      {dispararLote && (
+        <DisparoModal
+          selecao={cards
+            .filter((c) => marcados.has(c.comprador_id))
+            .map((c) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone ?? "", edicao: null }))}
+          onClose={() => { setDispararLote(false); setMarcados(new Set()); carregar(); }}
+        />
       )}
 
       {selecionado && (
@@ -237,7 +306,12 @@ export default function HmKanbanPage() {
   );
 }
 
-function CardItem({ card, onDragStart, onAbrir }: { card: Card; onDragStart: () => void; onAbrir: () => void }) {
+function CardItem({
+  card, onDragStart, onAbrir, selecionavel, marcado, onToggleMarcado,
+}: {
+  card: Card; onDragStart: () => void; onAbrir: () => void;
+  selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
+}) {
   const cat = catLabel(card.categoria_entrada);
   const wa = waLink(card.telefone);
   // Data relevante à etapa: reunião (Comercial) ou entrevista (Ativação).
@@ -252,10 +326,23 @@ function CardItem({ card, onDragStart, onAbrir }: { card: Card; onDragStart: () 
       onDragStart={onDragStart}
       onClick={onAbrir}
       onKeyDown={(e) => { if (e.key === "Enter") onAbrir(); }}
-      className="group relative block cursor-pointer rounded-lg border border-slate-200 bg-white p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-400/30"
+      className={cn(
+        "group relative block cursor-pointer rounded-lg border bg-white p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft dark:bg-slate-900 dark:hover:border-brand-400/30",
+        marcado ? "border-brand ring-1 ring-brand dark:border-brand-400 dark:ring-brand-400" : "border-slate-200 dark:border-slate-800",
+      )}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap items-center gap-1">
+          {selecionavel && (
+            <input
+              type="checkbox"
+              checked={marcado}
+              onClick={(e) => e.stopPropagation()}
+              onChange={onToggleMarcado}
+              title="Selecionar para disparo"
+              className="mr-1 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand dark:border-slate-600"
+            />
+          )}
           {cat && <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>}
           {card.apto_ativacao && (
             <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" title="Pagamento do saldo confirmado">
@@ -269,6 +356,12 @@ function CardItem({ card, onDragStart, onAbrir }: { card: Card; onDragStart: () 
 
       <p className="mt-1.5 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{card.nome}</p>
       {card.plano && <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">{card.plano}</p>}
+
+      {card.tags.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {card.tags.map((t) => <TagChip key={t} tag={t} mini />)}
+        </div>
+      )}
 
       {dataEtapa?.quando && (
         <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">

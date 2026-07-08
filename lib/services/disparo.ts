@@ -38,11 +38,15 @@ export async function processarDisparo(disparoId: string): Promise<void> {
   // Sem canal cadastrado, getCanal devolve {} e a unnichat cai na env global.
   const canal = await getCanal(template.evento);
 
-  // Só o que ainda não foi enviado (idempotência / retomada).
+  // Só o que ainda não foi enviado (idempotência / retomada). O nome (variável do
+  // template) vem de cs.contatos_evento (HT/SEM) OU da tabela base `compradores`
+  // (HM, que não está em contatos_evento) — coalesce cobre os dois sem regressão.
   const pendentes = await query<LinhaDB>(
-    `select dc.id, dc.comprador_id, dc.telefone, dc.contato_criado, v.nome
+    `select dc.id, dc.comprador_id, dc.telefone, dc.contato_criado,
+            coalesce(v.nome, cmp.nome) as nome
        from cs.disparo_contatos dc
        left join cs.contatos_evento v on v.comprador_id = dc.comprador_id
+       left join compradores cmp on cmp.id = dc.comprador_id
       where dc.disparo_id = $1 and dc.enviado = false`,
     [disparoId],
   );
@@ -91,17 +95,27 @@ export async function processarDisparo(disparoId: string): Promise<void> {
 
     if (r.ok) {
       await query(`update cs.disparo_contatos set enviado = true, enviado_em = now(), erro = null where id = $1`, [l.id]);
-      await query(
-        `update cs.contatos
-            set ultimo_contato_em = now(), primeiro_contato_em = coalesce(primeiro_contato_em, now()), atualizado_em = now()
-          where comprador_id = $1`,
-        [l.comprador_id],
-      );
-      await query(
-        `insert into cs.interacoes (contato_id, tipo, canal, descricao, disparo_id, autor)
-         select id, 'disparo', 'whatsapp', $2, $3, $4 from cs.contatos where comprador_id = $1`,
-        [l.comprador_id, `Template "${template.nome}" enviado`, disparoId, template.operador || "cs"],
-      );
+      if (template.evento === "HM") {
+        // HM: registra na timeline do overlay (contato_hm_id); não há linha em
+        // cs.contatos para atualizar ultimo_contato_em.
+        await query(
+          `insert into cs.interacoes (contato_hm_id, tipo, canal, descricao, disparo_id, autor)
+           select id, 'disparo', 'whatsapp', $2, $3, $4 from cs.contatos_hm where comprador_id = $1`,
+          [l.comprador_id, `Template "${template.nome}" enviado`, disparoId, template.operador || "cs"],
+        );
+      } else {
+        await query(
+          `update cs.contatos
+              set ultimo_contato_em = now(), primeiro_contato_em = coalesce(primeiro_contato_em, now()), atualizado_em = now()
+            where comprador_id = $1`,
+          [l.comprador_id],
+        );
+        await query(
+          `insert into cs.interacoes (contato_id, tipo, canal, descricao, disparo_id, autor)
+           select id, 'disparo', 'whatsapp', $2, $3, $4 from cs.contatos where comprador_id = $1`,
+          [l.comprador_id, `Template "${template.nome}" enviado`, disparoId, template.operador || "cs"],
+        );
+      }
     } else {
       await query(`update cs.disparo_contatos set enviado = false, erro = $2 where id = $1`, [l.id, r.erro || "falha no envio"]);
     }

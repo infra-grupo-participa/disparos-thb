@@ -106,7 +106,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   // tags / responsável / opt-out (atualiza só os campos enviados) — via serviço
   if (b.tags !== undefined) await setTags(compradorId, b.tags);
-  if (b.responsavel !== undefined) await setResponsavel([compradorId], b.responsavel || null);
+  if (b.responsavel !== undefined) await setResponsavel([compradorId], b.responsavel || null, operador);
   if (b.opt_out !== undefined) await setOptOut(compradorId, b.opt_out);
 
   // nota manual na timeline

@@ -18,10 +18,11 @@ const LINKS: LinkDef[] = [
   { sub: "/templates", label: "Templates", icon: "M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" },
 ];
 
-// Navegação reduzida do portal HM (módulo mais simples, sem disparos/inbox).
+// Navegação reduzida do portal HM (módulo mais simples, sem inbox/dashboard).
 const LINKS_HM: LinkDef[] = [
   { sub: "/kanban", label: "Jornada", icon: LINKS[0].icon },
   { sub: "/agendamentos", label: "Agendamentos", icon: "M8 2v4M16 2v4M3.5 9.09h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5ZM11.995 13.7h.009M8.294 13.7h.01M8.294 16.7h.01" },
+  { sub: "/templates", label: "Templates", icon: LINKS[4].icon },
 ];
 
 function Icon({ d }: { d: string }) {
