@@ -119,6 +119,19 @@ function formatBrDate(ms: number | null | undefined): string {
   }).format(d);
 }
 
+// Dia civil (dd/mm/aaaa) em São Paulo, para comparar datas ignorando a hora.
+function brDay(ms: number | null | undefined): string | null {
+  if (!ms) return null;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
+}
+
 // Converte epoch (ms) para ISO. Retorna null se ausente/inválido.
 function msToIso(ms: number | null | undefined): string | null {
   if (!ms) return null;
@@ -181,6 +194,7 @@ async function notifySlack(channel: string, payload: {
   valor: number | null;
   moeda: string;
   dataCompraMs: number | null;
+  dataAprovacaoMs: number | null;
   origem: string | null;
   cidade: string | null;
   estado: string | null;
@@ -193,6 +207,15 @@ async function notifySlack(channel: string, payload: {
   }
 
   const dataFormatada = formatBrDate(payload.dataCompraMs);
+  // Aprovação só é exibida quando cai em outro DIA que a compra (boleto pendente).
+  // Comparar o texto formatado com hora acusaria diferença em quase todo pix/cartão,
+  // que aprova minutos depois — linha redundante no card.
+  const dataAprovacaoFormatada = formatBrDate(payload.dataAprovacaoMs);
+  const mostrarAprovacao =
+    payload.dataAprovacaoMs != null
+    && payload.dataCompraMs != null
+    && brDay(payload.dataAprovacaoMs) !== brDay(payload.dataCompraMs);
+  const linhaAprovacao = mostrarAprovacao ? `\n*Data da aprovação:* ${dataAprovacaoFormatada}` : "";
   const valorFormatado = payload.valor != null
     ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: payload.moeda || "BRL" }).format(payload.valor)
     : "-";
@@ -218,7 +241,7 @@ async function notifySlack(channel: string, payload: {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Origem:* ${origemLabel}\n*Região:* ${regiaoLabel}\n*Data da compra:* ${dataFormatada}${mencaoIsabela}`,
+            text: `*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Origem:* ${origemLabel}\n*Região:* ${regiaoLabel}\n*Data da compra:* ${dataFormatada}${linhaAprovacao}${mencaoIsabela}`,
           },
         },
         { type: "divider" },
@@ -389,7 +412,14 @@ serve(async (req) => {
   }
 
   const price = purchase.price as Record<string, unknown> | undefined;
-  const approvedDate = Number(purchase.approved_date ?? 0) || Number(purchase.order_date ?? 0) || null;
+  // Data da compra de fato (order_date) vs. data em que o pagamento foi aprovado
+  // (approved_date). Divergem em boleto/pix pendente: o boleto é gerado no
+  // order_date e só compensa depois, gerando o approved_date. Em cartão ficam
+  // praticamente iguais. Antes o card usava só a aprovação, o que fazia um boleto
+  // gerado dia 02 e pago dia 04 aparecer como "compra dia 04".
+  const orderDate = Number(purchase.order_date ?? 0) || null;
+  const approvedDate = Number(purchase.approved_date ?? 0) || null;
+  const compraDate = orderDate ?? approvedDate;
   const isRenovacao = channel === "HM"
     && (
       productId === "3507214"
@@ -434,7 +464,8 @@ serve(async (req) => {
     produto: produtoLabel,
     valor: (price?.value as number) ?? null,
     moeda: (price?.currency_code as string) ?? "BRL",
-    dataCompraMs: approvedDate,
+    dataCompraMs: compraDate,
+    dataAprovacaoMs: approvedDate,
     origem,
     cidade,
     estado,
