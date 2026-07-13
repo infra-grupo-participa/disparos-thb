@@ -165,6 +165,13 @@ export default function HmKanbanPage() {
     });
   }
 
+  // Os filtros que estão valendo — o board os usa para ler, e o relatório para
+  // exportar. Um relatório que ignorasse o filtro da tela seria uma armadilha.
+  const paramsFiltro = new URLSearchParams();
+  if (filtroResp) paramsFiltro.set("responsavel", filtroResp);
+  if (filtroCanal) paramsFiltro.set("canal", filtroCanal);
+  if (filtroTurma) paramsFiltro.set("turma", filtroTurma);
+
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
@@ -247,39 +254,22 @@ export default function HmKanbanPage() {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      {/* Cabeçalho: identidade e volume — nada de controle aqui. */}
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
             <MarcaPortal portal="hm" altura="h-7" comNome={false} />
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            Turma T39 · {totalComercial + totalAtivacao} aluno(s) — arraste os cards entre as etapas e para cima/baixo para ordenar a fila.
+            {totalComercial + totalAtivacao} aluno(s) — arraste os cards entre as etapas e para cima/baixo para ordenar a fila.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar aluno…" className={cn(fieldClass, "w-48 pl-8")} />
-          </div>
-          {responsaveis.length > 0 && (
-            <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto")}>
-              <option value="">Todos os responsáveis</option>
-              {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          )}
-          {canais.length > 0 && (
-            <select value={filtroCanal} onChange={(e) => setFiltroCanal(e.target.value)} className={cn(fieldClass, "w-auto")} title="Canal de aquisição">
-              <option value="">Todos os canais</option>
-              {canais.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          )}
-          {turmas.length > 0 && (
-            <select value={filtroTurma} onChange={(e) => setFiltroTurma(e.target.value)} className={cn(fieldClass, "w-auto")} title="Turma de origem na base">
-              <option value="">Todas as turmas</option>
-              {turmas.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          )}
+        <div className="flex items-center gap-2">
+          {/* Relatório da esteira inteira — sai com os filtros que estão valendo */}
+          <a href={`/api/hm/kanban/export?${paramsFiltro.toString()}`} title="Baixar o relatório da esteira (resumo + uma aba por etapa)">
+            <Button variant="secondary" size="sm">Exportar .xlsx</Button>
+          </a>
           {podeDisparar && cardsFiltrados.length > 0 && (
             <Button
               variant="secondary"
@@ -290,7 +280,7 @@ export default function HmKanbanPage() {
                 setMarcados(todos ? new Set() : new Set(ids));
               }}
             >
-              {cardsFiltrados.length > 0 && cardsFiltrados.every((c) => marcados.has(c.comprador_id))
+              {cardsFiltrados.every((c) => marcados.has(c.comprador_id))
                 ? "Limpar seleção"
                 : `Selecionar todos (${cardsFiltrados.length})`}
             </Button>
@@ -298,25 +288,68 @@ export default function HmKanbanPage() {
         </div>
       </div>
 
-      {/* Abas Comercial / Ativação */}
-      <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900/60">
-        {ABAS.map((a) => {
-          const ativa = aba === a.id;
-          const total = a.id === "comercial" ? totalComercial : totalAtivacao;
-          return (
-            <button
-              key={a.id}
-              onClick={() => setAba(a.id)}
-              className={cn(
-                "flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition",
-                ativa ? "bg-white text-slate-900 shadow-card dark:bg-slate-800 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
-              )}
-            >
-              {a.label}
-              <span className={cn("rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums", ativa ? "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200" : "bg-slate-200/60 text-slate-500 dark:bg-slate-800 dark:text-slate-400")}>{total}</span>
-            </button>
-          );
-        })}
+      {/* Barra de controle: abas + filtros na MESMA linha, lado a lado. Antes eles
+          empilhavam e empurravam o board para baixo — o kanban é o assunto da
+          tela, não os filtros. Em telas estreitas a barra quebra sozinha. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
+        <div className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800/80">
+          {ABAS.map((a) => {
+            const ativa = aba === a.id;
+            const total = a.id === "comercial" ? totalComercial : totalAtivacao;
+            return (
+              <button
+                key={a.id}
+                onClick={() => setAba(a.id)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
+                  ativa
+                    ? "bg-white text-slate-900 shadow-card dark:bg-slate-700 dark:text-slate-100"
+                    : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
+                )}
+              >
+                {a.label}
+                <span className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                  ativa ? "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200" : "bg-slate-200/70 text-slate-500 dark:bg-slate-900 dark:text-slate-400",
+                )}>{total}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <span className="mx-1 hidden h-6 w-px bg-slate-200 dark:bg-slate-700 sm:block" />
+
+        <div className="relative min-w-[10rem] flex-1">
+          <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar aluno…" className={cn(fieldClass, "w-full pl-8")} />
+        </div>
+
+        {responsaveis.length > 0 && (
+          <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto min-w-[9rem]")} title="Responsável">
+            <option value="">Responsável: todos</option>
+            {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        )}
+        {canais.length > 0 && (
+          <select value={filtroCanal} onChange={(e) => setFiltroCanal(e.target.value)} className={cn(fieldClass, "w-auto min-w-[10rem]")} title="Canal de aquisição / público">
+            <option value="">Canal: todos</option>
+            {canais.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
+        {turmas.length > 0 && (
+          <select value={filtroTurma} onChange={(e) => setFiltroTurma(e.target.value)} className={cn(fieldClass, "w-auto min-w-[9rem]")} title="Turma (atual ou de origem)">
+            <option value="">Turma: todas</option>
+            {turmas.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
+        {(filtroResp || filtroCanal || filtroTurma || busca) && (
+          <button
+            onClick={() => { setFiltroResp(""); setFiltroCanal(""); setFiltroTurma(""); setBusca(""); }}
+            className="shrink-0 rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800"
+          >
+            Limpar filtros
+          </button>
+        )}
       </div>
 
       {carregando && cards.length === 0 ? (
@@ -339,9 +372,17 @@ export default function HmKanbanPage() {
                     ativa ? "border-brand/40 bg-brand/5 dark:border-brand-400/40 dark:bg-brand-400/10" : "border-slate-200 dark:border-slate-800",
                   )}
                 >
-                  <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2.5 dark:border-slate-800">
+                  <div className="group/col flex items-center gap-2 border-b border-slate-200 px-3 py-2.5 dark:border-slate-800">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: col.cor }} />
                     <span className="flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{col.nome}</span>
+                    {/* Relatório só desta etapa — mesmos filtros do board */}
+                    <a
+                      href={`/api/hm/kanban/export?${paramsFiltro.toString()}${paramsFiltro.toString() ? "&" : ""}estagio=${col.chave}`}
+                      title={`Baixar o relatório de "${col.nome}"`}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-700 focus:opacity-100 group-hover/col:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    >
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>
+                    </a>
                     <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                       {cards.filter((c) => colunaNaAba(c, aba) === col.chave).length}
                     </span>
