@@ -25,7 +25,7 @@ export function MarcaPortal({ portal, altura = "h-8", comNome = true, className 
 
   if (m.logo && m.logoRatio) {
     const [w, h] = m.logoRatio;
-    return (
+    const img = (
       <Image
         src={m.logo}
         alt={m.nome}
@@ -33,9 +33,20 @@ export function MarcaPortal({ portal, altura = "h-8", comNome = true, className 
         height={h}
         unoptimized
         priority
-        className={cn(altura, "w-auto", className)}
+        className={cn(altura, "w-auto", !m.logoNegativa && className)}
       />
     );
+    // Marca negativa (HT e HM têm o "T" e o "MASTERS" em branco): sobre o fundo
+    // claro do sistema, metade do desenho sumiria. Ela ganha o fundo escuro que a
+    // marca pede, em vez de virar um borrão laranja pela metade.
+    if (m.logoNegativa) {
+      return (
+        <span className={cn("inline-flex items-center rounded-lg bg-slate-900 px-2 py-1 dark:bg-slate-800", className)} title={m.nome}>
+          {img}
+        </span>
+      );
+    }
+    return img;
   }
 
   return (

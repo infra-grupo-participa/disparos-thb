@@ -18,6 +18,8 @@ export type Marca = {
   gradiente: string;
   logo: string | null;
   logoRatio: [number, number] | null;
+  /** A logo tem partes brancas (versão negativa) e só se lê sobre fundo escuro. */
+  logoNegativa?: boolean;
 };
 
 export const PORTAIS: Record<PortalId, Marca> = {
@@ -28,8 +30,9 @@ export const PORTAIS: Record<PortalId, Marca> = {
     cor: "#F97316",
     desc: "Jornada dos compradores do HT — onboarding, grupo e ativação.",
     gradiente: "from-orange-500 to-amber-400",
-    logo: null, // aguardando o SVG oficial → public/marcas/ht.svg
-    logoRatio: null,
+    logo: "/marcas/ht.png", // monograma H/T — o "T" é branco
+    logoRatio: [491, 540],
+    logoNegativa: true,
   },
   seminario: {
     evento: "SEM",
@@ -48,8 +51,9 @@ export const PORTAIS: Record<PortalId, Marca> = {
     cor: "#B45309",
     desc: "Ativação do HM (T39) — comercial, reunião, pagamento e ativação.",
     gradiente: "from-amber-700 to-amber-500",
-    logo: null, // aguardando o SVG oficial → public/marcas/hm.svg
-    logoRatio: null,
+    logo: "/marcas/hm.png", // "HOLDING" laranja + "MASTERS" em branco
+    logoRatio: [1686, 840],
+    logoNegativa: true,
   },
 };
 
