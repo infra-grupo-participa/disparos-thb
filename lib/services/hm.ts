@@ -143,7 +143,15 @@ export async function moverEstagioHm(
   // Transição automática Comercial → Ativação ao confirmar o pagamento do saldo.
   // O card cai em "Pendente de Liberação" (ponto de partida da aba Ativação).
   if (chave === HM_STAGE_PAGAMENTO) {
-    const pendente = await estagioPorChave(HM_STAGE_PENDENTE);
+    // Onde o card cai depende de já haver acesso: quem só renovou (a matrícula
+    // dele ainda está válida) não precisa que ninguém crie acesso — vai direto
+    // para "Acesso Liberado". Cadastro novo passa por "Pendente de Liberação",
+    // porque lá alguém de fato cria o acesso na plataforma.
+    const destinoChave = await queryOne<{ etapa: string }>(
+      `select cs.fn_hm_etapa_pos_pagamento($1) as etapa`,
+      [compradorId],
+    );
+    const pendente = await estagioPorChave(destinoChave?.etapa || HM_STAGE_PENDENTE);
     if (!pendente) return { ok: false, reason: "estagio_invalido" };
     await query(
       `update cs.contatos_hm
@@ -200,28 +208,68 @@ export async function moverEstagioHm(
     return { ok: true };
   }
 
-  // Voltar para o Comercial um card pago: limpa a marcação de pagamento.
+  // Voltar para o Comercial um card pago: tira a MARCA de pago (apto_ativacao),
+  // que é o estado operacional — mas preserva o FATO (a data, a forma, as
+  // parcelas). Apagar a data reescreveria o histórico, e era pior do que parece:
+  // quem tirasse o card da Ativação e o devolvesse depois via a data do pagamento
+  // virar "hoje", porque não havia mais o original para reaproveitar. É a mesma
+  // regra que o cancelamento já seguia — o dinheiro entrou, e isso não se apaga.
   const voltandoAoComercial = novo.aba === "comercial" && ch.apto_ativacao;
   if (voltandoAoComercial) {
     await query(
       `update cs.contatos_hm
-          set estagio_id = $2, apto_ativacao = false, pagamento_em = null,
-              pagamento_forma = null, pagamento_parcelas = null, atualizado_em = now()
+          set estagio_id = $2, apto_ativacao = false, atualizado_em = now()
         where id = $1`,
       [ch.id, novo.id],
     );
-    await addInteracaoHm(ch.id, "sistema", "Pagamento desfeito — de volta ao Comercial", autor);
+    await addInteracaoHm(ch.id, "sistema", "Pagamento desfeito — de volta ao Comercial (a data do pagamento fica registrada)", autor);
     await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
     await reposicionarNaColuna(ch.id, novo.id, posicao);
     return { ok: true };
   }
 
-  await query(
-    `update cs.contatos_hm set estagio_id = $2, atualizado_em = now() where id = $1`,
-    [ch.id, novo.id],
-  );
+  // Entrar na Ativação por movimento livre — arrastando direto para "Acesso
+  // Liberado", por exemplo, sem passar por "Pagamento Realizado". A esteira de
+  // Ativação é, por definição, a de quem já quitou: um card lá sem a marca de
+  // pago faz o sistema mentir duas vezes (o relatório o conta como devendo, e o
+  // aluno nunca nasce na base — era o buraco que a 0051 fechou). Então mover para
+  // lá É dizer "pagou": o card ganha a marca, e o aluno é provisionado.
+  const entrandoNaAtivacao = novo.aba === "ativacao" && !ch.apto_ativacao;
+  if (entrandoNaAtivacao) {
+    await query(
+      `update cs.contatos_hm
+          set estagio_id = $2, apto_ativacao = true,
+              pagamento_em = coalesce(pagamento_em, now()), atualizado_em = now()
+        where id = $1`,
+      [ch.id, novo.id],
+    );
+    await addInteracaoHm(ch.id, "sistema", `Card movido para a Ativação ("${novo.nome}") — pagamento considerado confirmado`, autor);
+  } else {
+    await query(
+      `update cs.contatos_hm set estagio_id = $2, atualizado_em = now() where id = $1`,
+      [ch.id, novo.id],
+    );
+  }
   await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
   await reposicionarNaColuna(ch.id, novo.id, posicao);
+
+  // Quem está na Ativação precisa existir na base mestre, senão o GPS nunca cria
+  // o acesso dele. Blindado: a base é de outro domínio e não pode travar o board.
+  if (entrandoNaAtivacao) {
+    try {
+      const r = await queryOne<{ aluno_id: string | null }>(
+        `select cs.fn_hm_provisionar_derivado($1) as aluno_id`,
+        [compradorId],
+      );
+      if (r?.aluno_id) {
+        await addInteracaoHm(ch.id, "sistema", "Aluno criado/atualizado na base THB", autor);
+        await provisionarSociosHm(compradorId, autor);
+      }
+    } catch (e) {
+      log.error("falha ao provisionar aluno ao entrar na Ativação", e, { compradorId });
+      await addInteracaoHm(ch.id, "sistema", "Falha ao criar o aluno na base THB — use “Registrar pagamento” na ficha", autor);
+    }
+  }
 
   // "Acesso Liberado" registra a liberação em public.hm_liberacoes — a fonte
   // única de "o acesso foi criado", que a fila do painel v2 também lê. Não toca
@@ -365,6 +413,115 @@ export async function provisionarSociosHm(compradorId: string, autor = "cs"): Pr
     log.error("falha ao provisionar sócios na base THB", e, { compradorId });
     return 0;
   }
+}
+
+// ----- Agendamento e reagendamento (reunião comercial / entrevista de ativação) -----
+
+export type TipoAgendamento = "reuniao" | "entrevista";
+export type StatusAgendamento = "realizado" | "nao_compareceu" | "cancelado";
+
+const ROTULO: Record<TipoAgendamento, string> = { reuniao: "Reunião", entrevista: "Entrevista" };
+
+function fmtBr(iso: string | Date): string {
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  return isNaN(d.getTime())
+    ? String(iso)
+    : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+// Marca (ou remarca) a reunião/entrevista. Remarcar não é "trocar a data": é um
+// FATO da operação — a pessoa já tinha se comprometido com um horário e não veio,
+// ou pediu para adiar. Antes, a nova data simplesmente sobrescrevia a antiga e o
+// sistema esquecia que houve remarcação; era impossível saber quem está enrolando.
+// Agora a data vigente continua no card (é o que a agenda lê) e cada marcação vira
+// uma linha em cs.hm_agendamentos, com o motivo de a anterior ter caído.
+export async function agendarHm(
+  compradorId: string,
+  tipo: TipoAgendamento,
+  quando: string | null,
+  motivo: string | null,
+  autor = "cs",
+): Promise<{ reagendou: boolean; vezes: number }> {
+  const col = tipo === "reuniao" ? "reuniao_em" : "entrevista_em";
+  const ch = await queryOne<{ id: string; atual: string | null }>(
+    `select id, ${col} as atual from cs.contatos_hm where comprador_id = $1`,
+    [compradorId],
+  );
+  if (!ch) return { reagendou: false, vezes: 0 };
+
+  const tinha = !!ch.atual;
+  const mesma = tinha && quando && new Date(ch.atual as string).getTime() === new Date(quando).getTime();
+  if (mesma) return { reagendou: false, vezes: 0 };
+
+  // A marcação vigente sai de cena: virou outra data (reagendado) ou foi desmarcada.
+  await query(
+    `update cs.hm_agendamentos
+        set status = $3, motivo = coalesce($4, motivo), encerrado_em = now()
+      where contato_hm_id = $1 and tipo = $2 and status = 'agendado'`,
+    [ch.id, tipo, quando ? "reagendado" : "cancelado", motivo],
+  );
+
+  await query(
+    `update cs.contatos_hm set ${col} = $2::timestamptz, atualizado_em = now() where id = $1`,
+    [ch.id, quando],
+  );
+
+  if (!quando) {
+    await addInteracaoHm(ch.id, "sistema", `${ROTULO[tipo]} desmarcada${motivo ? ` — ${motivo}` : ""}`, autor);
+    return { reagendou: false, vezes: 0 };
+  }
+
+  await query(
+    `insert into cs.hm_agendamentos (contato_hm_id, tipo, quando, status, autor)
+     values ($1, $2, $3::timestamptz, 'agendado', $4)`,
+    [ch.id, tipo, quando, autor],
+  );
+
+  const r = await queryOne<{ vezes: number }>(
+    `select count(*)::int as vezes
+       from cs.hm_agendamentos
+      where contato_hm_id = $1 and tipo = $2 and status = 'reagendado'`,
+    [ch.id, tipo],
+  );
+  const vezes = r?.vezes ?? 0;
+
+  const descricao = tinha
+    ? `${ROTULO[tipo]} reagendada de ${fmtBr(ch.atual as string)} para ${fmtBr(quando)}${motivo ? ` — ${motivo}` : ""} (${vezes}ª remarcação)`
+    : `${ROTULO[tipo]} agendada para ${fmtBr(quando)}`;
+  await addInteracaoHm(ch.id, tinha ? "sistema" : "nota", descricao, autor);
+
+  return { reagendou: tinha, vezes };
+}
+
+// Fecha a marcação vigente: aconteceu, o aluno não veio, ou foi cancelada. O
+// no-show é o dado que faltava — é ele que distingue "remarcou porque surgiu algo"
+// de "não apareceu e sumiu".
+export async function fecharAgendamentoHm(
+  compradorId: string,
+  tipo: TipoAgendamento,
+  status: StatusAgendamento,
+  motivo: string | null,
+  autor = "cs",
+): Promise<boolean> {
+  const ch = await queryOne<{ id: string }>(`select id from cs.contatos_hm where comprador_id = $1`, [compradorId]);
+  if (!ch) return false;
+
+  const fechou = await query(
+    `update cs.hm_agendamentos
+        set status = $3, motivo = coalesce($4, motivo), encerrado_em = now()
+      where contato_hm_id = $1 and tipo = $2 and status = 'agendado'
+      returning id`,
+    [ch.id, tipo, status, motivo],
+  );
+  if (fechou.length === 0) return false;
+
+  const texto: Record<StatusAgendamento, string> = {
+    realizado: `${ROTULO[tipo]} realizada`,
+    nao_compareceu: `${ROTULO[tipo]} — o aluno não compareceu`,
+    cancelado: `${ROTULO[tipo]} cancelada`,
+  };
+  await addInteracaoHm(ch.id, "sistema", `${texto[status]}${motivo ? ` — ${motivo}` : ""}`, autor);
+  return true;
 }
 
 // Nota manual / campos de acompanhamento da ficha HM.

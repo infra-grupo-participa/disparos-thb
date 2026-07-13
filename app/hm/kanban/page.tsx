@@ -155,6 +155,7 @@ export default function HmKanbanPage() {
   const [selecionado, setSelecionado] = useState<string | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [dispararLote, setDispararLote] = useState(false);
+  const [menu, setMenu] = useState<{ card: Card; x: number; y: number } | null>(null);
   const arrastando = useRef<Card | null>(null);
 
   function toggleMarcado(id: string) {
@@ -201,26 +202,9 @@ export default function HmKanbanPage() {
   // Um único gesto responde por duas coisas: a coluna (para onde) e a ordem
   // vertical (em que lugar da fila). `antesDe` é o card que ficará logo abaixo —
   // null significa "no fim da coluna".
-  async function mover(card: Card, estagioChave: string, antesDe: string | null) {
-    const mudouDeColuna = colunaNaAba(card, aba) !== estagioChave;
-    // O espelho é só o registro do pagamento no Comercial: o card mora na
-    // Ativação e a ordem dele pertence à fila de lá. Reordenar aqui não teria
-    // onde ser gravado — ignora o gesto vertical.
-    if (!mudouDeColuna && ehEspelho(card, aba)) return;
-    // Arrastar o espelho para outra coluna do Comercial tira o card da Ativação
-    // e apaga o pagamento — nunca é o que a pessoa quis fazer sem pensar.
-    // Cancelamento é a exceção: lá o pagamento é preservado (o servidor sabe).
-    if (mudouDeColuna && ehEspelho(card, aba) && estagioChave !== "hm_cancelamento") {
-      const etapa = card.estagio_nome ?? "Ativação";
-      const ok = window.confirm(
-        `${card.nome} já quitou o saldo e está em "${etapa}" na Ativação.\n\n` +
-          "Trazê-lo de volta ao Comercial desfaz o pagamento e tira o card da Ativação. Continuar?",
-      );
-      if (!ok) return;
-    }
-    // Otimista; o servidor pode redirecionar o destino (ex.: "Pagamento
-    // Realizado" joga o card para a Ativação) — por isso recarrega depois.
-    setCards((cs) => reordenarLocal(cs, card, estagioChave, antesDe, aba));
+  // Manda o movimento ao servidor e diz o que aconteceu. É o único ponto que
+  // conversa com a API de mover — o arrasto e o menu passam os dois por aqui.
+  async function patchMover(card: Card, estagioChave: string, antesDe: string | null) {
     try {
       const r = await fetch("/api/hm/kanban", {
         method: "PATCH",
@@ -242,6 +226,72 @@ export default function HmKanbanPage() {
     } finally {
       await carregar();
     }
+  }
+
+  // Mover pelo menu — para QUALQUER etapa, inclusive de outra esteira. O arrasto
+  // só alcança as colunas visíveis na aba atual; era por isso que um card na
+  // Ativação não conseguia voltar ao Comercial (e vice-versa) sem passar pelo
+  // caminho do pagamento. Aqui a esteira inteira está à mão.
+  async function moverParaEtapa(card: Card, destino: Estagio) {
+    if (card.estagio_chave === destino.chave) return;
+    const abaDestino = destino.aba ?? "comercial";
+    const abaAtual = card.estagio_aba ?? "comercial";
+    // Tirar da Ativação um card pago desfaz o pagamento (o servidor limpa a marca).
+    if (abaAtual === "ativacao" && abaDestino === "comercial" && destino.chave !== "hm_cancelamento") {
+      const ok = window.confirm(
+        `${card.nome} já quitou o saldo e está em "${card.estagio_nome ?? "Ativação"}".\n\n` +
+          `Movê-lo para "${destino.nome}" desfaz o pagamento e tira o card da esteira de Ativação. Continuar?`,
+      );
+      if (!ok) return;
+    }
+    // Entrar na Ativação é dizer "pagou": o servidor marca o pagamento e cria o
+    // aluno na base. Melhor avisar do que deixar o operador descobrir depois.
+    if (abaAtual === "comercial" && abaDestino === "ativacao" && !card.apto_ativacao) {
+      const ok = window.confirm(
+        `Mover ${card.nome} para "${destino.nome}" o coloca na esteira de Ativação.\n\n` +
+          "Isso marca o saldo como pago e cria o aluno na base THB. Continuar?",
+      );
+      if (!ok) return;
+    }
+    await patchMover(card, destino.chave, null);
+  }
+
+  // Desfazer o último movimento (o miss-click do arrasto).
+  async function desfazerMovimento(card: Card) {
+    try {
+      const r = await fetch(`/api/hm/contato/${card.comprador_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reverter: true }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d?.ok) window.alert(`${card.nome} não tem um movimento anterior para desfazer.`);
+    } finally {
+      await carregar();
+    }
+  }
+
+  async function mover(card: Card, estagioChave: string, antesDe: string | null) {
+    const mudouDeColuna = colunaNaAba(card, aba) !== estagioChave;
+    // O espelho é só o registro do pagamento no Comercial: o card mora na
+    // Ativação e a ordem dele pertence à fila de lá. Reordenar aqui não teria
+    // onde ser gravado — ignora o gesto vertical.
+    if (!mudouDeColuna && ehEspelho(card, aba)) return;
+    // Arrastar o espelho para outra coluna do Comercial tira o card da Ativação
+    // e apaga o pagamento — nunca é o que a pessoa quis fazer sem pensar.
+    // Cancelamento é a exceção: lá o pagamento é preservado (o servidor sabe).
+    if (mudouDeColuna && ehEspelho(card, aba) && estagioChave !== "hm_cancelamento") {
+      const etapa = card.estagio_nome ?? "Ativação";
+      const ok = window.confirm(
+        `${card.nome} já quitou o saldo e está em "${etapa}" na Ativação.\n\n` +
+          "Trazê-lo de volta ao Comercial desfaz o pagamento e tira o card da Ativação. Continuar?",
+      );
+      if (!ok) return;
+    }
+    // Otimista; o servidor pode redirecionar o destino (ex.: "Pagamento
+    // Realizado" joga o card para a Ativação) — por isso recarrega depois.
+    setCards((cs) => reordenarLocal(cs, card, estagioChave, antesDe, aba));
+    await patchMover(card, estagioChave, antesDe);
   }
 
   const q = busca.trim().toLowerCase();
@@ -430,6 +480,7 @@ export default function HmKanbanPage() {
                             onDragStart={() => { arrastando.current = card; }}
                             onDragEnd={() => { arrastando.current = null; setAlvo(null); }}
                             onAbrir={() => setSelecionado(card.comprador_id)}
+                            onMenu={(x, y) => setMenu({ card, x, y })}
                             selecionavel={podeDisparar}
                             marcado={marcados.has(card.comprador_id)}
                             onToggleMarcado={() => toggleMarcado(card.comprador_id)}
@@ -444,6 +495,53 @@ export default function HmKanbanPage() {
             })}
           </Reveal>
         </div>
+      )}
+
+      {/* Menu do card (botão direito). O arrasto só alcança as colunas da aba
+          aberta — aqui a esteira inteira está disponível, nos dois sentidos, mais
+          o desfazer do último movimento. */}
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-[55]" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+          <div
+            className="fixed z-[60] max-h-[70vh] w-60 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-pop dark:border-slate-700 dark:bg-slate-900"
+            style={{
+              top: Math.min(menu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 380),
+              left: Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 260),
+            }}
+          >
+            <p className="truncate px-3 py-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">{menu.card.nome}</p>
+            <MenuItem onClick={() => { setSelecionado(menu.card.comprador_id); setMenu(null); }}>Abrir ficha</MenuItem>
+            <MenuItem onClick={() => { const c = menu.card; setMenu(null); desfazerMovimento(c); }}>Desfazer último movimento</MenuItem>
+
+            {ABAS.map((a) => {
+              const doGrupo = estagios.filter((e) => (e.aba ?? "comercial") === a.id);
+              if (doGrupo.length === 0) return null;
+              return (
+                <div key={a.id}>
+                  <div className="mt-1 border-t border-slate-100 px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                    Mover para · {a.label}
+                  </div>
+                  {doGrupo.map((e) => {
+                    const atual = e.chave === menu.card.estagio_chave;
+                    return (
+                      <MenuItem
+                        key={e.chave}
+                        disabled={atual}
+                        onClick={() => { const c = menu.card; setMenu(null); moverParaEtapa(c, e); }}
+                      >
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="truncate">{e.nome}</span>
+                          {atual && <span className="shrink-0 text-[10px] font-semibold uppercase text-brand">aqui</span>}
+                        </span>
+                      </MenuItem>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Barra de ação — disparo em lote dos cards marcados (só quem pode disparar) */}
@@ -486,10 +584,28 @@ function LinhaDrop() {
   return <div aria-hidden className="h-0.5 shrink-0 rounded-full bg-brand dark:bg-brand-400" />;
 }
 
+function MenuItem({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "block w-full px-3 py-1.5 text-left text-sm transition",
+        disabled
+          ? "cursor-default text-slate-400 dark:text-slate-600"
+          : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function CardItem({
-  card, espelho, onDragStart, onDragEnd, onAbrir, selecionavel, marcado, onToggleMarcado,
+  card, espelho, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado,
 }: {
   card: Card; espelho: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
+  onMenu: (x: number, y: number) => void;
   selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
 }) {
   const cat = catLabel(card.categoria_entrada);
@@ -507,7 +623,9 @@ function CardItem({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onAbrir}
+      onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}
       onKeyDown={(e) => { if (e.key === "Enter") onAbrir(); }}
+      title="Clique para abrir · botão direito para mover ou desfazer"
       className={cn(
         "group relative block cursor-pointer rounded-lg border bg-white p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft active:cursor-grabbing dark:bg-slate-900 dark:hover:border-brand-400/30",
         marcado ? "border-brand ring-1 ring-brand dark:border-brand-400 dark:ring-brand-400" : "border-slate-200 dark:border-slate-800",

@@ -111,7 +111,9 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   if (!c) return <div className="py-24 text-center text-slate-500">Aluno não encontrado. <Link href="/hm/kanban" className="text-brand underline">Voltar à esteira</Link></div>;
 
   const tags = c.tags ?? [];
-  const jaPagou = !!c.pagamento_em;
+  // A marca de pago é apto_ativacao; pagamento_em é o histórico (fica mesmo quando
+  // o card é devolvido ao Comercial e o pagamento é desfeito).
+  const jaPagou = !!c.apto_ativacao;
 
   return (
     <div className="mx-auto max-w-3xl">
