@@ -144,6 +144,8 @@ export const HmContatoPatchSchema = z.object({
   // ----- cancelamento -----
   cancelamento_motivo: z.string().nullable().optional(),
   link_facebook: z.string().nullable().optional(),
+  // turma do aluno NO HM (a atual, T39 por padrão) — editável para exceções
+  turma: z.string().nullable().optional(),
   // ----- crédito pró-rata (insumos; o crédito é calculado) -----
   credito_oferta: z.string().nullable().optional(),
   credito_compra_em: z.string().nullable().optional(),
