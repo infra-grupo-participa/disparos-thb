@@ -11,6 +11,13 @@ export function cn(...parts: Array<string | false | null | undefined>): string {
 export const fieldClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-xs outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-brand-400 dark:focus:ring-brand-400/15";
 
+// O mesmo campo, na largura do conteúdo — para selects de barra de filtro.
+// Existe porque `cn` concatena sem resolver conflito de Tailwind: um "w-auto"
+// passado por cima de fieldClass NÃO vence o "w-full" dele (quem decide é a
+// ordem no CSS gerado, não a ordem na string) e o select explode para a linha
+// inteira, empilhando os filtros.
+export const fieldCompactClass = fieldClass.replace(/^w-full /, "");
+
 // ---- Button -------------------------------------------------------------
 type ButtonProps = {
   children: ReactNode;

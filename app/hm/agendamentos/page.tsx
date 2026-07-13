@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
+import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { Avatar } from "@/app/_components/avatar";
 import { TagChip } from "@/app/_components/tags";
 
@@ -168,7 +168,7 @@ export default function HmAgendamentosPage() {
           </div>
           <span className="min-w-[13rem] text-base font-semibold capitalize text-slate-800 dark:text-slate-100">{titulo}</span>
 
-          <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={cn(fieldClass, "w-auto")}>
+          <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={fieldCompactClass}>
             <option value="">Reuniões e entrevistas</option>
             <option value="reuniao">Só reuniões</option>
             <option value="entrevista">Só entrevistas</option>

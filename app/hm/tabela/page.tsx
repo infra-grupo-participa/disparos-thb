@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
+import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { Avatar } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { TagChip } from "@/app/_components/tags";
@@ -944,25 +944,25 @@ export default function HmTabelaPage() {
 
         <span className="mx-1 hidden h-6 w-px bg-slate-200 dark:bg-slate-700 sm:block" />
 
-        <div className="relative min-w-[10rem] flex-1">
+        <div className="relative w-52 min-w-[9rem]">
           <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar aluno…" className={cn(fieldClass, "w-full pl-8")} />
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar aluno…" className={cn(fieldClass, "pl-8")} />
         </div>
 
         {responsaveis.length > 0 && (
-          <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto min-w-[9rem]")} title="Responsável">
+          <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={fieldCompactClass} title="Responsável">
             <option value="">Responsável: todos</option>
             {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         )}
         {canais.length > 0 && (
-          <select value={filtroCanal} onChange={(e) => setFiltroCanal(e.target.value)} className={cn(fieldClass, "w-auto min-w-[10rem]")} title="Canal de aquisição / público">
+          <select value={filtroCanal} onChange={(e) => setFiltroCanal(e.target.value)} className={fieldCompactClass} title="Canal de aquisição / público">
             <option value="">Canal: todos</option>
             {canais.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         )}
         {turmas.length > 0 && (
-          <select value={filtroTurma} onChange={(e) => setFiltroTurma(e.target.value)} className={cn(fieldClass, "w-auto min-w-[9rem]")} title="Turma (atual ou de origem)">
+          <select value={filtroTurma} onChange={(e) => setFiltroTurma(e.target.value)} className={fieldCompactClass} title="Turma (atual ou de origem)">
             <option value="">Turma: todas</option>
             {turmas.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
@@ -977,12 +977,14 @@ export default function HmTabelaPage() {
         )}
       </div>
 
-      {/* Lentes: o que está ERRADO com as pessoas, não onde elas estão. Contagem
-          zero também é informação (ninguém travado ali). */}
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-1">
-        {gruposLente.map((grupo) => (
-          <div key={grupo} className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{grupo}</span>
+      {/* Lentes: o que está ERRADO com as pessoas, não onde elas estão. Uma faixa
+          só, discreta — a lente é um atalho, não o assunto da tela. Contagem zero
+          também é informação (ninguém travado ali), mas fala baixo. */}
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-1 gap-y-1 px-1 text-[11px] leading-5">
+        {gruposLente.map((grupo, gi) => (
+          <Fragment key={grupo}>
+            {gi > 0 && <span className="mx-1.5 hidden h-3 w-px self-center bg-slate-200 dark:bg-slate-700 sm:block" />}
+            <span className="mr-0.5 font-medium text-slate-400 dark:text-slate-500">{grupo.toLowerCase()}:</span>
             {LENTES.filter((le) => le.grupo === grupo).map((le) => {
               const n = contagemLente.get(le.id) ?? 0;
               const ativa = lente === le.id;
@@ -992,21 +994,22 @@ export default function HmTabelaPage() {
                   onClick={() => setLente(ativa ? null : le.id)}
                   title={le.label}
                   className={cn(
-                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition",
+                    "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium transition",
                     ativa
-                      ? "border-brand bg-brand/10 text-brand dark:border-brand-400 dark:bg-brand-400/10 dark:text-brand-300"
+                      ? "bg-brand/10 text-brand dark:bg-brand-400/15 dark:text-brand-300"
                       : le.destaque && n > 0
-                        ? "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300"
-                        : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
-                    n === 0 && !ativa && "opacity-60",
+                        ? "text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                        : n > 0
+                          ? "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                          : "text-slate-400 hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-slate-800",
                   )}
                 >
                   {le.label}
-                  <span className="rounded-full bg-slate-200/70 px-1 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300">{n}</span>
+                  <span className={cn("tabular-nums", n === 0 ? "text-slate-300 dark:text-slate-600" : ativa ? "" : "text-slate-400 dark:text-slate-500")}>{n}</span>
                 </button>
               );
             })}
-          </div>
+          </Fragment>
         ))}
       </div>
 
@@ -1202,7 +1205,7 @@ export default function HmTabelaPage() {
                 if (v === "__remover") lote({ responsavel: null }, "remover responsável");
                 else lote({ responsavel: v }, `atribuir a ${v}`);
               }}
-              className={cn(fieldClass, "w-auto min-w-[10rem] py-1.5 text-xs")}
+              className={cn(fieldCompactClass, "py-1.5 text-xs")}
               title="Atribuir responsável (registra na timeline de cada um)"
             >
               <option value="">Responsável…</option>
@@ -1213,7 +1216,7 @@ export default function HmTabelaPage() {
               value=""
               disabled={aplicandoLote}
               onChange={(e) => { if (e.target.value) loteMover(e.target.value); }}
-              className={cn(fieldClass, "w-auto min-w-[10rem] py-1.5 text-xs")}
+              className={cn(fieldCompactClass, "py-1.5 text-xs")}
               title="Mover etapa (respeita a trava do checklist — quem não passar aparece nominalmente)"
             >
               <option value="">Mover para…</option>
@@ -1233,7 +1236,7 @@ export default function HmTabelaPage() {
                   lote({ [v]: true }, `marcar "${item?.label ?? v}"`);
                 }
               }}
-              className={cn(fieldClass, "w-auto min-w-[9rem] py-1.5 text-xs")}
+              className={cn(fieldCompactClass, "py-1.5 text-xs")}
               title="Marcar item do checklist ou o envio do link do saldo"
             >
               <option value="">Marcar…</option>

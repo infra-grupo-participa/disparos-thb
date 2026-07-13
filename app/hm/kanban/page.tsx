@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { DragEvent, WheelEvent } from "react";
-import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
+import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
@@ -397,19 +397,19 @@ export default function HmKanbanPage() {
         </div>
 
         {responsaveis.length > 0 && (
-          <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto min-w-[9rem]")} title="Responsável">
+          <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={fieldCompactClass} title="Responsável">
             <option value="">Responsável: todos</option>
             {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         )}
         {canais.length > 0 && (
-          <select value={filtroCanal} onChange={(e) => setFiltroCanal(e.target.value)} className={cn(fieldClass, "w-auto min-w-[10rem]")} title="Canal de aquisição / público">
+          <select value={filtroCanal} onChange={(e) => setFiltroCanal(e.target.value)} className={fieldCompactClass} title="Canal de aquisição / público">
             <option value="">Canal: todos</option>
             {canais.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         )}
         {turmas.length > 0 && (
-          <select value={filtroTurma} onChange={(e) => setFiltroTurma(e.target.value)} className={cn(fieldClass, "w-auto min-w-[9rem]")} title="Turma (atual ou de origem)">
+          <select value={filtroTurma} onChange={(e) => setFiltroTurma(e.target.value)} className={fieldCompactClass} title="Turma (atual ou de origem)">
             <option value="">Turma: todas</option>
             {turmas.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
