@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthed, getSessao } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, HM_STAGE_ENTREVISTA } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, agendarHm, fecharAgendamentoHm, HM_STAGE_ENTREVISTA } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -54,8 +54,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.plano !== undefined) add("plano", b.plano);
   if (b.reuniao_resultado !== undefined) add("reuniao_resultado", b.reuniao_resultado);
   if (b.entrevista_resultado !== undefined) add("entrevista_resultado", b.entrevista_resultado);
-  if (b.reuniao_em !== undefined) sets.push(`reuniao_em = ${b.reuniao_em ? `$${vals.push(b.reuniao_em)}::timestamptz` : "null"}`);
-  if (b.entrevista_em !== undefined) sets.push(`entrevista_em = ${b.entrevista_em ? `$${vals.push(b.entrevista_em)}::timestamptz` : "null"}`);
+  // reuniao_em / entrevista_em NÃO são escritas aqui: passam por agendarHm, que
+  // sabe distinguir marcar de REMARCAR (e guarda a marcação anterior).
   if (b.tags !== undefined) { sets.push(`tags = $${vals.length + 1}`); vals.push(b.tags); }
 
   // Acordo do saldo — o gargalo que vivia em texto solto na planilha.
@@ -110,16 +110,26 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Responsável — via serviço (registra a mudança na timeline; permite reatribuir).
   if (b.responsavel !== undefined) await setResponsavelHm(compradorId, b.responsavel || null, operador);
 
-  // Agendou reunião estando em "Comprou HM" → avança para "Reunião Agendada".
-  if (b.reuniao_em) {
-    await addNotaHm(compradorId, `Reunião agendada para ${fmtBr(b.reuniao_em)}`, operador);
-    if (atual.estagio_chave === "hm_comprou") await moverEstagioHm(compradorId, "hm_reuniao_agendada", operador);
+  // Agendar / REAGENDAR. O serviço guarda a marcação anterior e conta quantas
+  // vezes o aluno já remarcou — quem remarca três vezes não é "um agendamento",
+  // é um sinal. `agendamento_motivo` explica por que a anterior caiu.
+  if (b.reuniao_em !== undefined) {
+    await agendarHm(compradorId, "reuniao", b.reuniao_em || null, b.agendamento_motivo ?? null, operador);
+    // Agendou estando em "Contato Inicial" → avança para "Reunião Agendada".
+    if (b.reuniao_em && atual.estagio_chave === "hm_comprou") {
+      await moverEstagioHm(compradorId, "hm_reuniao_agendada", operador);
+    }
   }
-  if (b.entrevista_em) {
-    await addNotaHm(compradorId, `Entrevista agendada para ${fmtBr(b.entrevista_em)}`, operador);
-    if (atual.estagio_chave && ["hm_pendente_liberacao", "hm_apto_ativacao", "hm_acesso_liberado", "hm_pagamento_realizado", "hm_comprou", "hm_reuniao_agendada", "hm_reuniao_finalizada"].includes(atual.estagio_chave)) {
+  if (b.entrevista_em !== undefined) {
+    await agendarHm(compradorId, "entrevista", b.entrevista_em || null, b.agendamento_motivo ?? null, operador);
+    if (b.entrevista_em && atual.estagio_chave && ["hm_pendente_liberacao", "hm_apto_ativacao", "hm_acesso_liberado", "hm_pagamento_realizado", "hm_comprou", "hm_reuniao_agendada", "hm_reuniao_finalizada", "hm_ativacao_contato"].includes(atual.estagio_chave)) {
       await moverEstagioHm(compradorId, HM_STAGE_ENTREVISTA, operador);
     }
+  }
+
+  // Fechar a marcação vigente: aconteceu, o aluno não veio, ou foi cancelada.
+  if (b.agendamento_status && b.agendamento_tipo) {
+    await fecharAgendamentoHm(compradorId, b.agendamento_tipo, b.agendamento_status, b.agendamento_motivo ?? null, operador);
   }
 
   // Pagamento do saldo (14.700) — provisiona o aluno na base THB e dispara a

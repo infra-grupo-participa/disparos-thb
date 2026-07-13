@@ -30,6 +30,17 @@ type Contato = {
   cancelamento_em: string | null; cancelamento_motivo: string | null;
 };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
+// Marcação de reunião/entrevista. `status` conta a história: a vigente é
+// "agendado"; as que caíram viram "reagendado" (com motivo), "nao_compareceu"
+// (o no-show, que é o dado que a operação não tinha) ou "cancelado".
+type Agendamento = {
+  tipo: "reuniao" | "entrevista";
+  quando: string;
+  status: "agendado" | "reagendado" | "realizado" | "nao_compareceu" | "cancelado";
+  motivo: string | null;
+  autor: string | null;
+  criado_em: string;
+};
 // numeric do Postgres chega como string no driver pg — normalize antes de somar.
 type Financeiro = {
   valor_total: string | null; valor_pago: string | null; aluno_id: string | null;
@@ -120,6 +131,8 @@ export function HmDrawer({
   const [pendencia, setPendencia] = useState("");
   const [grupo, setGrupo] = useState("");
   const [copiado, setCopiado] = useState(false);
+  const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [motivoAgenda, setMotivoAgenda] = useState("");
   const [socios, setSocios] = useState<Socio[]>([]);
   const [novoSocio, setNovoSocio] = useState({ nome: "", email: "", telefone: "" });
 
@@ -135,6 +148,8 @@ export function HmDrawer({
       setProrata(d.prorata ?? null);
       setLinks(d.linksSaldo ?? []);
       setSocios(d.socios ?? []);
+      setAgendamentos(d.agendamentos ?? []);
+      setMotivoAgenda("");
       setAcordo(d.contato.acordo ?? "");
       setPrevisao(d.contato.pagamento_previsto_em?.slice(0, 10) ?? "");
       setPendencia(d.contato.pendencia ?? "");
@@ -179,7 +194,10 @@ export function HmDrawer({
     }
   }
 
-  const jaPagou = !!c?.pagamento_em;
+  // "Pagou" é a marca operacional (apto_ativacao), não a data: um card devolvido
+  // ao Comercial conserva a data do pagamento como histórico, mas volta a pedir a
+  // confirmação — senão o formulário de pagamento nunca mais reapareceria.
+  const jaPagou = !!c?.apto_ativacao;
   const temHistorico = timeline.some((it) => it.tipo === "mudanca_estagio");
   const feitos = c ? ITENS_CHECKLIST.filter((i) => !!c[i.campo]).length : 0;
 
@@ -301,11 +319,19 @@ export function HmDrawer({
                 )}
               </Campo>
 
-              <Campo label="Reunião comercial (data e hora)">
-                <div className="flex items-center gap-2">
-                  <input type="datetime-local" value={reuniao} onChange={(e) => setReuniao(e.target.value)} className={fieldClass} />
-                  <Button variant="secondary" size="sm" disabled={salvando} onClick={() => patch({ reuniao_em: fromLocalInput(reuniao) })}>OK</Button>
-                </div>
+              <BlocoAgendamento
+                tipo="reuniao"
+                rotulo="Reunião comercial"
+                atual={c.reuniao_em}
+                valor={reuniao}
+                onValor={setReuniao}
+                motivo={motivoAgenda}
+                onMotivo={setMotivoAgenda}
+                historico={agendamentos}
+                salvando={salvando}
+                onSalvar={(quando, motivo) => patch({ reuniao_em: quando, agendamento_motivo: motivo })}
+                onFechar={(status) => patch({ agendamento_tipo: "reuniao", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
+              >
                 <select
                   value={c.reuniao_resultado ?? ""}
                   onChange={(e) => patch({ reuniao_resultado: e.target.value || null })}
@@ -315,7 +341,7 @@ export function HmDrawer({
                   <option value="">— Status da reunião —</option>
                   {RESULTADOS.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
-              </Campo>
+              </BlocoAgendamento>
 
               {/* ACORDO DO SALDO — o gargalo. Na planilha isto era "Como vai pagar
                   o saldo restante?" + "Link enviado" + "pagamento agendado 17/07",
@@ -421,12 +447,19 @@ export function HmDrawer({
                 )}
               </div>
 
-              <Campo label="Entrevista de ativação (data e hora)">
-                <div className="flex items-center gap-2">
-                  <input type="datetime-local" value={entrevista} onChange={(e) => setEntrevista(e.target.value)} className={fieldClass} />
-                  <Button variant="secondary" size="sm" disabled={salvando} onClick={() => patch({ entrevista_em: fromLocalInput(entrevista) })}>OK</Button>
-                </div>
-              </Campo>
+              <BlocoAgendamento
+                tipo="entrevista"
+                rotulo="Entrevista de ativação"
+                atual={c.entrevista_em}
+                valor={entrevista}
+                onValor={setEntrevista}
+                motivo={motivoAgenda}
+                onMotivo={setMotivoAgenda}
+                historico={agendamentos}
+                salvando={salvando}
+                onSalvar={(quando, motivo) => patch({ entrevista_em: quando, agendamento_motivo: motivo })}
+                onFechar={(status) => patch({ agendamento_tipo: "entrevista", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
+              />
 
               {/* CHECKLIST DE ATIVAÇÃO — as 4 colunas TRUE/FALSE da planilha.
                   Juntas elas SÃO "ativado", e por isso travam a saída de
@@ -740,3 +773,103 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
     </div>
   );
 }
+
+// Agendar e REAGENDAR no mesmo lugar. Com data marcada, o botão deixa de ser
+// "Agendar" e vira "Reagendar", pedindo o motivo — porque remarcar não é corrigir
+// um campo, é um fato da operação: a pessoa tinha um horário e ele caiu. O bloco
+// também fecha a marcação vigente (realizada / não compareceu), que é o que
+// distingue quem remarcou de quem simplesmente não apareceu.
+function BlocoAgendamento({
+  tipo, rotulo, atual, valor, onValor, motivo, onMotivo, historico, salvando, onSalvar, onFechar, children,
+}: {
+  tipo: "reuniao" | "entrevista";
+  rotulo: string;
+  atual: string | null;
+  valor: string;
+  onValor: (v: string) => void;
+  motivo: string;
+  onMotivo: (v: string) => void;
+  historico: Agendamento[];
+  salvando: boolean;
+  onSalvar: (quando: string | null, motivo: string | null) => void;
+  onFechar: (status: "realizado" | "nao_compareceu") => void;
+  children?: React.ReactNode;
+}) {
+  const doTipo = historico.filter((a) => a.tipo === tipo);
+  const remarcadas = doTipo.filter((a) => a.status === "reagendado").length;
+  const faltas = doTipo.filter((a) => a.status === "nao_compareceu").length;
+  const marcado = !!atual;
+  const mudou = fromLocalInput(valor) !== (atual ?? null);
+
+  return (
+    <Campo label={`${rotulo} (data e hora)`}>
+      <div className="flex items-center gap-2">
+        <input type="datetime-local" value={valor} onChange={(e) => onValor(e.target.value)} className={fieldClass} />
+        <Button
+          variant={marcado && mudou ? "primary" : "secondary"}
+          size="sm"
+          disabled={salvando || !mudou}
+          onClick={() => onSalvar(fromLocalInput(valor), motivo.trim() || null)}
+          title={marcado ? "Registrar a remarcação (guarda a data anterior)" : "Agendar"}
+        >
+          {marcado ? (fromLocalInput(valor) ? "Reagendar" : "Desmarcar") : "Agendar"}
+        </Button>
+      </div>
+
+      {/* O motivo só faz sentido quando já existe uma marcação: é a explicação de
+          por que a anterior caiu. */}
+      {marcado && mudou && (
+        <input
+          value={motivo}
+          onChange={(e) => onMotivo(e.target.value)}
+          placeholder="Motivo da remarcação (ex.: aluno pediu para adiar, não compareceu)"
+          className={cn(fieldClass, "mt-1.5 text-xs")}
+        />
+      )}
+
+      {marcado && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <Button variant="secondary" size="sm" disabled={salvando} onClick={() => onFechar("realizado")}>Realizada</Button>
+          <Button variant="secondary" size="sm" disabled={salvando} onClick={() => onFechar("nao_compareceu")}>Não compareceu</Button>
+        </div>
+      )}
+
+      {(remarcadas > 0 || faltas > 0) && (
+        <p className="mt-1.5 flex flex-wrap gap-1.5">
+          {remarcadas > 0 && (
+            <span className="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+              remarcada {remarcadas}x
+            </span>
+          )}
+          {faltas > 0 && (
+            <span className="inline-flex items-center rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+              {faltas} não comparecimento{faltas > 1 ? "s" : ""}
+            </span>
+          )}
+        </p>
+      )}
+
+      {/* As marcações anteriores, com o porquê de cada uma ter caído. */}
+      {doTipo.length > 1 && (
+        <ul className="mt-1.5 space-y-0.5 border-l-2 border-slate-100 pl-2 dark:border-slate-800">
+          {doTipo.filter((a) => a.status !== "agendado").slice(0, 4).map((a, i) => (
+            <li key={i} className="text-[11px] text-slate-400 dark:text-slate-500">
+              <span className="tabular-nums">{fmt(a.quando)}</span> · {ROTULO_STATUS[a.status] ?? a.status}
+              {a.motivo ? ` — ${a.motivo}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {children}
+    </Campo>
+  );
+}
+
+const ROTULO_STATUS: Record<string, string> = {
+  reagendado: "remarcada",
+  realizado: "realizada",
+  nao_compareceu: "não compareceu",
+  cancelado: "cancelada",
+  agendado: "agendada",
+};

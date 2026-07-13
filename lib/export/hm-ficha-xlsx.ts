@@ -28,6 +28,9 @@ function d(v: unknown): Date | null {
 function simNao(v: unknown): string {
   return v === true ? "Sim" : v === false ? "Não" : "—";
 }
+function txtOu(v: unknown): string {
+  return v === null || v === undefined || v === "" ? "—" : String(v);
+}
 
 // Nome de arquivo que sobrevive ao Windows e ao Drive: sem acento, sem barra.
 export function nomeArquivoFicha(nome: string | null | undefined, agora: Date): string {
@@ -200,6 +203,39 @@ export async function fichaHmParaXlsx(f: FichaHm, agora: Date): Promise<Buffer> 
     ]);
   }
   if (f.socios.length === 0) vazio(wsS, "Nenhum sócio convidado.");
+
+  // ---------------------------------------------------------- aba Agendamentos
+  // Toda marcação de reunião/entrevista, inclusive as que caíram: é a trilha que
+  // mostra quem remarcou (e quantas vezes) e quem simplesmente não apareceu.
+  const wsA = wb.addWorksheet("Agendamentos");
+  cabecalho(wsA, [
+    { header: "Tipo", width: 14 },
+    { header: "Marcada para", width: 20 },
+    { header: "Situação", width: 18 },
+    { header: "Motivo", width: 44 },
+    { header: "Quem marcou", width: 20 },
+    { header: "Registrado em", width: 20 },
+  ]);
+  const SIT: Record<string, string> = {
+    agendado: "Agendada (vigente)",
+    reagendado: "Remarcada",
+    realizado: "Realizada",
+    nao_compareceu: "Não compareceu",
+    cancelado: "Cancelada",
+  };
+  for (const a of f.agendamentos) {
+    const l = wsA.addRow([
+      a.tipo === "entrevista" ? "Entrevista" : "Reunião",
+      d(a.quando) ?? "—",
+      SIT[String(a.status)] ?? String(a.status),
+      txtOu(a.motivo),
+      txtOu(a.autor),
+      d(a.criado_em) ?? "—",
+    ]);
+    l.getCell(2).numFmt = "dd/mm/yyyy hh:mm";
+    l.getCell(6).numFmt = "dd/mm/yyyy hh:mm";
+  }
+  if (f.agendamentos.length === 0) vazio(wsA, "Nenhuma reunião ou entrevista marcada.");
 
   // ------------------------------------------------------------- aba Histórico
   const wsT = wb.addWorksheet("Histórico");

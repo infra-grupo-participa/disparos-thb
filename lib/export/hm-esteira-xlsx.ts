@@ -44,8 +44,13 @@ const COLUNAS: Col[] = [
   { header: "Turma de origem", width: 15, get: (l) => txt(l.turma_origem) },
   { header: "Reunião", width: 17, get: (l) => d(l.reuniao_em) ?? "—", fmt: "data" },
   { header: "Resultado da reunião", width: 20, get: (l) => txt(l.reuniao_resultado) },
+  // Quem remarca sem parar e quem não aparece: o sinal que a planilha antiga não
+  // guardava, porque a nova data simplesmente apagava a anterior.
+  { header: "Reuniões remarcadas", width: 14, get: (l) => n(l.reunioes_remarcadas) ?? 0 },
   { header: "Entrevista", width: 17, get: (l) => d(l.entrevista_em) ?? "—", fmt: "data" },
   { header: "Resultado da entrevista", width: 20, get: (l) => txt(l.entrevista_resultado) },
+  { header: "Entrevistas remarcadas", width: 15, get: (l) => n(l.entrevistas_remarcadas) ?? 0 },
+  { header: "Não compareceu (vezes)", width: 15, get: (l) => n(l.nao_comparecimentos) ?? 0 },
   { header: "Meio de pagamento", width: 18, get: (l) => txt(l.pagamento_meio) },
   { header: "Previsão de pagamento", width: 18, get: (l) => d(l.pagamento_previsto_em) ?? "—", fmt: "data" },
   { header: "Acordo", width: 40, get: (l) => txt(l.acordo) },

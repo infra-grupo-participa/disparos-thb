@@ -14,6 +14,8 @@ export type FichaHm = {
   timeline: Record<string, unknown>[];
   formularios: Record<string, unknown>[];
   financeiro: Record<string, unknown> | null;
+  /** Todas as marcações de reunião/entrevista — inclusive as que foram remarcadas. */
+  agendamentos: Record<string, unknown>[];
 };
 
 // Retorna null quando o comprador não tem card HM.
@@ -95,5 +97,17 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
     [compradorId],
   );
 
-  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro };
+  // Histórico de marcações (0064). A data vigente está no card; aqui está a
+  // trilha — inclusive as marcações que caíram, que é o que revela o aluno que
+  // remarca sem parar.
+  const agendamentos = await query(
+    `select a.tipo, a.quando, a.status, a.motivo, a.autor, a.criado_em, a.encerrado_em
+       from cs.hm_agendamentos a
+       join cs.contatos_hm ch on ch.id = a.contato_hm_id
+      where ch.comprador_id = $1
+      order by a.criado_em desc`,
+    [compradorId],
+  );
+
+  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, agendamentos };
 }

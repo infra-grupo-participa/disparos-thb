@@ -123,6 +123,13 @@ export const HmContatoPatchSchema = z.object({
   reuniao_resultado: z.string().nullable().optional(),
   entrevista_em: z.string().nullable().optional(),
   entrevista_resultado: z.string().nullable().optional(),
+  // ----- agendamento / reagendamento -----
+  // Mudar reuniao_em/entrevista_em quando já havia data É um reagendamento: o
+  // motivo explica por que a marcação anterior caiu, e o histórico guarda as duas.
+  agendamento_motivo: z.string().nullable().optional(),
+  // Fecha a marcação vigente (o que aconteceu com ela).
+  agendamento_tipo: z.enum(["reuniao", "entrevista"]).optional(),
+  agendamento_status: z.enum(["realizado", "nao_compareceu", "cancelado"]).optional(),
   // ----- acordo do saldo (o que o comercial combina com o aluno) -----
   pagamento_meio: z.enum(["boleto", "cartao", "cartao_recorrente", "pix", "avista"]).nullable().optional(),
   pagamento_previsto_em: z.string().nullable().optional(),   // "vai pagar dia 17"

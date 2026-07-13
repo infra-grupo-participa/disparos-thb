@@ -52,6 +52,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             k.cancelamento_em, k.cancelamento_motivo,
             k.criado_em, k.observacoes,
             so.qtd as socios,
+            rg.reunioes_remarcadas, rg.entrevistas_remarcadas, rg.nao_comparecimentos,
             me.criado_em as entrou_estagio_em,
             case when me.criado_em is not null
                  then extract(day from now() - me.criado_em)::int end as dias_na_etapa
@@ -62,6 +63,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
        left join lateral (
          select count(*)::int as qtd from cs.hm_socios s where s.contato_hm_id = ch.id
        ) so on true
+       left join cs.hm_reagendamentos rg on rg.comprador_id = k.comprador_id
        left join lateral (
          select i.criado_em from cs.interacoes i
           where i.contato_hm_id = ch.id and i.tipo = 'mudanca_estagio'
