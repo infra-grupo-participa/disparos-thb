@@ -11,13 +11,26 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const tipo = sp.get("tipo"); // 'reuniao' | 'entrevista' | null (ambos)
 
+  // O modal da agenda precisa do contexto que faz a reunião valer a pena: quem é
+  // a pessoa (aluno da base? lead novo?), o que foi combinado, se o link do saldo
+  // já foi enviado e se há trava ("não contatar"). Sem isso, o card da agenda é
+  // só um nome numa data — e alguém teria que abrir o kanban para saber do que
+  // se trata.
   const rows = await query(
-    `select comprador_id, nome, telefone, plano, responsavel, estagio_nome,
+    `select comprador_id, nome, email, telefone, plano, responsavel, estagio_nome, estagio_aba,
+            tags, turma, turma_origem, acordo, pagamento_meio, pagamento_previsto_em,
+            link_saldo_enviado_em, nao_contatar, nao_contatar_motivo, revisar, revisar_motivo,
+            pendencia, apto_ativacao, observacoes,
+            ativ_searchie, ativ_comunidade, ativ_grupo, ativ_pesquisa,
             'reuniao'::text as tipo, reuniao_em as quando, reuniao_resultado as resultado
        from cs.contatos_hm_kanban
       where reuniao_em is not null and ($1::text is null or $1 = 'reuniao')
      union all
-     select comprador_id, nome, telefone, plano, responsavel, estagio_nome,
+     select comprador_id, nome, email, telefone, plano, responsavel, estagio_nome, estagio_aba,
+            tags, turma, turma_origem, acordo, pagamento_meio, pagamento_previsto_em,
+            link_saldo_enviado_em, nao_contatar, nao_contatar_motivo, revisar, revisar_motivo,
+            pendencia, apto_ativacao, observacoes,
+            ativ_searchie, ativ_comunidade, ativ_grupo, ativ_pesquisa,
             'entrevista'::text as tipo, entrevista_em as quando, entrevista_resultado as resultado
        from cs.contatos_hm_kanban
       where entrevista_em is not null and ($1::text is null or $1 = 'entrevista')

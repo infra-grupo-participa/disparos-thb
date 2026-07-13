@@ -195,6 +195,15 @@ for (const r of lerAba(achar("Programa de Implementação"))) {
   const naoContatar = /N[ÃA]O ENTRAR EM CONTATO/i.test(contatoComercial);
   const precisaRevisar = situacao.includes("REVISAR") || situacao.includes("ATRASO");
 
+  // A coluna "Contato Comercial" é um saco de gatos: guarda a trava ("NÃO ENTRAR
+  // EM CONTATO"), a previsão de pagamento ("pagamento agendado 17/07") e recados
+  // ("quer ver o contrato"). Ler só a trava perdia a previsão — dinheiro com data
+  // marcada, que é exatamente o que o comercial precisa enxergar.
+  const cc = naoContatar ? { pagamentoPrevisto: null, nota: null } : agenda(contatoComercial);
+  const previsao = ag.pagamentoPrevisto ?? cc.pagamentoPrevisto;
+  // O que sobra do "Contato Comercial" é o combinado — vai para o acordo.
+  const acordoTxt = !naoContatar && !cc.pagamentoPrevisto && contatoComercial ? contatoComercial : cc.nota;
+
   registros.push({
     aba: "Programa de Implementação",
     nome: pick(r, "nome"), documento: digitos(pick(r, "documento")),
@@ -206,7 +215,8 @@ for (const r of lerAba(achar("Programa de Implementação"))) {
     credito_valor_pago: numero(pick(r, "valor pago")),
     credito_dias_totais: numero(pick(r, "dias totais")) ?? 365,
     reuniao_em: ag.reuniao,
-    pagamento_previsto_em: ag.pagamentoPrevisto,
+    pagamento_previsto_em: previsao,
+    acordo: acordoTxt || null,
     reuniao_resultado: pick(r, "status da reuniao") || null,
     etapa: etapaPorStatus(pick(r, "status da reuniao"), false),
     diz_que_pagou: dizQuePagou(pick(r, "status da reuniao")),
@@ -437,6 +447,8 @@ try {
 
   // "Realizada/pago" sem pagamento na Hotmart: o comercial afirma, a plataforma
   // não confirma. O sistema não escolhe um lado — marca para conferência humana.
+  // O app roda como `disparos_app`, que não lê public.compras (RLS sem grant) —
+  // a pergunta "tem pagamento de verdade?" passa pela função SECURITY DEFINER.
   let conferir = 0;
   for (const c of casados.filter((x) => x.diz_que_pagou)) {
     const { rowCount } = await db.query(
@@ -446,13 +458,7 @@ try {
                 'Planilha diz "Realizada/pago", mas a Hotmart não registra o pagamento do saldo. '
                 || 'Se foi combinado fora da plataforma, use "Registrar pagamento" na ficha.'),
               atualizado_em = now()
-        where ch.id = $1
-          and not exists (
-            select 1 from public.compras c
-              join public.hm_product_catalog cat on cat.offer_code = c.oferta_codigo
-             where c.comprador_id = ch.comprador_id
-               and c.status in ('APPROVED','COMPLETE','COMPLETED')
-               and cat.categoria in ('diferenca','compra_cheia'))`,
+        where ch.id = $1 and not cs.fn_hm_tem_lastro(ch.comprador_id)`,
       [c.card.card_id],
     );
     conferir += rowCount;
@@ -485,7 +491,7 @@ try {
   }
 
   await db.query("commit");
-  console.log(`\n✅ Gravado: ${n} cards atualizados · ${movidos} movidos de etapa · ${s} sócios inseridos.\n`);
+  console.log(`\n✅ Gravado: ${n} cards atualizados · ${movidos} movidos de etapa · ${s} sócios · ${conferir} marcados para conferência.\n`);
 } catch (e) {
   await db.query("rollback");
   console.error("\n❌ ROLLBACK — nada foi gravado:", e.message, "\n");

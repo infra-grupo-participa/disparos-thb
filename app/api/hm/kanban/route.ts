@@ -6,11 +6,14 @@ import { moverEstagioHm } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
-// As tags do card carregam duas coisas diferentes: o CANAL de aquisição (por
-// onde a pessoa entrou — "HT ATM", "Live Direto ao Ponto", "Aurum"…) e a TURMA
-// de origem na base ("T29", "A5"…). Só o formato distingue as duas: turma é
-// sempre T/A + número. Separar aqui é o que permite os dois filtros do board.
-const RE_TURMA = "^[TA][0-9]+(\\.[0-9]+)?$";
+// As tags do card carregam coisas diferentes e o board as filtra em separado:
+//   TURMA  → "Origem T29" (de onde veio) · "Turma T39" (a turma atual, ganha ao
+//            pagar) · "Aurum A5"
+//   CANAL  → por onde entrou ("HT ATM", "Live Direto ao Ponto", "Imersão POA",
+//            "HT28", "HM - Programa de Implementação")
+//   PÚBLICO → quem é ("Aluno THB", "Aluno Aurum", "Lead novo") — entra no filtro
+//            de canal, porque é assim que o time pergunta ("quem é aluno THB?").
+const RE_TURMA = "^(Origem|Turma|Aurum) ";
 
 // GET /api/hm/kanban — colunas (estágios HM, com a aba) + cards do overlay
 // cs.contatos_hm. Sem edição/evento: o HM é um espaço próprio (turma T39).

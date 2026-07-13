@@ -1,8 +1,18 @@
 # HM T39 — mapa da planilha de controle → sistema
 
-> **Status (13/07/2026): a estrutura está PRONTA.** Todos os campos abaixo já
-> existem no banco e têm input na ficha do card (migrations 0056 e 0057). Falta
-> apenas **importar os dados dos CSVs** — nada mais precisa ser construído.
+> **Status (13/07/2026): MIGRAÇÃO CONCLUÍDA.** A estrutura existe (migrations
+> 0056/0057) **e os dados da planilha foram importados** — 129 linhas, 132 cards,
+> zero órfãs. O importador é `scripts/import-hm-planilha.mjs` (dry-run por
+> padrão; `--apply` grava em transação). A planilha pode ser aposentada.
+>
+> Achados da importação, que valem como regra:
+> - A **Imersão POA** vendia o HM com outra oferta (sinal de R$2.000, `nz3ob9r2`) e
+>   caía fora do corte de 25/06: 7 pessoas não tinham card. Corrigido na 0059.
+> - "Realizada/pago" na planilha **não cria pagamento** no sistema: 12 cards tinham
+>   esse status sem pagamento correspondente na Hotmart. Eles ficam em "Reunião
+>   Finalizada", marcados para conferência — o sistema não inventa matrícula.
+> - A coluna "Contato Comercial" guardava três coisas ao mesmo tempo (trava,
+>   previsão de pagamento e recado). Só a leitura por fragmento salvou os dados.
 >
 > Onde cada coisa ficou:
 > - **Acordo do saldo** (meio, previsão, o combinado, link enviado) → bloco "Acordo do saldo" na ficha, com o link escolhido automaticamente pelo valor do saldo.

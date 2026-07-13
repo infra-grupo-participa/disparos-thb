@@ -15,3 +15,6 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 /playwright/.cache/
+
+# artefato de execução do import (relatório da última rodada)
+scripts/.import-hm-relatorio.json
