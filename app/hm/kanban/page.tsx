@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { WheelEvent } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import type { DragEvent, WheelEvent } from "react";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
@@ -9,6 +9,7 @@ import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
 import { useMe } from "@/app/_components/use-me";
+import { MarcaPortal } from "@/app/_components/marca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
 
@@ -21,6 +22,7 @@ type Card = {
   plano: string | null;
   categoria_entrada: string | null;
   estagio_chave: string;
+  estagio_nome: string | null;
   estagio_aba: string | null;
   responsavel: string | null;
   tags: string[];
@@ -31,12 +33,31 @@ type Card = {
   ultima_msg: string | null;
   entrou_estagio_em: string | null;
 };
-type Coluna = { chave: string; nome: string; cor: string; aba: string | null; total: number };
+type Coluna = { chave: string; nome: string; cor: string; aba: string | null };
 
 const ABAS: { id: string; label: string }[] = [
   { id: "comercial", label: "Comercial" },
   { id: "ativacao", label: "Ativação" },
 ];
+
+const COL_PAGAMENTO = "hm_pagamento_realizado";
+
+// Em qual coluna DESTA aba o card aparece — ou null se ele não pertence a ela.
+// Quem quitou o saldo vive na Ativação, mas o Comercial não pode perdê-lo de
+// vista: ele continua visível lá, parado em "Pagamento Realizado". É o mesmo
+// card (um único estágio no banco), mostrado nas duas esteiras.
+function colunaNaAba(card: Card, aba: string): string | null {
+  const abaDoCard = card.estagio_aba ?? "comercial";
+  if (abaDoCard === aba) return card.estagio_chave;
+  if (aba === "comercial" && abaDoCard === "ativacao") return COL_PAGAMENTO;
+  return null;
+}
+// Espelho = card que está de fato na Ativação e aparece no Comercial só como
+// registro do pagamento. Arrastá-lo de volta desfaz o pagamento (o servidor
+// limpa apto_ativacao), então o board avisa antes.
+function ehEspelho(card: Card, aba: string): boolean {
+  return aba === "comercial" && (card.estagio_aba ?? "comercial") === "ativacao";
+}
 
 function relativo(iso: string | null): string {
   if (!iso) return "";
@@ -69,6 +90,39 @@ function catLabel(cat: string | null): { txt: string; cls: string } | null {
   return null;
 }
 
+// Posição onde o card cairá: entre quais dois cards da coluna o cursor está.
+// O índice é visual (conta o próprio card arrastado, que continua na lista
+// durante o gesto) — vira uma âncora ("antes de quem") na hora de salvar.
+type Alvo = { col: string; indice: number };
+
+function indiceSobOCursor(e: DragEvent<HTMLDivElement>): number {
+  const cards = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-card]"));
+  for (let i = 0; i < cards.length; i++) {
+    const r = cards[i].getBoundingClientRect();
+    if (e.clientY < r.top + r.height / 2) return i;
+  }
+  return cards.length;
+}
+
+// Aplica o movimento na lista local antes da resposta do servidor: tira o card e
+// o recoloca logo acima do vizinho (ou no fim da coluna, quando não há vizinho).
+// A tela filtra os cards por coluna preservando a ordem do array — é ela que
+// carrega a ordenação vertical até o próximo carregamento.
+function reordenarLocal(cards: Card[], card: Card, colChave: string, antesDe: string | null, aba: string): Card[] {
+  const movido: Card = { ...card, estagio_chave: colChave, estagio_aba: aba };
+  const resto = cards.filter((c) => c.comprador_id !== card.comprador_id);
+  const pos = antesDe ? resto.findIndex((c) => c.comprador_id === antesDe) : -1;
+  if (pos >= 0) {
+    resto.splice(pos, 0, movido);
+    return resto;
+  }
+  const naColuna = resto.filter((c) => colunaNaAba(c, aba) === colChave);
+  const ultimo = naColuna.at(-1);
+  const fim = ultimo ? resto.findIndex((c) => c.comprador_id === ultimo.comprador_id) + 1 : resto.length;
+  resto.splice(fim, 0, movido);
+  return resto;
+}
+
 function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
   const board = e.currentTarget;
   if (board.scrollWidth <= board.clientWidth) return;
@@ -88,14 +142,16 @@ export default function HmKanbanPage() {
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
-  const [tags, setTags] = useState<string[]>([]);
+  const [canais, setCanais] = useState<string[]>([]);
+  const [turmas, setTurmas] = useState<string[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [filtroResp, setFiltroResp] = useState("");
-  const [filtroTag, setFiltroTag] = useState("");
+  const [filtroCanal, setFiltroCanal] = useState("");
+  const [filtroTurma, setFiltroTurma] = useState("");
   const [busca, setBusca] = useState("");
   const [aba, setAba] = useState("comercial");
   const [carregando, setCarregando] = useState(true);
-  const [sobre, setSobre] = useState<string | null>(null);
+  const [alvo, setAlvo] = useState<Alvo | null>(null);
   const [selecionado, setSelecionado] = useState<string | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [dispararLote, setDispararLote] = useState(false);
@@ -114,55 +170,91 @@ export default function HmKanbanPage() {
     try {
       const params = new URLSearchParams();
       if (filtroResp) params.set("responsavel", filtroResp);
-      if (filtroTag) params.set("tag", filtroTag);
+      if (filtroCanal) params.set("canal", filtroCanal);
+      if (filtroTurma) params.set("turma", filtroTurma);
       const r = await fetch(`/api/hm/kanban?${params.toString()}`);
       const d = await r.json();
       if (d.ok) {
         setColunas(d.colunas);
         setCards(d.cards);
         if (Array.isArray(d.responsaveis)) setResponsaveis(d.responsaveis);
-        if (Array.isArray(d.tags)) setTags(d.tags);
+        if (Array.isArray(d.canais)) setCanais(d.canais);
+        if (Array.isArray(d.turmas)) setTurmas(d.turmas);
       }
     } finally {
       setCarregando(false);
     }
-  }, [filtroResp, filtroTag]);
+  }, [filtroResp, filtroCanal, filtroTurma]);
 
   useEffect(() => { carregar(); }, [carregar]);
   useEffect(() => {
     fetch("/api/hm/estagios").then((r) => r.json()).then((d) => { if (d.ok) setEstagios(d.estagios); }).catch(() => {});
   }, []);
 
-  async function mover(card: Card, estagioChave: string) {
-    if (card.estagio_chave === estagioChave) return;
-    // Otimista; se a etapa for "Pagamento Realizado", o servidor joga pra
-    // Ativação — recarrega para refletir a transição automática.
-    const vaiParaAtivacao = estagioChave === "hm_pagamento_realizado";
-    setCards((cs) => cs.map((c) => (c.comprador_id === card.comprador_id ? { ...c, estagio_chave: estagioChave } : c)));
+  // Um único gesto responde por duas coisas: a coluna (para onde) e a ordem
+  // vertical (em que lugar da fila). `antesDe` é o card que ficará logo abaixo —
+  // null significa "no fim da coluna".
+  async function mover(card: Card, estagioChave: string, antesDe: string | null) {
+    const mudouDeColuna = colunaNaAba(card, aba) !== estagioChave;
+    // O espelho é só o registro do pagamento no Comercial: o card mora na
+    // Ativação e a ordem dele pertence à fila de lá. Reordenar aqui não teria
+    // onde ser gravado — ignora o gesto vertical.
+    if (!mudouDeColuna && ehEspelho(card, aba)) return;
+    // Arrastar o espelho para outra coluna do Comercial tira o card da Ativação
+    // e apaga o pagamento — nunca é o que a pessoa quis fazer sem pensar.
+    // Cancelamento é a exceção: lá o pagamento é preservado (o servidor sabe).
+    if (mudouDeColuna && ehEspelho(card, aba) && estagioChave !== "hm_cancelamento") {
+      const etapa = card.estagio_nome ?? "Ativação";
+      const ok = window.confirm(
+        `${card.nome} já quitou o saldo e está em "${etapa}" na Ativação.\n\n` +
+          "Trazê-lo de volta ao Comercial desfaz o pagamento e tira o card da Ativação. Continuar?",
+      );
+      if (!ok) return;
+    }
+    // Otimista; o servidor pode redirecionar o destino (ex.: "Pagamento
+    // Realizado" joga o card para a Ativação) — por isso recarrega depois.
+    setCards((cs) => reordenarLocal(cs, card, estagioChave, antesDe, aba));
     try {
-      await fetch("/api/hm/kanban", {
+      const r = await fetch("/api/hm/kanban", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ compradorId: card.comprador_id, estagioChave }),
+        body: JSON.stringify({ compradorId: card.comprador_id, estagioChave, antesDe }),
       });
+      // A ativação incompleta barra a saída de "Acesso Liberado": o servidor
+      // devolve o que falta, e o board diz — em vez de o card voltar sozinho
+      // sem explicação (o recarregar abaixo desfaz o movimento otimista).
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        if (d?.reason === "checklist_incompleto") {
+          window.alert(
+            `A ativação de ${card.nome} ainda não está completa.\n\nFalta: ${(d.faltando ?? []).join(", ")}.\n\n` +
+              "Marque os itens na ficha do card para poder avançar.",
+          );
+        }
+      }
     } finally {
-      if (vaiParaAtivacao) await carregar();
+      await carregar();
     }
   }
 
   const q = busca.trim().toLowerCase();
   const cardsFiltrados = q ? cards.filter((c) => c.nome.toLowerCase().includes(q) || (c.telefone ?? "").includes(q)) : cards;
   const colunasAba = colunas.filter((c) => (c.aba ?? "comercial") === aba);
-  const totalComercial = colunas.filter((c) => c.aba === "comercial").reduce((s, c) => s + c.total, 0);
-  const totalAtivacao = colunas.filter((c) => c.aba === "ativacao").reduce((s, c) => s + c.total, 0);
+  // O card pago conta nas duas abas (ele aparece nas duas) — por isso o total
+  // sai daqui, e não de um count no banco que não conhece o espelho.
+  const totalComercial = cards.filter((c) => colunaNaAba(c, "comercial")).length;
+  const totalAtivacao = cards.filter((c) => colunaNaAba(c, "ativacao")).length;
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
+          <div className="flex items-center gap-2.5">
+            <MarcaPortal portal="hm" altura="h-7" comNome={false} />
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
+          </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            Turma T39 · {totalComercial + totalAtivacao} aluno(s) — arraste os cards entre as etapas.
+            Turma T39 · {totalComercial + totalAtivacao} aluno(s) — arraste os cards entre as etapas e para cima/baixo para ordenar a fila.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -176,10 +268,16 @@ export default function HmKanbanPage() {
               {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           )}
-          {tags.length > 0 && (
-            <select value={filtroTag} onChange={(e) => setFiltroTag(e.target.value)} className={cn(fieldClass, "w-auto")}>
-              <option value="">Todas as tags</option>
-              {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+          {canais.length > 0 && (
+            <select value={filtroCanal} onChange={(e) => setFiltroCanal(e.target.value)} className={cn(fieldClass, "w-auto")} title="Canal de aquisição">
+              <option value="">Todos os canais</option>
+              {canais.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          {turmas.length > 0 && (
+            <select value={filtroTurma} onChange={(e) => setFiltroTurma(e.target.value)} className={cn(fieldClass, "w-auto")} title="Turma de origem na base">
+              <option value="">Todas as turmas</option>
+              {turmas.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
           {podeDisparar && cardsFiltrados.length > 0 && (
@@ -229,14 +327,13 @@ export default function HmKanbanPage() {
         <div className="-mx-4 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6" onWheel={rolarBoardHorizontal}>
           <Reveal className="flex gap-3">
             {colunasAba.map((col) => {
-              const doCol = cardsFiltrados.filter((c) => c.estagio_chave === col.chave);
-              const ativa = sobre === col.chave;
+              const doCol = cardsFiltrados.filter((c) => colunaNaAba(c, aba) === col.chave);
+              const ativa = alvo?.col === col.chave;
+              // Onde a linha de inserção aparece nesta coluna (-1 = em nenhum lugar).
+              const marca = ativa ? alvo.indice : -1;
               return (
                 <div
                   key={col.chave}
-                  onDragOver={(e) => { e.preventDefault(); setSobre(col.chave); }}
-                  onDragLeave={() => setSobre((s) => (s === col.chave ? null : s))}
-                  onDrop={() => { if (arrastando.current) mover(arrastando.current, col.chave); arrastando.current = null; setSobre(null); }}
                   className={cn(
                     "js-reveal flex w-72 shrink-0 flex-col rounded-xl border bg-slate-50/60 transition dark:bg-slate-900/40",
                     ativa ? "border-brand/40 bg-brand/5 dark:border-brand-400/40 dark:bg-brand-400/10" : "border-slate-200 dark:border-slate-800",
@@ -245,24 +342,61 @@ export default function HmKanbanPage() {
                   <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2.5 dark:border-slate-800">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: col.cor }} />
                     <span className="flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{col.nome}</span>
-                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">{col.total}</span>
+                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {cards.filter((c) => colunaNaAba(c, aba) === col.chave).length}
+                    </span>
                   </div>
-                  <div data-col-scroll className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto p-2">
-                    {doCol.length === 0 ? (
+                  <div
+                    data-col-scroll
+                    onDragOver={(e) => {
+                      const card = arrastando.current;
+                      if (!card) return;
+                      // Espelho não se reordena na própria coluna (a fila dele é a
+                      // da Ativação): sem preventDefault, o drop nem acontece.
+                      if (ehEspelho(card, aba) && col.chave === COL_PAGAMENTO) return;
+                      e.preventDefault();
+                      const indice = indiceSobOCursor(e);
+                      setAlvo((a) => (a?.col === col.chave && a.indice === indice ? a : { col: col.chave, indice }));
+                    }}
+                    onDragLeave={(e) => {
+                      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                      setAlvo((a) => (a?.col === col.chave ? null : a));
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const card = arrastando.current;
+                      const indice = alvo?.col === col.chave ? alvo.indice : 0;
+                      arrastando.current = null;
+                      setAlvo(null);
+                      if (!card) return;
+                      const atual = doCol.findIndex((c) => c.comprador_id === card.comprador_id);
+                      // Soltar logo acima ou logo abaixo de si mesmo é o mesmo lugar.
+                      if (atual >= 0 && (indice === atual || indice === atual + 1)) return;
+                      const vizinho = doCol[indice] ?? null;
+                      mover(card, col.chave, vizinho?.comprador_id ?? null);
+                    }}
+                    className="flex max-h-[70vh] min-h-[72px] flex-col gap-2 overflow-y-auto p-2"
+                  >
+                    {doCol.length === 0 && marca < 0 ? (
                       <p className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-600">Sem cards</p>
                     ) : (
-                      doCol.map((card) => (
-                        <CardItem
-                          key={card.comprador_id}
-                          card={card}
-                          onDragStart={() => { arrastando.current = card; }}
-                          onAbrir={() => setSelecionado(card.comprador_id)}
-                          selecionavel={podeDisparar}
-                          marcado={marcados.has(card.comprador_id)}
-                          onToggleMarcado={() => toggleMarcado(card.comprador_id)}
-                        />
+                      doCol.map((card, i) => (
+                        <Fragment key={card.comprador_id}>
+                          {marca === i && <LinhaDrop />}
+                          <CardItem
+                            card={card}
+                            espelho={ehEspelho(card, aba)}
+                            onDragStart={() => { arrastando.current = card; }}
+                            onDragEnd={() => { arrastando.current = null; setAlvo(null); }}
+                            onAbrir={() => setSelecionado(card.comprador_id)}
+                            selecionavel={podeDisparar}
+                            marcado={marcados.has(card.comprador_id)}
+                            onToggleMarcado={() => toggleMarcado(card.comprador_id)}
+                          />
+                        </Fragment>
                       ))
                     )}
+                    {marca === doCol.length && <LinhaDrop />}
                   </div>
                 </div>
               );
@@ -306,10 +440,15 @@ export default function HmKanbanPage() {
   );
 }
 
+// Linha que mostra em que ponto da fila o card vai cair.
+function LinhaDrop() {
+  return <div aria-hidden className="h-0.5 shrink-0 rounded-full bg-brand dark:bg-brand-400" />;
+}
+
 function CardItem({
-  card, onDragStart, onAbrir, selecionavel, marcado, onToggleMarcado,
+  card, espelho, onDragStart, onDragEnd, onAbrir, selecionavel, marcado, onToggleMarcado,
 }: {
-  card: Card; onDragStart: () => void; onAbrir: () => void;
+  card: Card; espelho: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
   selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
 }) {
   const cat = catLabel(card.categoria_entrada);
@@ -320,14 +459,16 @@ function CardItem({
     : null;
   return (
     <div
+      data-card
       role="button"
       tabIndex={0}
       draggable
       onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onClick={onAbrir}
       onKeyDown={(e) => { if (e.key === "Enter") onAbrir(); }}
       className={cn(
-        "group relative block cursor-pointer rounded-lg border bg-white p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft dark:bg-slate-900 dark:hover:border-brand-400/30",
+        "group relative block cursor-pointer rounded-lg border bg-white p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft active:cursor-grabbing dark:bg-slate-900 dark:hover:border-brand-400/30",
         marcado ? "border-brand ring-1 ring-brand dark:border-brand-400 dark:ring-brand-400" : "border-slate-200 dark:border-slate-800",
       )}
     >
@@ -347,7 +488,7 @@ function CardItem({
           {card.apto_ativacao && (
             <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" title="Pagamento do saldo confirmado">
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-              apto
+              pago
             </span>
           )}
         </div>
@@ -356,6 +497,13 @@ function CardItem({
 
       <p className="mt-1.5 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{card.nome}</p>
       {card.plano && <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">{card.plano}</p>}
+
+      {espelho && (
+        <p className="mt-1 inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Este card já está na esteira de Ativação — aqui ele é só o registro do pagamento">
+          <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          Ativação · {card.estagio_nome ?? "em andamento"}
+        </p>
+      )}
 
       {card.tags.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">

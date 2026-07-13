@@ -6,32 +6,34 @@ import { moverEstagioHm } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
+// As tags do card carregam duas coisas diferentes: o CANAL de aquisição (por
+// onde a pessoa entrou — "HT ATM", "Live Direto ao Ponto", "Aurum"…) e a TURMA
+// de origem na base ("T29", "A5"…). Só o formato distingue as duas: turma é
+// sempre T/A + número. Separar aqui é o que permite os dois filtros do board.
+const RE_TURMA = "^[TA][0-9]+(\\.[0-9]+)?$";
+
 // GET /api/hm/kanban — colunas (estágios HM, com a aba) + cards do overlay
 // cs.contatos_hm. Sem edição/evento: o HM é um espaço próprio (turma T39).
+// Os totais das colunas NÃO vêm daqui: um card pago aparece em duas colunas
+// (espelho do pagamento no Comercial), e só a tela sabe dessa regra.
 export async function GET(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
   const sp = new URL(req.url).searchParams;
   const responsavel = sp.get("responsavel") || null;
-  const tag = sp.get("tag") || null;
-  const f = [responsavel, tag];
+  const canal = sp.get("canal") || null;
+  const turma = sp.get("turma") || null;
+  const f = [responsavel, canal, turma];
 
   const colunas = await query(
-    `select e.chave, e.nome, e.cor, e.aba,
-            count(k.contato_hm_id) filter (
-              where ($1::text is null or k.responsavel = $1)
-                and ($2::text is null or $2 = any(k.tags))
-            )::int as total
+    `select e.chave, e.nome, e.cor, e.aba
        from cs.estagios e
-       left join cs.contatos_hm_kanban k on k.estagio_chave = e.chave
       where e.ativo and e.evento = 'HM'
-      group by e.id, e.chave, e.nome, e.cor, e.aba, e.ordem
       order by e.ordem`,
-    f,
   );
 
   const cards = await query(
     `select k.comprador_id, k.nome, k.email, k.telefone, k.turma, k.plano, k.categoria_entrada,
-            k.estagio_chave, k.estagio_aba, k.responsavel, k.tags, k.apto_ativacao,
+            k.estagio_chave, k.estagio_nome, k.estagio_aba, k.responsavel, k.tags, k.apto_ativacao,
             k.reuniao_em, k.entrevista_em, k.pagamento_em,
             um.descricao as ultima_msg,
             me.criado_em as entrou_estagio_em
@@ -48,15 +50,19 @@ export async function GET(req: Request) {
        ) me on true
       where ($1::text is null or k.responsavel = $1)
         and ($2::text is null or $2 = any(k.tags))
-      order by k.atualizado_em desc nulls last, k.nome`,
+        and ($3::text is null or $3 = any(k.tags))
+      order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
   );
 
   const respRows = await query<{ responsavel: string }>(
     `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> '' order by responsavel`,
   );
-  const tagRows = await query<{ tag: string }>(
-    `select distinct unnest(tags) as tag from cs.contatos_hm where array_length(tags, 1) > 0 order by tag`,
+  const tagRows = await query<{ tag: string; eh_turma: boolean }>(
+    `select distinct t as tag, t ~ $1 as eh_turma
+       from cs.contatos_hm, unnest(tags) t
+      order by tag`,
+    [RE_TURMA],
   );
 
   return NextResponse.json({
@@ -64,17 +70,25 @@ export async function GET(req: Request) {
     colunas,
     cards,
     responsaveis: respRows.map((r) => r.responsavel),
-    tags: tagRows.map((t) => t.tag),
+    canais: tagRows.filter((t) => !t.eh_turma).map((t) => t.tag),
+    turmas: tagRows.filter((t) => t.eh_turma).map((t) => t.tag),
   });
 }
 
-// PATCH /api/hm/kanban — move um card. body: { compradorId, estagioChave }
+// PATCH /api/hm/kanban — move um card de coluna e/ou o reordena na vertical.
+// body: { compradorId, estagioChave, antesDe? } — antesDe é o card que fica logo
+// abaixo dele (null = fim da coluna, ausente = topo). Arrastar só na vertical é
+// um PATCH com o mesmo estagioChave: o serviço reordena e não mexe na timeline.
 export async function PATCH(req: Request) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const p = await parseBody(req, HmMoverSchema);
   if (!p.ok) return p.res;
-  const ok = await moverEstagioHm(p.data.compradorId, p.data.estagioChave, sessao.nome || "cs");
-  if (!ok) return NextResponse.json({ ok: false, reason: "estagio_invalido" }, { status: 400 });
+  const { compradorId, estagioChave, antesDe } = p.data;
+  const posicao = antesDe === undefined ? undefined : { antesDe };
+  const r = await moverEstagioHm(compradorId, estagioChave, sessao.nome || "cs", posicao);
+  // `faltando` são os itens do checklist de ativação que barraram a saída de
+  // "Acesso Liberado" — o board mostra a lista em vez de um erro genérico.
+  if (!r.ok) return NextResponse.json({ ok: false, reason: r.reason, faltando: r.faltando }, { status: 400 });
   return NextResponse.json({ ok: true });
 }
