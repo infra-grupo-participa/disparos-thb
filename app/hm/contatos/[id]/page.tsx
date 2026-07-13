@@ -40,6 +40,11 @@ function fromLocalInput(v: string): string | null {
   const d = new Date(v);
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
+// numeric do Postgres chega como string no driver pg.
+function numOu0(v: string | number | null | undefined): number {
+  const n = typeof v === "string" ? Number(v) : v ?? 0;
+  return Number.isFinite(n) ? (n as number) : 0;
+}
 
 const TL_ICONE: Record<string, { path: string; wrap: string }> = {
   resposta: { path: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", wrap: "bg-emerald-50 text-emerald-600 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:ring-emerald-500/30" },
@@ -63,6 +68,8 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   const [entrevistaLocal, setEntrevistaLocal] = useState("");
   const [pgForma, setPgForma] = useState<"avista" | "parcelado">("avista");
   const [pgParcelas, setPgParcelas] = useState(12);
+  const [pgTotal, setPgTotal] = useState("");
+  const [pgPago, setPgPago] = useState("");
 
   const recarregar = useCallback(async () => {
     const r = await fetch(`/api/hm/contato/${compradorId}`);
@@ -73,6 +80,13 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
       setFormularios(d.formularios ?? []);
       setReuniaoLocal(toLocalInput(d.contato.reuniao_em));
       setEntrevistaLocal(toLocalInput(d.contato.entrevista_em));
+      // Sugestão do servidor para o bloco financeiro (15.000 quando a entrada
+      // foi o sinal). O operador confere antes de confirmar.
+      const sugestao = numOu0(d.financeiro?.valor_total) || numOu0(d.financeiro?.sugestao_valor_total);
+      if (sugestao > 0) {
+        setPgTotal(String(sugestao));
+        setPgPago(String(numOu0(d.financeiro?.valor_pago) || sugestao));
+      }
     }
     setCarregando(false);
   }, [compradorId]);
@@ -115,7 +129,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {c.turma && <Badge cls="bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">{c.turma}</Badge>}
             {c.estagio_nome && <Badge cls="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{c.estagio_nome}</Badge>}
-            {c.apto_ativacao && <Badge cls="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Apto para ativação</Badge>}
+            {c.apto_ativacao && <Badge cls="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Saldo pago</Badge>}
           </div>
         </div>
         {c.telefone && (
@@ -177,7 +191,12 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
               <div className="space-y-3">
                 <div className="flex flex-wrap items-end gap-3">
                   <Campo label="Forma">
-                    <select value={pgForma} onChange={(e) => setPgForma(e.target.value as "avista" | "parcelado")} className={cn(fieldClass, "w-auto")}>
+                    <select value={pgForma} className={cn(fieldClass, "w-auto")}
+                      onChange={(e) => {
+                        const f = e.target.value as "avista" | "parcelado";
+                        setPgForma(f);
+                        if (f === "avista") setPgPago(pgTotal);
+                      }}>
                       <option value="avista">À vista</option>
                       <option value="parcelado">Parcelado</option>
                     </select>
@@ -187,7 +206,23 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                       <input type="number" min={1} max={24} value={pgParcelas} onChange={(e) => setPgParcelas(Number(e.target.value))} className={cn(fieldClass, "w-24")} />
                     </Campo>
                   )}
-                  <Button variant="primary" disabled={salvando} onClick={() => patch({ pagamento_forma: pgForma, pagamento_parcelas: pgForma === "parcelado" ? pgParcelas : null, marcar_pagamento: true })}>
+                  <Campo label="Valor total">
+                    <input type="number" min={0} step="0.01" value={pgTotal}
+                      onChange={(e) => { setPgTotal(e.target.value); if (pgForma === "avista") setPgPago(e.target.value); }}
+                      className={cn(fieldClass, "w-32")} />
+                  </Campo>
+                  <Campo label="Valor já pago">
+                    <input type="number" min={0} step="0.01" value={pgPago}
+                      onChange={(e) => setPgPago(e.target.value)} className={cn(fieldClass, "w-32")} />
+                  </Campo>
+                  <Button variant="primary" disabled={salvando || numOu0(pgTotal) <= 0}
+                    onClick={() => patch({
+                      pagamento_forma: pgForma,
+                      pagamento_parcelas: pgForma === "parcelado" ? pgParcelas : null,
+                      valor_total: numOu0(pgTotal),
+                      valor_pago: numOu0(pgPago),
+                      marcar_pagamento: true,
+                    })}>
                     Registrar pagamento realizado
                   </Button>
                 </div>
@@ -195,7 +230,9 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
                   Abrir checkout do saldo na Hotmart
                 </a>
-                <p className="text-xs text-slate-400 dark:text-slate-500">Ao registrar, o card vai automaticamente para a Ativação (Entrevista Agendada) marcado como apto.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Ao registrar, o card vai para a Ativação (Pendente de Liberação) e o aluno é criado/atualizado na base THB (turma T39) com os valores acima.
+                </p>
               </div>
             )}
           </Secao>
