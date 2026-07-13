@@ -462,8 +462,9 @@ export function HmDrawer({
               />
 
               {/* CHECKLIST DE ATIVAÇÃO — as 4 colunas TRUE/FALSE da planilha.
-                  Juntas elas SÃO "ativado", e por isso travam a saída de
-                  "Acesso Liberado" (o servidor recusa e diz o que falta). */}
+                  Juntas elas SÃO "ativado": é o que abre a porta de "Ativação
+                  Realizada", a última coluna da esteira (o servidor recusa a
+                  entrada e diz o que falta). Fora dessa porta, o board é livre. */}
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Checklist de ativação</p>

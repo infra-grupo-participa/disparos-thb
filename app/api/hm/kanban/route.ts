@@ -90,8 +90,8 @@ export async function PATCH(req: Request) {
   const { compradorId, estagioChave, antesDe } = p.data;
   const posicao = antesDe === undefined ? undefined : { antesDe };
   const r = await moverEstagioHm(compradorId, estagioChave, sessao.nome || "cs", posicao);
-  // `faltando` são os itens do checklist de ativação que barraram a saída de
-  // "Acesso Liberado" — o board mostra a lista em vez de um erro genérico.
+  // `faltando` são os itens do checklist que barraram a entrada em "Ativação
+  // Realizada" — o board mostra a lista em vez de um erro genérico.
   if (!r.ok) return NextResponse.json({ ok: false, reason: r.reason, faltando: r.faltando }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

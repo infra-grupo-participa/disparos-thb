@@ -211,15 +211,17 @@ export default function HmKanbanPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ compradorId: card.comprador_id, estagioChave, antesDe }),
       });
-      // A ativação incompleta barra a saída de "Acesso Liberado": o servidor
-      // devolve o que falta, e o board diz — em vez de o card voltar sozinho
-      // sem explicação (o recarregar abaixo desfaz o movimento otimista).
+      // "Ativação Realizada" é a única porta com trava: só entra quem cumpriu o
+      // checklist. O servidor devolve o que falta, e o board diz — em vez de o
+      // card voltar sozinho sem explicação (o recarregar abaixo desfaz o
+      // movimento otimista).
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         if (d?.reason === "checklist_incompleto") {
           window.alert(
-            `A ativação de ${card.nome} ainda não está completa.\n\nFalta: ${(d.faltando ?? []).join(", ")}.\n\n` +
-              "Marque os itens na ficha do card para poder avançar.",
+            `${card.nome} ainda não pode entrar em "Ativação Realizada".\n\n` +
+              `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
+              "Marque os itens do checklist na ficha do card.",
           );
         }
       }

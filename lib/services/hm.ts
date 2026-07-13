@@ -11,6 +11,8 @@ export const HM_STAGE_PAGAMENTO = "hm_pagamento_realizado";
 export const HM_STAGE_CANCELAMENTO = "hm_cancelamento";
 export const HM_STAGE_PENDENTE = "hm_pendente_liberacao";
 export const HM_STAGE_ACESSO = "hm_acesso_liberado";
+// A linha de chegada da esteira (0065): só entra quem cumpriu o checklist inteiro.
+export const HM_STAGE_ATIVACAO_REALIZADA = "hm_ativacao_realizada";
 export const HM_STAGE_ENTREVISTA = "hm_entrevista_agendada";
 
 type EstagioHm = { id: number; chave: string; nome: string; aba: string | null; ordem: number };
@@ -117,8 +119,8 @@ export async function moverEstagioHm(
   const novo = await estagioPorChave(chave);
   if (!novo) return { ok: false, reason: "estagio_invalido" };
 
-  const ch = await queryOne<{ id: string; estagio_id: number | null; apto_ativacao: boolean; estagio_chave: string | null; estagio_ordem: number | null }>(
-    `select ch.id, ch.estagio_id, ch.apto_ativacao, e.chave as estagio_chave, e.ordem as estagio_ordem
+  const ch = await queryOne<{ id: string; estagio_id: number | null; apto_ativacao: boolean; estagio_chave: string | null }>(
+    `select ch.id, ch.estagio_id, ch.apto_ativacao, e.chave as estagio_chave
        from cs.contatos_hm ch left join cs.estagios e on e.id = ch.estagio_id
       where ch.comprador_id = $1`,
     [compradorId],
@@ -130,12 +132,11 @@ export async function moverEstagioHm(
     return { ok: true };
   }
 
-  // Trava do checklist: sair de "Acesso Liberado" para a frente exige a ativação
-  // completa. Voltar (para trás na esteira, ou para o Comercial) continua livre —
-  // a trava existe para impedir avanço com ativação pela metade, não para prender
-  // o card quando o operador percebe que errou.
-  const avancando = (novo.ordem ?? 0) > (ch.estagio_ordem ?? 0);
-  if (ch.estagio_chave === HM_STAGE_ACESSO && avancando) {
+  // A ÚNICA trava do board: "Ativação Realizada" é a linha de chegada, e só entra
+  // nela quem cumpriu o checklist inteiro (Searchie, comunidade, grupo, pesquisa).
+  // A trava guarda a porta de uma coluna — não prende o card no meio do caminho:
+  // todo o resto do kanban se move livremente, para frente e para trás.
+  if (chave === HM_STAGE_ATIVACAO_REALIZADA) {
     const faltando = await checklistPendente(compradorId);
     if (faltando.length > 0) return { ok: false, reason: "checklist_incompleto", faltando };
   }
@@ -252,6 +253,11 @@ export async function moverEstagioHm(
   }
   await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
   await reposicionarNaColuna(ch.id, novo.id, posicao);
+
+  // Chegou na linha de chegada — e só chega quem cumpriu o checklist inteiro.
+  if (chave === HM_STAGE_ATIVACAO_REALIZADA) {
+    await addInteracaoHm(ch.id, "sistema", "Ativação concluída — checklist completo (Searchie, comunidade, grupo e pesquisa)", autor);
+  }
 
   // Quem está na Ativação precisa existir na base mestre, senão o GPS nunca cria
   // o acesso dele. Blindado: a base é de outro domínio e não pode travar o board.
