@@ -13,7 +13,77 @@ export type FiltrosHm = {
   estagio?: string | null;
 };
 
-export type LinhaEsteira = Record<string, unknown>;
+// Datas: o driver pg entrega Date no servidor (o XLSX as recebe assim), mas a
+// mesma linha atravessa o JSON até a tabela e vira string ISO. O tipo cobre os
+// dois consumidores — quem formata normaliza com new Date().
+export type QuandoHm = string | Date | null;
+
+// A linha da esteira — o contrato entre o SELECT abaixo, o XLSX e a visão em
+// tabela. Um campo que não está aqui não existe para nenhum relatório: tabela e
+// planilha saem da MESMA função justamente para nunca contarem histórias
+// diferentes.
+export type LinhaEsteira = {
+  comprador_id: string;
+  nome: string;
+  email: string | null;
+  telefone: string | null;
+  // ----- onde está (etapa + esteira) -----
+  estagio_chave: string;
+  estagio_nome: string | null;
+  estagio_aba: string | null;
+  estagio_ordem: number | null;
+  responsavel: string | null;
+  // ----- quem é (fato — não se digita) -----
+  categoria_entrada: string | null;
+  plano: string | null;
+  turma: string | null;
+  turma_origem: string | null;
+  tags: string[];
+  // ----- compromissos -----
+  reuniao_em: QuandoHm;
+  reuniao_resultado: string | null;
+  entrevista_em: QuandoHm;
+  entrevista_resultado: string | null;
+  // ----- acordo do saldo (o que só o operador sabe) -----
+  pagamento_meio: string | null;
+  pagamento_previsto_em: QuandoHm;
+  acordo: string | null;
+  oferta_saldo_codigo: string | null;
+  link_saldo_enviado_em: QuandoHm;
+  // ----- quanto (numeric do Postgres chega como string no driver pg) -----
+  pagamento_em: QuandoHm;
+  pagamento_forma: string | null;
+  pagamento_parcelas: number | null;
+  apto_ativacao: boolean;
+  valor_total: string | null;
+  valor_pago: string | null;
+  aluno_id: string | null;
+  saldo_a_pagar: string | null;
+  credito: string | null;
+  // ----- ativação -----
+  ativ_searchie: boolean;
+  ativ_comunidade: boolean;
+  ativ_grupo: boolean;
+  ativ_pesquisa: boolean;
+  grupo_informes: string | null;
+  pendencia: string | null;
+  // ----- travas -----
+  nao_contatar: boolean;
+  nao_contatar_motivo: string | null;
+  revisar: boolean;
+  revisar_motivo: string | null;
+  cancelamento_em: QuandoHm;
+  cancelamento_motivo: string | null;
+  criado_em: QuandoHm;
+  observacoes: string | null;
+  // ----- derivados (conta, não campo) -----
+  socios: number;
+  reunioes_remarcadas: number | null;
+  entrevistas_remarcadas: number | null;
+  nao_comparecimentos: number | null;
+  entrou_estagio_em: QuandoHm;
+  dias_na_etapa: number | null;
+};
 export type ColunaHm = { chave: string; nome: string; cor: string; aba: string | null; ordem: number };
 
 export type RelatorioHm = {
@@ -37,7 +107,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
   // Uma linha por aluno, na ordem em que ele aparece no board (coluna, depois a
   // posição manual dentro dela). `entrou_estagio_em` é a última mudança de etapa —
   // é dela que sai o "há quantos dias esse card está parado aqui".
-  const linhas = await query(
+  const linhas = await query<LinhaEsteira>(
     `select k.comprador_id, k.nome, k.email, k.telefone,
             k.estagio_chave, k.estagio_nome, k.estagio_aba, est.ordem as estagio_ordem,
             k.responsavel, k.categoria_entrada, k.plano, k.turma, k.turma_origem, k.tags,

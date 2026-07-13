@@ -1,0 +1,102 @@
+import { NextResponse } from "next/server";
+import { getSessao } from "@/lib/auth";
+import { query } from "@/lib/db";
+import { logger } from "@/lib/log";
+import { parseBody, HmLoteSchema } from "@/lib/validators";
+import { moverEstagioHm, setResponsavelHm } from "@/lib/services/hm";
+
+export const runtime = "nodejs";
+
+const log = logger("hm-lote");
+
+type Falha = { compradorId: string; nome: string; motivo: string; faltando?: string[] };
+
+// POST /api/hm/lote — ações em massa da tabela HM (espelha /api/kanban/lote, do HT).
+// body: { compradorIds, responsavel?, estagio_chave?, ativ_*?, link_saldo_enviado? }
+//
+// A regra que define esta rota: ela ITERA chamando os serviços, um aluno por
+// vez — nunca um `UPDATE ... WHERE id = ANY(...)`. É mais lento e é o certo:
+// mover etapa em massa por update direto pularia a trava do checklist, o
+// provisionamento do aluno na base THB, a liberação de acesso e a timeline —
+// um lote que corrompe a base em escala. A resposta diz quem passou e quem não
+// (`falhas`, com o `faltando` do checklist), para a tela mostrar nominalmente.
+export async function POST(req: Request) {
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const operador = sessao.nome || "cs";
+  const p = await parseBody(req, HmLoteSchema);
+  if (!p.ok) return p.res;
+  const b = p.data;
+
+  // Nome de cada um antes de começar: a falha é reportada pela pessoa
+  // ("Fulano — falta a pesquisa"), não por um uuid que ninguém reconhece.
+  const nomes = new Map(
+    (
+      await query<{ comprador_id: string; nome: string }>(
+        `select comprador_id, nome from cs.contatos_hm_kanban where comprador_id = any($1::uuid[])`,
+        [b.compradorIds],
+      )
+    ).map((r) => [r.comprador_id, r.nome]),
+  );
+
+  // Checklist e link: os mesmos updates unitários do PATCH da ficha. Ficam fora
+  // dos serviços porque não têm consequência além do campo — mas continuam um a
+  // um, pelo mesmo motivo do resto do lote.
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  const add = (col: string, v: unknown) => {
+    vals.push(v);
+    sets.push(`${col} = $${vals.length + 1}`);
+  };
+  if (b.ativ_searchie !== undefined) add("ativ_searchie", b.ativ_searchie);
+  if (b.ativ_comunidade !== undefined) add("ativ_comunidade", b.ativ_comunidade);
+  if (b.ativ_grupo !== undefined) add("ativ_grupo", b.ativ_grupo);
+  if (b.ativ_pesquisa !== undefined) add("ativ_pesquisa", b.ativ_pesquisa);
+  // O envio do link carimba a HORA (agora) — é a data que permite cobrar quem
+  // recebeu e não pagou; desmarcar limpa o carimbo.
+  if (b.link_saldo_enviado !== undefined) {
+    sets.push(`link_saldo_enviado_em = ${b.link_saldo_enviado ? "now()" : "null"}`);
+  }
+
+  let aplicados = 0;
+  const falhas: Falha[] = [];
+
+  for (const compradorId of b.compradorIds) {
+    const nome = nomes.get(compradorId);
+    if (!nome) {
+      falhas.push({ compradorId, nome: compradorId, motivo: "contato não encontrado" });
+      continue;
+    }
+    try {
+      if (b.responsavel !== undefined) {
+        await setResponsavelHm(compradorId, b.responsavel || null, operador);
+      }
+      if (sets.length) {
+        await query(
+          `update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now() where comprador_id = $1`,
+          [compradorId, ...vals],
+        );
+      }
+      // A etapa por último: um lote "marca o checklist E move para Ativação
+      // Realizada" só faz sentido se os itens contarem antes da trava.
+      if (b.estagio_chave) {
+        const r = await moverEstagioHm(compradorId, b.estagio_chave, operador);
+        if (!r.ok) {
+          falhas.push({
+            compradorId,
+            nome,
+            motivo: r.reason === "checklist_incompleto" ? "checklist incompleto" : "etapa inválida",
+            faltando: r.faltando,
+          });
+          continue;
+        }
+      }
+      aplicados++;
+    } catch (e) {
+      log.error("falha ao aplicar ação em lote no card HM", e, { compradorId });
+      falhas.push({ compradorId, nome, motivo: "erro ao aplicar — tente de novo" });
+    }
+  }
+
+  return NextResponse.json({ ok: true, aplicados, falhas });
+}

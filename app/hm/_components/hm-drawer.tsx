@@ -165,10 +165,30 @@ export function HmDrawer({
   }, [compradorId]);
   useEffect(() => { setC(null); recarregar(); }, [recarregar]);
 
+  // O servidor pode RECUSAR a edição: "Ativação Realizada" é a linha de chegada
+  // e só entra quem cumpriu os 4 itens do checklist. Ele devolve 400 com o que
+  // falta — a ficha diz isso ao operador, com as mesmas palavras do board, em vez
+  // de recarregar com o seletor de volta na etapa antiga sem explicação nenhuma.
+  // Recusa não é mudança: o board não é avisado (onChanged), mas a ficha
+  // recarrega para que o seletor volte ao que de fato está gravado.
   async function patch(payload: Record<string, unknown>) {
     setSalvando(true);
     try {
-      await fetch(`/api/hm/contato/${compradorId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const r = await fetch(`/api/hm/contato/${compradorId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        if (d?.reason === "checklist_incompleto") {
+          window.alert(
+            `${c?.nome ?? "Este aluno"} ainda não pode entrar em "Ativação Realizada".\n\n` +
+              `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
+              "Marque os itens do checklist de ativação aqui na ficha.",
+          );
+        } else {
+          window.alert("Não foi possível salvar esta alteração. Tente de novo.");
+        }
+        await recarregar();
+        return;
+      }
       await recarregar();
       onChanged();
     } finally {

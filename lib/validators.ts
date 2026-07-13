@@ -192,3 +192,20 @@ export const KanbanLoteSchema = z.object({
   addTag: z.string().optional(),
   responsavel: z.string().nullable().optional(),
 });
+
+// Ações em massa da tabela HM. Só entra aqui o que é seguro aplicar a vários de
+// uma vez: responsável, etapa (que passa pelo serviço — a trava do checklist
+// vale para cada um), itens do checklist e o carimbo do link do saldo.
+// Pagamento e cancelamento ficam de fora de propósito: têm consequência na base
+// mestre (matrícula do GPS) e exigem a confirmação da ficha, um por um.
+export const HmLoteSchema = z.object({
+  compradorIds: z.array(id).min(1),
+  responsavel: z.string().nullable().optional(),
+  estagio_chave: z.string().min(1).optional(),
+  ativ_searchie: z.boolean().optional(),
+  ativ_comunidade: z.boolean().optional(),
+  ativ_grupo: z.boolean().optional(),
+  ativ_pesquisa: z.boolean().optional(),
+  // marca/desmarca o envio do link — carimba a HORA em cada um (não um booleano)
+  link_saldo_enviado: z.boolean().optional(),
+});

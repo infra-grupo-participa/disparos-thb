@@ -145,11 +145,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     );
   }
 
-  // Mudança de estágio manual (via seletor) — depois dos automáticos.
-  if (b.estagio_chave) await moverEstagioHm(compradorId, b.estagio_chave, operador);
-
-  // Nota manual na timeline.
+  // Nota manual na timeline — ANTES da etapa, porque ela não depende dela: o que
+  // o operador escreveu é dele, e uma etapa recusada (checklist incompleto) não
+  // pode levar a anotação embora no 400.
   if (b.nota && b.nota.trim()) await addNotaHm(compradorId, b.nota.trim(), operador);
+
+  // Mudança de estágio manual (via seletor) — depois dos automáticos. A recusa
+  // volta como 400 com o `faltando` do checklist: a trava de "Ativação
+  // Realizada" vale igual em qualquer tela, e a tela diz O QUE falta em vez de
+  // recarregar com o card no mesmo lugar sem explicação.
+  if (b.estagio_chave) {
+    const mov = await moverEstagioHm(compradorId, b.estagio_chave, operador);
+    if (!mov.ok) {
+      return NextResponse.json({ ok: false, reason: mov.reason, faltando: mov.faltando }, { status: 400 });
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }

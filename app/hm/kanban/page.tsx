@@ -6,6 +6,7 @@ import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
+import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
 import { useMe } from "@/app/_components/use-me";
@@ -148,6 +149,9 @@ export default function HmKanbanPage() {
   const [filtroResp, setFiltroResp] = useState("");
   const [filtroCanal, setFiltroCanal] = useState("");
   const [filtroTurma, setFiltroTurma] = useState("");
+  // Os filtros nascem da URL e voltam para ela: é assim que o alternador
+  // Kanban ⇄ Tabela troca de leitura sem perder o contexto do que se olhava.
+  const [filtrosProntos, setFiltrosProntos] = useState(false);
   const [busca, setBusca] = useState("");
   const [aba, setAba] = useState("comercial");
   const [carregando, setCarregando] = useState(true);
@@ -194,7 +198,21 @@ export default function HmKanbanPage() {
     }
   }, [filtroResp, filtroCanal, filtroTurma]);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  // Lê os filtros da URL uma vez, antes do primeiro carregamento — senão o
+  // board buscaria sem filtro e refaria a busca logo em seguida.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    setFiltroResp(sp.get("responsavel") ?? "");
+    setFiltroCanal(sp.get("canal") ?? "");
+    setFiltroTurma(sp.get("turma") ?? "");
+    setFiltrosProntos(true);
+  }, []);
+  useEffect(() => {
+    if (!filtrosProntos) return;
+    const qs = paramsFiltro.toString();
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, [filtroResp, filtroCanal, filtroTurma, filtrosProntos]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (filtrosProntos) carregar(); }, [carregar, filtrosProntos]);
   useEffect(() => {
     fetch("/api/hm/estagios").then((r) => r.json()).then((d) => { if (d.ok) setEstagios(d.estagios); }).catch(() => {});
   }, []);
@@ -318,6 +336,8 @@ export default function HmKanbanPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* A outra leitura da mesma esteira — os filtros viajam na URL */}
+          <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} />
           {/* Relatório da esteira inteira — sai com os filtros que estão valendo */}
           <a href={`/api/hm/kanban/export?${paramsFiltro.toString()}`} title="Baixar o relatório da esteira (resumo + uma aba por etapa)">
             <Button variant="secondary" size="sm">Exportar .xlsx</Button>
