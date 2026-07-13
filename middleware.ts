@@ -31,6 +31,9 @@ export function middleware(req: NextRequest) {
   return NextResponse.next();
 }
 
+// /marcas/* são as logos dos eventos (public/marcas): assets públicos, pedidos
+// inclusive pela tela de login — sem esta exceção o middleware devolve o HTML do
+// redirect no lugar do SVG, e a marca não aparece.
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|marcas/).*)"],
 };

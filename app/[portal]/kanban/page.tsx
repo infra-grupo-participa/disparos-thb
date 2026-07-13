@@ -10,6 +10,7 @@ import { Reveal } from "@/app/_components/anim";
 import { Avatar } from "@/app/_components/avatar";
 import { useMe } from "@/app/_components/use-me";
 import { usePortal } from "@/app/_components/use-portal";
+import { MarcaPortal } from "@/app/_components/marca";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
 
@@ -134,7 +135,7 @@ const EDICAO_COR: Record<string, string> = {
 
 export default function KanbanPage() {
   const { me, podeDisparar } = useMe();
-  const { evento, base, nome: eventoNome, ehHT } = usePortal();
+  const { portal, evento, base, nome: eventoNome, ehHT } = usePortal();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [edicoes, setEdicoes] = useState<string[]>([]);
@@ -242,7 +243,10 @@ export default function KanbanPage() {
     <div>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{ehHT ? "Jornada do HT" : `Jornada · ${eventoNome}`}</h1>
+          <div className="flex items-center gap-2.5">
+            <MarcaPortal portal={portal} altura="h-7" comNome={false} />
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{ehHT ? "Jornada do HT" : `Jornada · ${eventoNome}`}</h1>
+          </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {totalGeral} {ehHT ? "comprador(es)" : "contato(s)"}{edicao ? ` · ${edicao}` : ""} — arraste os cards entre as etapas, clique para ver detalhes.
           </p>

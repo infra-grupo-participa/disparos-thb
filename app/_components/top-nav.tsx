@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import ThemeToggle from "./theme-toggle";
 import BuscaGlobal from "./busca-global";
 import UserMenu from "./user-menu";
+import { MarcaPortal } from "./marca";
 import { usePortal } from "./use-portal";
 
 type LinkDef = { sub: string; label: string; icon: string };
@@ -45,20 +46,19 @@ export default function TopNav() {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/80">
       <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5 sm:px-6">
-        {/* Marca → home do portal atual */}
-        <Link href={`${base}/kanban`} className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white shadow-card dark:bg-brand-500">CS</span>
-          <span className="hidden text-sm font-semibold text-slate-800 sm:block dark:text-slate-100">Participa</span>
+        {/* Marca do evento → home do portal atual. É ela que diz "você está no
+            espaço do HM / do Seminário / do HT" antes de qualquer texto. */}
+        <Link href={`${base}/kanban`} title={nome} className="flex shrink-0 items-center">
+          <MarcaPortal portal={portal} altura="h-8" />
         </Link>
 
         {/* Seletor de portal — leva à tela de seleção (troca de espaço) */}
         <Link
           href="/"
           title="Trocar de portal"
-          className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: cor }} />
-          <span className="hidden max-w-[130px] truncate sm:block">{nome}</span>
           <svg className="h-3.5 w-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 15 5 5 5-5M7 9l5-5 5 5" /></svg>
         </Link>
 

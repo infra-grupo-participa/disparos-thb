@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Spinner, cn, fieldClass } from "@/app/_components/ui";
+import { MarcaCasa } from "@/app/_components/marca";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -38,16 +39,15 @@ export default function LoginPage() {
     <div className="flex min-h-[80vh] items-center justify-center px-4">
       <Card className="w-full max-w-sm animate-fade-in p-8 shadow-soft">
         <form onSubmit={entrar}>
-          {/* Marca */}
+          {/* Marca da casa (lib/marcas): vira a logo do Grupo Participa assim que
+              o SVG oficial entrar em public/marcas — até lá, o monograma. */}
           <div className="flex flex-col items-center text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand text-lg font-semibold tracking-wide text-white shadow-card">
-              CS
-            </div>
+            <MarcaCasa altura="h-14" />
             <h1 className="mt-4 text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">
               CS · Grupo Participa
             </h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Acesso interno — Customer Success HT
+              Acesso interno — Customer Success
             </p>
           </div>
 
