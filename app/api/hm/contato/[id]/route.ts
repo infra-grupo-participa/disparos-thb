@@ -3,92 +3,20 @@ import { isAuthed, getSessao } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
 import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, HM_STAGE_ENTREVISTA } from "@/lib/services/hm";
+import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
 
-// GET: detalhe do card HM + timeline + formulários (Respondi).
+// GET: detalhe do card HM + timeline + formulários (Respondi). A ficha é montada
+// em lib/services/hm-ficha — o mesmo lugar de onde sai o XLSX exportado, para a
+// planilha e a tela nunca contarem histórias diferentes.
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
-  const compradorId = params.id;
 
-  const contato = await queryOne<{ [k: string]: unknown }>(
-    `select comprador_id, nome, email, telefone, turma, turma_origem, plano, categoria_entrada,
-            estagio_chave, estagio_nome, estagio_aba, responsavel,
-            reuniao_em, reuniao_resultado, entrevista_em, entrevista_resultado,
-            pagamento_forma, pagamento_parcelas, pagamento_em, apto_ativacao,
-            pagamento_meio, pagamento_previsto_em, acordo, oferta_saldo_codigo, link_saldo_enviado_em,
-            nao_contatar, nao_contatar_motivo, revisar, revisar_motivo,
-            ativ_searchie, ativ_comunidade, ativ_grupo, ativ_pesquisa, grupo_informes, pendencia,
-            cancelamento_em, cancelamento_motivo, link_facebook,
-            tags, observacoes, criado_em
-       from cs.contatos_hm_kanban where comprador_id = $1`,
-    [compradorId],
-  );
-  if (!contato) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
+  const ficha = await fichaHm(params.id);
+  if (!ficha) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
-  // Sócios convidados (aba "SÓCIOS T39"). `aluno_id` preenchido = já está na base.
-  const socios = await query(
-    `select s.id, s.nome, s.email, s.telefone, s.link_facebook,
-            s.ativ_searchie, s.ativ_comunidade, s.ativ_grupo, s.aluno_id
-       from cs.hm_socios s
-       join cs.contatos_hm ch on ch.id = s.contato_hm_id
-      where ch.comprador_id = $1
-      order by s.criado_em`,
-    [compradorId],
-  );
-
-  // Crédito pró-rata: o que o aluno da base já pagou e ainda não usou. Só existe
-  // se alguém preencheu os insumos (oferta anterior, data e valor) — sem eles o
-  // saldo é o cheio (14.700). Ver cs.fn_hm_prorata (0056).
-  const prorata = await queryOne(
-    `select dias_usados, dias_restantes, valor_dia, consumido, credito, saldo_a_pagar
-       from cs.fn_hm_prorata($1)`,
-    [compradorId],
-  );
-
-  // Link de saldo sugerido: cada valor de saldo tem sua própria oferta na Hotmart
-  // (o desconto do pró-rata vem embutido no valor — 0049). Sabendo o saldo, o
-  // sistema escolhe o link certo em vez de o operador procurar numa aba de planilha.
-  const alvo = (prorata as { saldo_a_pagar?: string } | null)?.saldo_a_pagar ?? "14700";
-  const linksSaldo = await query(
-    `select distinct on (recorrente) codigo, valor, recorrente, link
-       from cs.hm_ofertas_saldo
-      where ativo and valor is not null
-      order by recorrente, abs(valor - $1::numeric)`,
-    [alvo],
-  );
-
-  const timeline = await query(
-    `select i.tipo, i.descricao, i.autor, i.criado_em
-       from cs.interacoes i
-       join cs.contatos_hm ch on ch.id = i.contato_hm_id
-      where ch.comprador_id = $1
-      order by i.criado_em desc
-      limit 200`,
-    [compradorId],
-  );
-
-  // Formulários do comprador (Respondi / HT). Mesma tabela cs.formularios.
-  const formularios = await query(
-    `select tipo, respostas, pontuacao, respondido_em
-       from cs.formularios where comprador_id = $1
-      order by respondido_em desc nulls last`,
-    [compradorId],
-  );
-
-  // Bloco financeiro: o que já foi registrado + a sugestão para o formulário de
-  // pagamento. A sugestão vem de cs.fn_hm_sugestao_financeira porque o papel do
-  // app não lê public.compras / hm_product_catalog (RLS sem grant).
-  const financeiro = await queryOne(
-    `select ch.valor_total, ch.valor_pago, ch.aluno_id, ch.categoria_entrada,
-            s.sugestao_valor_total, s.hotmart_bruto
-       from cs.contatos_hm ch,
-            lateral cs.fn_hm_sugestao_financeira(ch.comprador_id) s
-      where ch.comprador_id = $1`,
-    [compradorId],
-  );
-
-  return NextResponse.json({ ok: true, contato, timeline, formularios, financeiro, prorata, linksSaldo, socios });
+  return NextResponse.json({ ok: true, ...ficha });
 }
 
 // PATCH: atualiza estágio / campos da ficha HM / pagamento do saldo / nota.
@@ -158,6 +86,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Cancelamento: o motivo. "Pediu reembolso? SIM" sem o porquê não serve a ninguém.
   if (b.cancelamento_motivo !== undefined) add("cancelamento_motivo", b.cancelamento_motivo);
   if (b.link_facebook !== undefined) add("link_facebook", b.link_facebook);
+  // Turma do aluno no HM. Trocar a turma troca a tag junto — senão o card diria
+  // "Turma T39" no filtro e outra coisa na ficha.
+  if (b.turma !== undefined && b.turma) {
+    add("turma", b.turma);
+    sets.push(
+      `tags = (select coalesce(array_agg(distinct t), '{}')
+                 from unnest(array(select x from unnest(tags) x where x !~ '^Turma ') || array['Turma ' || $${vals.length + 1}::text]) t)`,
+    );
+    vals.push(b.turma);
+  }
 
   // Crédito pró-rata (insumos; o crédito e o saldo são conta — cs.fn_hm_prorata).
   if (b.credito_oferta !== undefined) add("credito_oferta", b.credito_oferta);

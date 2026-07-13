@@ -132,11 +132,17 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
             {c.apto_ativacao && <Badge cls="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Saldo pago</Badge>}
           </div>
         </div>
-        {c.telefone && (
-          <a href={`https://wa.me/${c.telefone.replace(/\D/g, "").replace(/^(?!55)/, "55")}`} target="_blank" rel="noreferrer" className="shrink-0">
-            <Button variant="secondary" size="sm">WhatsApp</Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* A ficha inteira em uma planilha — o servidor devolve o arquivo pronto */}
+          <a href={`/api/hm/contato/${c.comprador_id}/export`} title="Baixar a ficha completa em Excel">
+            <Button variant="secondary" size="sm">Baixar .xlsx</Button>
           </a>
-        )}
+          {c.telefone && (
+            <a href={`https://wa.me/${c.telefone.replace(/\D/g, "").replace(/^(?!55)/, "55")}`} target="_blank" rel="noreferrer">
+              <Button variant="secondary" size="sm">WhatsApp</Button>
+            </a>
+          )}
+        </div>
       </div>
 
       {/* Abas */}

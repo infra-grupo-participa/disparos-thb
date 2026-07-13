@@ -260,6 +260,24 @@ export function HmDrawer({
                 )}
               </Campo>
 
+              {/* Turma no HM: a atual do programa (T39) vem sozinha ao pagar.
+                  O campo existe para a exceção — alguém que entra em outra turma. */}
+              <Campo label="Turma no HM">
+                <div className="flex items-center gap-2">
+                  <input
+                    defaultValue={c.turma ?? ""}
+                    onBlur={(e) => { if (e.target.value.trim() && e.target.value !== (c.turma ?? "")) patch({ turma: e.target.value.trim() }); }}
+                    placeholder="T39"
+                    className={fieldClass}
+                  />
+                  {c.turma_origem && (
+                    <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Turma de onde ele veio">
+                      veio da {c.turma_origem}
+                    </span>
+                  )}
+                </div>
+              </Campo>
+
               <Campo label="Responsável (CS)">
                 <div className="flex items-center gap-2">
                   {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
@@ -304,13 +322,23 @@ export function HmDrawer({
                   três colunas de texto solto que ninguém conseguia filtrar. */}
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                  Acordo do saldo
+                  {jaPagou ? "Acordo do saldo (histórico)" : "Acordo do saldo"}
                 </p>
 
-                {prorata?.saldo_a_pagar ? (
+                {/* Saldo e link só para quem ainda deve. Para quem já quitou, o
+                    pró-rata é história: mostrar "saldo a pagar" seria mentir. */}
+                {jaPagou ? (
+                  <p className="mb-2 rounded bg-emerald-50 px-2 py-1.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                    Saldo quitado{c.pagamento_em ? ` em ${fmt(c.pagamento_em)}` : ""}.
+                  </p>
+                ) : prorata?.saldo_a_pagar ? (
                   <p className="mb-2 rounded bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
                     Crédito pró-rata: <strong>{brl(num(prorata.credito))}</strong> ({prorata.dias_restantes} dias não usados)
                     {" · "}saldo a pagar: <strong>{brl(num(prorata.saldo_a_pagar))}</strong>
+                    <br />
+                    <span className="text-slate-400 dark:text-slate-500">
+                      O crédito encolhe a cada dia — o valor vale para hoje.
+                    </span>
                   </p>
                 ) : (
                   <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">Saldo cheio: {brl(14700)}</p>
@@ -354,8 +382,9 @@ export function HmDrawer({
                 </label>
 
                 {/* Link de saldo: o sistema escolhe pelo valor (cada saldo tem sua
-                    própria oferta na Hotmart) — antes isso era procurado à mão. */}
-                {links.length > 0 && (
+                    própria oferta na Hotmart) — antes isso era procurado à mão.
+                    Some depois de quitado: não há mais o que cobrar. */}
+                {!jaPagou && links.length > 0 && (
                   <div className="mt-2">
                     <p className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">Link do saldo (sugerido pelo valor)</p>
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -676,6 +705,10 @@ export function HmDrawer({
               <Link href={`/hm/contatos/${c.comprador_id}`} className="min-w-[7rem] flex-1">
                 <Button variant="secondary" className="w-full">Ficha completa</Button>
               </Link>
+              {/* Download direto (o servidor devolve o arquivo com Content-Disposition) */}
+              <a href={`/api/hm/contato/${c.comprador_id}/export`} className="min-w-[7rem] flex-1" title="Baixar a ficha completa em Excel">
+                <Button variant="secondary" className="w-full">Baixar .xlsx</Button>
+              </a>
               {podeDisparar && c.telefone && (
                 <Button variant="secondary" className="min-w-[7rem] flex-1" onClick={() => setDisparar(true)}>Disparar</Button>
               )}
