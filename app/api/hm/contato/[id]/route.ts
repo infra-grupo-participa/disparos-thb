@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthed, getSessao } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, agendarHm, fecharAgendamentoHm, HM_STAGE_ENTREVISTA } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -85,6 +85,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   // Cancelamento: o motivo. "Pediu reembolso? SIM" sem o porquê não serve a ninguém.
   if (b.cancelamento_motivo !== undefined) add("cancelamento_motivo", b.cancelamento_motivo);
+
+  // Revogação dos acessos do cancelado — o inverso do checklist de ativação.
+  // O "quando" é carimbado pelo banco quando os quatro caem; o "quem" é este
+  // operador. Sem isso, "removi os acessos" seria palavra contra palavra.
+  const revogando = b.rev_searchie !== undefined || b.rev_comunidade !== undefined
+    || b.rev_grupo !== undefined || b.rev_pesquisa !== undefined;
+  if (b.rev_searchie !== undefined) add("rev_searchie", b.rev_searchie);
+  if (b.rev_comunidade !== undefined) add("rev_comunidade", b.rev_comunidade);
+  if (b.rev_grupo !== undefined) add("rev_grupo", b.rev_grupo);
+  if (b.rev_pesquisa !== undefined) add("rev_pesquisa", b.rev_pesquisa);
+  if (revogando) add("acessos_revogados_por", operador);
   if (b.link_facebook !== undefined) add("link_facebook", b.link_facebook);
   // Turma do aluno no HM. Trocar a turma troca a tag junto — senão o card diria
   // "Turma T39" no filtro e outra coisa na ficha.
@@ -143,6 +154,26 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       b.valor_pago ?? null,
       operador,
     );
+  }
+
+  // O cancelamento virou fato: o reembolso saiu (na Hotmart isso chega sozinho
+  // pelo webhook; acordo por fora precisa de alguém para dizer). Marca o aluno
+  // como cancelado — sem apagá-lo — e abre a pendência de remover os acessos.
+  // O card também vai para "Solicitou Cancelamento" se ainda não estiver lá:
+  // confirmar um cancelamento de um card que segue no meio da esteira deixaria
+  // a coluna contando uma história e a base, outra.
+  if (b.confirmar_cancelamento) {
+    if (atual.estagio_chave !== HM_STAGE_CANCELAMENTO) {
+      await moverEstagioHm(compradorId, HM_STAGE_CANCELAMENTO, operador);
+    }
+    const r = await confirmarCancelamentoHm(compradorId, b.cancelamento_motivo ?? null, operador);
+    if (!r.ok) return NextResponse.json({ ok: false, reason: "falha_ao_cancelar" }, { status: 500 });
+  }
+
+  // Enganou-se, ou a Hotmart negou o reembolso depois de lançado: o aluno volta.
+  if (b.desfazer_cancelamento) {
+    const ok = await desfazerCancelamentoHm(compradorId, operador);
+    if (!ok) return NextResponse.json({ ok: false, reason: "falha_ao_desfazer" }, { status: 500 });
   }
 
   // Nota manual na timeline — ANTES da etapa, porque ela não depende dela: o que

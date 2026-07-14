@@ -121,6 +121,20 @@ Regras que a esteira carrega:
   o mesmo card, mostrado nas duas esteiras. Não há estado duplicado no banco.
 - **"Solicitou Cancelamento" não apaga o financeiro**: se a pessoa pagou e pediu reembolso,
   o dinheiro entrou. Apagar reescreveria o histórico.
+- **Pedir cancelamento não é cancelar** (0071). Arrastar o card para "Solicitou Cancelamento"
+  grava `cancelamento_em` e **não toca na base** — o reembolso pode ser negado e gente desiste
+  de cancelar. O **fato** é `cancelamento_efetivado_em`, e vem de duas portas: o webhook da
+  Hotmart (`PURCHASE_REFUNDED`, `CHARGEBACK`, `PROTEST`, `SUBSCRIPTION_CANCELLATION`) ou o botão
+  "Confirmar cancelamento" na ficha, para acordos fechados fora da Hotmart.
+- **Cancelar marca, nunca apaga.** O aluno cancelado ganha `thb_alunos.cancelado_em`, sai de
+  `vw_aluno_360` (o GPS não o vê) e continua inteiro no banco: turma, validade, sócios,
+  depoimentos. Se voltar a pagar, o provisionamento reencontra o **mesmo cadastro** — limpa a
+  marca, carimba `retornou_em` e mantém a turma. `vw_alunos_cancelados` é onde se consultam os
+  que saíram.
+- **O acesso não cai com o dinheiro**: cancelado continua dentro do Searchie, da comunidade e do
+  grupo até alguém tirá-lo. Por isso o cancelamento abre o **checklist de revogação** (`rev_*`),
+  espelho do checklist de ativação, com quem removeu e quando (`acessos_revogados_em/_por`).
+  A lente "Cancelou e ainda tem acesso" na visão em tabela é essa fila.
 - O **checklist de ativação trava a saída** de "Acesso Liberado" (Searchie, comunidade THB,
   grupo de informes, pesquisa). O board recusa o avanço e diz o que falta.
 

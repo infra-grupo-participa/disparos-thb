@@ -80,6 +80,12 @@ export type LinhaEsteira = {
   revisar_motivo: string | null;
   cancelamento_em: QuandoHm;
   cancelamento_motivo: string | null;
+  // O pedido é cancelamento_em; o FATO é este. Enquanto os acessos não caem, o
+  // cancelado continua dentro do Searchie, da comunidade e do grupo.
+  cancelamento_efetivado_em: QuandoHm;
+  cancelamento_origem: string | null;
+  acessos_revogados_em: QuandoHm;
+  acessos_revogados_por: string | null;
   criado_em: QuandoHm;
   observacoes: string | null;
   // ----- derivados (conta, não campo) -----
@@ -128,6 +134,8 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             k.grupo_informes, k.pendencia,
             k.nao_contatar, k.nao_contatar_motivo, k.revisar, k.revisar_motivo,
             k.cancelamento_em, k.cancelamento_motivo,
+            k.cancelamento_efetivado_em, k.cancelamento_origem,
+            k.acessos_revogados_em, k.acessos_revogados_por,
             k.criado_em, k.observacoes,
             so.qtd as socios,
             rg.reunioes_remarcadas, rg.entrevistas_remarcadas, rg.nao_comparecimentos,

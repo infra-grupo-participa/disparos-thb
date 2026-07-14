@@ -468,6 +468,127 @@ async function resolveNomeComprador(nomeCheckout: string, transaction: string): 
   return nomeCheckout;
 }
 
+// ---------------------------------------------------------------------------
+// O cancelamento.
+//
+// Reembolso, chargeback, protesto e cancelamento de assinatura: é aqui que o
+// sistema fica sabendo que alguém saiu. Antes disto, um reembolso feito no
+// painel da Hotmart era invisível — o aluno continuava com acesso a tudo e
+// ninguém era avisado de que precisava tirá-lo.
+//
+// O status que cada evento grava na compra (o histórico do dinheiro é fato: a
+// compra não é apagada, é reclassificada).
+const EVENTOS_CANCELAMENTO: Record<string, string> = {
+  PURCHASE_REFUNDED: "REFUNDED",
+  PURCHASE_CHARGEBACK: "CHARGEBACK",
+  PURCHASE_PROTEST: "PROTESTED",
+  PURCHASE_CANCELED: "CANCELED",
+  SUBSCRIPTION_CANCELLATION: "CANCELED",
+};
+
+const EVENTO_LABEL: Record<string, string> = {
+  PURCHASE_REFUNDED: "Reembolso",
+  PURCHASE_CHARGEBACK: "Chargeback",
+  PURCHASE_PROTEST: "Protesto",
+  PURCHASE_CANCELED: "Compra cancelada",
+  SUBSCRIPTION_CANCELLATION: "Assinatura cancelada",
+};
+
+// Slack member ID do Thomas — é ele quem remove os acessos (Searchie/Óbvio,
+// comunidade, grupo). Marcado no aviso de cancelamento para a tarefa ter dono.
+const SLACK_USER_THOMAS = Deno.env.get("SLACK_USER_THOMAS") ?? "";
+
+async function notifySlackCancelamento(channel: string, payload: {
+  evento: string;
+  nome: string;
+  email: string;
+  telefone: string | null;
+  produto: string;
+  valor: number | null;
+  moeda: string;
+  transaction: string;
+  eraAluno: boolean;
+}) {
+  const webhookUrl = SLACK_WEBHOOKS[channel];
+  if (!webhookUrl) return;
+
+  const valorFormatado = payload.valor != null
+    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: payload.moeda || "BRL" }).format(payload.valor)
+    : "-";
+  const label = EVENTO_LABEL[payload.evento] ?? payload.evento;
+
+  // Só quem era aluno tem acesso para remover. Quem cancelou antes de virar
+  // aluno não gera tarefa nenhuma para o Thomas — e chamá-lo à toa é o caminho
+  // mais curto para o aviso virar ruído ignorado.
+  const tarefa = payload.eraAluno
+    ? `\n\n:warning: *Remover os acessos* (Searchie/Óbvio, comunidade, grupo)${SLACK_USER_THOMAS ? ` — <@${SLACK_USER_THOMAS}>` : ""}\nO checklist está na ficha do contato, no portal HM.`
+    : "\n\n_Ainda não era aluno — não há acesso a remover._";
+
+  const response = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: `${label}: ${payload.produto}`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `:x: *${label}*\n*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Transação:* ${payload.transaction}${tarefa}`,
+          },
+        },
+        { type: "divider" },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    console.error(`Falha ao notificar cancelamento no Slack (${channel}):`, response.status, await response.text());
+  }
+}
+
+// Marca a compra como cancelada e, se houver card no HM, efetiva o cancelamento
+// (aluno marcado — nunca apagado — e pendência de remover os acessos).
+// Não-fatal: erro aqui vira log, nunca um retry da Hotmart.
+async function cancelarNoBanco(transaction: string, evento: string, status: string): Promise<{
+  achouCompra: boolean;
+  temCardHm: boolean;
+  eraAluno: boolean;
+}> {
+  const vazio = { achouCompra: false, temCardHm: false, eraAluno: false };
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("[DB] SUPABASE_URL/SERVICE_ROLE_KEY ausentes — cancelamento não persistido");
+    return vazio;
+  }
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data, error } = await supabase.rpc("fn_hm_cancelar_por_transacao", {
+      p_transaction: transaction,
+      p_evento: evento,
+      p_status: status,
+    });
+
+    if (error) {
+      console.error("[DB] falha ao cancelar:", error.message);
+      return vazio;
+    }
+
+    const r = (data ?? {}) as Record<string, unknown>;
+    console.log(`[DB] cancelamento processado (${transaction}):`, JSON.stringify(r));
+    return {
+      achouCompra: r.achou_compra === true,
+      temCardHm: r.tem_card_hm === true,
+      eraAluno: r.resultado === "cancelado",
+    };
+  } catch (e) {
+    console.error("[DB] exceção em cancelarNoBanco:", e instanceof Error ? e.message : e);
+    return vazio;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "GET") return new Response("OK", { status: 200 });
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
@@ -500,7 +621,8 @@ serve(async (req) => {
   }
 
   const event = (body.event as string) ?? "";
-  if (event !== "PURCHASE_APPROVED") {
+  const statusCancelamento = EVENTOS_CANCELAMENTO[event];
+  if (event !== "PURCHASE_APPROVED" && !statusCancelamento) {
     return new Response(JSON.stringify({ ok: true, reason: "event_ignored" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -526,6 +648,41 @@ serve(async (req) => {
   if (!channel) {
     console.log(`Produto não mapeado para nenhum canal: ${productId} (${productName})`);
     return new Response(JSON.stringify({ ok: true, reason: "product_not_mapped" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  // ---- Cancelamento: reembolso, chargeback, protesto, assinatura cancelada ----
+  // A compra é reclassificada (o dinheiro entrou e voltou — isso é história, não
+  // se apaga), o card vai para "Solicitou Cancelamento" com o fato datado, o
+  // aluno é MARCADO como cancelado (some do GPS, continua no banco) e o Slack
+  // chama quem tem de remover os acessos.
+  if (statusCancelamento) {
+    const transaction = String(purchase.transaction);
+    const r = await cancelarNoBanco(transaction, event, statusCancelamento);
+
+    if (!r.achouCompra) {
+      // Cancelamento de uma compra que nunca chegou aqui (anterior ao webhook,
+      // ou de produto não mapeado). Nada a reclassificar — mas o time precisa
+      // saber, então o aviso vai assim mesmo.
+      console.warn(`[CANCELAMENTO] transação desconhecida no banco: ${transaction} (${event})`);
+    }
+
+    const precoC = purchase.price as Record<string, unknown> | undefined;
+    await notifySlackCancelamento(channel, {
+      evento: event,
+      nome: String(buyer.name ?? "Sem nome"),
+      email: String(buyer.email ?? ""),
+      telefone: extractPhone(buyer),
+      produto: CHANNEL_LABEL[channel] ?? productName,
+      valor: (precoC?.value as number) ?? null,
+      moeda: (precoC?.currency_code as string) ?? "BRL",
+      transaction,
+      eraAluno: r.eraAluno,
+    });
+
+    return new Response(JSON.stringify({ ok: true, channel, event, ...r }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });

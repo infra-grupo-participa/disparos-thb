@@ -150,6 +150,16 @@ export const HmContatoPatchSchema = z.object({
   pendencia: z.string().nullable().optional(),
   // ----- cancelamento -----
   cancelamento_motivo: z.string().nullable().optional(),
+  // Arrastar o card para "Solicitou Cancelamento" é o PEDIDO. Estas duas ações
+  // são o FATO: confirmar (o reembolso saiu) marca o aluno como cancelado e abre
+  // a pendência de remover os acessos; desfazer volta atrás (reembolso negado).
+  confirmar_cancelamento: z.boolean().optional(),
+  desfazer_cancelamento: z.boolean().optional(),
+  // ----- revogação de acessos (o cancelado ainda está dentro de tudo) -----
+  rev_searchie: z.boolean().optional(),
+  rev_comunidade: z.boolean().optional(),
+  rev_grupo: z.boolean().optional(),
+  rev_pesquisa: z.boolean().optional(),
   link_facebook: z.string().nullable().optional(),
   // turma do aluno NO HM (a atual, T39 por padrão) — editável para exceções
   turma: z.string().nullable().optional(),

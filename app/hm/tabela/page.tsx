@@ -154,6 +154,20 @@ const LENTES: Lente[] = [
     test: (l) => (num(l.nao_comparecimentos) ?? 0) > 0,
   },
   {
+    // A fila de quem saiu e continua dentro de tudo. O reembolso volta sozinho;
+    // o acesso, não — alguém tem de tirar a pessoa do Searchie, da comunidade e
+    // do grupo. Enquanto faltar um item, a linha fica aqui.
+    id: "acessos_a_remover", grupo: "Cancelamento", label: "Cancelou e ainda tem acesso", destaque: true,
+    test: (l) => !!l.cancelamento_efetivado_em && !l.acessos_revogados_em,
+  },
+  {
+    // Pediu e ninguém confirmou nem descartou: ou o reembolso saiu (e a base não
+    // sabe), ou a pessoa desistiu (e o card mente). Um pedido pendurado é uma
+    // decisão que ninguém tomou.
+    id: "cancelamento_em_aberto", grupo: "Cancelamento", label: "Pedido sem desfecho",
+    test: (l) => !!l.cancelamento_em && !l.cancelamento_efetivado_em,
+  },
+  {
     id: "sem_responsavel", grupo: "Higiene", label: "Sem responsável",
     test: (l) => !l.responsavel,
   },
@@ -805,13 +819,23 @@ export default function HmTabelaPage() {
         );
       },
     },
+    // "Cancelou?" tem três respostas, não duas: ninguém pediu, pediu (e ainda
+    // pode voltar atrás), ou cancelou de fato — e neste último caso o que importa
+    // operacionalmente é se o acesso já foi tirado.
     cancelado: {
       id: "cancelado", label: "Cancelou?",
-      sortVal: (l) => (l.cancelamento_em || l.estagio_chave === "hm_cancelamento" ? 1 : 0),
-      render: (l) =>
-        l.cancelamento_em || l.estagio_chave === "hm_cancelamento"
-          ? <span className="font-medium text-rose-600 dark:text-rose-400">Sim</span>
-          : <span>—</span>,
+      sortVal: (l) => (l.cancelamento_efetivado_em ? 2 : l.cancelamento_em || l.estagio_chave === "hm_cancelamento" ? 1 : 0),
+      render: (l) => {
+        if (l.cancelamento_efetivado_em) {
+          return l.acessos_revogados_em
+            ? <span className="whitespace-nowrap font-medium text-slate-500 dark:text-slate-400">Cancelado · acessos removidos</span>
+            : <span className="whitespace-nowrap font-semibold text-rose-600 dark:text-rose-400">Cancelado · remover acessos</span>;
+        }
+        if (l.cancelamento_em || l.estagio_chave === "hm_cancelamento") {
+          return <span className="whitespace-nowrap font-medium text-amber-600 dark:text-amber-400">Pediu</span>;
+        }
+        return <span>—</span>;
+      },
     },
     pagamento_em: {
       id: "pagamento_em", label: "Saldo pago em",

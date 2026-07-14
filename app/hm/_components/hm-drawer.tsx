@@ -29,6 +29,10 @@ type Contato = {
   ativ_searchie: boolean; ativ_comunidade: boolean; ativ_grupo: boolean; ativ_pesquisa: boolean;
   grupo_informes: string | null; pendencia: string | null; link_facebook: string | null;
   cancelamento_em: string | null; cancelamento_motivo: string | null;
+  // cancelamento: o pedido (cancelamento_em) e o fato (cancelamento_efetivado_em)
+  cancelamento_efetivado_em: string | null; cancelamento_origem: string | null;
+  rev_searchie: boolean; rev_comunidade: boolean; rev_grupo: boolean; rev_pesquisa: boolean;
+  acessos_revogados_em: string | null; acessos_revogados_por: string | null;
 };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 // Marcação de reunião/entrevista. `status` conta a história: a vigente é
@@ -76,6 +80,16 @@ const ITENS_CHECKLIST: { campo: keyof Contato; label: string }[] = [
   { campo: "ativ_comunidade", label: "Acesso à comunidade THB" },
   { campo: "ativ_grupo", label: "Grupo de informes" },
   { campo: "ativ_pesquisa", label: "Pesquisa" },
+];
+
+// O avesso do checklist acima: cancelou, alguém tem de TIRAR a pessoa de cada
+// lugar em que ela foi posta. Um a um, porque é item a item que se esquece —
+// sai do Searchie e continua no grupo do WhatsApp por mais um ano.
+const ITENS_REVOGACAO: { campo: keyof Contato; label: string }[] = [
+  { campo: "rev_searchie", label: "Removido do Searchie/Óbvio" },
+  { campo: "rev_comunidade", label: "Removido da comunidade THB" },
+  { campo: "rev_grupo", label: "Removido do grupo de informes" },
+  { campo: "rev_pesquisa", label: "Removido da pesquisa" },
 ];
 
 function num(v: string | number | null | undefined): number {
@@ -246,6 +260,7 @@ export function HmDrawer({
   const jaPagou = !!c?.apto_ativacao;
   const temHistorico = timeline.some((it) => it.tipo === "mudanca_estagio");
   const feitos = c ? ITENS_CHECKLIST.filter((i) => !!c[i.campo]).length : 0;
+  const revogados = c ? ITENS_REVOGACAO.filter((i) => !!c[i.campo]).length : 0;
 
   async function reverter() {
     await patch({ reverter: true });
@@ -589,6 +604,123 @@ export function HmDrawer({
                   />
                 </label>
               </div>
+
+              {/* CANCELAMENTO — o pedido e o fato são coisas diferentes.
+                  Enquanto é só pedido, o aluno continua aluno: reembolso pode ser
+                  negado, e gente desiste de cancelar. Confirmado, o aluno é
+                  MARCADO (nunca apagado): some do GPS, mantém turma, histórico e
+                  sócios — e abre o checklist de remoção dos acessos, que é o que
+                  de fato tira a pessoa de dentro do Searchie, do grupo e da
+                  comunidade. Se ele voltar, é este mesmo cadastro que revive. */}
+              {(c.cancelamento_em || c.cancelamento_efetivado_em) && (
+                <div className={cn(
+                  "rounded-lg border p-3",
+                  c.cancelamento_efetivado_em
+                    ? "border-rose-200 bg-rose-50/50 dark:border-rose-500/30 dark:bg-rose-500/5"
+                    : "border-amber-200 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/5",
+                )}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      {c.cancelamento_efetivado_em ? "Cancelado" : "Cancelamento solicitado"}
+                    </p>
+                    {c.cancelamento_efetivado_em && (
+                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                        {c.cancelamento_origem === "hotmart" ? "pela Hotmart" : "confirmado à mão"}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Pediu em {fmt(c.cancelamento_em)}
+                    {c.cancelamento_efetivado_em && <> · efetivado em {fmt(c.cancelamento_efetivado_em)}</>}
+                  </p>
+
+                  <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Motivo
+                    <textarea
+                      defaultValue={c.cancelamento_motivo ?? ""}
+                      onBlur={(e) => { if (e.target.value !== (c.cancelamento_motivo ?? "")) patch({ cancelamento_motivo: e.target.value || null }); }}
+                      rows={2}
+                      placeholder="Por que saiu?"
+                      className={fieldClass}
+                    />
+                  </label>
+
+                  {!c.cancelamento_efetivado_em ? (
+                    <button
+                      onClick={() => {
+                        if (window.confirm(
+                          `Confirmar o cancelamento de ${c.nome}?\n\n` +
+                          "Isto marca o aluno como cancelado na base (ele sai das telas do GPS, mas o cadastro e o histórico ficam) " +
+                          "e abre o checklist de remoção dos acessos.\n\nFaça isto só quando o reembolso tiver saído de fato.",
+                        )) patch({ confirmar_cancelamento: true });
+                      }}
+                      disabled={salvando}
+                      className="mt-2 w-full rounded-lg border border-rose-300 px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                    >
+                      Confirmar cancelamento (o reembolso saiu)
+                    </button>
+                  ) : (
+                    <>
+                      {/* A fila do Thomas. O acesso não cai sozinho quando o
+                          dinheiro volta: alguém tem de tirar a pessoa de cada
+                          lugar. O "quando" e o "quem" são carimbados pelo banco. */}
+                      <div className="mt-3 border-t border-rose-200 pt-2 dark:border-rose-500/20">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Remover acessos</p>
+                          <span className={cn(
+                            "rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums",
+                            revogados === ITENS_REVOGACAO.length
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                              : "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+                          )}>
+                            {revogados}/{ITENS_REVOGACAO.length}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {ITENS_REVOGACAO.map((item) => (
+                            <label key={item.campo} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                              <input
+                                type="checkbox"
+                                checked={!!c[item.campo]}
+                                disabled={salvando}
+                                onChange={(e) => patch({ [item.campo]: e.target.checked })}
+                                className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600"
+                              />
+                              {item.label}
+                            </label>
+                          ))}
+                        </div>
+
+                        {c.acessos_revogados_em ? (
+                          <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-300">
+                            Acessos removidos em {fmt(c.acessos_revogados_em)}
+                            {c.acessos_revogados_por ? ` por ${c.acessos_revogados_por}` : ""}.
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">
+                            Este aluno ainda tem acesso ao que não está marcado acima.
+                          </p>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          if (window.confirm(
+                            `Desfazer o cancelamento de ${c.nome}?\n\n` +
+                            "O aluno volta a valer na base. O pedido de cancelamento continua registrado no histórico.",
+                          )) patch({ desfazer_cancelamento: true });
+                        }}
+                        disabled={salvando}
+                        className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                      >
+                        Desfazer cancelamento
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* SÓCIOS — a aba "SÓCIOS T39". O sócio é ativado também (tem o
                   próprio checklist) e, quando o titular vira aluno, ele vai junto

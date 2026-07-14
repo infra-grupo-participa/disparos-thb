@@ -196,6 +196,12 @@ export async function moverEstagioHm(
   // pessoa pagou e depois pediu reembolso, o dinheiro entrou — apagar o
   // financeiro reescreveria o histórico. O card só sai da esteira de Ativação
   // (a aba do estágio é quem decide isso) e fica registrado como cancelamento.
+  //
+  // Arrastar o card é a SOLICITAÇÃO — e ela não toca na base. Quem pediu
+  // reembolso pode ter o pedido negado pela Hotmart (fora dos 7 dias) ou
+  // simplesmente desistir de cancelar; marcar o aluno aqui seria condená-lo pela
+  // intenção. O aluno só é marcado quando o cancelamento vira FATO: o webhook da
+  // Hotmart (PURCHASE_REFUNDED e afins) ou a confirmação manual — confirmarCancelamentoHm.
   if (chave === HM_STAGE_CANCELAMENTO) {
     await query(
       `update cs.contatos_hm
@@ -203,23 +209,7 @@ export async function moverEstagioHm(
         where id = $1`,
       [ch.id, novo.id],
     );
-    await addInteracaoHm(ch.id, "sistema", "Solicitou cancelamento — card fora da esteira de Ativação", autor);
-    // A base mestre reage ao cancelamento (0070): quem NASCEU por este funil
-    // some dela — o GPS não o vê mais (se pagar de novo, o provisionamento
-    // recria). Aluno que JÁ EXISTIA mantém todos os dados; só a situação
-    // financeira registra o cancelamento. Blindado: a base é de outro domínio
-    // e nunca pode travar o movimento do card.
-    try {
-      const r = await queryOne<{ resultado: string }>(`select cs.fn_hm_cancelar($1) as resultado`, [compradorId]);
-      if (r?.resultado === "excluido") {
-        await addInteracaoHm(ch.id, "sistema", "Aluno removido da base THB — nasceu neste funil e cancelou (pagar de novo recria o cadastro)", autor);
-      } else if (r?.resultado === "atualizado") {
-        await addInteracaoHm(ch.id, "sistema", "Situação financeira marcada como cancelada na base THB — aluno antigo mantém todos os dados", autor);
-      }
-    } catch (e) {
-      log.error("falha ao refletir o cancelamento na base THB", e, { compradorId });
-      await addInteracaoHm(ch.id, "sistema", "Falha ao refletir o cancelamento na base THB — confira o aluno manualmente", autor);
-    }
+    await addInteracaoHm(ch.id, "sistema", "Solicitou cancelamento — card fora da esteira de Ativação (o acesso continua valendo até o cancelamento ser confirmado)", autor);
     await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
     await reposicionarNaColuna(ch.id, novo.id, posicao);
     return { ok: true };
@@ -337,6 +327,72 @@ export async function reverterEstagioHm(compradorId: string, autor = "cs"): Prom
   if (!anterior) return false;
 
   return (await moverEstagioHm(compradorId, anterior.chave, autor)).ok;
+}
+
+// Confirma que o cancelamento aconteceu DE VERDADE — o reembolso saiu na
+// Hotmart. É o gêmeo manual do webhook: normalmente o fato chega sozinho
+// (PURCHASE_REFUNDED e afins), mas cancelamento acertado por fora (Pix
+// devolvido, acordo) não passa pela Hotmart e precisa de alguém para dizê-lo.
+//
+// A partir daqui o aluno é marcado como cancelado — nunca apagado: some das
+// telas do GPS, mantém turma, validade, sócios e histórico, e o Thomas recebe a
+// pendência de remover os acessos. Se ele voltar, é o MESMO cadastro que revive.
+export async function confirmarCancelamentoHm(
+  compradorId: string,
+  motivo: string | null,
+  autor = "cs",
+): Promise<{ ok: boolean; resultado?: string }> {
+  const ch = await queryOne<{ id: string }>(`select id from cs.contatos_hm where comprador_id = $1`, [compradorId]);
+  if (!ch) return { ok: false };
+
+  try {
+    const r = await queryOne<{ resultado: string }>(
+      `select cs.fn_hm_cancelar($1, $2, 'manual') as resultado`,
+      [compradorId, motivo],
+    );
+    await addInteracaoHm(
+      ch.id,
+      "sistema",
+      r?.resultado === "cancelado"
+        ? `Cancelamento confirmado${motivo ? ` — ${motivo}` : ""}. Aluno marcado como cancelado na base THB (o cadastro e o histórico ficam). Remover os acessos.`
+        : `Cancelamento confirmado${motivo ? ` — ${motivo}` : ""}. O contato ainda não era aluno; não há acesso a remover.`,
+      autor,
+    );
+    return { ok: true, resultado: r?.resultado };
+  } catch (e) {
+    log.error("falha ao confirmar o cancelamento na base THB", e, { compradorId });
+    await addInteracaoHm(ch.id, "sistema", "Falha ao refletir o cancelamento na base THB — confira o aluno manualmente", autor);
+    return { ok: false };
+  }
+}
+
+// Cancelamento confirmado por engano (ou negado pela Hotmart depois de já ter
+// sido lançado). Desfaz o FATO — o pedido e o histórico continuam registrados.
+export async function desfazerCancelamentoHm(compradorId: string, autor = "cs"): Promise<boolean> {
+  const ch = await queryOne<{ id: string; aluno_id: string | null }>(
+    `select id, aluno_id from cs.contatos_hm where comprador_id = $1`,
+    [compradorId],
+  );
+  if (!ch) return false;
+
+  await query(
+    `update cs.contatos_hm
+        set cancelamento_efetivado_em = null, cancelamento_origem = null, atualizado_em = now()
+      where id = $1`,
+    [ch.id],
+  );
+
+  // A base é de outro domínio: uma falha lá não pode travar a correção do card.
+  try {
+    await query(`select cs.fn_hm_descancelar($1)`, [compradorId]);
+  } catch (e) {
+    log.error("falha ao desfazer o cancelamento na base THB", e, { compradorId });
+    await addInteracaoHm(ch.id, "sistema", "Cancelamento desfeito no card, mas a base THB não respondeu — confira o aluno", autor);
+    return true;
+  }
+
+  await addInteracaoHm(ch.id, "sistema", "Cancelamento desfeito — o aluno volta a valer na base (o pedido de cancelamento continua registrado)", autor);
+  return true;
 }
 
 // Registra o pagamento do saldo (forma + valores), provisiona o aluno na base
