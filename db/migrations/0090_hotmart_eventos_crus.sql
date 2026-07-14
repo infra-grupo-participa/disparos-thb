@@ -1,0 +1,12 @@
+-- 0090_hotmart_eventos_crus
+-- GUARDAR O QUE A HOTMART MANDA, INTEIRO.
+--
+-- O webhook lia seis campos do payload e jogava o resto fora. Quando descobrimos que
+-- a Hotmart reusa a transação e incrementa um contador de cobranças (0088), não havia
+-- UM ÚNICO payload guardado para conferir qual campo carrega esse número —
+-- `numero_recorrencia` veio nulo nas 258 compras, e sem o evento cru não dá para
+-- saber se a Hotmart não manda ou se lemos o nome errado.
+--
+-- Sem o cru, todo bug de integração vira arqueologia. Com ele, é uma query:
+--   select * from cs.vw_hotmart_campos;   -- que campos vieram, e com que nome
+-- (Conteúdo aplicado no banco em 14/07/2026: cs.hotmart_eventos + cs.vw_hotmart_campos.)

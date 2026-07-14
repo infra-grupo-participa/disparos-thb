@@ -1,0 +1,8 @@
+-- 0085_hm_ultimo_abatimento
+-- O sinal de R$300 é a ENTRADA no funil, não um abatimento do saldo: todo lead novo
+-- paga um, e sinalizar isso como "pagamento novo" poria 41 pessoas no topo da tela
+-- por terem apenas chegado — e um aviso que grita por bobagem é um aviso que ninguém
+-- lê. O que merece o topo é dinheiro que DERRUBA a dívida: mensalidade, saldo à
+-- vista, compra cheia. Duas perguntas diferentes, dois campos diferentes.
+-- (Conteúdo aplicado no banco em 14/07/2026: acrescenta ultimo_abatimento_em/_valor/
+--  _categoria a cs.vw_hm_financeiro via lateral sobre cs.hm_pagamentos.)

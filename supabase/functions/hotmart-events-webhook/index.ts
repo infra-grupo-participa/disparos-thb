@@ -266,6 +266,30 @@ async function notifySlack(channel: string, payload: {
 // Idempotente (upsert por email / hotmart_transaction) e NÃO-FATAL: qualquer erro é
 // logado, nunca lançado — assim uma falha de DB não provoca retry da Hotmart nem
 // atrapalha a notificação do Slack. Reusa o modelo existente (não cria compradores_ht).
+// Guarda o evento como a Hotmart mandou. Nunca derruba o webhook: se falhar, o
+// pagamento continua sendo processado — o log é para nós, não para ela.
+async function logEventoHotmart(
+  evento: string,
+  transacao: string | null,
+  email: string | null,
+  payload: unknown,
+): Promise<void> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return;
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    await supabase.schema("cs").from("hotmart_eventos").insert({
+      evento,
+      transacao,
+      email: email || null,
+      payload,
+    });
+  } catch (e) {
+    console.error("[DB] falha ao guardar evento cru:", e instanceof Error ? e.message : e);
+  }
+}
+
 async function persistPurchase(args: {
   nome: string;
   email: string;
@@ -285,6 +309,18 @@ async function persistPurchase(args: {
   parcelas: number | null;
   dataCompraIso: string | null;
   dataAprovacaoIso: string | null;
+  // ---- o extrato financeiro que o webhook jogava fora ----
+  // `numeroCobranca` é o mais caro deles: no Parcelado Hotmart a MESMA transação é
+  // recobrada todo mês e este contador sobe (2, 3, ...). Sem ele, a 2ª parcela some
+  // — o upsert por transação sobrescreve a linha e ninguém percebe. A Marina pagou
+  // duas e o sistema contava uma.
+  numeroCobranca: number | null;
+  tipoCobranca: string | null;
+  valorComImpostos: number | null;
+  valorLiquido: number | null;
+  taxaProcessamento: number | null;
+  canalVenda: string | null;
+  codigoAssinante: string | null;
 }): Promise<void> {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("[DB] SUPABASE_URL/SERVICE_ROLE_KEY ausentes — persistência ignorada");
@@ -340,6 +376,16 @@ async function persistPurchase(args: {
           data_compra: args.dataCompraIso,
           data_aprovacao: args.dataAprovacaoIso,
           hotmart_event: "PURCHASE_APPROVED",
+          // O extrato completo (0088). O upsert por transação continua — o que muda
+          // é que a recobrança agora atualiza `numero_cobranca`, e o gatilho do razão
+          // lança a parcela nova em vez de perdê-la.
+          numero_cobranca: args.numeroCobranca,
+          tipo_cobranca: args.tipoCobranca,
+          valor_com_impostos: args.valorComImpostos,
+          valor_liquido: args.valorLiquido,
+          taxa_processamento: args.taxaProcessamento,
+          canal_venda: args.canalVenda,
+          codigo_assinante: args.codigoAssinante,
           atualizado_em: agora,
         },
         { onConflict: "hotmart_transaction" },
@@ -864,6 +910,25 @@ serve(async (req) => {
   // de contatos do workspace de CS; a esteira de CS é semeada por trigger no banco.
   const offer = purchase.offer as Record<string, unknown> | undefined;
   const payment = purchase.payment as Record<string, unknown> | undefined;
+  const fullPrice = purchase.full_price as Record<string, unknown> | undefined;
+
+  // QUAL COBRANÇA É ESTA. No Parcelado Hotmart a MESMA transação é recobrada todo
+  // mês e o contador sobe — e é esse número que diz "a Marina já pagou 2 de 12".
+  // O nome do campo não é confiável: `recurrency_number` veio NULO nas 258 compras
+  // que temos, então ou a Hotmart não o manda aqui, ou usa outro nome. Tentamos
+  // todos os que a documentação e o export sugerem, e, se nenhum vier, assumimos a
+  // 1ª cobrança — que é o comportamento seguro (nunca infla o que a pessoa pagou).
+  // O payload cru fica guardado em cs.hotmart_eventos: quando a próxima parcela
+  // cair, `select * from cs.vw_hotmart_campos` mostra o nome certo sem adivinhação.
+  const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
+  const numeroCobranca =
+    num(purchase.recurrency_number)
+    ?? num((purchase as Record<string, unknown>).charge_number)
+    ?? num(payment?.charge_number)
+    ?? num(payment?.current_installment)
+    ?? num((purchase as Record<string, unknown>).installment_number)
+    ?? null;
+
   await persistPurchase({
     nome,
     email: String(buyer.email),
@@ -878,12 +943,28 @@ serve(async (req) => {
     valor: (price?.value as number) ?? null,
     status: String(purchase.status ?? "APPROVED"),
     isAssinatura: purchase.is_subscription === true,
-    numeroRecorrencia: purchase.recurrency_number != null ? Number(purchase.recurrency_number) : null,
+    numeroRecorrencia: num(purchase.recurrency_number),
     metodoPagamento: payment?.type ? String(payment.type) : null,
-    parcelas: payment?.installments_number != null ? Number(payment.installments_number) : null,
+    parcelas: num(payment?.installments_number),
     dataCompraIso: msToIso(Number(purchase.order_date ?? 0) || null),
     dataAprovacaoIso: msToIso(Number(purchase.approved_date ?? 0) || null),
+    numeroCobranca,
+    tipoCobranca: payment?.type ? String(payment.type) : null,
+    // `price` é o valor SEM impostos; `full_price` é o que o cliente desembolsou
+    // (com juros do parcelamento). Guardar os dois: um é receita, o outro é o que
+    // o cliente jura que pagou quando liga reclamando.
+    valorComImpostos: num(fullPrice?.value),
+    valorLiquido: num((purchase.producer as Record<string, unknown> | undefined)?.net_value)
+      ?? num((purchase as Record<string, unknown>).net_value),
+    taxaProcessamento: num((purchase as Record<string, unknown>).hotmart_fee),
+    canalVenda: origem ?? null,
+    codigoAssinante: (purchase.subscription as Record<string, unknown> | undefined)?.subscriber_code
+      ? String((purchase.subscription as Record<string, unknown>).subscriber_code) : null,
   });
+
+  // O evento CRU, inteiro. Sem isto, todo bug de integração vira arqueologia: foi
+  // não ter guardado o payload que nos deixou às cegas sobre o número da cobrança.
+  await logEventoHotmart(event, String(purchase.transaction), String(buyer.email ?? ""), body);
 
   return new Response(JSON.stringify({ ok: true, channel }), {
     status: 200,

@@ -1,0 +1,10 @@
+-- 0089_importar_venda_hotmart
+-- A porta de entrada do export da Hotmart. O papel da aplicação não tem acesso a
+-- public.compras (é o domínio do webhook) — o import passa por aqui, com nome e
+-- regra, em vez de um INSERT solto. Usada por scripts/import-hotmart-vendas.mjs.
+--
+-- O CSV é a fonte da verdade do FINANCEIRO (valores, taxas, tipo de cobrança e,
+-- sobretudo, EM QUE COBRANÇA a transação está). Ele NÃO reescreve comprador nem
+-- oferta: isso já foi decidido pelo webhook e por regras que rodaram depois. E não
+-- rebaixa status: uma compra aprovada não volta a ser boleto.
+-- (Conteúdo aplicado no banco em 14/07/2026.)
