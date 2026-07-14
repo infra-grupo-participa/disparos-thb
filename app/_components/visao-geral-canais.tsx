@@ -65,10 +65,10 @@ export function VisaoGeralCanais({ desde, ate, edicao }: { desde?: string; ate?:
       detalhe: `${fmt(d.email.aberturas)} aberturas únicas`,
     },
     {
-      chave: "li", nome: "Ligações", fonte: "Atende Simples", cor: "violet",
-      volume: volLi, volLabel: "chamadas",
-      resultado: `${taxa(d.ligacoes.atendidas, d.ligacoes.total)}%`, resLabel: "atendidas",
-      detalhe: `${fmt(d.ligacoes.feitas)} feitas · ${fmt(d.ligacoes.atendidas)} atendidas`,
+      chave: "li", nome: "Atendimentos", fonte: "registro do time", cor: "violet",
+      volume: volLi, volLabel: "toques",
+      resultado: `${taxa(d.ligacoes.atendidas, d.ligacoes.total)}%`, resLabel: "viraram conversa",
+      detalhe: `${fmt(d.ligacoes.feitas)} feitos · ${fmt(d.ligacoes.atendidas)} conversas`,
     },
   ] as const;
 

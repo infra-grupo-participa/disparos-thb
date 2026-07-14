@@ -98,6 +98,9 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
   const [progresso, setProgresso] = useState<Progresso | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
+  // Limite anti-ban recusado pelo servidor (409). Fica na tela em vez de virar
+  // um alert(): o operador precisa ler quanto já saiu hoje para decidir.
+  const [limite, setLimite] = useState<{ motivo: string; podeForcar: boolean } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -147,17 +150,37 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
   const edicaoLabel =
     edicao || (edicoesPresentes.length > 1 ? `${edicoesPresentes.length} edições` : "sem edição");
 
-  async function disparar() {
+  // `forcar` só passa por cima do limite anti-ban se o servidor aceitar — lá é
+  // que se confere o papel de admin. Aqui é a intenção, não a permissão.
+  async function disparar(forcar = false) {
     if (!templateId || selecao.length === 0) return;
     setEnviando(true);
+    setLimite(null);
     try {
       const r = await fetch(`/api/send?evento=${evento}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId, compradorIds: selecao.map((s) => s.comprador_id), edicao: edicao || undefined }),
+        body: JSON.stringify({
+          templateId,
+          compradorIds: selecao.map((s) => s.comprador_id),
+          edicao: edicao || undefined,
+          ...(forcar ? { forcar: true } : {}),
+        }),
       });
       const d = await r.json();
-      if (!d.ok) { alert(d.reason || "Falha ao iniciar disparo"); setEnviando(false); setShowConfirm(false); return; }
+      if (!d.ok) {
+        // Limite estourado: mantém o modal aberto com o motivo, em vez de um
+        // alert que some. Quem não é admin lê e desiste; o admin decide.
+        if (d.reason === "limite_de_disparo") {
+          setLimite({ motivo: d.motivo || "Limite de disparo atingido.", podeForcar: !!d.podeForcar });
+          setEnviando(false);
+          return;
+        }
+        alert(d.reason || "Falha ao iniciar disparo");
+        setEnviando(false);
+        setShowConfirm(false);
+        return;
+      }
       setDisparoId(d.disparoId);
       iniciarPolling(d.disparoId);
     } catch {
@@ -567,14 +590,33 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
                 {selecao.length - comTelefone} contato(s) sem telefone não receberão a mensagem.
               </p>
             )}
+            {limite && (
+              <div className="mt-3 rounded-md bg-amber-50 px-3 py-2.5 dark:bg-amber-500/15">
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">Disparo bloqueado pelo limite de segurança</p>
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{limite.motivo}</p>
+                <p className="mt-1.5 text-xs text-amber-700/80 dark:text-amber-300/80">
+                  {limite.podeForcar
+                    ? "Passar por cima aumenta o risco de a Meta restringir o número."
+                    : "Fale com um admin se este envio não puder esperar."}
+                </p>
+              </div>
+            )}
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <Button variant="secondary" onClick={() => setShowConfirm(false)} disabled={enviando}>
-                Cancelar
+                {limite ? "Fechar" : "Cancelar"}
               </Button>
-              <Button variant="danger" onClick={disparar} disabled={enviando}>
-                {enviando && <Spinner className="text-white" />}
-                {enviando ? "Enviando…" : `Enviar para ${selecao.length} contato(s)`}
-              </Button>
+              {/* Sem o limite: o envio normal. Com o limite e sendo admin: o
+                  envio forçado, rotulado pelo que ele é. */}
+              {(!limite || limite.podeForcar) && (
+                <Button variant="danger" onClick={() => disparar(!!limite)} disabled={enviando}>
+                  {enviando && <Spinner className="text-white" />}
+                  {enviando
+                    ? "Enviando…"
+                    : limite
+                      ? `Disparar mesmo assim (${selecao.length})`
+                      : `Enviar para ${selecao.length} contato(s)`}
+                </Button>
+              )}
             </div>
           </div>
         </div>

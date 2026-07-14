@@ -6,10 +6,9 @@ import type { NextRequest } from "next/server";
 // rotas (runtime Node, via isAuthed) — o middleware só checa presença, porque
 // roda em Edge e não temos o segredo de HMAC de forma síncrona aqui.
 // Rotas públicas: webhooks de provedores (autenticam por assinatura/segredo no
-// próprio handler, não por cookie) + login. O webhook do Atende Simples valida
-// X-Hub-Signature (HMAC) na rota, então é liberado aqui — mas SÓ ele, não as
-// demais rotas de /api/ligacoes (histórico/métricas seguem exigindo sessão).
-const ALLOW_PREFIX = ["/api/auth", "/api/webhook", "/api/cron", "/api/eventos", "/api/hm/formularios", "/api/ligacoes/atendesimples", "/login"];
+// próprio handler, não por cookie) + login. Todas as rotas de /api/ligacoes
+// exigem sessão — não há mais webhook de telefonia entrando por lá.
+const ALLOW_PREFIX = ["/api/auth", "/api/webhook", "/api/cron", "/api/eventos", "/api/hm/formularios", "/login"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

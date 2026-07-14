@@ -173,6 +173,62 @@ export async function aplicarTag(opts: {
   }
 }
 
+// ===== Lista (público da campanha direta) ==================================
+// POST /api/3/contactLists — inscreve o contato na lista (status 1 = ativo).
+// É o que forma o público do disparo por campanha: a lista técnica criada para
+// aquele disparo (ver lib/activecampaign-v1.ts). Idempotente: reinscrever quem
+// já está na lista não duplica nada.
+export async function inscreverNaLista(opts: {
+  contactId: string;
+  listId: string;
+  cfg?: CanalCfg;
+}): Promise<ResultadoAC> {
+  try {
+    const res = await fetch(`${resolveBase(opts.cfg)}/api/3/contactLists`, {
+      method: "POST",
+      headers: headers(opts.cfg),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      body: JSON.stringify({
+        contactList: { list: opts.listId, contact: opts.contactId, status: 1 },
+      }),
+    });
+    if (res.ok) return { ok: true, status: res.status };
+    const txt = await res.text();
+    let msg = `HTTP ${res.status}`;
+    try {
+      const j = JSON.parse(txt) as { message?: string; errors?: Array<{ title?: string }> };
+      msg = j.message || j.errors?.[0]?.title || msg;
+    } catch { /* mantém HTTP status */ }
+    return { ok: false, status: res.status, erro: msg };
+  } catch (e) {
+    return { ok: false, status: 0, erro: e instanceof Error ? e.message : "erro de rede" };
+  }
+}
+
+// GET /api/3/contacts?listid=X&status=2 — quem DESCADASTROU nesta lista.
+//
+// Por que isto existe: a campanha direta usa uma lista técnica por disparo, e o
+// link de descadastro do e-mail remove a pessoa DAQUELA lista — uma lista que
+// nunca mais será usada. Sem trazer esse sinal para cá, o pedido de saída se
+// perderia e a pessoa receberia o próximo disparo. O opt-out de verdade mora no
+// nosso banco (cs.contatos.opt_out), que o WhatsApp já respeita.
+export async function listarDescadastrados(listId: string, cfg?: CanalCfg): Promise<{ ok: boolean; emails: string[]; erro?: string }> {
+  try {
+    const res = await fetch(`${resolveBase(cfg)}/api/3/contacts?listid=${encodeURIComponent(listId)}&status=2&limit=100`, {
+      headers: headers(cfg),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) return { ok: false, emails: [], erro: `HTTP ${res.status}` };
+    const json = (await res.json()) as { contacts?: Array<{ email?: string }> };
+    const emails = (json.contacts ?? [])
+      .map((c) => (c.email ?? "").trim().toLowerCase())
+      .filter(Boolean);
+    return { ok: true, emails };
+  } catch (e) {
+    return { ok: false, emails: [], erro: e instanceof Error ? e.message : "erro de rede" };
+  }
+}
+
 // ===== Engajamento por contato =============================================
 // O objeto de contato do AC já agrega o engajamento da pessoa: sentcnt (e-mails
 // recebidos), last_open_date, last_click_date, bounced_hard/soft. Buscamos por

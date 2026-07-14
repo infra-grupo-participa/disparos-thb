@@ -57,7 +57,7 @@ export default function CanaisPage() {
     <PageFade>
       <PageHeader
         title="Canais de disparo"
-        description="Credenciais da API de WhatsApp por evento. Troque a chave em segundos quando um número for queimado — sem deploy."
+        description="Credenciais de WhatsApp (Unnichat) e de e-mail (ActiveCampaign), por evento. Troque a chave em segundos quando um número for queimado — sem deploy."
         actions={<Button onClick={() => setNovo(true)}>+ Novo canal</Button>}
       />
 
@@ -121,15 +121,128 @@ export default function CanaisPage() {
         </Card>
       )}
 
+      <RemetenteEmail />
+
       {novo && <ModalCanal eventos={eventos} onClose={() => setNovo(false)} onSalvo={() => { setNovo(false); carregar(); }} />}
       {editar && <ModalCanal canal={editar} eventos={eventos} onClose={() => setEditar(null)} onSalvo={() => { setEditar(null); carregar(); }} />}
     </PageFade>
   );
 }
 
+type Remetente = {
+  nome: string; email: string; url: string; lembrete: string;
+  endereco: string; cidade: string; estado: string; cep: string; pais: string;
+};
+const REMETENTE_VAZIO: Remetente = {
+  nome: "", email: "", url: "", lembrete: "", endereco: "", cidade: "", estado: "", cep: "", pais: "Brasil",
+};
+
+// Quem assina o e-mail. Sem isto, o disparo por campanha não sai — e não é
+// capricho do sistema: o ActiveCampaign exige o endereço físico e a frase que
+// lembra a pessoa de por que ela está recebendo (é a lei anti-spam). Configura-se
+// uma vez; vale para todos os disparos de e-mail.
+function RemetenteEmail() {
+  const [r, setR] = useState<Remetente>(REMETENTE_VAZIO);
+  const [carregando, setCarregando] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [salvo, setSalvo] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((x) => x.json())
+      .then((d) => {
+        if (d.ok && d.config?.email_remetente) {
+          setR({ ...REMETENTE_VAZIO, ...(d.config.email_remetente as Partial<Remetente>) });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCarregando(false));
+  }, []);
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro(null);
+    const faltando = (["nome", "email", "url", "lembrete", "endereco", "cidade"] as const).filter((k) => !r[k].trim());
+    if (faltando.length) {
+      setErro("Preencha nome, e-mail, site, lembrete, endereço e cidade — o ActiveCampaign recusa o envio sem eles.");
+      return;
+    }
+    setSalvando(true);
+    setSalvo(false);
+    try {
+      const res = await fetch("/api/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chave: "email_remetente", valor: r }),
+      });
+      const d = await res.json();
+      if (!d.ok) { setErro("Não foi possível salvar o remetente."); return; }
+      setSalvo(true);
+    } finally { setSalvando(false); }
+  }
+
+  const campo = (k: keyof Remetente, rotulo: string, dica?: string) => (
+    <label className="block">
+      <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{rotulo}</span>
+      <input value={r[k]} onChange={(e) => { setR({ ...r, [k]: e.target.value }); setSalvo(false); }} className={fieldClass} />
+      {dica && <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">{dica}</span>}
+    </label>
+  );
+
+  return (
+    <Card className="mt-8 p-6">
+      <h2 className="font-semibold text-slate-900 dark:text-slate-100">Remetente do e-mail</h2>
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        Quem assina os e-mails disparados. O ActiveCampaign exige o endereço físico e a frase de lembrete —
+        é exigência da lei anti-spam, e sem isso a campanha não é aceita.
+      </p>
+
+      {carregando ? (
+        <div className="flex items-center gap-2 py-6 text-slate-400"><Spinner /> Carregando…</div>
+      ) : (
+        <form onSubmit={salvar} className="mt-4 grid gap-3 sm:grid-cols-2">
+          {campo("nome", "Nome do remetente", "Aparece como o autor do e-mail.")}
+          {campo("email", "E-mail do remetente", "Precisa ser um domínio verificado no AC.")}
+          {campo("url", "Site", "Ex.: https://grupoparticipa.com.br")}
+          {campo("endereco", "Endereço")}
+          {campo("cidade", "Cidade")}
+          {campo("estado", "Estado (opcional)")}
+          {campo("cep", "CEP (opcional)")}
+          {campo("pais", "País")}
+          <div className="sm:col-span-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Frase de lembrete</span>
+              <textarea
+                value={r.lembrete}
+                onChange={(e) => { setR({ ...r, lembrete: e.target.value }); setSalvo(false); }}
+                rows={2}
+                placeholder="Você está recebendo este e-mail porque se inscreveu num evento do Grupo Participa."
+                className={cn(fieldClass, "resize-y")}
+              />
+              <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                Vai no rodapé, explicando à pessoa por que ela recebeu o e-mail.
+              </span>
+            </label>
+          </div>
+
+          <div className="flex items-center gap-3 sm:col-span-2">
+            <Button type="submit" disabled={salvando}>{salvando && <Spinner className="text-white" />}Salvar remetente</Button>
+            {salvo && <span className="text-sm text-emerald-600 dark:text-emerald-400">✓ Remetente salvo</span>}
+            {erro && <span className="text-sm text-rose-600 dark:text-rose-400">{erro}</span>}
+          </div>
+        </form>
+      )}
+    </Card>
+  );
+}
+
 function ModalCanal({ canal, eventos, onClose, onSalvo }: { canal?: Canal; eventos: Evento[]; onClose: () => void; onSalvo: () => void }) {
   const edicao = !!canal;
   const [eventoChave, setEventoChave] = useState(canal?.evento_chave || eventos[0]?.chave || "");
+  // O provider decide QUAL API o canal fala. Ele sempre existiu no banco, mas a
+  // tela não o expunha — então um canal de e-mail só nascia por SQL.
+  const [provider, setProvider] = useState(canal?.provider || "unnichat");
   const [nome, setNome] = useState(canal?.nome || "");
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(canal?.base_url || "");
@@ -138,6 +251,8 @@ function ModalCanal({ canal, eventos, onClose, onSalvo }: { canal?: Canal; event
   const [salvando, setSalvando] = useState(false);
   const [teste, setTeste] = useState<{ ok: boolean; msg: string } | null>(null);
   const [testando, setTestando] = useState(false);
+
+  const ehEmail = provider === "activecampaign";
 
   async function testarChave() {
     if (!apiKey) { setErro("Digite a chave de API para testar."); return; }
@@ -148,7 +263,7 @@ function ModalCanal({ canal, eventos, onClose, onSalvo }: { canal?: Canal; event
       const r = await fetch("/api/canais/testar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: apiKey, base_url: baseUrl || undefined }),
+        body: JSON.stringify({ api_key: apiKey, base_url: baseUrl || undefined, provider }),
       });
       const d = await r.json();
       setTeste({ ok: !!d.ok, msg: d.detalhe || d.reason || (d.ok ? "OK" : "Falha") });
@@ -163,13 +278,18 @@ function ModalCanal({ canal, eventos, onClose, onSalvo }: { canal?: Canal; event
     e.preventDefault();
     setErro(null);
     if (!edicao && (!nome || !apiKey)) { setErro("Informe o nome e a chave de API."); return; }
+    // O AC não tem base padrão: cada conta tem a sua (https://sua-conta.api-us1.com).
+    if (!edicao && ehEmail && !baseUrl.trim()) {
+      setErro("O ActiveCampaign exige a URL da sua conta (ex.: https://suaconta.api-us1.com).");
+      return;
+    }
     setSalvando(true);
     try {
       const url = edicao ? `/api/canais/${canal!.id}` : "/api/canais";
       const method = edicao ? "PATCH" : "POST";
       const body: Record<string, unknown> = edicao
         ? { nome, base_url: baseUrl, numero, ...(apiKey ? { api_key: apiKey } : {}) }
-        : { evento_chave: eventoChave, nome, api_key: apiKey, base_url: baseUrl || undefined, numero: numero || undefined };
+        : { evento_chave: eventoChave, provider, nome, api_key: apiKey, base_url: baseUrl || undefined, numero: numero || undefined };
       const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!d.ok) { setErro("Não foi possível salvar o canal."); return; }
@@ -183,17 +303,44 @@ function ModalCanal({ canal, eventos, onClose, onSalvo }: { canal?: Canal; event
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{edicao ? "Editar canal" : "Novo canal de disparo"}</h2>
         <div className="mt-4 space-y-3">
           {!edicao && (
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Evento</span>
-              <select value={eventoChave} onChange={(e) => setEventoChave(e.target.value)} className={fieldClass}>
-                {eventos.map((ev) => <option key={ev.chave} value={ev.chave}>{ev.nome}</option>)}
-              </select>
-            </label>
+            <>
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Evento</span>
+                <select value={eventoChave} onChange={(e) => setEventoChave(e.target.value)} className={fieldClass}>
+                  {eventos.map((ev) => <option key={ev.chave} value={ev.chave}>{ev.nome}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Canal</span>
+                <select value={provider} onChange={(e) => setProvider(e.target.value)} className={fieldClass}>
+                  <option value="unnichat">WhatsApp (Unnichat)</option>
+                  <option value="activecampaign">E-mail (ActiveCampaign)</option>
+                </select>
+              </label>
+            </>
           )}
-          <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do canal (ex.: Número principal)" className={fieldClass} />
-          <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={edicao ? "Nova chave de API (deixe em branco para manter)" : "Chave de API (Unnichat)"} className={cn(fieldClass, "font-mono")} autoComplete="off" />
-          <input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Número do WhatsApp (opcional)" className={fieldClass} />
-          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="Base URL (opcional — padrão Unnichat)" className={fieldClass} />
+          <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder={ehEmail ? "Nome do canal (ex.: Conta principal de e-mail)" : "Nome do canal (ex.: Número principal)"} className={fieldClass} />
+          <input
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={edicao ? "Nova chave de API (deixe em branco para manter)" : ehEmail ? "Chave de API (ActiveCampaign)" : "Chave de API (Unnichat)"}
+            className={cn(fieldClass, "font-mono")}
+            autoComplete="off"
+          />
+          {!ehEmail && (
+            <input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Número do WhatsApp (opcional)" className={fieldClass} />
+          )}
+          <input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder={ehEmail ? "URL da conta (ex.: https://suaconta.api-us1.com)" : "Base URL (opcional — padrão Unnichat)"}
+            className={fieldClass}
+          />
+          {ehEmail && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              No AC: Settings → Developer. Copie a <strong>URL</strong> e a <strong>Key</strong>.
+            </p>
+          )}
         </div>
         {erro && <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{erro}</p>}
         {teste && (

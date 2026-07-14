@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 // na medida em que cada um "tem" edição:
 //   WhatsApp (Unnichat):     cs.disparos.edicao_ht (nativo)
 //   E-mail (ActiveCampaign): pelo NOME da campanha (ex.: "[HT20]") — best-effort
-//   Ligações (Atende Simples): herda a edição do ALUNO casado (cs.contatos_evento).
+//   Atendimentos (registro do time): herdam a edição do ALUNO (cs.contatos_evento).
 //     Sem edição selecionada, ligações mostram o total geral (produtividade do
 //     comercial não depende de o número estar na base).
 export async function GET(req: Request) {
@@ -48,15 +48,20 @@ export async function GET(req: Request) {
     p,
   )) ?? { enviados: 0, aberturas: 0 };
 
+  // Atendimentos (ligação, WhatsApp, presencial) com compradores DESTE evento.
+  // Duas correções em relação ao que havia aqui:
+  //  1. sem o filtro `provider = 'atendesimples'` — era ele que escondia todo
+  //     registro feito à mão pelo operador;
+  //  2. join real com o evento (era `left join`, que não filtrava nada: ligações
+  //     de quem não é comprador do evento entravam na conta e inflavam o card).
   const ligacoes = (await queryOne<{ total: number; feitas: number; atendidas: number }>(
     `select
        count(*)::int as total,
-       count(*) filter (where l.direction = 'outbound')::int as feitas,
+       count(*) filter (where l.direction is distinct from 'inbound')::int as feitas,
        count(*) filter (where l.resultado = 'atendeu')::int as atendidas
      from cs.ligacoes l
-     left join cs.contatos_evento v on v.comprador_id = l.comprador_id and v.evento = $1
-     where l.provider = 'atendesimples'
-       and ($2::timestamptz is null or l.criado_em >= $2)
+     join cs.contatos_evento v on v.comprador_id = l.comprador_id and v.evento = $1
+     where ($2::timestamptz is null or l.criado_em >= $2)
        and ($3::timestamptz is null or l.criado_em <= $3)
        and ($4::text is null or v.edicao = $4)`,
     p,

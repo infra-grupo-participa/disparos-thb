@@ -11,10 +11,14 @@ type Totais = {
   dur_total_seg: number; dur_media_seg: number | null;
   compradores_distintos: number; compradores_atendidos: number;
 };
-type Fora = { geral: number; sem_participante: number; ambiguas: number };
 type Atendente = { atendente: string; total: number; atendidas: number; feitas: number; dur_total_seg: number };
 type DiaSerie = { dia: string; total: number; atendidas: number; atendentes: { operador: string; qtd: number }[] };
 type HoraSerie = { hora: number; total: number; atendidas: number };
+type CanalSerie = { canal: string; total: number; atendidas: number };
+
+const CANAL_LABEL: Record<string, string> = {
+  ligacao: "📞 Ligação", whatsapp: "💬 WhatsApp", presencial: "🤝 Presencial", outro: "• Outro",
+};
 
 const taxa = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
 const fmt = (n: number) => n.toLocaleString("pt-BR");
@@ -25,15 +29,19 @@ function dur(seg: number | null) {
   return m > 0 ? `${m}min${s ? ` ${s}s` : ""}` : `${s}s`;
 }
 
-// Produtividade do comercial nas ligações (Atende Simples), por evento.
-// Dados de /api/ligacoes/metricas. Espelha o painel de e-mail.
+// Produtividade do comercial nos ATENDIMENTOS (ligação, WhatsApp, presencial),
+// por evento. Dados de /api/ligacoes/metricas. Espelha o painel de e-mail.
+//
+// O que entra aqui é o que o operador registra. O histórico das chamadas do
+// Atende Simples continua contando, mas ninguém mais escreve por lá.
 export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string }) {
   const { evento, nome } = usePortal();
   const [totais, setTotais] = useState<Totais | null>(null);
-  const [fora, setFora] = useState<Fora | null>(null);
+  const [semVinculo, setSemVinculo] = useState(0);
   const [serie, setSerie] = useState<DiaSerie[]>([]);
   const [porHora, setPorHora] = useState<HoraSerie[]>([]);
   const [porAtendente, setPorAtendente] = useState<Atendente[]>([]);
+  const [porCanal, setPorCanal] = useState<CanalSerie[]>([]);
   const [carregando, setCarregando] = useState(true);
 
   const carregar = useCallback(async () => {
@@ -43,7 +51,14 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
     try {
       const r = await fetch(`/api/ligacoes/metricas?${params.toString()}`);
       const d = await r.json();
-      if (d.ok) { setTotais(d.totais); setFora(d.fora ?? null); setPorAtendente(d.porAtendente); setSerie(d.serie ?? []); setPorHora(d.porHora ?? []); }
+      if (d.ok) {
+        setTotais(d.totais);
+        setSemVinculo(d.sem_vinculo ?? 0);
+        setPorAtendente(d.porAtendente);
+        setSerie(d.serie ?? []);
+        setPorHora(d.porHora ?? []);
+        setPorCanal(d.porCanal ?? []);
+      }
     } catch {
       /* mantém dados anteriores */
     } finally {
@@ -59,10 +74,10 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
   if (!totais || totais.total === 0) {
     return (
       <EmptyState
-        title={`Nenhuma ligação para compradores do ${nome}`}
-        description={fora && fora.geral > 0
-          ? `O discador registrou ${fmt(fora.geral)} chamada(s) no período, mas nenhuma bateu com um comprador do ${nome} por telefone (${fmt(fora.sem_participante)} sem participante${fora.ambiguas > 0 ? `, ${fmt(fora.ambiguas)} ambíguas` : ""}).`
-          : "As ligações do Atende Simples aparecem aqui assim que casarem com compradores no sistema."}
+        title={`Nenhum atendimento a compradores do ${nome}`}
+        description={semVinculo > 0
+          ? `Há ${fmt(semVinculo)} registro(s) no período sem contato vinculado — em geral chamadas antigas para números que não são de compradores.`
+          : "Os atendimentos aparecem aqui conforme o time registra em Meu dia ou na ficha do contato."}
         icon={
           <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />
@@ -76,19 +91,33 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
   return (
     <div className="space-y-5">
       <p className="text-xs text-slate-400 dark:text-slate-500">
-        Ligações a compradores do <span className="font-medium text-slate-500 dark:text-slate-400">{nome}</span> (cruzadas por telefone) · {fmt(t.total)} chamada(s)
-        {fora && (fora.geral - t.total) > 0 && (
-          <> · {fmt(fora.geral - t.total)} do discador fora do escopo ({fmt(fora.sem_participante)} sem participante{fora.ambiguas > 0 ? `, ${fmt(fora.ambiguas)} ambíguas` : ""})</>
-        )}
+        Atendimentos a compradores do <span className="font-medium text-slate-500 dark:text-slate-400">{nome}</span> · {fmt(t.total)} registro(s)
+        {semVinculo > 0 && <> · {fmt(semVinculo)} sem contato vinculado (fora do escopo)</>}
       </p>
 
-      {/* KPIs — só compradores do evento: atendimento, tempo, volume e alcance. */}
+      {/* KPIs — só compradores do evento: conversa, tempo, volume e alcance. */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi titulo="Atendidas" valor={fmt(t.atendidas)} sub={`${taxa(t.atendidas, t.total)}% das ${fmt(t.total)} ligações`} />
-        <Kpi titulo="Tempo falado" valor={dur(t.dur_total_seg)} sub={`média ${dur(t.dur_media_seg)} por atendida`} />
-        <Kpi titulo="Ligações" valor={fmt(t.total)} sub={`${fmt(t.feitas)} feitas · ${fmt(t.recebidas)} recebidas`} />
-        <Kpi titulo="Compradores alcançados" valor={fmt(t.compradores_distintos)} sub={`${fmt(t.compradores_atendidos)} atenderam`} />
+        <Kpi titulo="Conversas" valor={fmt(t.atendidas)} sub={`${taxa(t.atendidas, t.total)}% dos ${fmt(t.total)} toques`} />
+        <Kpi titulo="Tempo falado" valor={dur(t.dur_total_seg)} sub={`média ${dur(t.dur_media_seg)} por conversa`} />
+        <Kpi titulo="Toques" valor={fmt(t.total)} sub={`${fmt(t.feitas)} feitos · ${fmt(t.recebidas)} recebidos`} />
+        <Kpi titulo="Compradores alcançados" valor={fmt(t.compradores_distintos)} sub={`${fmt(t.compradores_atendidos)} conversaram`} />
       </div>
+
+      {/* Por canal — revela se o time só liga, ou se também usa WhatsApp. */}
+      {porCanal.length > 1 && (
+        <Card className="p-4">
+          <SecaoTitulo cor="sky">Por canal</SecaoTitulo>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            {porCanal.map((c) => (
+              <div key={c.canal} className="rounded-lg border border-slate-100 px-3 py-2 dark:border-slate-800">
+                <p className="text-xs text-slate-500 dark:text-slate-400">{CANAL_LABEL[c.canal] ?? c.canal}</p>
+                <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-800 dark:text-slate-100">{fmt(c.total)}</p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">{fmt(c.atendidas)} conversas · {taxa(c.atendidas, c.total)}%</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Série por dia — volume + atendidas */}
       {serie.length > 0 && (

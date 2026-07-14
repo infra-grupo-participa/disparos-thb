@@ -5,6 +5,7 @@ import { normalizePhone } from "@/lib/phone";
 import { logger } from "@/lib/log";
 import { parseBody, SendSchema } from "@/lib/validators";
 import { processarDisparo } from "@/lib/services/disparo";
+import { checarLimiteDisparo } from "@/lib/services/limite";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
 
   const p = await parseBody(req, SendSchema);
   if (!p.ok) return p.res;
-  const { templateId, compradorIds } = p.data;
+  const { templateId, compradorIds, forcar } = p.data;
   const edicao = p.data.edicao ? String(p.data.edicao) : null;
   const evento = eventoDe(req);
 
@@ -38,13 +39,18 @@ export async function POST(req: Request) {
   }
 
   // HM vive num overlay isolado (cs.contatos_hm sobre `compradores`), fora de
-  // cs.contatos_evento e sem opt-out. Resolve os destinatários pela view do HM;
-  // os demais eventos (HT/SEM) seguem por cs.contatos_evento com filtro opt-out.
+  // cs.contatos_evento. Resolve os destinatários pela view do HM; os demais
+  // eventos (HT/SEM) seguem por cs.contatos_evento. Os DOIS respeitam o opt-out
+  // — e o HM respeita também o `nao_contatar`, a trava que o operador levanta no
+  // card. Antes, o ramo HM não filtrava nenhum dos dois: quem pediu para não ser
+  // contatado recebia mesmo assim.
   const ehHM = evento === "HM";
   const contatos = ehHM
     ? await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
         `select comprador_id, telefone, null::text as edicao from cs.contatos_hm_kanban
-          where comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''`,
+          where comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
+            and not coalesce(nao_contatar, false)
+            and comprador_id not in (select comprador_id from cs.contatos where opt_out)`,
         [compradorIds],
       )
     : await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
@@ -53,17 +59,51 @@ export async function POST(req: Request) {
             and comprador_id not in (select comprador_id from cs.contatos where opt_out)`,
         [compradorIds, evento],
       );
-  const optOut = ehHM
-    ? { n: 0 }
-    : await queryOne<{ n: number }>(
-        `select count(*)::int as n from cs.contatos where comprador_id = any($1::uuid[]) and opt_out`,
-        [compradorIds],
-      );
+
+  // Quantos ficaram de fora e por quê — o operador precisa saber que 12 dos 50
+  // selecionados não vão receber, e não descobrir isso pelo total no fim.
+  const pulados = (await queryOne<{ opt_out: number; nao_contatar: number }>(
+    ehHM
+      ? `select
+           (select count(*) from cs.contatos where comprador_id = any($1::uuid[]) and opt_out)::int as opt_out,
+           (select count(*) from cs.contatos_hm_kanban
+             where comprador_id = any($1::uuid[]) and coalesce(nao_contatar, false))::int as nao_contatar`
+      : `select
+           (select count(*) from cs.contatos where comprador_id = any($1::uuid[]) and opt_out)::int as opt_out,
+           0 as nao_contatar`,
+    [compradorIds],
+  )) ?? { opt_out: 0, nao_contatar: 0 };
+
   if (contatos.length === 0) {
+    const barrados = pulados.opt_out + pulados.nao_contatar;
     return NextResponse.json({
       ok: false,
-      reason: (optOut?.n ?? 0) > 0 ? "todos os contatos selecionados pediram para não receber (opt-out)" : "nenhum contato com telefone",
+      reason: barrados > 0
+        ? "todos os contatos selecionados estão bloqueados para contato (opt-out ou 'não contatar')"
+        : "nenhum contato com telefone",
     }, { status: 400 });
+  }
+
+  // Limite anti-ban: até aqui o painel de saúde aconselhava e ninguém obedecia.
+  // Agora barra. Admin pode passar por cima com `forcar` — e assume, porque o
+  // log guarda quem forçou.
+  const limite = await checarLimiteDisparo(evento, contatos.length);
+  if (!limite.liberado) {
+    if (!forcar || sessao.papel !== "admin") {
+      return NextResponse.json(
+        {
+          ok: false,
+          reason: "limite_de_disparo",
+          motivo: limite.motivo,
+          podeForcar: sessao.papel === "admin",
+          ...limite,
+        },
+        { status: 409 },
+      );
+    }
+    log.warn("limite de disparo ignorado por decisão do admin", {
+      evento, operador: sessao.nome, aEnviar: contatos.length, enviados24h: limite.enviados24h, limiteDia: limite.limiteDia,
+    });
   }
 
   // Edição da campanha: a explícita, ou derivada quando todos são da mesma.
@@ -80,17 +120,26 @@ export async function POST(req: Request) {
   );
   const disparoId = disparo!.id;
 
-  for (const c of contatos) {
-    await query(
-      `insert into cs.disparo_contatos (disparo_id, comprador_id, telefone, enviado)
-       values ($1, $2, $3, false)`,
-      [disparoId, c.comprador_id, normalizePhone(c.telefone)!],
-    );
-  }
+  // Insert único (era uma query por contato). `on conflict do nothing` apoia-se
+  // no unique de (disparo_id, comprador_id) criado em 0074: o mesmo contato não
+  // entra duas vezes na mesma campanha, nem que venha repetido na seleção.
+  await query(
+    `insert into cs.disparo_contatos (disparo_id, comprador_id, telefone, enviado)
+     select $1, c.comprador_id, c.telefone, false
+       from unnest($2::uuid[], $3::text[]) as c(comprador_id, telefone)
+     on conflict (disparo_id, comprador_id) where comprador_id is not null do nothing`,
+    [disparoId, contatos.map((c) => c.comprador_id), contatos.map((c) => normalizePhone(c.telefone)!)],
+  );
 
   // Processamento em background (servidor persistente). Se cair no meio, o cron
-  // retoma — processarDisparo só age sobre o que ainda não foi enviado.
+  // retoma — processarDisparo reivindica o disparo e só age sobre o que falta.
   void processarDisparo(disparoId).catch((e) => log.error("erro ao processar disparo", e, { disparoId }));
 
-  return NextResponse.json({ ok: true, disparoId, total: contatos.length, pulados_opt_out: optOut?.n ?? 0 });
+  return NextResponse.json({
+    ok: true,
+    disparoId,
+    total: contatos.length,
+    pulados_opt_out: pulados.opt_out,
+    pulados_nao_contatar: pulados.nao_contatar,
+  });
 }

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
-import { parseBody, LigacaoRegistrarSchema } from "@/lib/validators";
-import { registrarLigacao, listarPorComprador } from "@/lib/services/ligacao";
+import { isAuthed, getSessao } from "@/lib/auth";
+import { parseBody, AtendimentoRegistrarSchema } from "@/lib/validators";
+import { registrarAtendimento, listarPorComprador } from "@/lib/services/ligacao";
 
 export const runtime = "nodejs";
 
-// GET /api/ligacoes?comprador_id=... — histórico de ligações do contato.
+// GET /api/ligacoes?comprador_id=... — histórico de atendimentos do contato.
 export async function GET(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
   const compradorId = new URL(req.url).searchParams.get("comprador_id");
@@ -14,11 +14,17 @@ export async function GET(req: Request) {
   return NextResponse.json({ ok: true, ligacoes });
 }
 
-// POST /api/ligacoes — registra uma ligação (modo manual / tel:).
+// POST /api/ligacoes — registra um atendimento (ligação, WhatsApp, presencial).
+// O operador vem da SESSÃO. Antes vinha do localStorage do navegador, o que
+// significa que o nome no relatório de produtividade era o que o próprio
+// navegador dissesse — e ficava vazio em qualquer máquina nova.
 export async function POST(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
-  const p = await parseBody(req, LigacaoRegistrarSchema);
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+
+  const p = await parseBody(req, AtendimentoRegistrarSchema);
   if (!p.ok) return p.res;
-  const ligacao = await registrarLigacao(p.data);
-  return NextResponse.json({ ok: true, ligacao });
+
+  const atendimento = await registrarAtendimento({ ...p.data, operador: sessao.nome || "cs" });
+  return NextResponse.json({ ok: true, atendimento });
 }

@@ -55,6 +55,9 @@ export const SendSchema = z.object({
   templateId: id,
   compradorIds: z.array(id).min(1),
   edicao: z.string().optional(),
+  // Passar por cima do limite diário/hora (anti-ban). Só o admin consegue — a
+  // rota confere o papel; aqui é só a intenção.
+  forcar: z.boolean().optional(),
 });
 
 // ----- Canais de disparo (credencial de API por evento, admin) -----
@@ -89,10 +92,14 @@ export const ContatoPatchSchema = z.object({
   opt_out: z.boolean().optional(),
 });
 
-export const LigacaoRegistrarSchema = z.object({
+// Registro de atendimento do operador. Vale para qualquer canal — o que o funil
+// precisa saber é que houve um toque e o que saiu dele, não o meio.
+// `operador` NÃO entra aqui de propósito: vem da sessão, na rota. Aceitar do
+// cliente deixaria qualquer um assinar o atendimento com o nome de outro.
+export const AtendimentoRegistrarSchema = z.object({
   compradorId: id,
   telefone: z.string().trim().min(1),
-  operador: z.string().nullable().optional(),
+  canal: z.enum(["ligacao", "whatsapp", "presencial", "outro"]).default("ligacao"),
   resultado: z.enum(["atendeu", "nao_atendeu", "caixa_postal", "ocupado", "numero_errado"]).optional(),
   duracaoSeg: z.number().int().nonnegative().optional(),
   anotacao: z.string().trim().optional(),
