@@ -494,9 +494,17 @@ const EVENTO_LABEL: Record<string, string> = {
   SUBSCRIPTION_CANCELLATION: "Assinatura cancelada",
 };
 
-// Slack member ID do Thomas — é ele quem remove os acessos (Searchie/Óbvio,
-// comunidade, grupo). Marcado no aviso de cancelamento para a tarefa ter dono.
-const SLACK_USER_THOMAS = Deno.env.get("SLACK_USER_THOMAS") ?? "";
+// Quem remove os acessos é o Thomas, e a tarefa tem endereço: o canal dele.
+// O aviso de cancelamento não é um recibo — é uma ordem de serviço. Por isso vai
+// por chat.postMessage (o Incoming Webhook posta em canal fixo, e o canal do
+// Thomas não é o canal de vendas do produto).
+const SLACK_BOT_TOKEN = Deno.env.get("SLACK_BOT_TOKEN") ?? "";
+const SLACK_USER_THOMAS = Deno.env.get("SLACK_USER_THOMAS") || "U0AQXNQGJEL";
+const SLACK_CANAL_ACESSOS = Deno.env.get("SLACK_CANAL_ACESSOS") || "C0B8KKC8FBQ";
+
+// Domínio do portal, para o link da ficha. Sem ele, o aviso vai sem link — o
+// Thomas abre o portal e busca o aluno. Basta setar o secret para o link nascer.
+const APP_BASE_URL = (Deno.env.get("APP_BASE_URL") ?? "").replace(/\/+$/, "");
 
 async function notifySlackCancelamento(channel: string, payload: {
   evento: string;
@@ -508,21 +516,67 @@ async function notifySlackCancelamento(channel: string, payload: {
   moeda: string;
   transaction: string;
   eraAluno: boolean;
+  turma?: string | null;
+  compradorId?: string | null;
 }) {
-  const webhookUrl = SLACK_WEBHOOKS[channel];
-  if (!webhookUrl) return;
-
   const valorFormatado = payload.valor != null
     ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: payload.moeda || "BRL" }).format(payload.valor)
     : "-";
   const label = EVENTO_LABEL[payload.evento] ?? payload.evento;
 
+  const dados = [
+    `*Nome:* ${payload.nome}`,
+    `*E-mail:* ${payload.email || "-"}`,
+    `*Telefone:* ${payload.telefone ?? "-"}`,
+    payload.turma ? `*Turma:* ${payload.turma}` : null,
+    `*Produto:* ${payload.produto}`,
+    `*Valor:* ${valorFormatado}`,
+    `*Transação:* ${payload.transaction}`,
+  ].filter(Boolean).join("\n");
+
+  const ficha = APP_BASE_URL && payload.compradorId
+    ? `\n<${APP_BASE_URL}/hm/contatos/${payload.compradorId}|Abrir a ficha do contato>`
+    : "";
+
   // Só quem era aluno tem acesso para remover. Quem cancelou antes de virar
-  // aluno não gera tarefa nenhuma para o Thomas — e chamá-lo à toa é o caminho
-  // mais curto para o aviso virar ruído ignorado.
+  // aluno não gera tarefa nenhuma — e chamar o Thomas à toa é o caminho mais
+  // curto para o aviso virar ruído ignorado.
   const tarefa = payload.eraAluno
-    ? `\n\n:warning: *Remover os acessos* (Searchie/Óbvio, comunidade, grupo)${SLACK_USER_THOMAS ? ` — <@${SLACK_USER_THOMAS}>` : ""}\nO checklist está na ficha do contato, no portal HM.`
+    ? `\n\n<@${SLACK_USER_THOMAS}> :warning: *Remova os acessos deste aluno* — área de membros do Searchie/Óbvio, comunidade THB e grupo de informes.\nDepois marque cada item no checklist *"Remover acessos"* da ficha do contato, no portal HM: enquanto não estiver marcado, ele continua na fila de pendências.${ficha}`
     : "\n\n_Ainda não era aluno — não há acesso a remover._";
+
+  const texto = `:x: *${label}*\n${dados}${tarefa}`;
+
+  // Caminho preferido: o canal dos acessos, via bot.
+  if (SLACK_BOT_TOKEN) {
+    const res = await fetch("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
+      },
+      body: JSON.stringify({
+        channel: SLACK_CANAL_ACESSOS,
+        text: `${label}: ${payload.nome}`,
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: texto } },
+          { type: "divider" },
+        ],
+      }),
+    });
+    const json = await res.json().catch(() => ({ ok: false }));
+    if (json?.ok) return;
+    // Slack responde 200 com {ok:false, error:"not_in_channel"|"invalid_auth"…}
+    console.error("[SLACK] chat.postMessage falhou:", JSON.stringify(json));
+  }
+
+  // Sem bot token (ou falha nele): cai no canal de vendas do produto, que é
+  // melhor do que ninguém ficar sabendo.
+  const webhookUrl = SLACK_WEBHOOKS[channel];
+  if (!webhookUrl) {
+    console.error(`[SLACK] cancelamento sem destino: nem bot token nem webhook do canal ${channel}`);
+    return;
+  }
 
   const response = await fetch(webhookUrl, {
     method: "POST",
@@ -530,13 +584,7 @@ async function notifySlackCancelamento(channel: string, payload: {
     body: JSON.stringify({
       text: `${label}: ${payload.produto}`,
       blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `:x: *${label}*\n*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Transação:* ${payload.transaction}${tarefa}`,
-          },
-        },
+        { type: "section", text: { type: "mrkdwn", text: texto } },
         { type: "divider" },
       ],
     }),
@@ -547,15 +595,38 @@ async function notifySlackCancelamento(channel: string, payload: {
   }
 }
 
-// Marca a compra como cancelada e, se houver card no HM, efetiva o cancelamento
-// (aluno marcado — nunca apagado — e pendência de remover os acessos).
-// Não-fatal: erro aqui vira log, nunca um retry da Hotmart.
-async function cancelarNoBanco(transaction: string, evento: string, status: string): Promise<{
+// O que o banco devolve sobre o cancelamento. Nome/e-mail/telefone/turma vêm do
+// SISTEMA (compradores + card), não do payload — é no payload que o nome chega
+// sujo, e o Thomas precisa do nome certo para achar a pessoa no Searchie.
+type CancelamentoNoBanco = {
   achouCompra: boolean;
   temCardHm: boolean;
   eraAluno: boolean;
-}> {
-  const vazio = { achouCompra: false, temCardHm: false, eraAluno: false };
+  nome?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  turma?: string | null;
+  compradorId?: string | null;
+};
+
+function lerRetorno(r: Record<string, unknown>): CancelamentoNoBanco {
+  return {
+    achouCompra: r.achou_compra === true || r.achou_comprador === true,
+    temCardHm: r.tem_card_hm === true,
+    eraAluno: r.resultado === "cancelado",
+    nome: (r.nome as string) ?? null,
+    email: (r.email as string) ?? null,
+    telefone: (r.telefone as string) ?? null,
+    turma: (r.turma as string) ?? null,
+    compradorId: (r.comprador_id as string) ?? null,
+  };
+}
+
+// Marca a compra como cancelada e, se houver card no HM, efetiva o cancelamento
+// (aluno marcado — nunca apagado — e pendência de remover os acessos).
+// Não-fatal: erro aqui vira log, nunca um retry da Hotmart.
+async function cancelarNoBanco(transaction: string, evento: string, status: string): Promise<CancelamentoNoBanco> {
+  const vazio: CancelamentoNoBanco = { achouCompra: false, temCardHm: false, eraAluno: false };
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("[DB] SUPABASE_URL/SERVICE_ROLE_KEY ausentes — cancelamento não persistido");
     return vazio;
@@ -578,11 +649,7 @@ async function cancelarNoBanco(transaction: string, evento: string, status: stri
 
     const r = (data ?? {}) as Record<string, unknown>;
     console.log(`[DB] cancelamento processado (${transaction}):`, JSON.stringify(r));
-    return {
-      achouCompra: r.achou_compra === true,
-      temCardHm: r.tem_card_hm === true,
-      eraAluno: r.resultado === "cancelado",
-    };
+    return { ...lerRetorno(r), achouCompra: r.achou_compra === true };
   } catch (e) {
     console.error("[DB] exceção em cancelarNoBanco:", e instanceof Error ? e.message : e);
     return vazio;
@@ -592,12 +659,8 @@ async function cancelarNoBanco(transaction: string, evento: string, status: stri
 // O gêmeo de cancelarNoBanco para quando não há transação (assinatura): casa o
 // contato pelo e-mail. Não mexe em compras — nenhuma compra específica foi
 // desfeita aqui; o que acabou foi a assinatura.
-async function cancelarPorEmailNoBanco(email: string, evento: string): Promise<{
-  achouCompra: boolean;
-  temCardHm: boolean;
-  eraAluno: boolean;
-}> {
-  const vazio = { achouCompra: false, temCardHm: false, eraAluno: false };
+async function cancelarPorEmailNoBanco(email: string, evento: string): Promise<CancelamentoNoBanco> {
+  const vazio: CancelamentoNoBanco = { achouCompra: false, temCardHm: false, eraAluno: false };
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("[DB] SUPABASE_URL/SERVICE_ROLE_KEY ausentes — cancelamento não persistido");
     return vazio;
@@ -619,11 +682,7 @@ async function cancelarPorEmailNoBanco(email: string, evento: string): Promise<{
 
     const r = (data ?? {}) as Record<string, unknown>;
     console.log(`[DB] assinatura cancelada (${email}):`, JSON.stringify(r));
-    return {
-      achouCompra: r.achou_comprador === true,
-      temCardHm: r.tem_card_hm === true,
-      eraAluno: r.resultado === "cancelado",
-    };
+    return lerRetorno(r);
   } catch (e) {
     console.error("[DB] exceção em cancelarPorEmailNoBanco:", e instanceof Error ? e.message : e);
     return vazio;
@@ -707,14 +766,17 @@ serve(async (req) => {
     const r = await cancelarPorEmailNoBanco(email, event);
     await notifySlackCancelamento(channel, {
       evento: event,
-      nome: String(subscriber?.name ?? buyer?.name ?? email),
-      email,
-      telefone: buyer ? extractPhone(buyer) : null,
+      // O nome do sistema vem primeiro: é o corrigido. O do payload é reserva.
+      nome: r.nome || String(subscriber?.name ?? buyer?.name ?? email),
+      email: r.email || email,
+      telefone: r.telefone ?? (buyer ? extractPhone(buyer) : null),
       produto: CHANNEL_LABEL[channel] ?? productName,
       valor: null,
       moeda: "BRL",
-      transaction: "—  (assinatura)",
+      transaction: "— (assinatura)",
       eraAluno: r.eraAluno,
+      turma: r.turma,
+      compradorId: r.compradorId,
     });
 
     return new Response(JSON.stringify({ ok: true, channel, event, ...r }), {
@@ -749,14 +811,18 @@ serve(async (req) => {
     const precoC = purchase.price as Record<string, unknown> | undefined;
     await notifySlackCancelamento(channel, {
       evento: event,
-      nome: String(buyer.name ?? "Sem nome"),
-      email: String(buyer.email ?? ""),
-      telefone: extractPhone(buyer),
+      // O nome do sistema vem primeiro: é o corrigido (o do payload pode ser o
+      // telefone). Cai no payload só quando a compra não existe no banco.
+      nome: r.nome || String(buyer.name ?? "Sem nome"),
+      email: r.email || String(buyer.email ?? ""),
+      telefone: r.telefone ?? extractPhone(buyer),
       produto: CHANNEL_LABEL[channel] ?? productName,
       valor: (precoC?.value as number) ?? null,
       moeda: (precoC?.currency_code as string) ?? "BRL",
       transaction,
       eraAluno: r.eraAluno,
+      turma: r.turma,
+      compradorId: r.compradorId,
     });
 
     return new Response(JSON.stringify({ ok: true, channel, event, ...r }), {
