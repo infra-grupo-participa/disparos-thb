@@ -227,3 +227,17 @@ export const HmTagPatchSchema = z.object({
   nome: z.string().trim().min(2).max(40).optional(),
   cor: corHex.nullable().optional(),
 });
+
+// ----- Edição administrativa (só admin) -----
+// Identidade se corrige na FONTE (public.compradores, via fn definer) e espelha
+// na base THB; financeiro refaz o saldo; datas ajustam histórico errado.
+export const HmAdminEditSchema = z.object({
+  nome: z.string().trim().min(2).optional(),
+  email: z.string().trim().email().optional(),
+  telefone: z.string().trim().min(8).optional(),
+  valor_total: z.number().nonnegative().optional(),
+  valor_pago: z.number().nonnegative().optional(),
+  pagamento_em: z.string().nullable().optional(),
+  cancelamento_em: z.string().nullable().optional(),
+  turma_origem: z.string().trim().nullable().optional(),
+});

@@ -797,6 +797,20 @@ export function HmDrawer({
                   </ul>
                 </div>
               )}
+
+              {/* Edição administrativa — só admin. Identidade corrige a FONTE
+                  (compradores) e espelha na base THB; tudo vai para a timeline. */}
+              {me?.papel === "admin" && (
+                <AdminEdicao
+                  compradorId={c.comprador_id}
+                  atual={{
+                    nome: c.nome, email: c.email, telefone: c.telefone, turma_origem: c.turma_origem,
+                    valor_total: fin?.valor_total ?? null, valor_pago: fin?.valor_pago ?? null,
+                    pagamento_em: c.pagamento_em, cancelamento_em: c.cancelamento_em,
+                  }}
+                  onSalvo={async () => { await recarregar(); onChanged(); }}
+                />
+              )}
             </div>
 
             <div className="sticky bottom-0 flex flex-wrap gap-2 border-t border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -938,3 +952,110 @@ const ROTULO_STATUS: Record<string, string> = {
   cancelado: "cancelada",
   agendado: "agendada",
 };
+
+// Edição administrativa (só admin): os dados que nenhuma outra tela deixa
+// tocar. Identidade vai para a FONTE (public.compradores, via fn definer) e se
+// espelha na base THB; financeiro refaz o saldo; datas ajustam histórico
+// importado errado. Só os campos ALTERADOS viajam — e a rota grava a mudança
+// na timeline ("[admin] Dados editados: …"): maleável, mas nunca sem rastro.
+function AdminEdicao({ compradorId, atual, onSalvo }: {
+  compradorId: string;
+  atual: {
+    nome: string; email: string | null; telefone: string | null; turma_origem: string | null;
+    valor_total: string | null; valor_pago: string | null;
+    pagamento_em: string | null; cancelamento_em: string | null;
+  };
+  onSalvo: () => Promise<void>;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [f, setF] = useState({
+    nome: atual.nome, email: atual.email ?? "", telefone: atual.telefone ?? "",
+    turma_origem: atual.turma_origem ?? "",
+    valor_total: atual.valor_total ? String(num(atual.valor_total)) : "",
+    valor_pago: atual.valor_pago ? String(num(atual.valor_pago)) : "",
+    pagamento_em: toLocalInput(atual.pagamento_em),
+    cancelamento_em: toLocalInput(atual.cancelamento_em),
+  });
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF((p) => ({ ...p, [k]: e.target.value }));
+
+  async function salvar() {
+    // Só o que mudou: mandar tudo sobrescreveria dados iguais e sujaria a timeline.
+    const body: Record<string, unknown> = {};
+    if (f.nome.trim() && f.nome.trim() !== atual.nome) body.nome = f.nome.trim();
+    if (f.email.trim() && f.email.trim() !== (atual.email ?? "")) body.email = f.email.trim();
+    if (f.telefone.trim() && f.telefone.trim() !== (atual.telefone ?? "")) body.telefone = f.telefone.trim();
+    if (f.turma_origem.trim() !== (atual.turma_origem ?? "")) body.turma_origem = f.turma_origem.trim() || null;
+    if (f.valor_total !== (atual.valor_total ? String(num(atual.valor_total)) : "") && f.valor_total !== "") body.valor_total = Number(f.valor_total);
+    if (f.valor_pago !== (atual.valor_pago ? String(num(atual.valor_pago)) : "") && f.valor_pago !== "") body.valor_pago = Number(f.valor_pago);
+    if (f.pagamento_em !== toLocalInput(atual.pagamento_em)) body.pagamento_em = f.pagamento_em ? new Date(f.pagamento_em).toISOString() : null;
+    if (f.cancelamento_em !== toLocalInput(atual.cancelamento_em)) body.cancelamento_em = f.cancelamento_em ? new Date(f.cancelamento_em).toISOString() : null;
+    if (Object.keys(body).length === 0) { setAberto(false); return; }
+
+    setSalvando(true);
+    setErro(null);
+    try {
+      const r = await fetch(`/api/hm/contato/${compradorId}/admin`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!d.ok) { setErro(d.reason || "não foi possível salvar"); return; }
+      await onSalvo();
+      setAberto(false);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  if (!aberto) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAberto(true)}
+        className="w-full rounded-lg border border-dashed border-slate-300 px-3 py-2 text-left text-xs font-medium text-slate-500 transition hover:border-brand hover:text-brand dark:border-slate-700 dark:text-slate-400 dark:hover:border-brand-400 dark:hover:text-brand-300"
+      >
+        Edição administrativa — nome, contato, financeiro e datas
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Edição administrativa</p>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="col-span-2 text-xs text-slate-500 dark:text-slate-400">Nome
+          <input value={f.nome} onChange={set("nome")} className={fieldClass} />
+        </label>
+        <label className="col-span-2 text-xs text-slate-500 dark:text-slate-400">E-mail
+          <input type="email" value={f.email} onChange={set("email")} className={fieldClass} />
+        </label>
+        <label className="text-xs text-slate-500 dark:text-slate-400">Telefone
+          <input value={f.telefone} onChange={set("telefone")} className={fieldClass} />
+        </label>
+        <label className="text-xs text-slate-500 dark:text-slate-400">Turma de origem
+          <input value={f.turma_origem} onChange={set("turma_origem")} placeholder="T12" className={fieldClass} />
+        </label>
+        <label className="text-xs text-slate-500 dark:text-slate-400">Valor total (R$)
+          <input type="number" min="0" step="0.01" value={f.valor_total} onChange={set("valor_total")} className={fieldClass} />
+        </label>
+        <label className="text-xs text-slate-500 dark:text-slate-400">Valor pago (R$)
+          <input type="number" min="0" step="0.01" value={f.valor_pago} onChange={set("valor_pago")} className={fieldClass} />
+        </label>
+        <label className="text-xs text-slate-500 dark:text-slate-400">Saldo pago em
+          <input type="datetime-local" value={f.pagamento_em} onChange={set("pagamento_em")} className={fieldClass} />
+        </label>
+        <label className="text-xs text-slate-500 dark:text-slate-400">Cancelamento em
+          <input type="datetime-local" value={f.cancelamento_em} onChange={set("cancelamento_em")} className={fieldClass} />
+        </label>
+      </div>
+      {erro && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{erro}</p>}
+      <div className="mt-2 flex justify-end gap-2">
+        <Button variant="ghost" size="sm" disabled={salvando} onClick={() => setAberto(false)}>Cancelar</Button>
+        <Button variant="primary" size="sm" disabled={salvando} onClick={salvar}>Salvar alterações</Button>
+      </div>
+    </div>
+  );
+}

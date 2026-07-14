@@ -204,6 +204,22 @@ export async function moverEstagioHm(
       [ch.id, novo.id],
     );
     await addInteracaoHm(ch.id, "sistema", "Solicitou cancelamento — card fora da esteira de Ativação", autor);
+    // A base mestre reage ao cancelamento (0070): quem NASCEU por este funil
+    // some dela — o GPS não o vê mais (se pagar de novo, o provisionamento
+    // recria). Aluno que JÁ EXISTIA mantém todos os dados; só a situação
+    // financeira registra o cancelamento. Blindado: a base é de outro domínio
+    // e nunca pode travar o movimento do card.
+    try {
+      const r = await queryOne<{ resultado: string }>(`select cs.fn_hm_cancelar($1) as resultado`, [compradorId]);
+      if (r?.resultado === "excluido") {
+        await addInteracaoHm(ch.id, "sistema", "Aluno removido da base THB — nasceu neste funil e cancelou (pagar de novo recria o cadastro)", autor);
+      } else if (r?.resultado === "atualizado") {
+        await addInteracaoHm(ch.id, "sistema", "Situação financeira marcada como cancelada na base THB — aluno antigo mantém todos os dados", autor);
+      }
+    } catch (e) {
+      log.error("falha ao refletir o cancelamento na base THB", e, { compradorId });
+      await addInteracaoHm(ch.id, "sistema", "Falha ao refletir o cancelamento na base THB — confira o aluno manualmente", autor);
+    }
     await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
     await reposicionarNaColuna(ch.id, novo.id, posicao);
     return { ok: true };
