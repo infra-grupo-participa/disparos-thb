@@ -2,12 +2,13 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { DragEvent, WheelEvent } from "react";
-import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
+import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
-import { HmCanaisFixos } from "@/app/hm/_components/hm-canais";
+import { gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
+import { MultiSelect } from "@/app/_components/multi-select";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
 import { useMe } from "@/app/_components/use-me";
@@ -148,9 +149,10 @@ export default function HmKanbanPage() {
   const [canaisQtd, setCanaisQtd] = useState<Record<string, number>>({});
   const [turmas, setTurmas] = useState<string[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
-  const [filtroResp, setFiltroResp] = useState("");
-  const [filtroCanal, setFiltroCanal] = useState("");
-  const [filtroTurma, setFiltroTurma] = useState("");
+  // Cada filtro aceita VÁRIOS valores (OU dentro do filtro, E entre filtros).
+  const [filtroResp, setFiltroResp] = useState<string[]>([]);
+  const [filtroCanal, setFiltroCanal] = useState<string[]>([]);
+  const [filtroTurma, setFiltroTurma] = useState<string[]>([]);
   // Os filtros nascem da URL e voltam para ela: é assim que o alternador
   // Kanban ⇄ Tabela troca de leitura sem perder o contexto do que se olhava.
   const [filtrosProntos, setFiltrosProntos] = useState(false);
@@ -174,18 +176,19 @@ export default function HmKanbanPage() {
 
   // Os filtros que estão valendo — o board os usa para ler, e o relatório para
   // exportar. Um relatório que ignorasse o filtro da tela seria uma armadilha.
+  // Multi-valor = parâmetro repetido (?canal=A&canal=B), lido com getAll.
   const paramsFiltro = new URLSearchParams();
-  if (filtroResp) paramsFiltro.set("responsavel", filtroResp);
-  if (filtroCanal) paramsFiltro.set("canal", filtroCanal);
-  if (filtroTurma) paramsFiltro.set("turma", filtroTurma);
+  for (const v of filtroResp) paramsFiltro.append("responsavel", v);
+  for (const v of filtroCanal) paramsFiltro.append("canal", v);
+  for (const v of filtroTurma) paramsFiltro.append("turma", v);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
       const params = new URLSearchParams();
-      if (filtroResp) params.set("responsavel", filtroResp);
-      if (filtroCanal) params.set("canal", filtroCanal);
-      if (filtroTurma) params.set("turma", filtroTurma);
+      for (const v of filtroResp) params.append("responsavel", v);
+      for (const v of filtroCanal) params.append("canal", v);
+      for (const v of filtroTurma) params.append("turma", v);
       const r = await fetch(`/api/hm/kanban?${params.toString()}`);
       const d = await r.json();
       if (d.ok) {
@@ -205,9 +208,9 @@ export default function HmKanbanPage() {
   // board buscaria sem filtro e refaria a busca logo em seguida.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
-    setFiltroResp(sp.get("responsavel") ?? "");
-    setFiltroCanal(sp.get("canal") ?? "");
-    setFiltroTurma(sp.get("turma") ?? "");
+    setFiltroResp(sp.getAll("responsavel"));
+    setFiltroCanal(sp.getAll("canal"));
+    setFiltroTurma(sp.getAll("turma"));
     setFiltrosProntos(true);
   }, []);
   useEffect(() => {
@@ -400,26 +403,17 @@ export default function HmKanbanPage() {
         </div>
 
         {responsaveis.length > 0 && (
-          <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={fieldCompactClass} title="Responsável">
-            <option value="">Responsável: todos</option>
-            {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
+          <MultiSelect rotulo="Responsável" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
         )}
         {canais.length > 0 && (
-          <select value={filtroCanal} onChange={(e) => setFiltroCanal(e.target.value)} className={fieldCompactClass} title="Canal de aquisição / público">
-            <option value="">Canal: todos</option>
-            {canais.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
         )}
         {turmas.length > 0 && (
-          <select value={filtroTurma} onChange={(e) => setFiltroTurma(e.target.value)} className={fieldCompactClass} title="Turma (atual ou de origem)">
-            <option value="">Turma: todas</option>
-            {turmas.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <MultiSelect rotulo="Turma" grupos={[{ label: null, itens: turmas }]} selecionadas={filtroTurma} onChange={setFiltroTurma} />
         )}
-        {(filtroResp || filtroCanal || filtroTurma || busca) && (
+        {(filtroResp.length > 0 || filtroCanal.length > 0 || filtroTurma.length > 0 || busca) && (
           <button
-            onClick={() => { setFiltroResp(""); setFiltroCanal(""); setFiltroTurma(""); setBusca(""); }}
+            onClick={() => { setFiltroResp([]); setFiltroCanal([]); setFiltroTurma([]); setBusca(""); }}
             className="shrink-0 rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800"
           >
             Limpar filtros
@@ -428,9 +422,13 @@ export default function HmKanbanPage() {
       </div>
 
       {/* A régua dos canais que a operação acompanha agora — total de vendas de
-          cada um, sempre à vista; clicar filtra o board (o mesmo filtro do
-          dropdown, que continua servindo para o resto). */}
-      <HmCanaisFixos contagem={canaisQtd} ativo={filtroCanal} onChange={setFiltroCanal} />
+          cada um, sempre à vista; clicar soma/tira o canal do filtro (o mesmo
+          filtro do dropdown, que continua servindo para o resto). */}
+      <HmCanaisFixos
+        contagem={canaisQtd}
+        ativos={filtroCanal}
+        onToggle={(c) => setFiltroCanal((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
+      />
 
       {carregando && cards.length === 0 ? (
         <div className="flex items-center justify-center gap-3 py-20 text-slate-400 dark:text-slate-500">

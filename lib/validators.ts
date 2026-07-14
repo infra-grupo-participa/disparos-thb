@@ -208,4 +208,8 @@ export const HmLoteSchema = z.object({
   ativ_pesquisa: z.boolean().optional(),
   // marca/desmarca o envio do link — carimba a HORA em cada um (não um booleano)
   link_saldo_enviado: z.boolean().optional(),
+  // tags livres (criar = digitar um nome novo). Tags de turma/origem são
+  // gerenciadas pelo sistema e o serviço recusa — ver RE_TAG_GERENCIADA em hm.ts.
+  addTag: z.string().trim().min(1).optional(),
+  removeTag: z.string().trim().min(1).optional(),
 });

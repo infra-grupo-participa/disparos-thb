@@ -3,7 +3,7 @@ import { getSessao } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { parseBody, HmLoteSchema } from "@/lib/validators";
-import { moverEstagioHm, setResponsavelHm } from "@/lib/services/hm";
+import { addTagHm, moverEstagioHm, removeTagHm, setResponsavelHm } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -70,6 +70,23 @@ export async function POST(req: Request) {
     try {
       if (b.responsavel !== undefined) {
         await setResponsavelHm(compradorId, b.responsavel || null, operador);
+      }
+      // Tags: o serviço recusa as gerenciadas (turma/origem) — a falha volta
+      // nominal, como tudo aqui. Quem já tem/não tem a tag conta como aplicado
+      // (o estado pedido é o estado final; não há o que falhar).
+      if (b.addTag) {
+        const r = await addTagHm(compradorId, b.addTag, operador);
+        if (!r.ok) {
+          falhas.push({ compradorId, nome, motivo: r.reason === "tag_gerenciada" ? "tag gerenciada pelo sistema (turma/origem)" : "contato não encontrado" });
+          continue;
+        }
+      }
+      if (b.removeTag) {
+        const r = await removeTagHm(compradorId, b.removeTag, operador);
+        if (!r.ok) {
+          falhas.push({ compradorId, nome, motivo: r.reason === "tag_gerenciada" ? "tag gerenciada pelo sistema (turma/origem)" : "contato não encontrado" });
+          continue;
+        }
       }
       if (sets.length) {
         await query(

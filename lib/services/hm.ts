@@ -536,3 +536,45 @@ export async function addNotaHm(compradorId: string, texto: string, autor: strin
   if (!ch) return;
   await addInteracaoHm(ch.id, "nota", texto, autor);
 }
+
+// ----- Tags do card -----
+// A tag de turma ("Origem …", "Turma …", "Aurum …") não se edita à mão: ela é o
+// espelho do campo turma e dos fatos de origem (0053) — o PATCH da ficha a
+// sincroniza ao trocar a turma, e remover "Turma T39" na unha deixaria a ficha
+// dizendo uma coisa e o filtro do board outra. O resto é livre, inclusive
+// canal: quando o sistema não tem o fato (um evento sem janela cadastrada, como
+// o Ex aluno de 13/07 antes da 0066), o operador É a fonte — e a timeline
+// guarda quem atribuiu e quando.
+const RE_TAG_GERENCIADA = /^(Origem|Turma|Aurum) /;
+
+export type TagErro = "tag_gerenciada" | "nao_encontrado";
+export type TagResultado = { ok: true; mudou: boolean } | { ok: false; reason: TagErro };
+
+export async function addTagHm(compradorId: string, tag: string, autor = "cs"): Promise<TagResultado> {
+  const t = tag.trim();
+  if (!t || RE_TAG_GERENCIADA.test(t)) return { ok: false, reason: "tag_gerenciada" };
+  const ch = await queryOne<{ id: string; tem: boolean }>(
+    `select id, $2 = any(tags) as tem from cs.contatos_hm where comprador_id = $1`,
+    [compradorId, t],
+  );
+  if (!ch) return { ok: false, reason: "nao_encontrado" };
+  // Já tem: nada a fazer — e nada a logar (timeline registra mudança, não gesto).
+  if (ch.tem) return { ok: true, mudou: false };
+  await query(`update cs.contatos_hm set tags = array_append(tags, $2), atualizado_em = now() where id = $1`, [ch.id, t]);
+  await addInteracaoHm(ch.id, "sistema", `Tag adicionada: "${t}"`, autor);
+  return { ok: true, mudou: true };
+}
+
+export async function removeTagHm(compradorId: string, tag: string, autor = "cs"): Promise<TagResultado> {
+  const t = tag.trim();
+  if (!t || RE_TAG_GERENCIADA.test(t)) return { ok: false, reason: "tag_gerenciada" };
+  const ch = await queryOne<{ id: string; tem: boolean }>(
+    `select id, $2 = any(tags) as tem from cs.contatos_hm where comprador_id = $1`,
+    [compradorId, t],
+  );
+  if (!ch) return { ok: false, reason: "nao_encontrado" };
+  if (!ch.tem) return { ok: true, mudou: false };
+  await query(`update cs.contatos_hm set tags = array_remove(tags, $2), atualizado_em = now() where id = $1`, [ch.id, t]);
+  await addInteracaoHm(ch.id, "sistema", `Tag removida: "${t}"`, autor);
+  return { ok: true, mudou: true };
+}

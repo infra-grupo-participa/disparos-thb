@@ -7,7 +7,7 @@ import { cn } from "@/app/_components/ui";
 // o board responde "onde cada um está", a tabela responde "o que está
 // acontecendo com todos ao mesmo tempo". Trocar de leitura não pode custar o
 // contexto: os filtros que estão valendo viajam na querystring.
-export type FiltrosVisaoHm = { responsavel?: string; canal?: string; turma?: string };
+export type FiltrosVisaoHm = { responsavel?: string[]; canal?: string[]; turma?: string[] };
 
 const VISOES = [
   { id: "kanban", label: "Kanban", rota: "/hm/kanban" },
@@ -15,10 +15,12 @@ const VISOES = [
 ] as const;
 
 export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela"; filtros: FiltrosVisaoHm }) {
+  // Filtro multi-valor = parâmetro repetido (?canal=A&canal=B) — o formato que
+  // as rotas leem com getAll.
   const params = new URLSearchParams();
-  if (filtros.responsavel) params.set("responsavel", filtros.responsavel);
-  if (filtros.canal) params.set("canal", filtros.canal);
-  if (filtros.turma) params.set("turma", filtros.turma);
+  for (const v of filtros.responsavel ?? []) params.append("responsavel", v);
+  for (const v of filtros.canal ?? []) params.append("canal", v);
+  for (const v of filtros.turma ?? []) params.append("turma", v);
   const qs = params.toString();
 
   return (

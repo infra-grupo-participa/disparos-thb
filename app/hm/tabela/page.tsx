@@ -8,7 +8,8 @@ import { Reveal } from "@/app/_components/anim";
 import { TagChip } from "@/app/_components/tags";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
-import { HmCanaisFixos } from "@/app/hm/_components/hm-canais";
+import { gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
+import { MultiSelect } from "@/app/_components/multi-select";
 import { DisparoModal } from "@/app/_components/disparo";
 import { useMe } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
@@ -236,9 +237,10 @@ export default function HmTabelaPage() {
   const [canais, setCanais] = useState<string[]>([]);
   const [canaisQtd, setCanaisQtd] = useState<Record<string, number>>({});
   const [turmas, setTurmas] = useState<string[]>([]);
-  const [filtroResp, setFiltroResp] = useState("");
-  const [filtroCanal, setFiltroCanal] = useState("");
-  const [filtroTurma, setFiltroTurma] = useState("");
+  // Cada filtro aceita VÁRIOS valores (OU dentro do filtro, E entre filtros).
+  const [filtroResp, setFiltroResp] = useState<string[]>([]);
+  const [filtroCanal, setFiltroCanal] = useState<string[]>([]);
+  const [filtroTurma, setFiltroTurma] = useState<string[]>([]);
   const [filtrosProntos, setFiltrosProntos] = useState(false);
   const [busca, setBusca] = useState("");
   const [visao, setVisao] = useState<VisaoId>("comercial");
@@ -267,25 +269,26 @@ export default function HmTabelaPage() {
   // contexto) e voltam para ela a cada mudança.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
-    setFiltroResp(sp.get("responsavel") ?? "");
-    setFiltroCanal(sp.get("canal") ?? "");
-    setFiltroTurma(sp.get("turma") ?? "");
+    setFiltroResp(sp.getAll("responsavel"));
+    setFiltroCanal(sp.getAll("canal"));
+    setFiltroTurma(sp.getAll("turma"));
     setFiltrosProntos(true);
   }, []);
   useEffect(() => {
     if (!filtrosProntos) return;
     const params = new URLSearchParams();
-    if (filtroResp) params.set("responsavel", filtroResp);
-    if (filtroCanal) params.set("canal", filtroCanal);
-    if (filtroTurma) params.set("turma", filtroTurma);
+    for (const v of filtroResp) params.append("responsavel", v);
+    for (const v of filtroCanal) params.append("canal", v);
+    for (const v of filtroTurma) params.append("turma", v);
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
   }, [filtroResp, filtroCanal, filtroTurma, filtrosProntos]);
 
+  // Multi-valor = parâmetro repetido (?canal=A&canal=B), lido com getAll.
   const paramsFiltro = new URLSearchParams();
-  if (filtroResp) paramsFiltro.set("responsavel", filtroResp);
-  if (filtroCanal) paramsFiltro.set("canal", filtroCanal);
-  if (filtroTurma) paramsFiltro.set("turma", filtroTurma);
+  for (const v of filtroResp) paramsFiltro.append("responsavel", v);
+  for (const v of filtroCanal) paramsFiltro.append("canal", v);
+  for (const v of filtroTurma) paramsFiltro.append("turma", v);
 
   // responsavel/canal/turma vão ao SERVIDOR — a mesma query do board e do XLSX.
   // Lentes e busca ficam no cliente, sobre as linhas já carregadas (~130).
@@ -293,9 +296,9 @@ export default function HmTabelaPage() {
     if (!silencioso) setCarregando(true);
     try {
       const params = new URLSearchParams();
-      if (filtroResp) params.set("responsavel", filtroResp);
-      if (filtroCanal) params.set("canal", filtroCanal);
-      if (filtroTurma) params.set("turma", filtroTurma);
+      for (const v of filtroResp) params.append("responsavel", v);
+      for (const v of filtroCanal) params.append("canal", v);
+      for (const v of filtroTurma) params.append("turma", v);
       const r = await fetch(`/api/hm/tabela?${params.toString()}`);
       const d = await r.json();
       if (d.ok) {
@@ -953,26 +956,17 @@ export default function HmTabelaPage() {
         </div>
 
         {responsaveis.length > 0 && (
-          <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={fieldCompactClass} title="Responsável">
-            <option value="">Responsável: todos</option>
-            {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
+          <MultiSelect rotulo="Responsável" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
         )}
         {canais.length > 0 && (
-          <select value={filtroCanal} onChange={(e) => setFiltroCanal(e.target.value)} className={fieldCompactClass} title="Canal de aquisição / público">
-            <option value="">Canal: todos</option>
-            {canais.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
         )}
         {turmas.length > 0 && (
-          <select value={filtroTurma} onChange={(e) => setFiltroTurma(e.target.value)} className={fieldCompactClass} title="Turma (atual ou de origem)">
-            <option value="">Turma: todas</option>
-            {turmas.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <MultiSelect rotulo="Turma" grupos={[{ label: null, itens: turmas }]} selecionadas={filtroTurma} onChange={setFiltroTurma} />
         )}
-        {(filtroResp || filtroCanal || filtroTurma || busca || lente) && (
+        {(filtroResp.length > 0 || filtroCanal.length > 0 || filtroTurma.length > 0 || busca || lente) && (
           <button
-            onClick={() => { setFiltroResp(""); setFiltroCanal(""); setFiltroTurma(""); setBusca(""); setLente(null); }}
+            onClick={() => { setFiltroResp([]); setFiltroCanal([]); setFiltroTurma([]); setBusca(""); setLente(null); }}
             className="shrink-0 rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800"
           >
             Limpar filtros
@@ -980,9 +974,13 @@ export default function HmTabelaPage() {
         )}
       </div>
 
-      {/* A régua dos canais fixos — total de vendas por canal, clicável (é o
-          mesmo filtro de canal do dropdown, que segue existindo para o resto). */}
-      <HmCanaisFixos contagem={canaisQtd} ativo={filtroCanal} onChange={setFiltroCanal} />
+      {/* A régua dos canais fixos — total de vendas por canal; clicar soma/tira
+          o canal do filtro (o mesmo do dropdown, que segue para o resto). */}
+      <HmCanaisFixos
+        contagem={canaisQtd}
+        ativos={filtroCanal}
+        onToggle={(c) => setFiltroCanal((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
+      />
 
       {/* Lentes: o que está ERRADO com as pessoas, não onde elas estão. Uma faixa
           só, discreta — a lente é um atalho, não o assunto da tela. Contagem zero
@@ -1249,6 +1247,40 @@ export default function HmTabelaPage() {
               <option value="">Marcar…</option>
               {CHECKLIST.map((c) => <option key={c.campo} value={c.campo}>{c.label}</option>)}
               <option value="link_saldo_enviado">Link do saldo enviado</option>
+            </select>
+            {/* Tags: atribuir uma existente, criar uma nova ou remover — cada
+                card loga a mudança na timeline. Turma/origem são gerenciadas
+                pelo sistema (o serviço recusa e a falha volta nominal). */}
+            <select
+              value=""
+              disabled={aplicandoLote}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return;
+                if (v === "__nova") {
+                  const t = window.prompt("Nome da nova tag:")?.trim();
+                  if (t) lote({ addTag: t }, `adicionar a tag "${t}"`);
+                  return;
+                }
+                const t = v.slice(4);
+                if (v.startsWith("add:")) lote({ addTag: t }, `adicionar a tag "${t}"`);
+                else lote({ removeTag: t }, `remover a tag "${t}"`);
+              }}
+              className={cn(fieldCompactClass, "py-1.5 text-xs")}
+              title="Adicionar, criar ou remover tag dos selecionados (turma/origem são do sistema)"
+            >
+              <option value="">Tag…</option>
+              <option value="__nova">✚ Nova tag…</option>
+              {canais.length > 0 && (
+                <optgroup label="Adicionar">
+                  {canais.map((t) => <option key={`add-${t}`} value={`add:${t}`}>{t}</option>)}
+                </optgroup>
+              )}
+              {canais.length > 0 && (
+                <optgroup label="Remover">
+                  {canais.map((t) => <option key={`rem-${t}`} value={`rem:${t}`}>{t}</option>)}
+                </optgroup>
+              )}
             </select>
             <Button variant="secondary" size="sm" disabled={aplicandoLote} onClick={() => setMarcados(new Set())}>Limpar</Button>
             {podeDisparar && (

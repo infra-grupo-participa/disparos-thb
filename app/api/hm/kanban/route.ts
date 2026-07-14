@@ -22,10 +22,10 @@ const RE_TURMA = "^(Origem|Turma|Aurum) ";
 export async function GET(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
   const sp = new URL(req.url).searchParams;
-  const responsavel = sp.get("responsavel") || null;
-  const canal = sp.get("canal") || null;
-  const turma = sp.get("turma") || null;
-  const f = [responsavel, canal, turma];
+  // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
+  // do filtro a leitura é OU, entre filtros é E.
+  const lista = (nome: string) => { const v = sp.getAll(nome); return v.length ? v : null; };
+  const f = [lista("responsavel"), lista("canal"), lista("turma")];
 
   const colunas = await query(
     `select e.chave, e.nome, e.cor, e.aba
@@ -51,9 +51,9 @@ export async function GET(req: Request) {
           where i.contato_hm_id = k.contato_hm_id and i.tipo = 'mudanca_estagio'
           order by i.criado_em desc limit 1
        ) me on true
-      where ($1::text is null or k.responsavel = $1)
-        and ($2::text is null or $2 = any(k.tags))
-        and ($3::text is null or $3 = any(k.tags))
+      where ($1::text[] is null or k.responsavel = any($1))
+        and ($2::text[] is null or k.tags && $2)
+        and ($3::text[] is null or k.tags && $3)
       order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
   );

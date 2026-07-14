@@ -5,10 +5,13 @@ import { query } from "@/lib/db";
 // só que com o que o board não mostra no card (acordo, saldo, checklist), porque
 // num relatório o operador quer a linha completa, e não o resumo.
 
+// Cada filtro aceita VÁRIOS valores — dentro do mesmo filtro a leitura é OU
+// ("HT ATM ou Ex aluno"), entre filtros é E (canal E responsável). Lista vazia
+// ou ausente = sem filtro.
 export type FiltrosHm = {
-  responsavel?: string | null;
-  canal?: string | null;
-  turma?: string | null;
+  responsavel?: string[] | null;
+  canal?: string[] | null;
+  turma?: string[] | null;
   /** Só uma coluna (chave do estágio) — o relatório de uma etapa específica. */
   estagio?: string | null;
 };
@@ -93,7 +96,8 @@ export type RelatorioHm = {
 };
 
 export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
-  const p = [f.responsavel || null, f.canal || null, f.turma || null, f.estagio || null];
+  const lista = (v?: string[] | null) => (v && v.length ? v : null);
+  const p = [lista(f.responsavel), lista(f.canal), lista(f.turma), f.estagio || null];
 
   const colunas = await query<ColunaHm>(
     `select e.chave, e.nome, e.cor, e.aba, e.ordem
@@ -139,9 +143,9 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
           where i.contato_hm_id = ch.id and i.tipo = 'mudanca_estagio'
           order by i.criado_em desc limit 1
        ) me on true
-      where ($1::text is null or k.responsavel = $1)
-        and ($2::text is null or $2 = any(k.tags))
-        and ($3::text is null or $3 = any(k.tags))
+      where ($1::text[] is null or k.responsavel = any($1))
+        and ($2::text[] is null or k.tags && $2)
+        and ($3::text[] is null or k.tags && $3)
         and ($4::text is null or k.estagio_chave = $4)
       order by est.ordem, ch.ordem, k.nome`,
     p,

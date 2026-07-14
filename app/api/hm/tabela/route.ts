@@ -17,10 +17,12 @@ export async function GET(req: Request) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
   const sp = new URL(req.url).searchParams;
 
+  // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
+  // do filtro a leitura é OU, entre filtros é E.
   const relatorio = await relatorioHm({
-    responsavel: sp.get("responsavel"),
-    canal: sp.get("canal"),
-    turma: sp.get("turma"),
+    responsavel: sp.getAll("responsavel"),
+    canal: sp.getAll("canal"),
+    turma: sp.getAll("turma"),
   });
 
   // As listas dos filtros saem da base inteira (não da fatia filtrada): um

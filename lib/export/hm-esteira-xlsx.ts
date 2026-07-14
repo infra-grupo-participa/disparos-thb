@@ -109,9 +109,9 @@ export async function relatorioHmParaXlsx(r: RelatorioHm, agora: Date): Promise<
   // Um relatório filtrado que não diz que está filtrado é uma armadilha: quem
   // abre depois acha que está vendo a esteira inteira.
   const filtros = [
-    r.filtros.responsavel && `responsável: ${r.filtros.responsavel}`,
-    r.filtros.canal && `canal: ${r.filtros.canal}`,
-    r.filtros.turma && `turma: ${r.filtros.turma}`,
+    r.filtros.responsavel?.length && `responsável: ${r.filtros.responsavel.join(" ou ")}`,
+    r.filtros.canal?.length && `canal: ${r.filtros.canal.join(" ou ")}`,
+    r.filtros.turma?.length && `turma: ${r.filtros.turma.join(" ou ")}`,
   ].filter(Boolean);
   ws.mergeCells("A2:H2");
   const s = ws.getCell("A2");
