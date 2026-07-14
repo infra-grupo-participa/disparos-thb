@@ -9,7 +9,7 @@ import { TagChip } from "@/app/_components/tags";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
-import { gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
+import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { MultiSelect } from "@/app/_components/multi-select";
 import { DisparoModal } from "@/app/_components/disparo";
 import { useMe } from "@/app/_components/use-me";
@@ -46,10 +46,10 @@ const MEIOS: { v: string; label: string }[] = [
 ];
 const RESULTADOS = ["Aguardando retorno", "Agendada", "Realizada", "Realizada/pago", "Reagendar", "Não respondeu"];
 
-// A "Origem" da linha = as tags de CANAL do card: tira as de turma (gerenciadas)
-// e as de público (quem a pessoa é, não por onde entrou).
-const PUBLICOS = new Set(["Aluno THB", "Aluno Aurum", "Lead novo"]);
-const canalDe = (tags: string[]) => tags.filter((t) => !/^(Origem|Turma|Aurum) /.test(t) && !PUBLICOS.has(t));
+// A "Origem" da linha exibe SÓ os 5 eventos fixados (decisão de 14/07 — Imersão
+// POA, HT26 etc. ficam de fora). A tag continua no card (o popup de tags e a
+// coluna Tags mostram tudo); aqui é a leitura de negócio, não o inventário.
+const canalDe = (tags: string[]) => tags.filter((t) => (CANAIS_FIXOS as readonly string[]).includes(t));
 
 // O checklist com as MESMAS palavras do board (lib/services/hm) — quando a trava
 // recusar a entrada em "Ativação Realizada", o que falta se lê igual nas duas telas.
