@@ -69,6 +69,14 @@ function num(v: unknown): number | null {
 function brl(v: number): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
+// O quanto esta pessoa ainda deve. `saldo_a_perseguir` (vw_hm_financeiro) é o que
+// vale: pacote − TUDO o que já foi pago, inclusive as mensalidades. O saldo da
+// fn_hm_prorata é outra coisa — "quanto seria o saldo cheio hoje" — e ignora o que
+// a pessoa já pagou; usá-lo aqui cobraria de novo quem está pagando em dia.
+// Null = o sistema não sabe (não é zero).
+function saldoDe(l: LinhaEsteira): number | null {
+  return num(l.saldo_a_perseguir) ?? num(l.saldo_a_pagar);
+}
 function dt(v: QuandoHm): Date | null {
   if (!v) return null;
   const d = new Date(v);
@@ -182,14 +190,19 @@ const LENTES: Lente[] = [
     test: (l) => l.apto_ativacao && !l.aluno_id,
   },
   {
-    // Deve o saldo e o sistema não sabe quanto: a fn_hm_prorata só devolve linha
-    // para quem tem os insumos do crédito (valor pago + data da compra antiga).
-    // Sem isso, a pessoa não entra na soma do rodapé e some de toda cobrança —
-    // é uma lacuna, não um zero. Acionável dos dois lados: ou falta digitar o
-    // crédito do aluno da base, ou falta definir o valor do lead novo (que
-    // depende do sinal que ele pagou — R$300 no HT ATM, R$2.000 na Imersão POA).
-    id: "sem_saldo", grupo: "Higiene", label: "Sem saldo calculado", destaque: true,
-    test: (l) => !l.apto_ativacao && num(l.saldo_a_pagar) === null,
+    // Deve o saldo e o sistema não sabe quanto. O lead novo saiu desta lente (o
+    // saldo dele é dedutível: 14.700 − o que pagou); sobrou o aluno da base sem os
+    // insumos do crédito — e esse dado não existe em planilha nenhuma, alguém
+    // precisa buscar a compra antiga dele na Hotmart. Sem isso ele não entra na
+    // soma do rodapé e some de toda cobrança: é lacuna, não zero.
+    id: "sem_saldo", grupo: "Higiene", label: "Sem saldo calculável", destaque: true,
+    test: (l) => !l.quitado && !l.apto_ativacao && saldoDe(l) === null,
+  },
+  {
+    // O crédito pró-rata encolhe todo dia: quanto mais demora a oferta sair, mais
+    // o aluno deve — e mais provável que ele reclame do valor que combinamos.
+    id: "saldo_parado", grupo: "Cobrança do saldo", label: "Deve e nenhuma oferta foi enviada",
+    test: (l) => !l.quitado && !l.apto_ativacao && !l.link_saldo_enviado_em && (saldoDe(l) ?? 0) > 0,
   },
 ];
 
@@ -755,22 +768,37 @@ export default function HmTabelaPage() {
     },
     saldo: {
       id: "saldo", label: "Saldo a pagar", dir: true,
-      sortVal: (l) => (l.apto_ativacao ? null : num(l.saldo_a_pagar)),
+      sortVal: (l) => (l.quitado || l.apto_ativacao ? null : saldoDe(l)),
       render: (l) => {
-        if (l.apto_ativacao) {
+        if (l.quitado || l.apto_ativacao) {
           return <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400" title={l.pagamento_em ? `Quitado em ${fmtDataHora(l.pagamento_em)}` : "Saldo quitado"}>quitado</span>;
         }
-        const s = num(l.saldo_a_pagar);
-        if (s !== null) return <span className="whitespace-nowrap font-semibold tabular-nums text-slate-800 dark:text-slate-100">{brl(s)}</span>;
-        // Devendo, mas sem valor: a fn_hm_prorata não teve os insumos do crédito.
-        // Um "—" mudo se leria como zero — e zero é exatamente o que esta pessoa
-        // NÃO deve. O traço avisa que é lacuna, e diz o que falta preencher.
+        const s = saldoDe(l);
+        if (s !== null) {
+          // Cravado = o pacote foi fechado com a pessoa. Pela régua = o sistema
+          // deduziu (lead novo: 14.700; aluno da base: 14.700 − crédito de hoje) e
+          // o número ENCOLHE a cada dia, porque o crédito é consumido. Marcar a
+          // diferença evita tratar uma dedução como um acordo.
+          const cravado = num(l.valor_total) !== null;
+          return (
+            <span
+              className={`whitespace-nowrap font-semibold tabular-nums ${cravado ? "text-slate-800 dark:text-slate-100" : "cursor-help text-slate-600 dark:text-slate-300"}`}
+              title={cravado
+                ? "Saldo do pacote fechado com esta pessoa, menos tudo o que ela já pagou."
+                : "Saldo pela régua (ninguém fechou um pacote ainda): 15.000 − crédito pró-rata − o que já foi pago. Muda a cada dia, porque o crédito é consumido."}
+            >
+              {brl(s)}
+              {!cravado && <span className="ml-0.5 align-super text-[9px] font-normal text-slate-400">~</span>}
+            </span>
+          );
+        }
+        // Devendo e o sistema não sabe quanto: falta o insumo do crédito e ele não
+        // existe em lugar nenhum. Um "—" mudo se leria como zero — e zero é
+        // exatamente o que esta pessoa NÃO deve.
         return (
           <span
             className="cursor-help font-medium text-amber-600 underline decoration-dotted underline-offset-2 dark:text-amber-400"
-            title={l.turma_origem
-              ? "Sem saldo calculado — o crédito pró-rata deste aluno não foi informado (valor pago e data da compra anterior, na ficha)."
-              : "Sem saldo calculado — o valor devido por este lead ainda não foi definido (depende do sinal que ele pagou)."}
+            title="Sem saldo calculável — falta o crédito pró-rata deste aluno (valor pago e data da compra anterior, na ficha). Ele DEVE; o sistema é que não sabe quanto."
           >
             —
           </span>
@@ -979,19 +1007,17 @@ export default function HmTabelaPage() {
   // A leitura que o board nunca deu: o card sabe o saldo de UM; a tabela soma o
   // de todos. "A receber" é só de quem ainda deve — saldo de quem quitou é história.
   //
-  // E a soma é PARCIAL, por construção: `saldo_a_pagar` vem da fn_hm_prorata, que
-  // só devolve linha para quem tem os insumos do crédito (valor pago + data da
-  // compra anterior) — ou seja, aluno da base com o crédito digitado. Lead novo e
-  // aluno sem crédito informado entram como null, e um null somado como zero
-  // esconderia gente que deve dinheiro dentro de um total que parece completo.
-  // Não dá para derivar o que falta (o saldo do lead depende do sinal que ele
-  // pagou: R$300 no HT ATM, R$2.000 na Imersão POA — chutar 14.700 seria inventar
-  // dado). Então a soma declara a própria cobertura, e a lente "Sem saldo
-  // calculado" mostra quem ficou de fora.
-  const devendo = visiveis.filter((l) => !l.apto_ativacao);
-  const comSaldo = devendo.filter((l) => num(l.saldo_a_pagar) !== null);
+  // A soma agora cobre os dois públicos (vw_hm_financeiro, 0078): o lead novo tem
+  // saldo dedutível (15.000 − o que pagou) e entrava como null antes, sumindo da
+  // conta. Continua PARCIAL para o aluno da base sem os insumos do crédito — e
+  // esse não dá para deduzir: depende da compra antiga dele, que não está no banco
+  // nem em planilha. Somar zero ali esconderia quem deve dentro de um total que
+  // parece completo, então a soma declara a própria cobertura e a lente "Sem saldo
+  // calculável" mostra quem ficou de fora.
+  const devendo = visiveis.filter((l) => !l.quitado && !l.apto_ativacao);
+  const comSaldo = devendo.filter((l) => saldoDe(l) !== null);
   const semSaldo = devendo.length - comSaldo.length;
-  const totSaldo = comSaldo.reduce((acc, l) => acc + (num(l.saldo_a_pagar) ?? 0), 0);
+  const totSaldo = comSaldo.reduce((acc, l) => acc + (saldoDe(l) ?? 0), 0);
   const semResp = visiveis.filter((l) => !l.responsavel).length;
   const comLink = visiveis.filter((l) => !!l.link_saldo_enviado_em).length;
   const diasArr = visiveis.map((l) => l.dias_na_etapa).filter((x): x is number => x !== null && x !== undefined);
@@ -1270,9 +1296,9 @@ export default function HmTabelaPage() {
                     <button
                       onClick={() => setLente("sem_saldo")}
                       className="font-semibold underline decoration-dotted underline-offset-2 transition hover:text-amber-700 dark:hover:text-amber-300"
-                      title="Ver quem está sem saldo calculado — essas pessoas devem, mas o valor não entra na soma"
+                      title="Ver quem está sem saldo calculável — essas pessoas devem, mas falta o crédito pró-rata delas e o valor não entra na soma"
                     >
-                      {semSaldo} sem saldo calculado
+                      {semSaldo} sem saldo calculável
                     </button>
                   </span>
                 )}
