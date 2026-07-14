@@ -292,8 +292,12 @@ export default function HmTabelaPage() {
   // contexto) e voltam para ela a cada mudança.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
+    // Sem canal na URL, os 5 fixados entram PRÉ-MARCADOS (decisão de 14/07) —
+    // a tela abre recortada nos eventos que o time acompanha; "Limpar filtros"
+    // mostra todo mundo, e recarregar volta ao padrão.
+    const canaisUrl = sp.getAll("canal");
     setFiltroResp(sp.getAll("responsavel"));
-    setFiltroCanal(sp.getAll("canal"));
+    setFiltroCanal(canaisUrl.length ? canaisUrl : [...CANAIS_FIXOS]);
     setFiltroTurma(sp.getAll("turma"));
     setFiltrosProntos(true);
   }, []);

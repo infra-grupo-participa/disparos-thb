@@ -7,7 +7,7 @@ import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
-import { gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
+import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { MultiSelect } from "@/app/_components/multi-select";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
@@ -208,10 +208,14 @@ export default function HmKanbanPage() {
 
   // Lê os filtros da URL uma vez, antes do primeiro carregamento — senão o
   // board buscaria sem filtro e refaria a busca logo em seguida.
+  // Sem canal na URL, os 5 fixados entram PRÉ-MARCADOS (decisão de 14/07): a
+  // tela abre já recortada nos eventos que o time acompanha. "Limpar filtros"
+  // mostra todo mundo; recarregar volta ao padrão.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
+    const canaisUrl = sp.getAll("canal");
     setFiltroResp(sp.getAll("responsavel"));
-    setFiltroCanal(sp.getAll("canal"));
+    setFiltroCanal(canaisUrl.length ? canaisUrl : [...CANAIS_FIXOS]);
     setFiltroTurma(sp.getAll("turma"));
     setFiltrosProntos(true);
   }, []);
