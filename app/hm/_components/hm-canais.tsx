@@ -19,15 +19,12 @@ export const CANAIS_FIXOS = [
   "Ex aluno Direto ao Ponto",
 ] as const;
 
-// O dropdown de canal separa os fixados dos demais — a mesma hierarquia da
-// régua, para o operador não caçar "HT ATM" no meio de HT26/HT27/públicos.
-export function gruposCanal(todos: string[]): { label: string | null; itens: string[] }[] {
-  const fixos = CANAIS_FIXOS.filter((c) => todos.includes(c));
-  const outros = todos.filter((c) => !(CANAIS_FIXOS as readonly string[]).includes(c));
-  return [
-    { label: "Fixados", itens: fixos },
-    { label: "Outros", itens: outros },
-  ];
+// O filtro de canal oferece SÓ os eventos fixados (decisão de 14/07): HT26,
+// Imersão POA, Venda direta e públicos saem do seletor — são ruído para a
+// pergunta que o time faz hoje. As tags continuam nos cards (a coluna Origem
+// mostra o fato); voltar a filtrar por elas é reincluir aqui.
+export function gruposCanal(_todos: string[]): { label: string | null; itens: string[] }[] {
+  return [{ label: null, itens: [...CANAIS_FIXOS] }];
 }
 
 type Props = {
