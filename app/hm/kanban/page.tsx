@@ -44,6 +44,7 @@ const ABAS: { id: string; label: string }[] = [
 ];
 
 const COL_PAGAMENTO = "hm_pagamento_realizado";
+const COL_CANCELAMENTO = "hm_cancelamento";
 
 // Em qual coluna DESTA aba o card aparece — ou null se ele não pertence a ela.
 // Quem quitou o saldo vive na Ativação, mas o Comercial não pode perdê-lo de
@@ -165,6 +166,8 @@ export default function HmKanbanPage() {
   const [selecionado, setSelecionado] = useState<string | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [dispararLote, setDispararLote] = useState(false);
+  // Card a caminho da coluna de cancelamento, esperando a resposta: pediu ou cancelou?
+  const [cancelando, setCancelando] = useState<{ card: Card; antesDe: string | null } | null>(null);
   const [menu, setMenu] = useState<{ card: Card; x: number; y: number } | null>(null);
   const arrastando = useRef<Card | null>(null);
 
@@ -269,6 +272,10 @@ export default function HmKanbanPage() {
   // caminho do pagamento. Aqui a esteira inteira está à mão.
   async function moverParaEtapa(card: Card, destino: Estagio) {
     if (card.estagio_chave === destino.chave) return;
+    // Cancelar tem duas leituras — pediu ou cancelou —, e a diferença muda o
+    // mundo: o definitivo marca o aluno na base e chama quem remove os acessos.
+    // Perguntar aqui é o que permite o gesto único sem confundir as duas.
+    if (destino.chave === COL_CANCELAMENTO) { setCancelando({ card, antesDe: null }); return; }
     const abaDestino = destino.aba ?? "comercial";
     const abaAtual = card.estagio_aba ?? "comercial";
     // Tirar da Ativação um card pago desfaz o pagamento (o servidor limpa a marca).
@@ -308,6 +315,12 @@ export default function HmKanbanPage() {
 
   async function mover(card: Card, estagioChave: string, antesDe: string | null) {
     const mudouDeColuna = colunaNaAba(card, aba) !== estagioChave;
+    // Cair na coluna de cancelamento pede a pergunta (ver moverParaEtapa).
+    // Reordenar DENTRO dela, não: quem já está lá já foi perguntado.
+    if (mudouDeColuna && estagioChave === COL_CANCELAMENTO) {
+      setCancelando({ card, antesDe });
+      return;
+    }
     // O espelho é só o registro do pagamento no Comercial: o card mora na
     // Ativação e a ordem dele pertence à fila de lá. Reordenar aqui não teria
     // onde ser gravado — ignora o gesto vertical.
@@ -604,6 +617,34 @@ export default function HmKanbanPage() {
         />
       )}
 
+      {cancelando && (
+        <CancelamentoModal
+          nome={cancelando.card.nome}
+          onFechar={() => { setCancelando(null); carregar(); }}
+          onEscolher={async (definitivo, motivo) => {
+            const { card, antesDe } = cancelando;
+            setCancelando(null);
+            // O card vai para a coluna nos dois casos — a coluna é onde se vê
+            // quem está saindo. O que muda é o que acontece na BASE.
+            await patchMover(card, COL_CANCELAMENTO, antesDe);
+            if (definitivo) {
+              await fetch(`/api/hm/contato/${card.comprador_id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ confirmar_cancelamento: true, cancelamento_motivo: motivo || null }),
+              });
+            } else if (motivo) {
+              await fetch(`/api/hm/contato/${card.comprador_id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ cancelamento_motivo: motivo }),
+              });
+            }
+            await carregar();
+          }}
+        />
+      )}
+
       {selecionado && (
         <HmDrawer
           compradorId={selecionado}
@@ -614,6 +655,87 @@ export default function HmKanbanPage() {
         />
       )}
     </div>
+  );
+}
+
+// Pediu ou cancelou? A pergunta que separa a intenção do fato.
+//
+// Enquanto é PEDIDO, o aluno continua aluno: reembolso pode ser negado pela
+// Hotmart (fora dos 7 dias) e gente desiste de cancelar. Já o DEFINITIVO marca o
+// aluno na base — ele some das telas do GPS, mantendo cadastro e histórico — e
+// chama, no Slack, quem tem de remover os acessos.
+//
+// Quando o cancelamento vem pela Hotmart, nada disto aparece: o webhook faz o
+// caminho inteiro sozinho. Esta tela é para o cancelamento fechado por fora
+// (acordo, Pix devolvido) — e o aviso ao Thomas sai UMA vez só, venha de onde vier.
+function CancelamentoModal({ nome, onEscolher, onFechar }: {
+  nome: string;
+  onEscolher: (definitivo: boolean, motivo: string) => Promise<void>;
+  onFechar: () => void;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  async function escolher(definitivo: boolean) {
+    setSalvando(true);
+    try { await onEscolher(definitivo, motivo.trim()); } finally { setSalvando(false); }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm" onClick={onFechar} />
+      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-5 shadow-pop dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+          Cancelamento de {nome}
+        </h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          O cancelamento já é definitivo, ou a pessoa só pediu?
+        </p>
+
+        <label className="mt-3 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+          Motivo (por que está saindo?)
+          <textarea
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            rows={2}
+            placeholder="Ex.: pediu reembolso na semana de arrependimento"
+            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+          />
+        </label>
+
+        <div className="mt-4 space-y-2">
+          <button
+            onClick={() => escolher(false)}
+            disabled={salvando}
+            className="w-full rounded-lg border border-amber-300 px-3 py-2 text-left text-sm hover:bg-amber-50 disabled:opacity-50 dark:border-amber-500/40 dark:hover:bg-amber-500/10"
+          >
+            <span className="font-medium text-amber-700 dark:text-amber-300">Só solicitou</span>
+            <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+              O card sai da esteira, mas o acesso continua valendo. Nada muda na base — dá para voltar atrás.
+            </span>
+          </button>
+
+          <button
+            onClick={() => escolher(true)}
+            disabled={salvando}
+            className="w-full rounded-lg border border-rose-300 px-3 py-2 text-left text-sm hover:bg-rose-50 disabled:opacity-50 dark:border-rose-500/40 dark:hover:bg-rose-500/10"
+          >
+            <span className="font-medium text-rose-700 dark:text-rose-300">Cancelamento definitivo</span>
+            <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+              Marca o aluno como cancelado (o cadastro e o histórico ficam) e avisa no Slack para removerem os acessos.
+            </span>
+          </button>
+        </div>
+
+        <button
+          onClick={onFechar}
+          disabled={salvando}
+          className="mt-3 w-full rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800"
+        >
+          Não mover o card
+        </button>
+      </div>
+    </>
   );
 }
 

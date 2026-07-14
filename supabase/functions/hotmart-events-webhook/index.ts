@@ -494,25 +494,15 @@ const EVENTO_LABEL: Record<string, string> = {
   SUBSCRIPTION_CANCELLATION: "Assinatura cancelada",
 };
 
-// Quem remove os acessos é o Thomas, e a tarefa tem endereço: o canal dele.
-// O aviso de cancelamento não é um recibo — é uma ordem de serviço.
+// Este aviso é INFORMATIVO, para o canal de vendas do produto: "fulano pediu
+// reembolso". Ele NÃO chama o Thomas.
 //
-// Três destinos, nesta ordem:
-//   1. SLACK_WEBHOOK_ACESSOS — Incoming Webhook do canal do Thomas. O caminho
-//      simples: uma URL, sem token, sem escopo, sem convidar bot.
-//   2. SLACK_BOT_TOKEN — chat.postMessage no canal por ID. Só se um dia o
-//      sistema precisar postar em vários canais.
-//   3. Sem nenhum dos dois: o canal de vendas do produto. A tarefa aparece
-//      misturada com as compras, mas ninguém fica sem saber.
-const SLACK_WEBHOOK_ACESSOS = Deno.env.get("SLACK_WEBHOOK_ACESSOS") ?? "";
-const SLACK_BOT_TOKEN = Deno.env.get("SLACK_BOT_TOKEN") ?? "";
-const SLACK_USER_THOMAS = Deno.env.get("SLACK_USER_THOMAS") || "U0AQXNQGJEL";
-const SLACK_CANAL_ACESSOS = Deno.env.get("SLACK_CANAL_ACESSOS") || "C0B8KKC8FBQ";
-
-// Domínio do portal, para o link da ficha. Sem ele, o aviso vai sem link — o
-// Thomas abre o portal e busca o aluno. Basta setar o secret para o link nascer.
-const APP_BASE_URL = (Deno.env.get("APP_BASE_URL") ?? "").replace(/\/+$/, "");
-
+// A ordem de serviço — "remova os acessos deste aluno" — quem manda é o BANCO
+// (cs.fn_hm_avisar_remocao, migration 0073), disparada pelo gatilho no instante
+// em que o cancelamento vira fato. O motivo é que o cancelamento tem duas portas
+// (esta, da Hotmart, e a do comercial, que cancela por fora) e o Thomas não pode
+// ser chamado duas vezes para a mesma tarefa. Com um único emissor — o fato, não
+// quem o registrou — duplicar fica impossível por construção.
 async function notifySlackCancelamento(channel: string, payload: {
   evento: string;
   nome: string;
@@ -524,8 +514,10 @@ async function notifySlackCancelamento(channel: string, payload: {
   transaction: string;
   eraAluno: boolean;
   turma?: string | null;
-  compradorId?: string | null;
 }) {
+  const webhookUrl = SLACK_WEBHOOKS[channel];
+  if (!webhookUrl) return;
+
   const valorFormatado = payload.valor != null
     ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: payload.moeda || "BRL" }).format(payload.valor)
     : "-";
@@ -541,66 +533,22 @@ async function notifySlackCancelamento(channel: string, payload: {
     `*Transação:* ${payload.transaction}`,
   ].filter(Boolean).join("\n");
 
-  const ficha = APP_BASE_URL && payload.compradorId
-    ? `\n<${APP_BASE_URL}/hm/contatos/${payload.compradorId}|Abrir a ficha do contato>`
-    : "";
-
-  // Só quem era aluno tem acesso para remover. Quem cancelou antes de virar
-  // aluno não gera tarefa nenhuma — e chamar o Thomas à toa é o caminho mais
-  // curto para o aviso virar ruído ignorado.
-  const tarefa = payload.eraAluno
-    ? `\n\n<@${SLACK_USER_THOMAS}> :warning: *Remova os acessos deste aluno* — área de membros do Searchie/Óbvio, comunidade THB e grupo de informes.\nDepois marque cada item no checklist *"Remover acessos"* da ficha do contato, no portal HM: enquanto não estiver marcado, ele continua na fila de pendências.${ficha}`
+  // Quem era aluno gera tarefa — mas ela vai pelo canal dos acessos, não aqui.
+  // Dizer isto evita que o time de vendas ache que ninguém foi acionado.
+  const rodape = payload.eraAluno
+    ? "\n\n_A remoção dos acessos já foi pedida no canal de acessos._"
     : "\n\n_Ainda não era aluno — não há acesso a remover._";
-
-  const texto = `:x: *${label}*\n${dados}${tarefa}`;
-  const corpo = {
-    text: `${label}: ${payload.nome}`,
-    blocks: [
-      { type: "section", text: { type: "mrkdwn", text: texto } },
-      { type: "divider" },
-    ],
-  };
-
-  // 1) O canal do Thomas, por Incoming Webhook (o caminho simples).
-  if (SLACK_WEBHOOK_ACESSOS) {
-    const res = await fetch(SLACK_WEBHOOK_ACESSOS, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(corpo),
-    });
-    if (res.ok) return;
-    console.error("[SLACK] webhook dos acessos falhou:", res.status, await res.text());
-  }
-
-  // 2) O mesmo canal, por bot — para quem preferir configurar por ID.
-  if (SLACK_BOT_TOKEN) {
-    const res = await fetch("https://slack.com/api/chat.postMessage", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
-      },
-      body: JSON.stringify({ ...corpo, channel: SLACK_CANAL_ACESSOS }),
-    });
-    const json = await res.json().catch(() => ({ ok: false }));
-    if (json?.ok) return;
-    // Slack responde 200 com {ok:false, error:"not_in_channel"|"invalid_auth"…}
-    console.error("[SLACK] chat.postMessage falhou:", JSON.stringify(json));
-  }
-
-  // 3) Nenhum canal dedicado configurado (ou os dois falharam): cai no canal de
-  // vendas do produto — a tarefa fica no meio das compras, mas ninguém fica sem
-  // saber que alguém saiu e continua com acesso.
-  const webhookUrl = SLACK_WEBHOOKS[channel];
-  if (!webhookUrl) {
-    console.error(`[SLACK] cancelamento sem destino: nem canal de acessos nem webhook do canal ${channel}`);
-    return;
-  }
 
   const response = await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(corpo),
+    body: JSON.stringify({
+      text: `${label}: ${payload.produto}`,
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: `:x: *${label}*\n${dados}${rodape}` } },
+        { type: "divider" },
+      ],
+    }),
   });
 
   if (!response.ok) {
@@ -789,7 +737,6 @@ serve(async (req) => {
       transaction: "— (assinatura)",
       eraAluno: r.eraAluno,
       turma: r.turma,
-      compradorId: r.compradorId,
     });
 
     return new Response(JSON.stringify({ ok: true, channel, event, ...r }), {
@@ -835,7 +782,6 @@ serve(async (req) => {
       transaction,
       eraAluno: r.eraAluno,
       turma: r.turma,
-      compradorId: r.compradorId,
     });
 
     return new Response(JSON.stringify({ ok: true, channel, event, ...r }), {
