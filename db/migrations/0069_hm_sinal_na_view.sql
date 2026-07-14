@@ -1,5 +1,5 @@
 -- =====================================================================
--- 0068_hm_sinal_na_view
+-- 0069_hm_sinal_na_view (aplicada no banco como "0068_hm_sinal_na_view" — renumerada no repo porque a 0068_nome_de_comprador_confiavel chegou 1 min antes)
 -- A visão financeira precisa da entrada: quando o sinal foi pago, e quanto.
 --
 -- A tabela/relatório mostram a história financeira do aluno (sinal → saldo →
