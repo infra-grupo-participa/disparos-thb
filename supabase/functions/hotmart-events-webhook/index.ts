@@ -495,9 +495,16 @@ const EVENTO_LABEL: Record<string, string> = {
 };
 
 // Quem remove os acessos é o Thomas, e a tarefa tem endereço: o canal dele.
-// O aviso de cancelamento não é um recibo — é uma ordem de serviço. Por isso vai
-// por chat.postMessage (o Incoming Webhook posta em canal fixo, e o canal do
-// Thomas não é o canal de vendas do produto).
+// O aviso de cancelamento não é um recibo — é uma ordem de serviço.
+//
+// Três destinos, nesta ordem:
+//   1. SLACK_WEBHOOK_ACESSOS — Incoming Webhook do canal do Thomas. O caminho
+//      simples: uma URL, sem token, sem escopo, sem convidar bot.
+//   2. SLACK_BOT_TOKEN — chat.postMessage no canal por ID. Só se um dia o
+//      sistema precisar postar em vários canais.
+//   3. Sem nenhum dos dois: o canal de vendas do produto. A tarefa aparece
+//      misturada com as compras, mas ninguém fica sem saber.
+const SLACK_WEBHOOK_ACESSOS = Deno.env.get("SLACK_WEBHOOK_ACESSOS") ?? "";
 const SLACK_BOT_TOKEN = Deno.env.get("SLACK_BOT_TOKEN") ?? "";
 const SLACK_USER_THOMAS = Deno.env.get("SLACK_USER_THOMAS") || "U0AQXNQGJEL";
 const SLACK_CANAL_ACESSOS = Deno.env.get("SLACK_CANAL_ACESSOS") || "C0B8KKC8FBQ";
@@ -546,8 +553,26 @@ async function notifySlackCancelamento(channel: string, payload: {
     : "\n\n_Ainda não era aluno — não há acesso a remover._";
 
   const texto = `:x: *${label}*\n${dados}${tarefa}`;
+  const corpo = {
+    text: `${label}: ${payload.nome}`,
+    blocks: [
+      { type: "section", text: { type: "mrkdwn", text: texto } },
+      { type: "divider" },
+    ],
+  };
 
-  // Caminho preferido: o canal dos acessos, via bot.
+  // 1) O canal do Thomas, por Incoming Webhook (o caminho simples).
+  if (SLACK_WEBHOOK_ACESSOS) {
+    const res = await fetch(SLACK_WEBHOOK_ACESSOS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    });
+    if (res.ok) return;
+    console.error("[SLACK] webhook dos acessos falhou:", res.status, await res.text());
+  }
+
+  // 2) O mesmo canal, por bot — para quem preferir configurar por ID.
   if (SLACK_BOT_TOKEN) {
     const res = await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST",
@@ -555,14 +580,7 @@ async function notifySlackCancelamento(channel: string, payload: {
         "Content-Type": "application/json; charset=utf-8",
         Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
       },
-      body: JSON.stringify({
-        channel: SLACK_CANAL_ACESSOS,
-        text: `${label}: ${payload.nome}`,
-        blocks: [
-          { type: "section", text: { type: "mrkdwn", text: texto } },
-          { type: "divider" },
-        ],
-      }),
+      body: JSON.stringify({ ...corpo, channel: SLACK_CANAL_ACESSOS }),
     });
     const json = await res.json().catch(() => ({ ok: false }));
     if (json?.ok) return;
@@ -570,24 +588,19 @@ async function notifySlackCancelamento(channel: string, payload: {
     console.error("[SLACK] chat.postMessage falhou:", JSON.stringify(json));
   }
 
-  // Sem bot token (ou falha nele): cai no canal de vendas do produto, que é
-  // melhor do que ninguém ficar sabendo.
+  // 3) Nenhum canal dedicado configurado (ou os dois falharam): cai no canal de
+  // vendas do produto — a tarefa fica no meio das compras, mas ninguém fica sem
+  // saber que alguém saiu e continua com acesso.
   const webhookUrl = SLACK_WEBHOOKS[channel];
   if (!webhookUrl) {
-    console.error(`[SLACK] cancelamento sem destino: nem bot token nem webhook do canal ${channel}`);
+    console.error(`[SLACK] cancelamento sem destino: nem canal de acessos nem webhook do canal ${channel}`);
     return;
   }
 
   const response = await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: `${label}: ${payload.produto}`,
-      blocks: [
-        { type: "section", text: { type: "mrkdwn", text: texto } },
-        { type: "divider" },
-      ],
-    }),
+    body: JSON.stringify(corpo),
   });
 
   if (!response.ok) {
