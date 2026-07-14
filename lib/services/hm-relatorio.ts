@@ -54,6 +54,9 @@ export type LinhaEsteira = {
   oferta_saldo_codigo: string | null;
   link_saldo_enviado_em: QuandoHm;
   // ----- quanto (numeric do Postgres chega como string no driver pg) -----
+  // O sinal que abriu o card — data da venda e valor, direto de compras (0068).
+  sinal_pago_em: QuandoHm;
+  sinal_valor: string | null;
   pagamento_em: QuandoHm;
   pagamento_forma: string | null;
   pagamento_parcelas: number | null;
@@ -117,6 +120,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             k.responsavel, k.categoria_entrada, k.plano, k.turma, k.turma_origem, k.tags,
             k.reuniao_em, k.reuniao_resultado, k.entrevista_em, k.entrevista_resultado,
             k.pagamento_meio, k.pagamento_previsto_em, k.acordo, k.oferta_saldo_codigo, k.link_saldo_enviado_em,
+            k.sinal_pago_em, k.sinal_valor,
             k.pagamento_em, k.pagamento_forma, k.pagamento_parcelas, k.apto_ativacao,
             ch.valor_total, ch.valor_pago, ch.aluno_id,
             pr.saldo_a_pagar, pr.credito,

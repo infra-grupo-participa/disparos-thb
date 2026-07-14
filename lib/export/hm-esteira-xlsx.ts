@@ -41,6 +41,8 @@ const COLUNAS: Col[] = [
   { header: "Dias na etapa", width: 13, get: (l) => n(l.dias_na_etapa) ?? "—" },
   { header: "Responsável", width: 18, get: (l) => txt(l.responsavel) },
   { header: "Entrada", width: 14, get: (l) => (l.categoria_entrada === "sinal" ? "Sinal" : l.categoria_entrada === "compra_cheia" ? "Compra cheia" : txt(l.categoria_entrada)) },
+  { header: "Sinal pago em", width: 17, get: (l) => d(l.sinal_pago_em) ?? "—", fmt: "data" },
+  { header: "Valor do sinal", width: 13, get: (l) => n(l.sinal_valor) ?? "—", fmt: "dinheiro" },
   { header: "Turma de origem", width: 15, get: (l) => txt(l.turma_origem) },
   { header: "Reunião", width: 17, get: (l) => d(l.reuniao_em) ?? "—", fmt: "data" },
   { header: "Resultado da reunião", width: 20, get: (l) => txt(l.reuniao_resultado) },

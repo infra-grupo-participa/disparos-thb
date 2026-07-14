@@ -46,6 +46,11 @@ const MEIOS: { v: string; label: string }[] = [
 ];
 const RESULTADOS = ["Aguardando retorno", "Agendada", "Realizada", "Realizada/pago", "Reagendar", "Não respondeu"];
 
+// A "Origem" da linha = as tags de CANAL do card: tira as de turma (gerenciadas)
+// e as de público (quem a pessoa é, não por onde entrou).
+const PUBLICOS = new Set(["Aluno THB", "Aluno Aurum", "Lead novo"]);
+const canalDe = (tags: string[]) => tags.filter((t) => !/^(Origem|Turma|Aurum) /.test(t) && !PUBLICOS.has(t));
+
 // O checklist com as MESMAS palavras do board (lib/services/hm) — quando a trava
 // recusar a entrada em "Ativação Realizada", o que falta se lê igual nas duas telas.
 const CHECKLIST = [
@@ -220,11 +225,13 @@ const PRESETS: Record<VisaoId, string[]> = {
   comercial: ["nome", "telefone", "etapa", "esteira", "dias", "responsavel", "entrada", "acordo", "meio", "previsao", "link", "saldo"],
   ativacao: ["nome", "etapa", "esteira", "dias", "responsavel", "checklist", "grupo_informes", "pendencia", "entrevista", "na_base", "socios"],
   agenda: ["nome", "responsavel", "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas", "no_shows"],
-  financeiro: ["nome", "entrada", "turma_origem", "credito", "saldo", "valor_total", "valor_pago", "pagamento_em", "forma", "meio"],
+  // A visão da Jusy/Isabela: a história financeira em linha — sinal → saldo →
+  // cancelamento (ordem decidida em 14/07).
+  financeiro: ["nome", "origem", "sinal_pago_em", "sinal_valor", "saldo", "pagamento_em", "forma_obs", "cancelado", "cancelamento_em"],
   // A auditoria: as colunas do XLSX, na mesma ordem (+ a Turma atual, editável).
   tudo: ["nome", "telefone", "email", "etapa", "esteira", "dias", "responsavel", "entrada", "turma_origem", "turma",
     "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas",
-    "no_shows", "meio", "previsao", "acordo", "link", "saldo", "credito", "valor_total", "valor_pago", "pagamento_em",
+    "no_shows", "sinal_pago_em", "sinal_valor", "meio", "previsao", "acordo", "link", "saldo", "credito", "valor_total", "valor_pago", "pagamento_em",
     "apto", "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa", "pendencia", "nao_contatar", "revisar",
     "socios", "cancelamento_em", "cancelamento_motivo", "na_base", "tags"],
 };
@@ -759,8 +766,55 @@ export default function HmTabelaPage() {
     },
     valor_total: { id: "valor_total", label: "Valor total", dir: true, sortVal: (l) => num(l.valor_total), render: (l) => <Dinheiro v={num(l.valor_total)} /> },
     valor_pago: { id: "valor_pago", label: "Valor pago", dir: true, sortVal: (l) => num(l.valor_pago), render: (l) => <Dinheiro v={num(l.valor_pago)} /> },
+    // ----- a história financeira em linha (visão da Jusy/Isabela) -----
+    // Origem = as tags de canal do card (sem turma e sem público): de onde a
+    // venda veio. É fato derivado — quem muda canal é tag, não célula.
+    origem: {
+      id: "origem", label: "Origem",
+      sortVal: (l) => canalDe(l.tags)[0] ?? null,
+      render: (l) => {
+        const cs = canalDe(l.tags);
+        return cs.length
+          ? <span className="flex max-w-[16rem] flex-wrap gap-1">{cs.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} />)}</span>
+          : <span>—</span>;
+      },
+    },
+    sinal_pago_em: {
+      id: "sinal_pago_em", label: "Sinal pago em",
+      sortVal: (l) => dt(l.sinal_pago_em)?.getTime() ?? null,
+      render: (l) => <span className="whitespace-nowrap tabular-nums">{fmtDataHora(l.sinal_pago_em)}</span>,
+    },
+    sinal_valor: {
+      id: "sinal_valor", label: "Valor do sinal", dir: true,
+      sortVal: (l) => num(l.sinal_valor),
+      render: (l) => <Dinheiro v={num(l.sinal_valor)} />,
+    },
+    // Forma de pagamento do SALDO + a obs da Jusy (o campo acordo) na mesma
+    // célula: o combinado inteiro num olhar, sem caçar em duas colunas.
+    forma_obs: {
+      id: "forma_obs", label: "Forma de pagamento",
+      sortVal: (l) => l.pagamento_meio ?? l.acordo,
+      render: (l) => {
+        const m = MEIOS.find((x) => x.v === l.pagamento_meio)?.label;
+        if (!m && !l.acordo) return <span>—</span>;
+        return (
+          <div className="max-w-[16rem]">
+            {m && <span>{m}</span>}
+            {l.acordo && <p className={cn("truncate text-[11px] text-slate-400 dark:text-slate-500", !m && "text-[13px] text-slate-600 dark:text-slate-300")} title={l.acordo}>{l.acordo}</p>}
+          </div>
+        );
+      },
+    },
+    cancelado: {
+      id: "cancelado", label: "Cancelou?",
+      sortVal: (l) => (l.cancelamento_em || l.estagio_chave === "hm_cancelamento" ? 1 : 0),
+      render: (l) =>
+        l.cancelamento_em || l.estagio_chave === "hm_cancelamento"
+          ? <span className="font-medium text-rose-600 dark:text-rose-400">Sim</span>
+          : <span>—</span>,
+    },
     pagamento_em: {
-      id: "pagamento_em", label: "Pagamento em",
+      id: "pagamento_em", label: "Saldo pago em",
       sortVal: (l) => dt(l.pagamento_em)?.getTime() ?? null,
       render: (l) => <span className="whitespace-nowrap tabular-nums">{fmtDataHora(l.pagamento_em)}</span>,
     },

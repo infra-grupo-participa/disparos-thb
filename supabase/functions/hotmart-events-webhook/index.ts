@@ -3,6 +3,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const HOTMART_HOTTOK = Deno.env.get("HOTMART_HOTTOK") ?? "";
 
+// Credenciais da API da Hotmart (painel → Ferramentas → Credenciais de API).
+// Usadas só para descobrir o NOME REAL do comprador quando o checkout manda lixo
+// no buyer.name (ver resolveNomeComprador). Ausentes = enriquecimento desligado,
+// o webhook segue funcionando como antes.
+const HOTMART_CLIENT_ID = Deno.env.get("HOTMART_CLIENT_ID") ?? "";
+const HOTMART_CLIENT_SECRET = Deno.env.get("HOTMART_CLIENT_SECRET") ?? "";
+const HOTMART_BASIC = Deno.env.get("HOTMART_BASIC") ?? "";
+
 // SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são injetados automaticamente em toda
 // Edge Function do Supabase. service_role é interno/confiável aqui (não é a
 // credencial do app, que é scoped) — usado só para persistir a compra.
@@ -348,6 +356,118 @@ async function persistPurchase(args: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// O nome do comprador.
+//
+// buyer.name é o que foi DIGITADO no checkout — quando a venda nasce de
+// automação/GPT, chega o telefone ("+55 (86) 99834-3773") ou o próprio e-mail.
+// O nome de verdade é o da CONTA Hotmart (o que o painel mostra em "Detalhes do
+// comprador") e não vem no payload: só pela API de vendas, pela transação.
+// ---------------------------------------------------------------------------
+
+// Mesmo critério do banco (public.fn_nome_suspeito): isto não pode ser um nome
+// de gente — vazio, e-mail, telefone/CPF (8+ dígitos) ou sem letra nenhuma.
+function nomeSuspeito(nome: string | null | undefined): boolean {
+  if (!nome) return true;
+  const n = nome.trim();
+  if (!n || n.toLowerCase() === "sem nome") return true;
+  if (n.includes("@")) return true;
+  if (n.replace(/\D/g, "").length >= 8) return true;
+  if (!/\p{L}/u.test(n)) return true;
+  return false;
+}
+
+// Token OAuth da Hotmart, cacheado em memória enquanto a instância viver.
+let tokenCache: { token: string; expiraEm: number } | null = null;
+
+async function hotmartToken(): Promise<string | null> {
+  if (!HOTMART_CLIENT_ID || !HOTMART_CLIENT_SECRET || !HOTMART_BASIC) return null;
+  if (tokenCache && Date.now() < tokenCache.expiraEm) return tokenCache.token;
+
+  const url = "https://api-sec-vlc.hotmart.com/security/oauth/token"
+    + `?grant_type=client_credentials&client_id=${encodeURIComponent(HOTMART_CLIENT_ID)}`
+    + `&client_secret=${encodeURIComponent(HOTMART_CLIENT_SECRET)}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Basic ${HOTMART_BASIC}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    console.error("[HOTMART API] falha ao obter token:", res.status, await res.text());
+    return null;
+  }
+
+  const json = await res.json() as { access_token?: string; expires_in?: number };
+  if (!json.access_token) return null;
+
+  // Renova 60s antes do vencimento real.
+  const ttlMs = Math.max(0, ((json.expires_in ?? 3600) - 60) * 1000);
+  tokenCache = { token: json.access_token, expiraEm: Date.now() + ttlMs };
+  return json.access_token;
+}
+
+// Nome da conta Hotmart do comprador daquela transação. null se a API não
+// responder ou também não souber — nunca inventa nome.
+async function nomeDoCompradorNaHotmart(transaction: string): Promise<string | null> {
+  const token = await hotmartToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(
+      `https://developers.hotmart.com/payments/api/v1/sales/users?transaction=${encodeURIComponent(transaction)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) {
+      console.error("[HOTMART API] sales/users falhou:", res.status, await res.text());
+      return null;
+    }
+
+    const json = await res.json() as {
+      items?: Array<{ users?: Array<{ role?: string; user?: { name?: string } }> }>;
+    };
+
+    for (const item of json.items ?? []) {
+      for (const u of item.users ?? []) {
+        if (u.role !== "BUYER") continue;
+        const nome = u.user?.name?.trim();
+        if (nome && !nomeSuspeito(nome)) return nome;
+      }
+    }
+    return null;
+  } catch (e) {
+    console.error("[HOTMART API] exceção em sales/users:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+// "JENISVALDO OLIVEIRA ROCHA" → "Jenisvaldo Oliveira Rocha". A Hotmart devolve
+// o nome da conta em caixa alta; a base grava em caixa mista.
+function capitalizarNome(nome: string): string {
+  if (nome !== nome.toUpperCase()) return nome; // já vem em caixa mista: respeita
+  const minusculas = new Set(["de", "da", "do", "das", "dos", "e"]);
+  return nome
+    .toLowerCase()
+    .split(/\s+/)
+    .map((p, i) => (i > 0 && minusculas.has(p) ? p : p.charAt(0).toUpperCase() + p.slice(1)))
+    .join(" ");
+}
+
+// Nome do checkout se ele for um nome; senão, o da conta Hotmart. Se nem a API
+// souber, devolve o que veio (o telefone é o único dado real que sobrou) — e o
+// banco marca o card com `revisar` para o operador confirmar.
+async function resolveNomeComprador(nomeCheckout: string, transaction: string): Promise<string> {
+  if (!nomeSuspeito(nomeCheckout)) return nomeCheckout;
+
+  const nomeApi = await nomeDoCompradorNaHotmart(transaction);
+  if (nomeApi) {
+    console.log(`[NOME] checkout sujo ("${nomeCheckout}") → conta Hotmart: "${nomeApi}"`);
+    return capitalizarNome(nomeApi);
+  }
+
+  console.warn(`[NOME] checkout sujo ("${nomeCheckout}") e API não resolveu — card sobe para revisão`);
+  return nomeCheckout;
+}
+
 serve(async (req) => {
   if (req.method === "GET") return new Response("OK", { status: 200 });
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
@@ -439,6 +559,13 @@ serve(async (req) => {
   // Marca a Isabela apenas em compras de HT vindas de Porto Alegre (cidade ou DDD 51).
   const markPortoAlegre = channel === "HT" && isPortoAlegre(cidade, telefone);
 
+  // Nome do comprador: o do checkout quando presta, o da conta Hotmart quando não.
+  // Um só valor para o Slack e para o banco — os dois rotulavam o card com o telefone.
+  const nome = await resolveNomeComprador(
+    String(buyer.name ?? ""),
+    String(purchase.transaction),
+  ) || "Sem nome";
+
   // Logging diagnóstico (temporário) — sai para TODOS os canais enquanto auditamos
   // a precisão dos webhooks de evento. Remover depois que confirmarmos que tudo
   // chega correto em cada canal.
@@ -454,11 +581,12 @@ serve(async (req) => {
     phone_local_code: buyer.phone_local_code ?? null,
     phone_number: buyer.phone_number ?? null,
   }, "-> normalizado:", telefone);
+  console.log(`[DIAG ${channel}] nome do checkout:`, buyer.name ?? null, "-> gravado:", nome);
   console.log(`[DIAG ${channel}] sck bruto:`, rawSck, "-> rotulado:", origem);
   console.log(`[DIAG ${channel}] productId/name:`, productId, "/", productName, "| isRenovacao:", isRenovacao);
 
   await notifySlack(channel, {
-    nome: String(buyer.name ?? "Sem nome"),
+    nome,
     email: String(buyer.email ?? ""),
     telefone,
     produto: produtoLabel,
@@ -478,7 +606,7 @@ serve(async (req) => {
   const offer = purchase.offer as Record<string, unknown> | undefined;
   const payment = purchase.payment as Record<string, unknown> | undefined;
   await persistPurchase({
-    nome: String(buyer.name ?? "Sem nome"),
+    nome,
     email: String(buyer.email),
     telefone,
     cidade,
