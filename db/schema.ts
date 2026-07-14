@@ -40,8 +40,12 @@ export const contatos = cs.table("contatos", {
 
 export const interacoes = cs.table("interacoes", {
   id: uuid("id").primaryKey().defaultRandom(),
-  contatoId: uuid("contato_id").notNull(),
+  contatoId: uuid("contato_id"),
+  contatoHmId: uuid("contato_hm_id"),
   tipo: text("tipo").notNull(),
+  // Por onde o toque aconteceu (0026). É o que alimenta o ritmo por canal na
+  // Visão Executiva e na Jornada — gravar sem isto joga o toque no balde "outro".
+  canal: text("canal"),
   descricao: text("descricao"),
   disparoId: uuid("disparo_id"),
   estagioAnteriorId: smallint("estagio_anterior_id"),
@@ -50,9 +54,14 @@ export const interacoes = cs.table("interacoes", {
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Atendimentos do operador (ligação, WhatsApp, presencial). O nome da tabela é
+// histórico — nasceu só para telefone (0014) e ganhou o resto depois (0081).
+// As colunas do PABX abaixo são do Atende Simples, que saiu: ninguém escreve
+// mais nelas, mas o histórico já coletado continua lá e conta nos painéis.
 export const ligacoes = cs.table("ligacoes", {
   id: uuid("id").primaryKey().defaultRandom(),
-  compradorId: uuid("comprador_id").notNull(),
+  compradorId: uuid("comprador_id"), // 0024 removeu o NOT NULL
+  canal: text("canal").notNull(),    // 0081: ligacao | whatsapp | presencial | outro
   operador: text("operador"),
   telefone: text("telefone").notNull(),
   resultado: text("resultado"),
@@ -63,6 +72,15 @@ export const ligacoes = cs.table("ligacoes", {
   provider: text("provider").notNull(),
   providerCallId: text("provider_call_id"),
   status: text("status").notNull(),
+  // ----- histórico do discador (Atende Simples, 0024/0025) -----
+  direction: text("direction"),
+  attendantEmail: text("attendant_email"),
+  fromNumber: text("from_number"),
+  dnis: text("dnis"),
+  billedDuration: integer("billed_duration"),
+  statusPabx: text("status_pabx"),
+  evento: text("evento"),
+  iniciadaEm: timestamp("iniciada_em", { withTimezone: true }),
   criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
 });

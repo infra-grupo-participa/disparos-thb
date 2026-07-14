@@ -119,7 +119,10 @@ export async function getMessageStatus(messageId: string, cfg?: CanalCfg): Promi
   errorCode?: number;
 }> {
   try {
-    const res = await fetch(`${resolveBase(cfg)}/meta/messages/${encodeURIComponent(messageId)}`, { headers: headers(cfg) });
+    const res = await fetch(`${resolveBase(cfg)}/meta/messages/${encodeURIComponent(messageId)}`, {
+      headers: headers(cfg),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
     if (!res.ok) return { ok: false };
     const json = (await res.json()) as { data?: Record<string, unknown> };
     const d = json?.data ?? {};

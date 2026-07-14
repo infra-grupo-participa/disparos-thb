@@ -74,6 +74,22 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const c = await carregarContato(params.id);
   if (!c) return NextResponse.json({ ok: false, reason: "contato não encontrado" }, { status: 404 });
 
+  // Quem pediu para parar, parou — inclusive na conversa 1:1. Insistir com quem
+  // deu opt-out é exatamente o que gera denúncia e queima o número. O opt-out
+  // pode ter vindo de um falso positivo do classificador (o lead escreveu algo
+  // curto que pareceu "pare"); nesse caso o operador desfaz na ficha do contato,
+  // conscientemente, e volta a conversar.
+  const bloqueado = await queryOne<{ opt_out: boolean }>(
+    `select opt_out from cs.contatos where comprador_id = $1`,
+    [c.comprador_id],
+  );
+  if (bloqueado?.opt_out) {
+    return NextResponse.json(
+      { ok: false, reason: "contato_opt_out", motivo: "Este contato pediu para não receber mensagens. Para retomar a conversa, desfaça o opt-out na ficha dele." },
+      { status: 409 },
+    );
+  }
+
   const tel = normalizePhone(c.telefone);
   if (!tel) return NextResponse.json({ ok: false, reason: "contato sem telefone" }, { status: 400 });
 

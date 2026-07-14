@@ -192,7 +192,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex gap-1.5">
-            {([["wa", "WhatsApp"], ["email", "E-mail"], ["ligacoes", "Ligações"]] as const).map(([k, label]) => (
+            {([["wa", "WhatsApp"], ["email", "E-mail"], ["ligacoes", "Atendimentos"]] as const).map(([k, label]) => (
               <button
                 key={k}
                 onClick={() => setCanalSel(k)}
@@ -240,7 +240,7 @@ export default function DashboardPage() {
 
           {canalSel === "ligacoes" && (
             <div>
-              <SectionTitle>Produtividade do comercial · ligações (Atende Simples)</SectionTitle>
+              <SectionTitle>Produtividade do comercial · atendimentos registrados pelo time</SectionTitle>
               <MetricasLigacoes desde={desde} ate={ate} />
             </div>
           )}

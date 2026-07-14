@@ -9,7 +9,11 @@ import { usePortal } from "@/app/_components/use-portal";
 type Selecionado = { comprador_id: string; nome: string; telefone?: string; edicao?: string | null };
 type StatusTag = "pronta" | "pausada" | "sem_automacao" | "desconhecido";
 type Veredito = { status: StatusTag; automacao: string | null; multientry: boolean; pronto: boolean; rotulo: string; detalhe: string };
-type TemplateEmail = { id: string; nome: string; ac_tag_id: string | null; ativo: boolean; veredito?: Veredito };
+type Modo = "campanha" | "tag";
+type TemplateEmail = {
+  id: string; nome: string; ac_tag_id: string | null; ativo: boolean;
+  modo: Modo; assunto: string | null; veredito?: Veredito;
+};
 type Progresso = {
   disparo: { status: string; total_contatos: number; total_enviados: number; total_erros: number };
   resumo: { total: number; enviados: number; erros: number };
@@ -31,6 +35,7 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
   const [disparoId, setDisparoId] = useState<string | null>(null);
   const [progresso, setProgresso] = useState<Progresso | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -42,16 +47,17 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
   }, [evento]);
 
   const template = templates.find((t) => t.id === templateId);
-  // Bloqueio "às cegas": com veredito conhecido e não-pronto, trava o disparo
-  // (o servidor também bloqueia — isto é só o feedback imediato).
+  // Bloqueio "às cegas": só existe no modo legado (tag), onde o e-mail depende de
+  // uma automação montada no AC. A campanha direta não depende de nada lá dentro
+  // — o corpo é nosso — então nunca bloqueia por veredito.
   const bloqueado = !!template?.veredito && !template.veredito.pronto;
-  // Quantos templates realmente disparam (automação ativa) — mostrado no topo da
-  // lista para o operador saber de cara o que está pronto, sem clicar um a um.
-  const prontos = templates.filter((t) => t.veredito?.pronto).length;
+  // Quantos templates realmente disparam. Campanha direta está sempre pronta.
+  const prontos = templates.filter((t) => t.modo === "campanha" || t.veredito?.pronto).length;
 
   async function disparar() {
     if (!templateId || selecao.length === 0) return;
     setEnviando(true);
+    setErro(null);
     try {
       const r = await fetch(`/api/send-email?evento=${evento}`, {
         method: "POST",
@@ -59,11 +65,18 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
         body: JSON.stringify({ templateId, compradorIds: selecao.map((s) => s.comprador_id) }),
       });
       const d = await r.json();
-      if (!d.ok) { alert(d.reason || "Falha ao iniciar disparo de e-mail"); setEnviando(false); setShowConfirm(false); return; }
+      if (!d.ok) {
+        // O remetente não configurado é o tropeço mais provável na estreia da
+        // campanha direta: mostra o caminho, em vez de um alert genérico.
+        setErro(d.motivo || d.reason || "Falha ao iniciar disparo de e-mail");
+        setEnviando(false);
+        return;
+      }
       setShowConfirm(false);
       setDisparoId(d.disparoId);
       iniciarPolling(d.disparoId);
     } catch {
+      setErro("Falha de conexão ao iniciar o disparo.");
       setEnviando(false);
     }
   }
@@ -174,13 +187,17 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
 
           {templates.length === 0 ? (
             <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
-              Nenhum template de e-mail ativo. Cadastre em <Link href={`${base}/templates`} className="font-medium underline">Templates</Link> (canal e-mail, com a tag do AC).
+              Nenhum template de e-mail ativo. Cadastre em <Link href={`${base}/templates`} className="font-medium underline">Templates</Link> — escolha o canal E-mail e escreva o assunto e o corpo.
             </p>
           ) : (
             <div className="mt-3 space-y-2" role="radiogroup" aria-label="Template de e-mail">
               {templates.map((t) => {
-                const st = t.veredito?.status ?? "desconhecido";
+                // A campanha direta é sempre "pronta": o corpo do e-mail está
+                // aqui e não depende de automação nenhuma no AC.
+                const campanha = t.modo === "campanha";
+                const st: StatusTag = campanha ? "pronta" : (t.veredito?.status ?? "desconhecido");
                 const e = ESTILO_LINHA[st];
+                const pronto = campanha || !!t.veredito?.pronto;
                 const sel = templateId === t.id;
                 return (
                   <button
@@ -194,7 +211,7 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
                       sel
                         ? "border-brand bg-brand-50/60 ring-1 ring-brand/40 dark:border-brand-400/50 dark:bg-brand-400/10"
                         : "border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700",
-                      !t.veredito?.pronto && "opacity-75",
+                      !pronto && "opacity-75",
                     )}
                   >
                     <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white", e.dot)} aria-hidden="true">
@@ -203,7 +220,9 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{t.nome}</span>
                       <span className={cn("block truncate text-[11px]", e.txt)}>
-                        {t.veredito?.rotulo ?? "Verificando…"}{t.veredito?.automacao ? ` · ${t.veredito.automacao}` : ""}
+                        {campanha
+                          ? `Assunto: ${t.assunto || "—"}`
+                          : `${t.veredito?.rotulo ?? "Verificando…"}${t.veredito?.automacao ? ` · ${t.veredito.automacao}` : ""}`}
                       </span>
                     </span>
                     {sel && <span className="h-2 w-2 shrink-0 rounded-full bg-brand dark:bg-brand-400" aria-hidden="true" />}
@@ -215,16 +234,19 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
 
           {/* Detalhe do veredito do selecionado (sobretudo quando bloqueado). */}
           {template?.veredito && <VereditoBanner v={template.veredito} />}
-          {template && !template.veredito && (
+          {template?.modo === "campanha" && (
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Ao disparar, o sistema aplica a tag do AC nos contatos; a automação ligada à tag envia o e-mail.
+              Ao disparar, o sistema cria a mensagem no ActiveCampaign e lança a campanha para os contatos
+              selecionados. Nenhuma automação é necessária.
             </p>
           )}
         </Card>
 
         <Card className="border-brand-200 dark:border-brand-400/30 bg-brand-50 dark:bg-brand-400/10 p-5 text-sm text-slate-700 dark:text-slate-200">
           <p>Você vai disparar o e-mail <strong>«{template?.nome ?? "—"}»</strong> para <strong>{selecao.length}</strong> contato(s).</p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Contatos sem e-mail ou em opt-out são ignorados automaticamente no servidor.</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Contatos sem e-mail, em opt-out ou com endereço morto (hard bounce) são ignorados automaticamente no servidor.
+          </p>
         </Card>
 
         <Card className="p-5">
@@ -244,9 +266,22 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" onClick={() => !enviando && setShowConfirm(false)}>
           <div className="w-full max-w-md animate-fade-in rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-pop" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Confirmar disparo de e-mail</h2>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-              Esta ação aplica a tag do template <strong>«{template.nome}»</strong> em <strong>{selecao.length}</strong> contato(s), acionando o envio pela automação do AC. Não é possível desfazer após iniciar.
-            </p>
+            {template.modo === "campanha" ? (
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                Esta ação lança a campanha <strong>«{template.nome}»</strong> no ActiveCampaign para{" "}
+                <strong>{selecao.length}</strong> contato(s), com o assunto <strong>«{template.assunto}»</strong>.
+                Depois de lançada, não é possível desfazer.
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                Esta ação aplica a tag do template <strong>«{template.nome}»</strong> em <strong>{selecao.length}</strong> contato(s), acionando o envio pela automação do AC. Não é possível desfazer após iniciar.
+              </p>
+            )}
+            {erro && (
+              <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300">
+                {erro}
+              </p>
+            )}
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <Button variant="secondary" onClick={() => setShowConfirm(false)} disabled={enviando}>Cancelar</Button>
               <Button variant="danger" onClick={disparar} disabled={enviando}>

@@ -7,6 +7,10 @@ import { usePortal } from "@/app/_components/use-portal";
 import { VereditoBanner } from "@/app/_components/disparo-email";
 
 type Canal = "whatsapp" | "email";
+// Como o e-mail sai. 'campanha': o corpo é escrito aqui e o disparo lança a
+// campanha no AC — sem automação. 'tag': o legado, que marca o contato e depende
+// de uma automação montada no AC para o e-mail realmente sair.
+type Modo = "campanha" | "tag";
 type Template = {
   id: string;
   nome: string;
@@ -16,6 +20,9 @@ type Template = {
   preview: string | null;
   ativo: boolean;
   canal: Canal;
+  modo: Modo;
+  assunto: string | null;
+  corpo_html: string | null;
   ac_tag_id: string | null;
   ac_tag_nome?: string | null;
   veredito?: Veredito;
@@ -24,7 +31,7 @@ type StatusTag = "pronta" | "pausada" | "sem_automacao" | "desconhecido";
 type Veredito = { status: StatusTag; automacao: string | null; multientry: boolean; pronto: boolean; rotulo: string; detalhe: string };
 type Tag = { id: string; nome: string; veredito?: Veredito };
 
-const vazio = { nome: "", unnichat_id: "", categoria: "", variaveis: 0, preview: "", ac_tag_id: "" };
+const vazio = { nome: "", unnichat_id: "", categoria: "", variaveis: 0, preview: "", ac_tag_id: "", assunto: "", corpo_html: "" };
 
 // Agrupa as tags do dropdown pelo veredito da automação, para o operador ver
 // quais DISPARAM antes de selecionar. As "prontas" vêm primeiro; cada option
@@ -57,10 +64,24 @@ function montarPreview(texto: string): string {
   );
 }
 
+// O corpo do e-mail é HTML escrito pelo próprio operador, e o preview o renderiza.
+// Tirar script/iframe e handlers `on*` antes de injetar é higiene básica: o HTML
+// pode ter vindo colado de qualquer lugar, e nada aqui precisa executar código.
+function sanitizar(html: string): string {
+  return html
+    .replace(/<\s*(script|iframe|object|embed|style)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/<\s*(script|iframe|object|embed|style)\b[^>]*\/?>/gi, "")
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
 export default function TemplatesPage() {
   const { evento } = usePortal();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [canal, setCanal] = useState<Canal>("whatsapp");
+  // Escrever o e-mail aqui é o caminho padrão. A automação por tag continua
+  // disponível para quem já tem réguas montadas no AC.
+  const [modo, setModo] = useState<Modo>("campanha");
   const [form, setForm] = useState({ ...vazio });
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -78,9 +99,10 @@ export default function TemplatesPage() {
   }
   useEffect(() => { carregar(); }, [evento]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Carrega as tags do AC só quando o operador entra no modo E-mail (sob demanda).
+  // Carrega as tags do AC só quando forem necessárias — ou seja, no modo legado.
+  // Escrever o e-mail aqui não depende de tag nenhuma.
   useEffect(() => {
-    if (canal !== "email" || tags !== null) return;
+    if (canal !== "email" || modo !== "tag" || tags !== null) return;
     fetch(`/api/email/tags`)
       .then((r) => r.json())
       .then((d) => {
@@ -88,7 +110,7 @@ export default function TemplatesPage() {
         else { setTags([]); setTagsErro(d.reason || "Não foi possível listar as tags do AC."); setTagManual(true); }
       })
       .catch(() => { setTags([]); setTagsErro("Falha ao conectar no ActiveCampaign."); setTagManual(true); });
-  }, [canal, tags]);
+  }, [canal, modo, tags]);
 
   function trocarCanal(c: Canal) {
     setCanal(c);
@@ -96,9 +118,20 @@ export default function TemplatesPage() {
     setForm({ ...vazio });
   }
 
+  function trocarModo(m: Modo) {
+    setModo(m);
+    setErro(null);
+    setForm({ ...vazio });
+  }
+
   function validar(): string | null {
     if (!form.nome.trim()) return "Dê um nome ao template para reconhecê-lo depois.";
     if (canal === "email") {
+      if (modo === "campanha") {
+        if (!form.assunto.trim()) return "Escreva o assunto do e-mail — é a primeira coisa que a pessoa lê.";
+        if (!form.corpo_html.trim()) return "Escreva o corpo do e-mail.";
+        return null;
+      }
       if (!form.ac_tag_id.trim()) return "Escolha (ou informe) a tag do ActiveCampaign que dispara o e-mail.";
       return null;
     }
@@ -119,7 +152,15 @@ export default function TemplatesPage() {
     setSalvando(true);
     try {
       const corpo = canal === "email"
-        ? { nome: form.nome, categoria: form.categoria, canal: "email", ac_tag_id: form.ac_tag_id, ac_tag_nome: tagNome ?? undefined }
+        ? modo === "campanha"
+          ? {
+              nome: form.nome, categoria: form.categoria, canal: "email", modo: "campanha",
+              assunto: form.assunto, corpo_html: form.corpo_html,
+            }
+          : {
+              nome: form.nome, categoria: form.categoria, canal: "email", modo: "tag",
+              ac_tag_id: form.ac_tag_id, ac_tag_nome: tagNome ?? undefined,
+            }
         : { ...form, canal: "whatsapp", variaveis: Number(form.variaveis) };
       const r = await fetch(`/api/templates?evento=${evento}`, {
         method: "POST",
@@ -158,6 +199,17 @@ export default function TemplatesPage() {
   const vars = Number(form.variaveis) || 0;
   const faltaVar = vars > 0 && form.preview.length > 0 && !/\{\{\s*1\s*\}\}/.test(form.preview);
   const previewRender = useMemo(() => montarPreview(form.preview), [form.preview]);
+
+  // Preview do e-mail: troca a tag de personalização do AC pelo nome de exemplo,
+  // do mesmo jeito que o AC fará no envio.
+  const previewEmailAssunto = useMemo(
+    () => form.assunto.replace(/%FIRSTNAME%/gi, NOME_EXEMPLO),
+    [form.assunto],
+  );
+  const previewEmailCorpo = useMemo(
+    () => sanitizar(form.corpo_html.replace(/%FIRSTNAME%/gi, NOME_EXEMPLO)),
+    [form.corpo_html],
+  );
   const tagSel = useMemo(
     () => tags?.find((t) => t.id === form.ac_tag_id) ?? null,
     [tags, form.ac_tag_id],
@@ -195,10 +247,20 @@ export default function TemplatesPage() {
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-400 dark:text-slate-500">
                       {t.canal === "email" ? (
-                        <>
-                          <span className="font-mono">tag AC {t.ac_tag_nome ?? t.ac_tag_id ?? "—"}</span>
-                          {t.veredito && <><span>·</span><VereditoChip v={t.veredito} /></>}
-                        </>
+                        t.modo === "campanha" ? (
+                          <>
+                            <span className="rounded bg-sky-50 px-1.5 py-0.5 font-medium text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+                              campanha direta
+                            </span>
+                            <span>·</span>
+                            <span className="truncate">{t.assunto || "sem assunto"}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-mono">tag AC {t.ac_tag_nome ?? t.ac_tag_id ?? "—"}</span>
+                            {t.veredito && <><span>·</span><VereditoChip v={t.veredito} /></>}
+                          </>
+                        )
                       ) : (
                         <>
                           <span className="font-mono">ID {t.unnichat_id}</span>
@@ -254,6 +316,40 @@ export default function TemplatesPage() {
             ))}
           </div>
 
+          {/* Como o e-mail sai. Escrever aqui é o caminho normal; a automação por
+              tag fica para quem já tem régua montada no AC. */}
+          {canal === "email" && (
+            <div className="mt-3 space-y-1.5">
+              {([
+                ["campanha", "Escrever o e-mail aqui", "O sistema cria a mensagem e lança a campanha no AC."],
+                ["tag", "Usar automação do AC (por tag)", "O e-mail já está montado numa automação lá dentro."],
+              ] as const).map(([k, titulo, desc]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => trocarModo(k)}
+                  className={cn(
+                    "flex w-full items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition",
+                    modo === k
+                      ? "border-brand bg-brand/5 dark:border-brand-300 dark:bg-brand/10"
+                      : "border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700",
+                  )}
+                >
+                  <span className={cn(
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                    modo === k ? "border-brand bg-brand dark:border-brand-300 dark:bg-brand-300" : "border-slate-300 dark:border-slate-600",
+                  )}>
+                    {modo === k && <span className="h-1.5 w-1.5 rounded-full bg-white dark:bg-slate-900" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">{titulo}</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">{desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <form onSubmit={salvar} className="mt-4 space-y-4">
             <Campo
               label="Nome do template"
@@ -262,13 +358,68 @@ export default function TemplatesPage() {
               onChange={(v) => setForm({ ...form, nome: v })}
             />
 
-            {canal === "email" ? (
+            {canal === "email" && modo === "campanha" ? (
               <>
-                {/* Explicação didática do que é um template de e-mail */}
                 <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
-                  Ao <strong>disparar</strong> este template, o sistema marca o contato com a <strong>tag</strong> escolhida
-                  no ActiveCampaign. A <strong>automação</strong> ligada a essa tag é quem envia o e-mail. Você não precisa
-                  montar o e-mail aqui — só apontar para a tag certa.
+                  Escreva o e-mail aqui. Ao disparar, o sistema cria a mensagem no ActiveCampaign e
+                  lança a campanha para os contatos que você selecionar — <strong>sem depender de automação</strong>.
+                  Use <code className="rounded bg-sky-100 px-1 dark:bg-sky-500/20">%FIRSTNAME%</code> onde entra o primeiro nome.
+                </div>
+
+                <Campo
+                  label="Assunto do e-mail"
+                  dica="É a primeira coisa que a pessoa lê na caixa de entrada — o que decide se ela abre."
+                  value={form.assunto}
+                  onChange={(v) => setForm({ ...form, assunto: v })}
+                />
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Corpo do e-mail</label>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                    Aceita HTML. Quebras de linha viram parágrafos automaticamente.
+                  </p>
+                  <textarea
+                    value={form.corpo_html}
+                    onChange={(e) => setForm({ ...form, corpo_html: e.target.value })}
+                    rows={10}
+                    placeholder={"Olá %FIRSTNAME%,\n\nPassando para lembrar que..."}
+                    className={cn(fieldClass, "mt-1.5 resize-y")}
+                  />
+                </div>
+
+                <div>
+                  <span className="block text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Como o contato verá</span>
+                  <div className="mt-1.5 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                    {form.assunto.trim() || form.corpo_html.trim() ? (
+                      <>
+                        <p className="border-b border-slate-100 pb-2 text-sm font-semibold text-slate-900 dark:border-slate-800 dark:text-slate-100">
+                          {form.assunto.trim() ? previewEmailAssunto : <span className="text-slate-400 dark:text-slate-600">(sem assunto)</span>}
+                        </p>
+                        <div
+                          className="prose-sm mt-2 max-w-none whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300"
+                          dangerouslySetInnerHTML={{ __html: previewEmailCorpo }}
+                        />
+                      </>
+                    ) : (
+                      <p className="py-4 text-center text-xs text-slate-500 dark:text-slate-600">O e-mail aparecerá aqui conforme você escreve.</p>
+                    )}
+                  </div>
+                </div>
+
+                <Campo
+                  label="Categoria (opcional)"
+                  dica="Para organizar. Ex.: “Aquecimento”, “Carrinho abandonado”."
+                  value={form.categoria}
+                  onChange={(v) => setForm({ ...form, categoria: v })}
+                />
+              </>
+            ) : canal === "email" ? (
+              <>
+                {/* Modo legado: o e-mail vive numa automação do AC. */}
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                  Neste modo o sistema apenas <strong>marca o contato com a tag</strong> escolhida. Quem envia o e-mail é a
+                  <strong> automação</strong> ligada a essa tag no ActiveCampaign — ela precisa existir e estar ativa,
+                  senão nada sai.
                 </div>
 
                 <div>

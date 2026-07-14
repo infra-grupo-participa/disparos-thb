@@ -5,15 +5,18 @@ import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 
-// GET /api/ligacoes/metricas?evento=HT&desde=&ate= — métricas das ligações
-// (Atende Simples) dos COMPRADORES do evento. O escopo é calculado CRUZANDO na
-// hora cada chamada com a base de compradores por telefone (últimos 8 dígitos),
-// e não pelo comprador_id congelado na gravação — assim reflete sempre a base
-// atual e independe de re-casar. "Sem chance de erro": uma chamada que bate com
-// 2+ compradores diferentes é AMBÍGUA e fica de fora (nunca atribui errado).
-// `comprador_id` da própria ligação segue servindo à timeline; aqui não é usado.
+// GET /api/ligacoes/metricas?evento=HT&desde=&ate= — produtividade dos
+// ATENDIMENTOS (ligação, WhatsApp, presencial) com compradores do evento.
+//
+// Antes, isto refazia o cruzamento telefone→comprador a cada consulta, porque o
+// discador do Atende Simples gravava a chamada sem saber com quem falava. Agora
+// o vínculo é direto: o operador escolhe o contato ao registrar, e o histórico do
+// discador foi casado de uma vez (migration 0081). O join é simples.
+//
+// Também sumiu o filtro `provider = 'atendesimples'`, que era o motivo de o
+// registro manual do operador NÃO aparecer em painel nenhum.
 type Linha = {
-  resultado: string | null; direction: string | null; duracao_seg: number | null;
+  resultado: string | null; canal: string; direction: string | null; duracao_seg: number | null;
   atendente: string | null; dia: string; hora: number; comprador_id: string;
 };
 
@@ -26,70 +29,40 @@ export async function GET(req: Request) {
   const ate = url.searchParams.get("ate");
   const params = [desde, ate, evento];
 
-  // CTEs do cruzamento (compartilhadas pela query de linhas e a de diagnóstico):
-  //  chamadas — do Atende Simples no período, com os últimos 8 dígitos de cada
-  //             número (from = cliente; dnis = plataforma, mas testamos os dois);
-  //  parts    — compradores do evento com os últimos 8 dígitos do telefone;
-  //  casados  — por chamada: quantos compradores DISTINTOS batem (n) e qual (=1).
-  const ctes = `
-    with chamadas as (
-      select l.id, l.resultado, l.direction, l.duracao_seg,
-             coalesce(nullif(l.operador, ''), nullif(l.attendant_email, '')) as atendente,
-             coalesce(l.iniciada_em, l.criado_em) as quando,
-             right(regexp_replace(coalesce(l.from_number, ''), '\\D', '', 'g'), 8) as f8,
-             right(regexp_replace(coalesce(l.dnis, ''),        '\\D', '', 'g'), 8) as d8
-        from cs.ligacoes l
-       where l.provider = 'atendesimples'
-         and ($1::timestamptz is null or l.criado_em >= $1)
-         and ($2::timestamptz is null or l.criado_em <= $2)
-    ),
-    parts as (
-      select comprador_id, right(regexp_replace(telefone, '\\D', '', 'g'), 8) as t8
-        from cs.contatos_evento
-       where evento = $3 and telefone is not null
-         and length(regexp_replace(telefone, '\\D', '', 'g')) >= 8
-    ),
-    casados as (
-      select c.id,
-             count(distinct p.comprador_id) as n,
-             min(p.comprador_id::text) as comprador_id
-        from chamadas c
-        join lateral (values (c.f8), (c.d8)) s(t8) on length(s.t8) = 8
-        join parts p on p.t8 = s.t8
-       group by c.id
-    )`;
-
-  // Linhas das chamadas que casaram com EXATAMENTE 1 comprador (não-ambíguas).
   const linhas = await query<Linha>(
-    `${ctes}
-     select c.resultado, c.direction, c.duracao_seg, c.atendente,
-            to_char(c.quando at time zone 'America/Sao_Paulo', 'YYYY-MM-DD') as dia,
-            extract(hour from c.quando at time zone 'America/Sao_Paulo')::int as hora,
-            k.comprador_id
-       from chamadas c
-       join casados k on k.id = c.id and k.n = 1`,
+    `select l.resultado, l.canal, l.direction, l.duracao_seg,
+            coalesce(nullif(l.operador, ''), nullif(l.attendant_email, '')) as atendente,
+            to_char(coalesce(l.iniciada_em, l.criado_em) at time zone 'America/Sao_Paulo', 'YYYY-MM-DD') as dia,
+            extract(hour from coalesce(l.iniciada_em, l.criado_em) at time zone 'America/Sao_Paulo')::int as hora,
+            l.comprador_id::text as comprador_id
+       from cs.ligacoes l
+       join cs.contatos_evento v on v.comprador_id = l.comprador_id and v.evento = $3
+      where l.comprador_id is not null
+        and ($1::timestamptz is null or l.criado_em >= $1)
+        and ($2::timestamptz is null or l.criado_em <= $2)`,
     params,
   );
 
-  // Diagnóstico: do total do discador no período, quanto casou / ficou ambíguo /
-  // não bateu com nenhum comprador (não-participante).
-  const diag = (await queryOne<{ geral: number; casadas: number; ambiguas: number; sem_participante: number }>(
-    `${ctes}
-     select
-       (select count(*) from chamadas)::int as geral,
-       count(*) filter (where k.n = 1)::int as casadas,
-       count(*) filter (where k.n > 1)::int as ambiguas,
-       (select count(*) from chamadas)::int - count(*)::int as sem_participante
-       from casados k`,
-    params,
-  )) ?? { geral: 0, casadas: 0, ambiguas: 0, sem_participante: 0 };
+  // Registros sem contato vinculado (sobretudo chamadas antigas do discador para
+  // números que não são de compradores). Não entram nas métricas; a tela só diz
+  // quantos são, para o número não parecer "sumido".
+  const solto = (await queryOne<{ n: number }>(
+    `select count(*)::int as n from cs.ligacoes
+      where comprador_id is null
+        and ($1::timestamptz is null or criado_em >= $1)
+        and ($2::timestamptz is null or criado_em <= $2)`,
+    [desde, ate],
+  )) ?? { n: 0 };
 
   // --- Agregações em JS (≤ ~milhar de linhas) -----------------------------
+  // 'atendeu' significa a mesma coisa em todo canal: houve conversa de verdade.
   const atendeu = (r: Linha) => r.resultado === "atendeu";
   const durAtend = linhas.filter((r) => atendeu(r) && r.duracao_seg);
   const totais = {
     total: linhas.length,
-    feitas: linhas.filter((r) => r.direction === "outbound").length,
+    // `direction` só existe no histórico do discador; o registro do operador é
+    // sempre uma ação dele, logo conta como "feita".
+    feitas: linhas.filter((r) => r.direction !== "inbound").length,
     recebidas: linhas.filter((r) => r.direction === "inbound").length,
     atendidas: linhas.filter(atendeu).length,
     abandonadas: linhas.filter((r) => r.resultado === "abandonou").length,
@@ -102,10 +75,16 @@ export async function GET(req: Request) {
     compradores_atendidos: new Set(linhas.filter(atendeu).map((r) => r.comprador_id)).size,
   };
 
+  // Quanto de cada canal — o que revela se o time só liga ou também usa WhatsApp.
+  const canalMap = new Map<string, { total: number; atendidas: number }>();
   const diaMap = new Map<string, { total: number; atendidas: number; atend: Map<string, number> }>();
   const horaMap = new Map<number, { total: number; atendidas: number }>();
   const atMap = new Map<string, { total: number; atendidas: number; feitas: number; dur_total_seg: number }>();
   for (const r of linhas) {
+    const c = canalMap.get(r.canal) ?? { total: 0, atendidas: 0 };
+    c.total++; if (atendeu(r)) c.atendidas++;
+    canalMap.set(r.canal, c);
+
     const d = diaMap.get(r.dia) ?? { total: 0, atendidas: 0, atend: new Map() };
     d.total++; if (atendeu(r)) d.atendidas++;
     const op = r.atendente || "—";
@@ -117,7 +96,7 @@ export async function GET(req: Request) {
     horaMap.set(r.hora, h);
 
     const a = atMap.get(op) ?? { total: 0, atendidas: 0, feitas: 0, dur_total_seg: 0 };
-    a.total++; if (atendeu(r)) a.atendidas++; if (r.direction === "outbound") a.feitas++;
+    a.total++; if (atendeu(r)) a.atendidas++; if (r.direction !== "inbound") a.feitas++;
     a.dur_total_seg += r.duracao_seg || 0;
     atMap.set(op, a);
   }
@@ -128,9 +107,10 @@ export async function GET(req: Request) {
   }));
   const porHora = [...horaMap.entries()].sort((a, b) => a[0] - b[0]).map(([hora, h]) => ({ hora, ...h }));
   const porAtendente = [...atMap.entries()].map(([atendente, a]) => ({ atendente, ...a })).sort((a, b) => b.total - a.total).slice(0, 50);
+  const porCanal = [...canalMap.entries()].map(([canal, c]) => ({ canal, ...c })).sort((a, b) => b.total - a.total);
 
   return NextResponse.json({
-    ok: true, totais, serie, porHora, porAtendente,
-    fora: { geral: diag.geral, sem_participante: diag.sem_participante, ambiguas: diag.ambiguas },
+    ok: true, totais, serie, porHora, porAtendente, porCanal,
+    sem_vinculo: solto.n,
   });
 }
