@@ -62,6 +62,12 @@ const COLUNAS: Col[] = [
   // crédito pró-rata, e o lead novo vinha em branco na planilha do financeiro.
   { header: "Saldo a pagar", width: 14, get: (l) => n(l.saldo_a_perseguir) ?? n(l.saldo_a_pagar) ?? "—", fmt: "dinheiro" },
   { header: "Situação", width: 20, get: (l) => txt(l.situacao_financeira) },
+  // "3/12": pagas (fato, do razão) sobre contratadas (o que a pessoa assinou). A
+  // diferença entre as duas é a inadimplência — por isso vão juntas, nunca só o total.
+  { header: "Parcelas pagas", width: 13, get: (l) => (l.parcelas_pagas || l.parcelas_contratadas)
+      ? `${l.parcelas_pagas ?? 0}/${l.parcelas_contratadas ?? "?"}` : "—" },
+  { header: "Valor da parcela", width: 14, get: (l) => n(l.valor_parcela) ?? "—", fmt: "dinheiro" },
+  { header: "Último pagamento", width: 18, get: (l) => d(l.ultimo_pagamento_em) ?? "—", fmt: "data" },
   { header: "Crédito pró-rata", width: 14, get: (l) => n(l.credito) ?? "—", fmt: "dinheiro" },
   { header: "Valor total", width: 13, get: (l) => n(l.valor_total) ?? "—", fmt: "dinheiro" },
   { header: "Valor pago", width: 13, get: (l) => n(l.valor_pago) ?? "—", fmt: "dinheiro" },

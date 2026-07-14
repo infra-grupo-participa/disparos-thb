@@ -86,6 +86,19 @@ function fmtDataHora(v: QuandoHm): string {
   const d = dt(v);
   return d ? d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
 }
+// "há 2h", "ontem", "há 5 dias" — quem olha a fila quer saber se é recente, não a
+// data exata (essa fica no title).
+function haQuanto(d: Date): string {
+  const min = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h}h`;
+  const dias = Math.floor(h / 24);
+  if (dias === 1) return "ontem";
+  if (dias < 30) return `há ${dias} dias`;
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
 function toLocalInput(v: QuandoHm): string {
   const d = dt(v);
   if (!d) return "";
@@ -244,21 +257,41 @@ type Col = {
   label: string;
   dir?: boolean; // alinha à direita (números/dinheiro)
   edit?: boolean; // o <td> engole o clique (não abre a ficha)
+  // Congela a coluna à esquerda no scroll horizontal. Com 40 colunas na visão
+  // "Tudo", perder o nome de vista transforma a linha num amontoado de números
+  // sem dono — e é aí que alguém cobra a pessoa errada.
+  fixa?: boolean;
   sortVal: (l: LinhaEsteira) => number | string | null;
   render: (l: LinhaEsteira) => ReactNode;
 };
+
+// ---------------------------------------------------------- pagamentos "não lidos"
+// A régua do "novo": um pagamento é novo até alguém ABRIR a ficha da pessoa — como
+// uma conversa não lida. Guardado por navegador (localStorage), porque é atenção do
+// operador, não estado do negócio: o banco não tem nada a ver com o que a Jusy já viu.
+const VISTOS_KEY = "hm:pagamentos-vistos";
+const JANELA_ESTREIA_MS = 72 * 60 * 60 * 1000; // 3 dias
+
+function lerVistos(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(VISTOS_KEY) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};   // localStorage corrompido não pode derrubar a tabela
+  }
+}
 
 const PRESETS: Record<VisaoId, string[]> = {
   comercial: ["nome", "telefone", "etapa", "esteira", "dias", "responsavel", "entrada", "acordo", "meio", "previsao", "link", "saldo"],
   ativacao: ["nome", "etapa", "esteira", "dias", "responsavel", "checklist", "grupo_informes", "pendencia", "entrevista", "na_base", "socios"],
   agenda: ["nome", "responsavel", "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas", "no_shows"],
-  // A visão da Jusy/Isabela: a história financeira em linha — sinal → saldo →
-  // cancelamento (ordem decidida em 14/07).
-  financeiro: ["nome", "origem", "sinal_pago_em", "sinal_valor", "saldo", "pagamento_em", "forma_obs", "cancelado", "cancelamento_em"],
+  // A visão da Jusy/Isabela: a história financeira em linha — sinal → o que já
+  // entrou → parcelas → o que falta → cancelamento (ordem decidida em 14/07).
+  financeiro: ["nome", "origem", "sinal_pago_em", "recebido", "parcelas", "saldo", "ultimo_pagamento", "forma_obs", "cancelado", "cancelamento_em"],
   // A auditoria: as colunas do XLSX, na mesma ordem (+ a Turma atual, editável).
   tudo: ["nome", "telefone", "email", "etapa", "esteira", "dias", "responsavel", "entrada", "turma_origem", "turma",
     "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas",
-    "no_shows", "sinal_pago_em", "sinal_valor", "meio", "previsao", "acordo", "link", "saldo", "credito", "valor_total", "valor_pago", "pagamento_em",
+    "no_shows", "sinal_pago_em", "sinal_valor", "meio", "previsao", "acordo", "link", "saldo", "credito", "valor_total", "recebido", "parcelas", "ultimo_pagamento", "pagamento_em",
     "apto", "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa", "pendencia", "nao_contatar", "revisar",
     "socios", "cancelamento_em", "cancelamento_motivo", "na_base", "tags"],
 };
@@ -286,6 +319,47 @@ export default function HmTabelaPage() {
   const [salvando, setSalvando] = useState<string | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [selecionado, setSelecionado] = useState<string | null>(null);
+  // Pagamentos já vistos: comprador_id → data do último pagamento que o operador
+  // conferiu. Só é lido no cliente (localStorage não existe no servidor).
+  const [vistos, setVistos] = useState<Record<string, string>>({});
+  useEffect(() => { setVistos(lerVistos()); }, []);
+
+  // "Esta pessoa pagou e ninguém viu ainda." Null quando não há nada de novo.
+  //
+  // Olha o ABATIMENTO, não qualquer pagamento: o sinal de R$300 é a entrada de todo
+  // lead novo, e avisar sobre ele encheria o topo com 40 pessoas que só chegaram —
+  // um alerta que grita por bobagem é um alerta que ninguém lê. Aqui só sobe quem
+  // derrubou dívida: mensalidade, saldo à vista, compra cheia.
+  //
+  // Na PRIMEIRA vez que alguém abre a tabela não há histórico de leitura. Marcar
+  // tudo como novo seria ruído; fingir que nada aconteceu esconderia a parcela que
+  // caiu hoje de manhã. O meio-termo: sem registro, conta o que entrou em 3 dias.
+  const pagouAgora = useCallback((l: LinhaEsteira): { quando: Date; valor: string | null } | null => {
+    const d = dt(l.ultimo_abatimento_em);
+    if (!d) return null;
+    const visto = vistos[l.comprador_id];
+    const novo = visto
+      ? d.getTime() > new Date(visto).getTime()
+      : Date.now() - d.getTime() < JANELA_ESTREIA_MS;
+    return novo ? { quando: d, valor: l.ultimo_abatimento_valor } : null;
+  }, [vistos]);
+
+  // Abrir a ficha dá baixa no aviso — é o gesto que diz "eu vi".
+  const marcarVisto = useCallback((compradorId: string) => {
+    const l = linhas.find((x) => x.comprador_id === compradorId);
+    const quando = dt(l?.ultimo_abatimento_em ?? null);
+    if (!quando) return;
+    setVistos((antes) => {
+      const novo = { ...antes, [compradorId]: quando.toISOString() };
+      try { window.localStorage.setItem(VISTOS_KEY, JSON.stringify(novo)); } catch { /* quota cheia não derruba a tela */ }
+      return novo;
+    });
+  }, [linhas]);
+
+  const abrirFicha = useCallback((compradorId: string) => {
+    setSelecionado(compradorId);
+    marcarVisto(compradorId);
+  }, [marcarVisto]);
   const [dispararLote, setDispararLote] = useState(false);
   const [aplicandoLote, setAplicandoLote] = useState(false);
   const [resultadoLote, setResultadoLote] = useState<{ pedido: string; total: number; aplicados: number; falhas: FalhaLote[] } | null>(null);
@@ -520,15 +594,25 @@ export default function HmTabelaPage() {
   // recriar o registro por render é barato e mantém tudo num lugar só).
   const COLS: Record<string, Col> = {
     nome: {
-      id: "nome", label: "Nome",
+      id: "nome", label: "Nome", fixa: true,
       sortVal: (l) => l.nome.toLowerCase(),
-      render: (l) => (
-        <div className="flex min-w-0 max-w-[16rem] items-center gap-1.5">
-          <span className="truncate font-semibold text-slate-800 dark:text-slate-100">{l.nome}</span>
-          {l.nao_contatar && <span className="h-2 w-2 shrink-0 rounded-full bg-rose-500" title={`Não contatar${l.nao_contatar_motivo ? ` — ${l.nao_contatar_motivo}` : ""}`} />}
-          {l.revisar && <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" title={`Revisar${l.revisar_motivo ? ` — ${l.revisar_motivo}` : ""}`} />}
-        </div>
-      ),
+      render: (l) => {
+        const novo = pagouAgora(l);
+        return (
+          <div className="flex min-w-0 max-w-[16rem] items-center gap-1.5">
+            {/* O ponto verde é o "não lido": some quando alguém abre a ficha. */}
+            {novo && (
+              <span className="relative flex h-2 w-2 shrink-0" title={`Pagou ${brl(num(novo.valor) ?? 0)} ${haQuanto(novo.quando)} — clique para abrir e dar baixa no aviso`}>
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+            )}
+            <span className={cn("truncate", novo ? "font-bold text-slate-900 dark:text-white" : "font-semibold text-slate-800 dark:text-slate-100")}>{l.nome}</span>
+            {l.nao_contatar && <span className="h-2 w-2 shrink-0 rounded-full bg-rose-500" title={`Não contatar${l.nao_contatar_motivo ? ` — ${l.nao_contatar_motivo}` : ""}`} />}
+            {l.revisar && <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" title={`Revisar${l.revisar_motivo ? ` — ${l.revisar_motivo}` : ""}`} />}
+          </div>
+        );
+      },
     },
     telefone: { id: "telefone", label: "Telefone", sortVal: (l) => l.telefone, render: (l) => <span className="tabular-nums">{l.telefone ?? "—"}</span> },
     email: { id: "email", label: "E-mail", sortVal: (l) => l.email, render: (l) => <span className="block max-w-[14rem] truncate" title={l.email ?? undefined}>{l.email ?? "—"}</span> },
@@ -805,6 +889,71 @@ export default function HmTabelaPage() {
         );
       },
     },
+    // Quanto do pacote JÁ ENTROU. A barra existe porque "R$ 3.449,97" não diz nada
+    // sozinho: o que a operação quer saber é se está no começo ou quase lá.
+    recebido: {
+      id: "recebido", label: "Já pago", dir: true,
+      sortVal: (l) => num(l.valor_pago),
+      render: (l) => {
+        const pago = num(l.valor_pago) ?? 0;
+        const pct = num(l.pago_pct);
+        return (
+          <div className="flex min-w-[7.5rem] flex-col items-end gap-0.5">
+            <span className="whitespace-nowrap font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">{brl(pago)}</span>
+            {pct !== null && (
+              <span className="flex w-full items-center justify-end gap-1">
+                <span className="h-1 w-12 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                  <span
+                    className="block h-full rounded-full bg-emerald-500 dark:bg-emerald-400"
+                    style={{ width: `${Math.min(Math.max(pct, 0), 100)}%` }}
+                  />
+                </span>
+                <span className="w-9 text-right text-[10px] tabular-nums text-slate-400">{pct}%</span>
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    // "3 de 12". As pagas são fato (contagem no razão); as contratadas são o que a
+    // pessoa assinou. A diferença entre as duas é a inadimplência — por isso os dois
+    // números aparecem juntos, e não só o total.
+    parcelas: {
+      id: "parcelas", label: "Parcelas", dir: true,
+      sortVal: (l) => l.parcelas_pagas ?? null,
+      render: (l) => {
+        const pagas = l.parcelas_pagas ?? 0;
+        const total = l.parcelas_contratadas;
+        if (!pagas && !total) return <span className="text-slate-300 dark:text-slate-600">—</span>;
+        const parcela = num(l.valor_parcela);
+        return (
+          <span
+            className="whitespace-nowrap tabular-nums"
+            title={parcela ? `Mensalidade de ${brl(parcela)}${total ? ` · ${total}x contratadas` : ""}` : undefined}
+          >
+            <strong className="text-slate-800 dark:text-slate-100">{pagas}</strong>
+            <span className="text-slate-400">/{total ?? "?"}</span>
+            {parcela !== null && (
+              <span className="ml-1 text-[10px] text-slate-400">{brl(parcela)}</span>
+            )}
+          </span>
+        );
+      },
+    },
+    // Quando caiu o último real. É esta coluna que ordena a tela por padrão.
+    ultimo_pagamento: {
+      id: "ultimo_pagamento", label: "Último pagamento", dir: true,
+      sortVal: (l) => dt(l.ultimo_pagamento_em)?.getTime() ?? null,
+      render: (l) => {
+        const d = dt(l.ultimo_pagamento_em);
+        if (!d) return <span className="text-slate-300 dark:text-slate-600">—</span>;
+        return (
+          <span className="whitespace-nowrap tabular-nums text-slate-600 dark:text-slate-300" title={fmtDataHora(l.ultimo_pagamento_em)}>
+            {haQuanto(d)}
+          </span>
+        );
+      },
+    },
     credito: {
       id: "credito", label: "Crédito pró-rata", dir: true,
       sortVal: (l) => num(l.credito),
@@ -991,7 +1140,7 @@ export default function HmTabelaPage() {
   const lenteAtiva = lente ? LENTES.find((le) => le.id === lente) : null;
   const filtradas = lenteAtiva ? base.filter((l) => lenteAtiva.test(l, hoje0)) : base;
   const colSort = sort ? COLS_ORDEM.get(sort.id) : null;
-  const visiveis = colSort && sort
+  const ordenadas = colSort && sort
     ? [...filtradas].sort((a, b) => {
         const va = colSort.sortVal(a);
         const vb = colSort.sortVal(b);
@@ -1002,6 +1151,17 @@ export default function HmTabelaPage() {
         return String(va).localeCompare(String(vb), "pt-BR") * sort.dir;
       })
     : filtradas;
+
+  // Dinheiro que entrou e ninguém viu vai para o TOPO — o mais recente primeiro,
+  // como uma conversa nova. Só quando o operador não pediu uma ordem sua: quem
+  // clicou no cabeçalho quer aquela ordem, e o sistema não discute.
+  const naoVistos = ordenadas
+    .map((l) => ({ l, novo: pagouAgora(l) }))
+    .filter((x) => x.novo)
+    .sort((a, b) => b.novo!.quando.getTime() - a.novo!.quando.getTime())
+    .map((x) => x.l);
+  const idsNovos = new Set(naoVistos.map((l) => l.comprador_id));
+  const visiveis = sort ? ordenadas : [...naoVistos, ...ordenadas.filter((l) => !idsNovos.has(l.comprador_id))];
 
   // ----------------------------------------------------------------- rodapé
   // A leitura que o board nunca deu: o card sabe o saldo de UM; a tabela soma o
@@ -1137,6 +1297,41 @@ export default function HmTabelaPage() {
         ))}
       </div>
 
+      {/* Dinheiro que entrou e ninguém viu. Fica no topo até alguém abrir a ficha —
+          uma parcela que cai e passa despercebida é cobrança feita em cima de quem
+          já pagou. */}
+      {naoVistos.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+          <p className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            <strong>{naoVistos.length} pagamento(s) novo(s)</strong>
+            <span className="tabular-nums">
+              · {brl(naoVistos.reduce((acc, l) => acc + (num(l.ultimo_abatimento_valor) ?? 0), 0))} que entraram
+            </span>
+            <span className="hidden text-emerald-700/70 sm:inline dark:text-emerald-300/70">
+              — no topo da lista; abrir a ficha dá baixa no aviso
+            </span>
+          </p>
+          <button
+            onClick={() => {
+              const novo = { ...vistos };
+              for (const l of naoVistos) {
+                const q = dt(l.ultimo_abatimento_em);
+                if (q) novo[l.comprador_id] = q.toISOString();
+              }
+              setVistos(novo);
+              try { window.localStorage.setItem(VISTOS_KEY, JSON.stringify(novo)); } catch { /* quota */ }
+            }}
+            className="rounded-md border border-emerald-300 px-2 py-1 text-xs font-medium transition hover:bg-emerald-100 dark:border-emerald-500/40 dark:hover:bg-emerald-500/20"
+          >
+            Marcar todos como vistos
+          </button>
+        </div>
+      )}
+
       {/* Resultado do último lote — as falhas aparecem NOMINALMENTE ("3 de 20 não
           entraram: falta a pesquisa"), nunca um erro genérico. */}
       {resultadoLote && (
@@ -1179,7 +1374,10 @@ export default function HmTabelaPage() {
               <table className="w-full min-w-max border-separate border-spacing-0 text-xs">
                 <thead>
                   <tr>
-                    <th className="sticky top-0 z-10 w-8 border-b border-slate-200 bg-slate-50 px-2 py-2 dark:border-slate-700 dark:bg-slate-800/95">
+                    {/* Canto superior-esquerdo: fixo nos DOIS eixos, e por isso com z
+                        maior que o resto do cabeçalho — senão as colunas roladas passam
+                        por cima dele. */}
+                    <th className="sticky left-0 top-0 z-20 w-8 border-b border-slate-200 bg-slate-50 px-2 py-2 dark:border-slate-700 dark:bg-slate-800">
                       <input
                         type="checkbox"
                         checked={todosMarcados}
@@ -1199,8 +1397,9 @@ export default function HmTabelaPage() {
                           onClick={() => setSort(ordenada && sort ? (sort.dir === 1 ? { id: c.id, dir: -1 } : null) : { id: c.id, dir: 1 })}
                           title={`Ordenar por "${c.label}" (só a leitura — não mexe na fila do kanban)`}
                           className={cn(
-                            "sticky top-0 z-10 cursor-pointer select-none whitespace-nowrap border-b border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800/95 dark:text-slate-400 dark:hover:text-slate-200",
+                            "sticky top-0 z-10 cursor-pointer select-none whitespace-nowrap border-b border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
                             c.dir ? "text-right" : "text-left",
+                            c.fixa && "left-8 z-20 shadow-[6px_0_6px_-6px_rgba(15,23,42,0.15)]",
                           )}
                         >
                           <span className="inline-flex items-center gap-1">
@@ -1226,20 +1425,25 @@ export default function HmTabelaPage() {
                     visiveis.map((l) => (
                       <tr
                         key={l.comprador_id}
-                        onClick={() => setSelecionado(l.comprador_id)}
+                        onClick={() => abrirFicha(l.comprador_id)}
                         title="Clique para abrir a ficha"
+                        // O `bg-*` explícito em TODA linha não é decoração: as células
+                        // fixas usam `bg-inherit`, e sem um fundo sólido no <tr> o texto
+                        // rolado por baixo apareceria através delas.
                         className={cn(
                           "cursor-pointer border-b transition",
-                          l.nao_contatar
-                            ? "bg-rose-50/60 hover:bg-rose-50 dark:bg-rose-500/5 dark:hover:bg-rose-500/10"
-                            : l.revisar
-                              ? "bg-amber-50/60 hover:bg-amber-50 dark:bg-amber-500/5 dark:hover:bg-amber-500/10"
-                              : "hover:bg-slate-50 dark:hover:bg-slate-800/50",
+                          idsNovos.has(l.comprador_id)
+                            ? "bg-emerald-50 hover:bg-emerald-100/70 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/15"
+                            : l.nao_contatar
+                              ? "bg-rose-50/60 hover:bg-rose-50 dark:bg-rose-500/5 dark:hover:bg-rose-500/10"
+                              : l.revisar
+                                ? "bg-amber-50/60 hover:bg-amber-50 dark:bg-amber-500/5 dark:hover:bg-amber-500/10"
+                                : "bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/50",
                           l.cancelamento_em && "opacity-60",
                           marcados.has(l.comprador_id) && "bg-brand/5 dark:bg-brand-400/10",
                         )}
                       >
-                        <td className="border-b border-slate-100 px-2 py-1.5 dark:border-slate-800" onClick={(e) => e.stopPropagation()}>
+                        <td className="sticky left-0 z-[1] w-8 border-b border-slate-100 bg-inherit px-2 py-1.5 dark:border-slate-800" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={marcados.has(l.comprador_id)}
@@ -1258,6 +1462,10 @@ export default function HmTabelaPage() {
                             className={cn(
                               "border-b border-slate-100 px-2 py-1.5 text-slate-600 dark:border-slate-800 dark:text-slate-300",
                               c.dir && "text-right",
+                              // A coluna fixa acompanha o scroll horizontal e projeta uma
+                              // sombra à direita: sem ela, o conteúdo que passa por baixo
+                              // parece pertencer à célula.
+                              c.fixa && "sticky left-8 z-[1] bg-inherit shadow-[6px_0_6px_-6px_rgba(15,23,42,0.15)]",
                             )}
                           >
                             {c.render(l)}
@@ -1267,7 +1475,7 @@ export default function HmTabelaPage() {
                           {/* Pagamento e cancelamento NÃO são células — têm consequência
                               na base mestre e a confirmação vive na ficha. */}
                           <button
-                            onClick={() => setSelecionado(l.comprador_id)}
+                            onClick={() => abrirFicha(l.comprador_id)}
                             title="Abrir a ficha (pagamento, cancelamento, sócios, timeline)"
                             className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-brand dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-brand-300"
                           >

@@ -78,6 +78,21 @@ export type LinhaEsteira = {
   /** quitado · mensalidade_em_curso · oferta_enviada · saldo_parado · incalculavel · cancelado */
   situacao_financeira: string | null;
   quitado: boolean;
+  // ----- o extrato em uma linha (0084) -----
+  /** Quando caiu o último real desta pessoa — qualquer um, inclusive o sinal. */
+  ultimo_pagamento_em: QuandoHm;
+  // O dinheiro que DERRUBA a dívida (mensalidade/saldo/compra cheia). O sinal de
+  // R$300 é entrada no funil, não abatimento: todo lead novo paga um, e avisar sobre
+  // ele encheria a tela de alerta inútil. É este campo que faz o card subir ao topo.
+  ultimo_abatimento_em: QuandoHm;
+  ultimo_abatimento_valor: string | null;
+  ultimo_abatimento_categoria: string | null;
+  /** Parcelas que ENTRARAM (contagem no razão). Fato. */
+  parcelas_pagas: number | null;
+  /** Parcelas que a pessoa ASSINOU. A diferença entre as duas é a inadimplência. */
+  parcelas_contratadas: number | null;
+  valor_parcela: string | null;
+  pago_pct: string | null;
   // ----- ativação -----
   ativ_searchie: boolean;
   ativ_comunidade: boolean;
@@ -144,6 +159,9 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             pr.saldo_a_pagar, pr.credito,
             fin.publico, fin.saldo_a_perseguir, fin.pacote_regra,
             fin.situacao as situacao_financeira, fin.quitado,
+            fin.ultimo_pagamento_em, fin.parcelas_pagas, fin.parcelas_contratadas,
+            fin.valor_parcela, fin.pago_pct,
+            fin.ultimo_abatimento_em, fin.ultimo_abatimento_valor, fin.ultimo_abatimento_categoria,
             k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa,
             k.grupo_informes, k.pendencia,
             k.nao_contatar, k.nao_contatar_motivo, k.revisar, k.revisar_motivo,
