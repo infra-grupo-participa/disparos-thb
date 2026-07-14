@@ -8,6 +8,7 @@ import { Reveal } from "@/app/_components/anim";
 import { TagChip } from "@/app/_components/tags";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
+import { HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { DisparoModal } from "@/app/_components/disparo";
 import { useMe } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
@@ -233,6 +234,7 @@ export default function HmTabelaPage() {
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
   const [canais, setCanais] = useState<string[]>([]);
+  const [canaisQtd, setCanaisQtd] = useState<Record<string, number>>({});
   const [turmas, setTurmas] = useState<string[]>([]);
   const [filtroResp, setFiltroResp] = useState("");
   const [filtroCanal, setFiltroCanal] = useState("");
@@ -302,6 +304,7 @@ export default function HmTabelaPage() {
         if (Array.isArray(d.responsaveis)) setResponsaveis(d.responsaveis);
         if (Array.isArray(d.canais)) setCanais(d.canais);
         if (Array.isArray(d.turmas)) setTurmas(d.turmas);
+        if (d.canaisQtd) setCanaisQtd(d.canaisQtd);
       }
     } finally {
       setCarregando(false);
@@ -976,6 +979,10 @@ export default function HmTabelaPage() {
           </button>
         )}
       </div>
+
+      {/* A régua dos canais fixos — total de vendas por canal, clicável (é o
+          mesmo filtro de canal do dropdown, que segue existindo para o resto). */}
+      <HmCanaisFixos contagem={canaisQtd} ativo={filtroCanal} onChange={setFiltroCanal} />
 
       {/* Lentes: o que está ERRADO com as pessoas, não onde elas estão. Uma faixa
           só, discreta — a lente é um atalho, não o assunto da tela. Contagem zero

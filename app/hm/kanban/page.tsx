@@ -7,6 +7,7 @@ import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
+import { HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
 import { useMe } from "@/app/_components/use-me";
@@ -144,6 +145,7 @@ export default function HmKanbanPage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
   const [canais, setCanais] = useState<string[]>([]);
+  const [canaisQtd, setCanaisQtd] = useState<Record<string, number>>({});
   const [turmas, setTurmas] = useState<string[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [filtroResp, setFiltroResp] = useState("");
@@ -192,6 +194,7 @@ export default function HmKanbanPage() {
         if (Array.isArray(d.responsaveis)) setResponsaveis(d.responsaveis);
         if (Array.isArray(d.canais)) setCanais(d.canais);
         if (Array.isArray(d.turmas)) setTurmas(d.turmas);
+        if (d.canaisQtd) setCanaisQtd(d.canaisQtd);
       }
     } finally {
       setCarregando(false);
@@ -423,6 +426,11 @@ export default function HmKanbanPage() {
           </button>
         )}
       </div>
+
+      {/* A régua dos canais que a operação acompanha agora — total de vendas de
+          cada um, sempre à vista; clicar filtra o board (o mesmo filtro do
+          dropdown, que continua servindo para o resto). */}
+      <HmCanaisFixos contagem={canaisQtd} ativo={filtroCanal} onChange={setFiltroCanal} />
 
       {carregando && cards.length === 0 ? (
         <div className="flex items-center justify-center gap-3 py-20 text-slate-400 dark:text-slate-500">

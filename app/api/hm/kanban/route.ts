@@ -61,9 +61,13 @@ export async function GET(req: Request) {
   const respRows = await query<{ responsavel: string }>(
     `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> '' order by responsavel`,
   );
-  const tagRows = await query<{ tag: string; eh_turma: boolean }>(
-    `select distinct t as tag, t ~ $1 as eh_turma
+  // `qtd` alimenta a régua de canais fixos: o placar do canal INTEIRO, sem os
+  // filtros da tela — o número é "quantas vendas o evento fez", não "quantas
+  // estou vendo agora".
+  const tagRows = await query<{ tag: string; eh_turma: boolean; qtd: number }>(
+    `select t as tag, t ~ $1 as eh_turma, count(*)::int as qtd
        from cs.contatos_hm, unnest(tags) t
+      group by t
       order by tag`,
     [RE_TURMA],
   );
@@ -75,6 +79,7 @@ export async function GET(req: Request) {
     responsaveis: respRows.map((r) => r.responsavel),
     canais: tagRows.filter((t) => !t.eh_turma).map((t) => t.tag),
     turmas: tagRows.filter((t) => t.eh_turma).map((t) => t.tag),
+    canaisQtd: Object.fromEntries(tagRows.filter((t) => !t.eh_turma).map((t) => [t.tag, t.qtd])),
   });
 }
 
