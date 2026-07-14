@@ -23,7 +23,10 @@ import path from 'node:path'
 const DOWNLOADS = 'C:/Users/infra/Downloads'
 const SO_SQL = process.argv.includes('--sql')
 
-// O export vem em latin1 com BOM e separador ';'. Campos entre aspas podem ter ';'.
+// O export é UTF-8 COM BOM e separador ';'. Campos entre aspas podem ter ';'.
+// Lê-lo como latin1 (o BOM aparece como "ï»¿" e engana) corrompe todo acento: o
+// cabeçalho "Faturamento líquido" vira "Faturamento lÃ­quido", a coluna não é
+// encontrada e o líquido entra zerado — e os nomes viram "MoysÃ©s Abras".
 function parseCsv(texto) {
   const linhas = []
   let campo = '', linha = [], aspas = false
@@ -50,7 +53,7 @@ const arquivo = fs.readdirSync(DOWNLOADS)
   .sort((a, b) => b.m - a.m)
   .map((x) => x.f)
   .find((f) => {
-    const cab = fs.readFileSync(path.join(DOWNLOADS, f), 'latin1').split('\n')[0]
+    const cab = fs.readFileSync(path.join(DOWNLOADS, f), 'utf8').split('\n')[0]
     return cab.includes('Quantidade de cobran')   // o export completo, não o resumido
   })
 
@@ -59,7 +62,7 @@ if (!arquivo) {
   process.exit(1)
 }
 
-const linhas = parseCsv(fs.readFileSync(path.join(DOWNLOADS, arquivo), 'latin1').replace(/^﻿/, ''))
+const linhas = parseCsv(fs.readFileSync(path.join(DOWNLOADS, arquivo), 'utf8').replace(/^﻿/, ''))
 const cab = linhas[0]
 const ix = (frag) => cab.findIndex((c) => c.toLowerCase().includes(frag.toLowerCase()))
 
