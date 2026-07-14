@@ -6,6 +6,7 @@ import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial, Avatar } from "@/app/_components/avatar";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
+import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe } from "@/app/_components/use-me";
 
@@ -31,8 +32,23 @@ type Contato = {
   cancelamento_em: string | null; cancelamento_motivo: string | null;
   // cancelamento: o pedido (cancelamento_em) e o fato (cancelamento_efetivado_em)
   cancelamento_efetivado_em: string | null; cancelamento_origem: string | null;
+  // …e o fato pelos olhos da HOTMART (0091). Só o webhook escreve nestes.
+  hotmart_cancelado_em: string | null;
+  hotmart_cancelamento_evento: string | null;
+  hotmart_cancelamento_transacao: string | null;
   rev_searchie: boolean; rev_comunidade: boolean; rev_grupo: boolean; rev_pesquisa: boolean;
   acessos_revogados_em: string | null; acessos_revogados_por: string | null;
+};
+
+// Reembolso, chargeback e protesto acabam todos em "aluno sem acesso", mas são
+// coisas muito diferentes para o financeiro: um é devolução combinada, o outro é
+// o cliente contestando na operadora do cartão.
+const EVENTO_HOTMART: Record<string, string> = {
+  PURCHASE_REFUNDED: "reembolso",
+  PURCHASE_CHARGEBACK: "chargeback (contestou na operadora)",
+  PURCHASE_PROTEST: "compra protestada",
+  PURCHASE_CANCELED: "compra cancelada",
+  SUBSCRIPTION_CANCELLATION: "assinatura cancelada",
 };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 // Marcação de reunião/entrevista. `status` conta a história: a vigente é
@@ -278,7 +294,10 @@ export function HmDrawer({
               <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base font-semibold", corAvatar(c.nome))}>{inicial(c.nome)}</span>
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{c.nome}</h2>
-                <p className="truncate text-xs text-slate-500 dark:text-slate-400">{c.telefone || "sem telefone"}{c.turma ? ` · ${c.turma}` : ""}</p>
+                {/* Telefone e e-mail copiáveis, logo abaixo do nome: é o que o
+                    operador leva para o Searchie, para o grupo, para o discador. */}
+                <ContatoDoNome telefone={c.telefone} email={c.email} className="mt-0.5" />
+                {c.turma && <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{c.turma}</p>}
                 {c.plano && <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{c.plano}</p>}
                 {/* Tags editáveis: × remove (menos as gerenciadas — turma/origem
                     são do sistema) e "+ Tag" busca/cria/atribui na hora. */}
@@ -634,6 +653,24 @@ export function HmDrawer({
                     Pediu em {fmt(c.cancelamento_em)}
                     {c.cancelamento_efetivado_em && <> · efetivado em {fmt(c.cancelamento_efetivado_em)}</>}
                   </p>
+
+                  {/* O que a HOTMART diz — o fato, separado da nossa leitura dele.
+                      Confirmar à mão é um palpite ("o reembolso deve ter saído");
+                      só isto aqui prova que o dinheiro voltou. */}
+                  {c.hotmart_cancelado_em ? (
+                    <p className="mt-1.5 rounded bg-rose-100/70 px-2 py-1 text-[11px] font-medium text-rose-800 dark:bg-rose-500/15 dark:text-rose-200">
+                      Hotmart confirmou em {fmt(c.hotmart_cancelado_em)}
+                      {c.hotmart_cancelamento_evento && <> · {EVENTO_HOTMART[c.hotmart_cancelamento_evento] ?? c.hotmart_cancelamento_evento}</>}
+                      {c.hotmart_cancelamento_transacao && (
+                        <span className="block font-normal opacity-75">transação {c.hotmart_cancelamento_transacao}</span>
+                      )}
+                    </p>
+                  ) : c.cancelamento_efetivado_em ? (
+                    <p className="mt-1.5 rounded bg-amber-100/70 px-2 py-1 text-[11px] font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">
+                      ⚠ A Hotmart nunca confirmou este cancelamento. Ou o reembolso ainda não saiu,
+                      ou o card foi marcado por engano — e neste caso tiramos o acesso de quem continua pagando.
+                    </p>
+                  ) : null}
 
                   <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
                     Motivo

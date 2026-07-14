@@ -6,6 +6,7 @@ import Link from "next/link";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { CardLigacoes } from "@/app/_components/ligacao";
+import { Copiavel } from "@/app/_components/copiavel";
 import { Reveal, AnimNum } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
 
@@ -216,11 +217,18 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
               <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{contato.nome}</h1>
               <EdicaoBadge edicao={contato.edicao_ht ?? contato.edicao} />
             </div>
+            {/* E-mail e telefone copiáveis: um clique leva o valor limpo para a
+                área de transferência, sem selecionar texto com o mouse. */}
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-              <span className="inline-flex items-center gap-1.5"><span className="text-slate-400 dark:text-slate-500">E-mail:</span>{contato.email}</span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="text-slate-400 dark:text-slate-500">Telefone:</span>
-                {contato.telefone || <span className="text-rose-500 dark:text-rose-400">sem telefone</span>}
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <span className="shrink-0 text-slate-400 dark:text-slate-500">E-mail:</span>
+                <Copiavel valor={contato.email} rotulo="e-mail" />
+              </span>
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <span className="shrink-0 text-slate-400 dark:text-slate-500">Telefone:</span>
+                {contato.telefone
+                  ? <Copiavel valor={contato.telefone} rotulo="telefone" mono />
+                  : <span className="text-rose-500 dark:text-rose-400">sem telefone</span>}
               </span>
               {contato.telefone && (
                 <a

@@ -30,6 +30,7 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
             ativ_searchie, ativ_comunidade, ativ_grupo, ativ_pesquisa, grupo_informes, pendencia,
             cancelamento_em, cancelamento_motivo, link_facebook,
             cancelamento_efetivado_em, cancelamento_origem,
+            hotmart_cancelado_em, hotmart_cancelamento_evento, hotmart_cancelamento_transacao,
             rev_searchie, rev_comunidade, rev_grupo, rev_pesquisa,
             acessos_revogados_em, acessos_revogados_por, acessos_a_remover, aluno_id,
             tags, observacoes, criado_em

@@ -11,6 +11,7 @@ import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/h
 import { MultiSelect } from "@/app/_components/multi-select";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
+import { ContatoDoNome } from "@/app/_components/copiavel";
 import { useMe } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
 
@@ -368,7 +369,11 @@ export default function HmKanbanPage() {
           <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} />
           {/* Relatório da esteira inteira — sai com os filtros que estão valendo */}
           <a href={`/api/hm/kanban/export?${paramsFiltro.toString()}`} title="Baixar o relatório da esteira (resumo + uma aba por etapa)">
-            <Button variant="secondary" size="sm">Exportar .xlsx</Button>
+            <Button variant="secondary" size="sm">Esteira .xlsx</Button>
+          </a>
+          {/* O dinheiro é outro relatório: quem deve, quanto entrou e os cancelamentos. */}
+          <a href={`/api/hm/financeiro/export?${paramsFiltro.toString()}`} title="Baixar o financeiro (resumo, carteira, a receber, razão de pagamentos e cancelamentos)">
+            <Button variant="secondary" size="sm">Financeiro .xlsx</Button>
           </a>
           {podeDisparar && cardsFiltrados.length > 0 && (
             <Button
@@ -816,6 +821,8 @@ function CardItem({
       </div>
 
       <p className="mt-1.5 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{card.nome}</p>
+      {/* Telefone e e-mail a um clique: copiar não pode exigir abrir a ficha. */}
+      <ContatoDoNome telefone={card.telefone} email={card.email} compacto className="mt-0.5" />
       {card.plano && <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">{card.plano}</p>}
 
       {espelho && (

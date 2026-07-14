@@ -111,6 +111,11 @@ export type LinhaEsteira = {
   // cancelado continua dentro do Searchie, da comunidade e do grupo.
   cancelamento_efetivado_em: QuandoHm;
   cancelamento_origem: string | null;
+  // O cancelamento pelos olhos da HOTMART (0091). Só o webhook escreve. É o
+  // FATO — cancelamento_efetivado_em aceita palpite humano, este não.
+  hotmart_cancelado_em: QuandoHm;
+  hotmart_cancelamento_evento: string | null;
+  hotmart_cancelamento_transacao: string | null;
   acessos_revogados_em: QuandoHm;
   acessos_revogados_por: string | null;
   criado_em: QuandoHm;
@@ -167,6 +172,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             k.nao_contatar, k.nao_contatar_motivo, k.revisar, k.revisar_motivo,
             k.cancelamento_em, k.cancelamento_motivo,
             k.cancelamento_efetivado_em, k.cancelamento_origem,
+            k.hotmart_cancelado_em, k.hotmart_cancelamento_evento, k.hotmart_cancelamento_transacao,
             k.acessos_revogados_em, k.acessos_revogados_por,
             k.criado_em, k.observacoes,
             so.qtd as socios,

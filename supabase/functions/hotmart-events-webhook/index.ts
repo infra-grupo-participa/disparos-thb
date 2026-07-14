@@ -631,8 +631,18 @@ function lerRetorno(r: Record<string, unknown>): CancelamentoNoBanco {
 
 // Marca a compra como cancelada e, se houver card no HM, efetiva o cancelamento
 // (aluno marcado — nunca apagado — e pendência de remover os acessos).
+//
+// `ocorridoEm` é a data do EVENTO na Hotmart, não a de agora: um reembolso pode
+// chegar aqui minutos ou horas depois de acontecer, e é a data dele que responde
+// "quando o aluno cancelou de fato" (ver migration 0091).
+//
 // Não-fatal: erro aqui vira log, nunca um retry da Hotmart.
-async function cancelarNoBanco(transaction: string, evento: string, status: string): Promise<CancelamentoNoBanco> {
+async function cancelarNoBanco(
+  transaction: string,
+  evento: string,
+  status: string,
+  ocorridoEm: string | null,
+): Promise<CancelamentoNoBanco> {
   const vazio: CancelamentoNoBanco = { achouCompra: false, temCardHm: false, eraAluno: false };
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("[DB] SUPABASE_URL/SERVICE_ROLE_KEY ausentes — cancelamento não persistido");
@@ -647,6 +657,7 @@ async function cancelarNoBanco(transaction: string, evento: string, status: stri
       p_transaction: transaction,
       p_evento: evento,
       p_status: status,
+      p_ocorrido_em: ocorridoEm,
     });
 
     if (error) {
@@ -666,7 +677,11 @@ async function cancelarNoBanco(transaction: string, evento: string, status: stri
 // O gêmeo de cancelarNoBanco para quando não há transação (assinatura): casa o
 // contato pelo e-mail. Não mexe em compras — nenhuma compra específica foi
 // desfeita aqui; o que acabou foi a assinatura.
-async function cancelarPorEmailNoBanco(email: string, evento: string): Promise<CancelamentoNoBanco> {
+async function cancelarPorEmailNoBanco(
+  email: string,
+  evento: string,
+  ocorridoEm: string | null,
+): Promise<CancelamentoNoBanco> {
   const vazio: CancelamentoNoBanco = { achouCompra: false, temCardHm: false, eraAluno: false };
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("[DB] SUPABASE_URL/SERVICE_ROLE_KEY ausentes — cancelamento não persistido");
@@ -680,6 +695,7 @@ async function cancelarPorEmailNoBanco(email: string, evento: string): Promise<C
     const { data, error } = await supabase.rpc("fn_hm_cancelar_por_email", {
       p_email: email,
       p_evento: evento,
+      p_ocorrido_em: ocorridoEm,
     });
 
     if (error) {
@@ -736,6 +752,11 @@ serve(async (req) => {
     });
   }
 
+  // Quando o evento aconteceu NA HOTMART. A entrega do webhook pode atrasar, e
+  // "o aluno cancelou dia 12" tem de dizer 12 — não a hora em que o nosso
+  // servidor processou. Sem creation_date no payload, o banco cai no now().
+  const eventoEm = msToIso(Number(body.creation_date ?? 0) || null);
+
   const data = body.data as Record<string, unknown>;
   const buyer = data?.buyer as Record<string, unknown>;
   const purchase = data?.purchase as Record<string, unknown>;
@@ -770,7 +791,13 @@ serve(async (req) => {
       });
     }
 
-    const r = await cancelarPorEmailNoBanco(email, event);
+    // O payload cru do cancelamento passa a ser guardado. Antes só a compra
+    // aprovada era registrada em cs.hotmart_eventos — de um reembolso não
+    // sobrava rastro nenhum, e é justamente o reembolso que alguém vai querer
+    // auditar depois ("cadê a prova de que a Hotmart devolveu o dinheiro?").
+    await logEventoHotmart(event, null, email, body);
+
+    const r = await cancelarPorEmailNoBanco(email, event, eventoEm);
     await notifySlackCancelamento(channel, {
       evento: event,
       // O nome do sistema vem primeiro: é o corrigido. O do payload é reserva.
@@ -805,7 +832,10 @@ serve(async (req) => {
   // chama quem tem de remover os acessos.
   if (statusCancelamento) {
     const transaction = String(purchase.transaction);
-    const r = await cancelarNoBanco(transaction, event, statusCancelamento);
+    // Guarda o payload cru do reembolso/chargeback antes de agir (ver acima).
+    await logEventoHotmart(event, transaction, String(buyer.email ?? ""), body);
+
+    const r = await cancelarNoBanco(transaction, event, statusCancelamento, eventoEm);
 
     if (!r.achouCompra) {
       // Cancelamento de uma compra que nunca chegou aqui (anterior ao webhook,

@@ -11,6 +11,7 @@ import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { MultiSelect } from "@/app/_components/multi-select";
+import { ContatoDoNome } from "@/app/_components/copiavel";
 import { DisparoModal } from "@/app/_components/disparo";
 import { useMe } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
@@ -86,6 +87,28 @@ function fmtDataHora(v: QuandoHm): string {
   const d = dt(v);
   return d ? d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
 }
+function fmtData(v: QuandoHm): string {
+  const d = dt(v);
+  return d ? d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "—";
+}
+
+// Reembolso, chargeback e protesto acabam todos em "aluno sem acesso", mas para
+// o financeiro são coisas MUITO diferentes: um é devolução combinada, o outro é
+// o cliente contestando na operadora. A coluna diz qual foi.
+const EVENTO_HOTMART: Record<string, string> = {
+  PURCHASE_REFUNDED: "Reembolso confirmado na Hotmart",
+  PURCHASE_CHARGEBACK: "Chargeback — o cliente contestou na operadora do cartão",
+  PURCHASE_PROTEST: "Compra protestada na Hotmart",
+  PURCHASE_CANCELED: "Compra cancelada na Hotmart",
+  SUBSCRIPTION_CANCELLATION: "Assinatura cancelada na Hotmart",
+};
+const EVENTO_CURTO: Record<string, string> = {
+  PURCHASE_REFUNDED: "Reembolso",
+  PURCHASE_CHARGEBACK: "Chargeback",
+  PURCHASE_PROTEST: "Protesto",
+  PURCHASE_CANCELED: "Cancelada",
+  SUBSCRIPTION_CANCELLATION: "Assinatura",
+};
 // "há 2h", "ontem", "há 5 dias" — quem olha a fila quer saber se é recente, não a
 // data exata (essa fica no title).
 function haQuanto(d: Date): string {
@@ -189,6 +212,20 @@ const LENTES: Lente[] = [
     test: (l) => !!l.cancelamento_em && !l.cancelamento_efetivado_em,
   },
   {
+    // Marcamos como cancelado, mas a Hotmart nunca confirmou. Ou o reembolso não
+    // saiu (e o dinheiro ainda é nosso), ou alguém marcou errado (e tiramos o
+    // acesso de um aluno que continua pagando). Os dois casos custam caro.
+    id: "cancelado_sem_hotmart", grupo: "Cancelamento", label: "Cancelado sem confirmação da Hotmart", destaque: true,
+    test: (l) => !!l.cancelamento_efetivado_em && !l.hotmart_cancelado_em,
+  },
+  {
+    // O contrário: a Hotmart devolveu o dinheiro e o card não sabe. Não deveria
+    // acontecer (o webhook faz o caminho inteiro), mas se acontecer é grave — o
+    // aluno segue com acesso a um curso que ele não pagou mais.
+    id: "hotmart_cancelou_e_card_nao_sabe", grupo: "Cancelamento", label: "Hotmart cancelou e o card não registrou",
+    test: (l) => !!l.hotmart_cancelado_em && !l.cancelamento_efetivado_em,
+  },
+  {
     id: "sem_responsavel", grupo: "Higiene", label: "Sem responsável",
     test: (l) => !l.responsavel,
   },
@@ -287,13 +324,13 @@ const PRESETS: Record<VisaoId, string[]> = {
   agenda: ["nome", "responsavel", "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas", "no_shows"],
   // A visão da Jusy/Isabela: a história financeira em linha — sinal → o que já
   // entrou → parcelas → o que falta → cancelamento (ordem decidida em 14/07).
-  financeiro: ["nome", "origem", "sinal_pago_em", "recebido", "parcelas", "saldo", "ultimo_pagamento", "forma_obs", "cancelado", "cancelamento_em"],
+  financeiro: ["nome", "origem", "sinal_pago_em", "recebido", "parcelas", "saldo", "ultimo_pagamento", "forma_obs", "cancelado", "hotmart_cancelado", "cancelamento_em"],
   // A auditoria: as colunas do XLSX, na mesma ordem (+ a Turma atual, editável).
   tudo: ["nome", "telefone", "email", "etapa", "esteira", "dias", "responsavel", "entrada", "turma_origem", "turma",
     "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas",
     "no_shows", "sinal_pago_em", "sinal_valor", "meio", "previsao", "acordo", "link", "saldo", "credito", "valor_total", "recebido", "parcelas", "ultimo_pagamento", "pagamento_em",
     "apto", "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa", "pendencia", "nao_contatar", "revisar",
-    "socios", "cancelamento_em", "cancelamento_motivo", "na_base", "tags"],
+    "socios", "cancelado", "hotmart_cancelado", "cancelamento_em", "cancelamento_motivo", "na_base", "tags"],
 };
 
 // --------------------------------------------------------------------- página
@@ -599,17 +636,22 @@ export default function HmTabelaPage() {
       render: (l) => {
         const novo = pagouAgora(l);
         return (
-          <div className="flex min-w-0 max-w-[16rem] items-center gap-1.5">
-            {/* O ponto verde é o "não lido": some quando alguém abre a ficha. */}
-            {novo && (
-              <span className="relative flex h-2 w-2 shrink-0" title={`Pagou ${brl(num(novo.valor) ?? 0)} ${haQuanto(novo.quando)} — clique para abrir e dar baixa no aviso`}>
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-            )}
-            <span className={cn("truncate", novo ? "font-bold text-slate-900 dark:text-white" : "font-semibold text-slate-800 dark:text-slate-100")}>{l.nome}</span>
-            {l.nao_contatar && <span className="h-2 w-2 shrink-0 rounded-full bg-rose-500" title={`Não contatar${l.nao_contatar_motivo ? ` — ${l.nao_contatar_motivo}` : ""}`} />}
-            {l.revisar && <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" title={`Revisar${l.revisar_motivo ? ` — ${l.revisar_motivo}` : ""}`} />}
+          <div className="flex min-w-0 max-w-[16rem] flex-col">
+            <div className="flex min-w-0 items-center gap-1.5">
+              {/* O ponto verde é o "não lido": some quando alguém abre a ficha. */}
+              {novo && (
+                <span className="relative flex h-2 w-2 shrink-0" title={`Pagou ${brl(num(novo.valor) ?? 0)} ${haQuanto(novo.quando)} — clique para abrir e dar baixa no aviso`}>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+              )}
+              <span className={cn("truncate", novo ? "font-bold text-slate-900 dark:text-white" : "font-semibold text-slate-800 dark:text-slate-100")}>{l.nome}</span>
+              {l.nao_contatar && <span className="h-2 w-2 shrink-0 rounded-full bg-rose-500" title={`Não contatar${l.nao_contatar_motivo ? ` — ${l.nao_contatar_motivo}` : ""}`} />}
+              {l.revisar && <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" title={`Revisar${l.revisar_motivo ? ` — ${l.revisar_motivo}` : ""}`} />}
+            </div>
+            {/* Telefone e e-mail andam junto com o nome: é o que o operador vai
+                usar em seguida, e copiar não pode custar abrir a ficha. */}
+            <ContatoDoNome telefone={l.telefone} email={l.email} />
           </div>
         );
       },
@@ -1018,6 +1060,39 @@ export default function HmTabelaPage() {
         return <span>—</span>;
       },
     },
+    // O cancelamento pelos olhos da HOTMART — o fato, não a nossa leitura dele.
+    // Confirmar à mão é um palpite ("o reembolso deve ter saído"); esta coluna
+    // diz se o dinheiro voltou de verdade. Quando as duas discordam, alguém
+    // precisa olhar: ou o reembolso ainda não saiu, ou marcamos errado.
+    hotmart_cancelado: {
+      id: "hotmart_cancelado", label: "Cancelou na Hotmart?",
+      sortVal: (l) => dt(l.hotmart_cancelado_em)?.getTime() ?? null,
+      render: (l) => {
+        if (l.hotmart_cancelado_em) {
+          return (
+            <span
+              className="whitespace-nowrap font-semibold text-rose-600 dark:text-rose-400"
+              title={`${EVENTO_HOTMART[l.hotmart_cancelamento_evento ?? ""] ?? l.hotmart_cancelamento_evento ?? "Cancelado"}${l.hotmart_cancelamento_transacao ? ` · transação ${l.hotmart_cancelamento_transacao}` : " · assinatura"}`}
+            >
+              {EVENTO_CURTO[l.hotmart_cancelamento_evento ?? ""] ?? "Cancelado"} · {fmtData(l.hotmart_cancelado_em)}
+            </span>
+          );
+        }
+        // Nós marcamos como cancelado e a Hotmart nunca confirmou. É a linha que
+        // o financeiro precisa ver.
+        if (l.cancelamento_efetivado_em) {
+          return (
+            <span
+              className="whitespace-nowrap font-medium text-amber-600 dark:text-amber-400"
+              title="Confirmamos o cancelamento aqui, mas a Hotmart nunca avisou que o reembolso saiu. Ou ainda não saiu, ou o card foi marcado por engano."
+            >
+              ⚠ sem confirmação
+            </span>
+          );
+        }
+        return <span>—</span>;
+      },
+    },
     pagamento_em: {
       id: "pagamento_em", label: "Saldo pago em",
       sortVal: (l) => dt(l.pagamento_em)?.getTime() ?? null,
@@ -1203,7 +1278,13 @@ export default function HmTabelaPage() {
           <HmVisao atual="tabela" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} />
           {/* O XLSX é o mesmo relatório desta tela — mesmos filtros, mesma função. */}
           <a href={`/api/hm/kanban/export?${paramsFiltro.toString()}`} title="Baixar o relatório da esteira (resumo + uma aba por etapa)">
-            <Button variant="secondary" size="sm">Exportar .xlsx</Button>
+            <Button variant="secondary" size="sm">Esteira .xlsx</Button>
+          </a>
+          {/* O financeiro em planilha própria: a visão "Financeiro" desta tela cabe
+              numa tabela, mas a conciliação não — ela precisa do razão de pagamentos
+              e do confronto com a Hotmart. Sai com os mesmos filtros. */}
+          <a href={`/api/hm/financeiro/export?${paramsFiltro.toString()}`} title="Baixar o financeiro (resumo, carteira, a receber, razão de pagamentos e cancelamentos)">
+            <Button variant={visao === "financeiro" ? "primary" : "secondary"} size="sm">Financeiro .xlsx</Button>
           </a>
         </div>
       </div>
