@@ -66,6 +66,18 @@ export type LinhaEsteira = {
   aluno_id: string | null;
   saldo_a_pagar: string | null;
   credito: string | null;
+  // ----- o saldo pela RÉGUA (cs.vw_hm_financeiro, 0078) -----
+  // `saldo_a_pagar` (fn_hm_prorata) só existe para quem tem crédito informado — o
+  // lead novo ficava sem saldo nenhum na tela, embora o dele seja o mais simples:
+  // 14.700 menos o que já pagou. Estes campos cobrem os dois públicos.
+  publico: "lead_novo" | "aluno_base" | "nao_classificado" | null;
+  /** O que perseguir: o pacote cravado, ou o da régua quando ninguém cravou. */
+  saldo_a_perseguir: string | null;
+  /** O pacote que a regra manda cobrar (15.000 − crédito). Null = incalculável. */
+  pacote_regra: string | null;
+  /** quitado · mensalidade_em_curso · oferta_enviada · saldo_parado · incalculavel · cancelado */
+  situacao_financeira: string | null;
+  quitado: boolean;
   // ----- ativação -----
   ativ_searchie: boolean;
   ativ_comunidade: boolean;
@@ -130,6 +142,8 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             k.pagamento_em, k.pagamento_forma, k.pagamento_parcelas, k.apto_ativacao,
             ch.valor_total, ch.valor_pago, ch.aluno_id,
             pr.saldo_a_pagar, pr.credito,
+            fin.publico, fin.saldo_a_perseguir, fin.pacote_regra,
+            fin.situacao as situacao_financeira, fin.quitado,
             k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa,
             k.grupo_informes, k.pendencia,
             k.nao_contatar, k.nao_contatar_motivo, k.revisar, k.revisar_motivo,
@@ -146,6 +160,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
        join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
        left join cs.estagios est on est.id = k.estagio_id
        left join lateral cs.fn_hm_prorata(k.comprador_id) pr on true
+       left join cs.vw_hm_financeiro fin on fin.comprador_id = k.comprador_id
        left join lateral (
          select count(*)::int as qtd from cs.hm_socios s where s.contato_hm_id = ch.id
        ) so on true

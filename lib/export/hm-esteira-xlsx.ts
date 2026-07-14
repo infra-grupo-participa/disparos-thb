@@ -57,7 +57,11 @@ const COLUNAS: Col[] = [
   { header: "Previsão de pagamento", width: 18, get: (l) => d(l.pagamento_previsto_em) ?? "—", fmt: "data" },
   { header: "Acordo", width: 40, get: (l) => txt(l.acordo) },
   { header: "Link do saldo enviado em", width: 18, get: (l) => d(l.link_saldo_enviado_em) ?? "—", fmt: "data" },
-  { header: "Saldo a pagar", width: 14, get: (l) => n(l.saldo_a_pagar) ?? "—", fmt: "dinheiro" },
+  // O saldo que ainda falta: pacote − TUDO o que já foi pago (inclusive as
+  // mensalidades). Cobre lead novo e aluno da base — antes só saía para quem tinha
+  // crédito pró-rata, e o lead novo vinha em branco na planilha do financeiro.
+  { header: "Saldo a pagar", width: 14, get: (l) => n(l.saldo_a_perseguir) ?? n(l.saldo_a_pagar) ?? "—", fmt: "dinheiro" },
+  { header: "Situação", width: 20, get: (l) => txt(l.situacao_financeira) },
   { header: "Crédito pró-rata", width: 14, get: (l) => n(l.credito) ?? "—", fmt: "dinheiro" },
   { header: "Valor total", width: 13, get: (l) => n(l.valor_total) ?? "—", fmt: "dinheiro" },
   { header: "Valor pago", width: 13, get: (l) => n(l.valor_pago) ?? "—", fmt: "dinheiro" },
@@ -134,7 +138,10 @@ export async function relatorioHmParaXlsx(r: RelatorioHm, agora: Date): Promise<
   for (const col of r.colunas) {
     const linhas = porColuna(col.chave);
     const dias = linhas.map((l) => n(l.dias_na_etapa)).filter((x): x is number => x !== null);
-    const saldo = linhas.reduce((acc, l) => acc + (n(l.saldo_a_pagar) ?? 0), 0);
+    // Só soma quem ainda deve: o saldo de quem quitou é história, não cobrança.
+    const saldo = linhas
+      .filter((l) => !l.quitado && !l.apto_ativacao)
+      .reduce((acc, l) => acc + (n(l.saldo_a_perseguir) ?? n(l.saldo_a_pagar) ?? 0), 0);
     totalSaldo += saldo;
     const linha = ws.addRow([
       col.nome,
