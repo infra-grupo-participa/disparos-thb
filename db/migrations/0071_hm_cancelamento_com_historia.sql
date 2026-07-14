@@ -262,6 +262,83 @@ end$function$;
 grant execute on function cs.fn_hm_descancelar(uuid) to disparos_app;
 
 -- ---------------------------------------------------------------------
+-- 3b) Assinatura cancelada: o payload fala do ASSINANTE, não da compra
+-- ---------------------------------------------------------------------
+-- SUBSCRIPTION_CANCELLATION não traz transação — não há compra a reclassificar
+-- (nenhuma venda foi desfeita; o que acabou foi a assinatura). O elo é o e-mail,
+-- e o efeito é o mesmo: card e aluno marcados, acessos a remover.
+create or replace function cs.fn_hm_cancelar_por_email(p_email text, p_evento text)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'cs', 'public', 'pg_temp'
+as $function$
+declare
+  v_comprador_id uuid;
+  v_card_id      uuid;
+  v_estagio_id   smallint;
+  v_estagio_ant  smallint;
+  v_resultado    text;
+  v_motivo       text;
+begin
+  select id into v_comprador_id
+    from public.compradores
+   where lower(btrim(email)) = lower(btrim(p_email))
+   limit 1;
+
+  if v_comprador_id is null then
+    return jsonb_build_object('achou_comprador', false);
+  end if;
+
+  select ch.id, ch.estagio_id into v_card_id, v_estagio_ant
+    from cs.contatos_hm ch where ch.comprador_id = v_comprador_id;
+
+  if v_card_id is null then
+    return jsonb_build_object('achou_comprador', true, 'tem_card_hm', false, 'comprador_id', v_comprador_id);
+  end if;
+
+  v_motivo    := 'Assinatura cancelada na Hotmart (' || p_evento || ')';
+  v_resultado := cs.fn_hm_cancelar(v_comprador_id, v_motivo, 'hotmart');
+
+  select id into v_estagio_id from cs.estagios where chave = 'hm_cancelamento' and evento = 'HM';
+  if v_estagio_id is not null and v_estagio_ant is distinct from v_estagio_id then
+    update cs.contatos_hm set estagio_id = v_estagio_id, atualizado_em = now() where id = v_card_id;
+    insert into cs.interacoes (contato_hm_id, tipo, descricao, autor, estagio_anterior_id, estagio_novo_id)
+    values (v_card_id, 'mudanca_estagio', 'Movido para "Solicitou Cancelamento" pelo cancelamento da assinatura na Hotmart',
+            'hotmart', v_estagio_ant, v_estagio_id);
+  end if;
+
+  insert into cs.interacoes (contato_hm_id, tipo, descricao, autor)
+  values (
+    v_card_id, 'sistema',
+    case v_resultado
+      when 'cancelado' then v_motivo || ' — aluno marcado como cancelado na base THB. Remover os acessos.'
+      else v_motivo || ' — o contato ainda não era aluno; nada a remover na base.'
+    end,
+    'hotmart'
+  );
+
+  return jsonb_build_object(
+    'achou_comprador', true, 'tem_card_hm', true,
+    'comprador_id', v_comprador_id, 'resultado', v_resultado
+  );
+end$function$;
+
+grant execute on function cs.fn_hm_cancelar_por_email(text, text) to disparos_app;
+
+create or replace function public.fn_hm_cancelar_por_email(p_email text, p_evento text)
+returns jsonb
+language sql
+security definer
+set search_path to 'public', 'cs', 'pg_temp'
+as $$
+  select cs.fn_hm_cancelar_por_email(p_email, p_evento);
+$$;
+
+revoke all on function public.fn_hm_cancelar_por_email(text, text) from public, anon, authenticated;
+grant execute on function public.fn_hm_cancelar_por_email(text, text) to service_role;
+
+-- ---------------------------------------------------------------------
 -- 4) A baixa dos acessos: o card carimba, a ficha do aluno espelha
 -- ---------------------------------------------------------------------
 -- Os quatro acessos revogados = revogação completa. A data nasce sozinha (não

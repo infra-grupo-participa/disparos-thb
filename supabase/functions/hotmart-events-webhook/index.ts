@@ -589,6 +589,47 @@ async function cancelarNoBanco(transaction: string, evento: string, status: stri
   }
 }
 
+// O gêmeo de cancelarNoBanco para quando não há transação (assinatura): casa o
+// contato pelo e-mail. Não mexe em compras — nenhuma compra específica foi
+// desfeita aqui; o que acabou foi a assinatura.
+async function cancelarPorEmailNoBanco(email: string, evento: string): Promise<{
+  achouCompra: boolean;
+  temCardHm: boolean;
+  eraAluno: boolean;
+}> {
+  const vazio = { achouCompra: false, temCardHm: false, eraAluno: false };
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("[DB] SUPABASE_URL/SERVICE_ROLE_KEY ausentes — cancelamento não persistido");
+    return vazio;
+  }
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data, error } = await supabase.rpc("fn_hm_cancelar_por_email", {
+      p_email: email,
+      p_evento: evento,
+    });
+
+    if (error) {
+      console.error("[DB] falha ao cancelar por e-mail:", error.message);
+      return vazio;
+    }
+
+    const r = (data ?? {}) as Record<string, unknown>;
+    console.log(`[DB] assinatura cancelada (${email}):`, JSON.stringify(r));
+    return {
+      achouCompra: r.achou_comprador === true,
+      temCardHm: r.tem_card_hm === true,
+      eraAluno: r.resultado === "cancelado",
+    };
+  } catch (e) {
+    console.error("[DB] exceção em cancelarPorEmailNoBanco:", e instanceof Error ? e.message : e);
+    return vazio;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "GET") return new Response("OK", { status: 200 });
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
@@ -633,14 +674,10 @@ serve(async (req) => {
   const buyer = data?.buyer as Record<string, unknown>;
   const purchase = data?.purchase as Record<string, unknown>;
   const product = data?.product as Record<string, unknown>;
+  const subscriber = data?.subscriber as Record<string, unknown> | undefined;
 
-  if (!buyer?.email || !purchase?.transaction) {
-    return new Response(JSON.stringify({ ok: false, reason: "incomplete_payload" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
+  // O produto identifica o canal em TODO evento — inclusive nos que não têm
+  // compra (cancelamento de assinatura). Por isso vem antes do guard de payload.
   const productId = String(product?.id ?? "");
   const productName = String(product?.name ?? "");
   const channel = resolveChannel(productId, productName);
@@ -648,6 +685,46 @@ serve(async (req) => {
   if (!channel) {
     console.log(`Produto não mapeado para nenhum canal: ${productId} (${productName})`);
     return new Response(JSON.stringify({ ok: true, reason: "product_not_mapped" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  // ---- Assinatura cancelada: o payload fala de ASSINANTE, não de compra ----
+  // SUBSCRIPTION_CANCELLATION não traz purchase.transaction — não há transação a
+  // reclassificar. O elo é o e-mail do assinante. Tratado antes do guard de
+  // payload justamente porque não passaria por ele.
+  if (event === "SUBSCRIPTION_CANCELLATION") {
+    const email = String(subscriber?.email ?? buyer?.email ?? "").trim();
+    if (!email) {
+      console.warn("[CANCELAMENTO] assinatura cancelada sem e-mail no payload — nada a casar");
+      return new Response(JSON.stringify({ ok: true, reason: "incomplete_payload" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const r = await cancelarPorEmailNoBanco(email, event);
+    await notifySlackCancelamento(channel, {
+      evento: event,
+      nome: String(subscriber?.name ?? buyer?.name ?? email),
+      email,
+      telefone: buyer ? extractPhone(buyer) : null,
+      produto: CHANNEL_LABEL[channel] ?? productName,
+      valor: null,
+      moeda: "BRL",
+      transaction: "—  (assinatura)",
+      eraAluno: r.eraAluno,
+    });
+
+    return new Response(JSON.stringify({ ok: true, channel, event, ...r }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!buyer?.email || !purchase?.transaction) {
+    return new Response(JSON.stringify({ ok: false, reason: "incomplete_payload" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
