@@ -147,6 +147,8 @@ export default function HmKanbanPage() {
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
   const [canais, setCanais] = useState<string[]>([]);
   const [canaisQtd, setCanaisQtd] = useState<Record<string, number>>({});
+  // Cores do catálogo de tags (0067) — a cor é da tag, não da tela.
+  const [coresTags, setCoresTags] = useState<Record<string, string | null>>({});
   const [turmas, setTurmas] = useState<string[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   // Cada filtro aceita VÁRIOS valores (OU dentro do filtro, E entre filtros).
@@ -220,6 +222,9 @@ export default function HmKanbanPage() {
   }, [filtroResp, filtroCanal, filtroTurma, filtrosProntos]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (filtrosProntos) carregar(); }, [carregar, filtrosProntos]);
   useEffect(() => {
+    fetch("/api/hm/tags").then((r) => r.json()).then((d) => {
+      if (d.ok) setCoresTags(Object.fromEntries(d.tags.map((t: { nome: string; cor: string | null }) => [t.nome, t.cor])));
+    }).catch(() => {});
     fetch("/api/hm/estagios").then((r) => r.json()).then((d) => { if (d.ok) setEstagios(d.estagios); }).catch(() => {});
   }, []);
 
@@ -512,6 +517,7 @@ export default function HmKanbanPage() {
                             selecionavel={podeDisparar}
                             marcado={marcados.has(card.comprador_id)}
                             onToggleMarcado={() => toggleMarcado(card.comprador_id)}
+                            coresTags={coresTags}
                           />
                         </Fragment>
                       ))
@@ -630,11 +636,12 @@ function MenuItem({ children, onClick, disabled }: { children: React.ReactNode; 
 }
 
 function CardItem({
-  card, espelho, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado,
+  card, espelho, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags,
 }: {
   card: Card; espelho: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
   onMenu: (x: number, y: number) => void;
   selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
+  coresTags: Record<string, string | null>;
 }) {
   const cat = catLabel(card.categoria_entrada);
   const wa = waLink(card.telefone);
@@ -694,7 +701,7 @@ function CardItem({
 
       {card.tags.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
-          {card.tags.map((t) => <TagChip key={t} tag={t} mini />)}
+          {card.tags.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} />)}
         </div>
       )}
 

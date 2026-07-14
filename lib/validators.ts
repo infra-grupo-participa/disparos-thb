@@ -213,3 +213,17 @@ export const HmLoteSchema = z.object({
   addTag: z.string().trim().min(1).optional(),
   removeTag: z.string().trim().min(1).optional(),
 });
+
+// ----- Catálogo de tags do HM (cs.tags, 0067) -----
+const corHex = z.string().regex(/^#[0-9a-fA-F]{6}$/, "cor em hex (#rrggbb)");
+
+export const HmTagCriarSchema = z.object({
+  nome: z.string().trim().min(2).max(40),
+  cor: corHex.nullable().optional(),
+});
+
+// Renomear/recolorir. Renomear propaga para todos os cards — a rota exige admin.
+export const HmTagPatchSchema = z.object({
+  nome: z.string().trim().min(2).max(40).optional(),
+  cor: corHex.nullable().optional(),
+});

@@ -6,6 +6,7 @@ import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_compo
 import { Avatar } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { TagChip } from "@/app/_components/tags";
+import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
@@ -236,6 +237,7 @@ export default function HmTabelaPage() {
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
   const [canais, setCanais] = useState<string[]>([]);
   const [canaisQtd, setCanaisQtd] = useState<Record<string, number>>({});
+  const [catalogoTags, setCatalogoTags] = useState<TagOpcao[]>([]);
   const [turmas, setTurmas] = useState<string[]>([]);
   // Cada filtro aceita VÁRIOS valores (OU dentro do filtro, E entre filtros).
   const [filtroResp, setFiltroResp] = useState<string[]>([]);
@@ -314,6 +316,14 @@ export default function HmTabelaPage() {
     }
   }, [filtroResp, filtroCanal, filtroTurma]);
   useEffect(() => { if (filtrosProntos) carregar(); }, [carregar, filtrosProntos]);
+  // O catálogo de tags (cores + opções do picker). Recarrega junto com o lote —
+  // uma tag criada no picker precisa aparecer na lista logo em seguida.
+  const carregarTags = useCallback(async () => {
+    const d = await fetch("/api/hm/tags").then((r) => r.json()).catch(() => null);
+    if (d?.ok) setCatalogoTags(d.tags);
+  }, []);
+  useEffect(() => { carregarTags(); }, [carregarTags]);
+  const coresTags = useMemo(() => Object.fromEntries(catalogoTags.map((t) => [t.nome, t.cor])), [catalogoTags]);
 
   // ------------------------------------------------------------- escrita (1 linha)
   // Único ponto de escrita unitária: o MESMO PATCH da ficha. Etapa vira
@@ -420,8 +430,9 @@ export default function HmTabelaPage() {
     } finally {
       setAplicandoLote(false);
       await carregar(true);
+      carregarTags();
     }
-  }, [marcados, carregar]);
+  }, [marcados, carregar, carregarTags]);
 
   const loteMover = useCallback((chave: string) => {
     const destino = estagios.find((e) => e.chave === chave);
@@ -856,7 +867,7 @@ export default function HmTabelaPage() {
       sortVal: (l) => l.tags.join(", "),
       render: (l) => (
         <div className="flex max-w-[16rem] flex-wrap gap-1">
-          {l.tags.length ? l.tags.map((t) => <TagChip key={t} tag={t} mini />) : "—"}
+          {l.tags.length ? l.tags.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} />) : "—"}
         </div>
       ),
     },
@@ -1248,39 +1259,26 @@ export default function HmTabelaPage() {
               {CHECKLIST.map((c) => <option key={c.campo} value={c.campo}>{c.label}</option>)}
               <option value="link_saldo_enviado">Link do saldo enviado</option>
             </select>
-            {/* Tags: atribuir uma existente, criar uma nova ou remover — cada
-                card loga a mudança na timeline. Turma/origem são gerenciadas
-                pelo sistema (o serviço recusa e a falha volta nominal). */}
+            {/* Tags: o picker busca/cria/atribui digitando (criar É digitar um
+                nome novo); remover fica no select ao lado. Cada card loga a
+                mudança na timeline; turma/origem são do sistema e não aparecem. */}
+            <TagPicker
+              opcoes={catalogoTags}
+              disabled={aplicandoLote}
+              onEscolher={(nome) => lote({ addTag: nome }, `adicionar a tag "${nome}"`)}
+            />
             <select
               value=""
               disabled={aplicandoLote}
               onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return;
-                if (v === "__nova") {
-                  const t = window.prompt("Nome da nova tag:")?.trim();
-                  if (t) lote({ addTag: t }, `adicionar a tag "${t}"`);
-                  return;
-                }
-                const t = v.slice(4);
-                if (v.startsWith("add:")) lote({ addTag: t }, `adicionar a tag "${t}"`);
-                else lote({ removeTag: t }, `remover a tag "${t}"`);
+                const t = e.target.value;
+                if (t) lote({ removeTag: t }, `remover a tag "${t}"`);
               }}
               className={cn(fieldCompactClass, "py-1.5 text-xs")}
-              title="Adicionar, criar ou remover tag dos selecionados (turma/origem são do sistema)"
+              title="Remover uma tag dos selecionados"
             >
-              <option value="">Tag…</option>
-              <option value="__nova">✚ Nova tag…</option>
-              {canais.length > 0 && (
-                <optgroup label="Adicionar">
-                  {canais.map((t) => <option key={`add-${t}`} value={`add:${t}`}>{t}</option>)}
-                </optgroup>
-              )}
-              {canais.length > 0 && (
-                <optgroup label="Remover">
-                  {canais.map((t) => <option key={`rem-${t}`} value={`rem:${t}`}>{t}</option>)}
-                </optgroup>
-              )}
+              <option value="">Remover tag…</option>
+              {canais.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
             <Button variant="secondary" size="sm" disabled={aplicandoLote} onClick={() => setMarcados(new Set())}>Limpar</Button>
             {podeDisparar && (

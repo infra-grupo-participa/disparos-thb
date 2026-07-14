@@ -6,6 +6,7 @@ import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial, Avatar } from "@/app/_components/avatar";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
+import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe } from "@/app/_components/use-me";
 
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
@@ -135,6 +136,7 @@ export function HmDrawer({
   const [motivoAgenda, setMotivoAgenda] = useState("");
   const [socios, setSocios] = useState<Socio[]>([]);
   const [novoSocio, setNovoSocio] = useState({ nome: "", email: "", telefone: "" });
+  const [catalogoTags, setCatalogoTags] = useState<TagOpcao[]>([]);
 
   const recarregar = useCallback(async () => {
     const r = await fetch(`/api/hm/contato/${compradorId}`);
@@ -164,6 +166,30 @@ export function HmDrawer({
     }
   }, [compradorId]);
   useEffect(() => { setC(null); recarregar(); }, [recarregar]);
+  useEffect(() => {
+    fetch("/api/hm/tags").then((r) => r.json()).then((d) => { if (d.ok) setCatalogoTags(d.tags); }).catch(() => {});
+  }, []);
+
+  // Adiciona/remove tag pelo MESMO caminho do lote (serviço + timeline). Criar
+  // é digitar um nome novo no picker — o serviço registra no catálogo sozinho.
+  async function mexerTag(payload: { addTag?: string; removeTag?: string }) {
+    setSalvando(true);
+    try {
+      await fetch("/api/hm/lote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ compradorIds: [compradorId], ...payload }),
+      });
+      await recarregar();
+      onChanged();
+      const d = await fetch("/api/hm/tags").then((r) => r.json()).catch(() => null);
+      if (d?.ok) setCatalogoTags(d.tags);
+    } finally {
+      setSalvando(false);
+    }
+  }
+  const coresTags = Object.fromEntries(catalogoTags.map((t) => [t.nome, t.cor]));
+  const ehGerenciada = (t: string) => /^(Origem|Turma|Aurum) /.test(t);
 
   // O servidor pode RECUSAR a edição: "Ativação Realizada" é a linha de chegada
   // e só entra quem cumpriu os 4 itens do checklist. Ele devolve 400 com o que
@@ -239,11 +265,29 @@ export function HmDrawer({
                 <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{c.nome}</h2>
                 <p className="truncate text-xs text-slate-500 dark:text-slate-400">{c.telefone || "sem telefone"}{c.turma ? ` · ${c.turma}` : ""}</p>
                 {c.plano && <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{c.plano}</p>}
-                {c.tags && c.tags.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {c.tags.map((t) => <TagChip key={t} tag={t} mini />)}
-                  </div>
-                )}
+                {/* Tags editáveis: × remove (menos as gerenciadas — turma/origem
+                    são do sistema) e "+ Tag" busca/cria/atribui na hora. */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  {(c.tags ?? []).map((t) =>
+                    ehGerenciada(t) ? (
+                      <TagChip key={t} tag={t} mini cor={coresTags[t]} />
+                    ) : (
+                      <span key={t} className="group/tag relative inline-flex">
+                        <TagChip tag={t} mini cor={coresTags[t]} />
+                        <button
+                          type="button"
+                          disabled={salvando}
+                          onClick={() => mexerTag({ removeTag: t })}
+                          title={`Remover a tag "${t}"`}
+                          className="absolute -right-1 -top-1 hidden h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-600 text-white shadow group-hover/tag:flex dark:bg-slate-500"
+                        >
+                          <svg className="h-2 w-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                        </button>
+                      </span>
+                    ),
+                  )}
+                  <TagPicker opcoes={catalogoTags} jaTem={c.tags ?? []} disabled={salvando} onEscolher={(nome) => mexerTag({ addTag: nome })} />
+                </div>
               </div>
               <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200">
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>

@@ -558,6 +558,13 @@ export async function addTagHm(compradorId: string, tag: string, autor = "cs"): 
     [compradorId, t],
   );
   if (!ch) return { ok: false, reason: "nao_encontrado" };
+  // Atribuir uma tag que o catálogo não conhece a registra como livre (0067):
+  // criar é digitar o nome, e nenhuma tag em uso fica órfã de catálogo.
+  await query(
+    `insert into cs.tags (evento, nome, tipo, criado_por) values ('HM', $1, 'livre', $2)
+     on conflict (evento, nome) do nothing`,
+    [t, autor],
+  );
   // Já tem: nada a fazer — e nada a logar (timeline registra mudança, não gesto).
   if (ch.tem) return { ok: true, mudou: false };
   await query(`update cs.contatos_hm set tags = array_append(tags, $2), atualizado_em = now() where id = $1`, [ch.id, t]);
