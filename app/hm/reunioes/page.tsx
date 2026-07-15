@@ -26,8 +26,23 @@ function dt(v: string | null): Date | null {
   const d = new Date(v);
   return isNaN(d.getTime()) ? null : d;
 }
-function fmt(d: Date): string {
-  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+function hora(d: Date): string {
+  return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+// Rótulo do dia para o cabeçalho da agenda: "Hoje", "Amanhã", "Ontem" ou a data.
+function diaLabel(d: Date | null): string {
+  if (!d) return "Sem data marcada";
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const dia = new Date(d); dia.setHours(0, 0, 0, 0);
+  const diff = Math.round((dia.getTime() - hoje.getTime()) / 86400000);
+  if (diff === 0) return "Hoje";
+  if (diff === 1) return "Amanhã";
+  if (diff === -1) return "Ontem";
+  const s = d.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function diaKey(d: Date | null): string {
+  return d ? d.toISOString().slice(0, 10) : "sem-data";
 }
 
 type Quando = "proximas" | "passadas" | "todas";
@@ -82,6 +97,23 @@ export default function HmReunioesPage() {
         return quando === "proximas" ? ta - tb : tb - ta;
       });
   }, [reunioes, tipo, quando, agora]);
+
+  // A agenda agrupada por dia — cada dia é um cabeçalho, com suas marcações
+  // embaixo. É o que dá cara de agenda à lista (mais visual que a tabela plana).
+  const agenda = useMemo(() => {
+    const out: Array<{ kind: "dia"; label: string; key: string; n: number } | { kind: "reuniao"; r: Reuniao }> = [];
+    let ultimo = "";
+    let idxDia = -1;
+    for (const r of filtradas) {
+      const d = dt(r.quando);
+      const k = diaKey(d);
+      if (k !== ultimo) { out.push({ kind: "dia", label: diaLabel(d), key: k, n: 0 }); idxDia = out.length - 1; ultimo = k; }
+      const cab = out[idxDia];
+      if (cab.kind === "dia") cab.n += 1;
+      out.push({ kind: "reuniao", r });
+    }
+    return out;
+  }, [filtradas]);
 
   const abas: Array<{ id: Quando; label: string }> = [
     { id: "proximas", label: "Próximas" }, { id: "passadas", label: "Passadas" }, { id: "todas", label: "Todas" },
@@ -146,13 +178,24 @@ export default function HmReunioesPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtradas.map((r, i) => {
+                {agenda.map((item, i) => {
+                  if (item.kind === "dia") {
+                    return (
+                      <tr key={`dia-${item.key}`} className="bg-slate-50/80 dark:bg-slate-800/40">
+                        <td colSpan={7} className="px-4 py-1.5">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{item.label}</span>
+                          <span className="ml-2 text-[11px] font-normal text-slate-400 dark:text-slate-500">{item.n} {item.n === 1 ? "marcação" : "marcações"}</span>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  const r = item.r;
                   const d = dt(r.quando);
                   const futura = (d?.getTime() ?? 0) >= agora;
                   return (
                     <tr key={`${r.comprador_id}-${r.tipo}-${i}`} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800/60 dark:hover:bg-slate-800/40">
                       <td className="whitespace-nowrap px-4 py-2.5 tabular-nums">
-                        <span className={cn(futura ? "font-semibold text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-300")}>{d ? fmt(d) : "—"}</span>
+                        <span className={cn(futura ? "font-semibold text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-300")}>{d ? hora(d) : "—"}</span>
                       </td>
                       <td className="px-3 py-2.5">
                         <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium",
