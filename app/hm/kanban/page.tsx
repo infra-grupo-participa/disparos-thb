@@ -110,6 +110,32 @@ function indiceSobOCursor(e: DragEvent<HTMLDivElement>): number {
   return cards.length;
 }
 
+// Auto-scroll da coluna durante o arrasto. Sem isto, numa coluna alta (a de
+// entrevistas passa de 20 cards) o arrasto só alcança o que está visível — não dá
+// para levar o card lá para o fim, e parece que só se move "de quadrinho em
+// quadrinho". Enquanto o cursor fica na zona de borda (topo/base), a coluna rola
+// sozinha, num loop de requestAnimationFrame que a soltura/saída encerram.
+let rafAutoScroll: number | null = null;
+function pararAutoScroll() {
+  if (rafAutoScroll !== null) { cancelAnimationFrame(rafAutoScroll); rafAutoScroll = null; }
+}
+function autoScrollColuna(el: HTMLElement, clientY: number) {
+  pararAutoScroll();
+  const r = el.getBoundingClientRect();
+  const zona = 56; // px de borda que ativam a rolagem
+  let vel = 0;
+  if (clientY < r.top + zona) vel = -Math.ceil((r.top + zona - clientY) / 4);
+  else if (clientY > r.bottom - zona) vel = Math.ceil((clientY - (r.bottom - zona)) / 4);
+  if (vel === 0) return;
+  const passo = () => {
+    const antes = el.scrollTop;
+    el.scrollTop += vel;
+    if (el.scrollTop === antes) { rafAutoScroll = null; return; } // chegou ao topo/fim
+    rafAutoScroll = requestAnimationFrame(passo);
+  };
+  rafAutoScroll = requestAnimationFrame(passo);
+}
+
 // Aplica o movimento na lista local antes da resposta do servidor: tira o card e
 // o recoloca logo acima do vizinho (ou no fim da coluna, quando não há vizinho).
 // A tela filtra os cards por coluna preservando a ordem do array — é ela que
@@ -507,15 +533,22 @@ export default function HmKanbanPage() {
                       e.preventDefault();
                       const indice = indiceSobOCursor(e);
                       setAlvo((a) => (a?.col === col.chave && a.indice === indice ? a : { col: col.chave, indice }));
+                      // Rola a coluna quando o cursor encosta na borda — é o que
+                      // deixa arrastar até o fim de uma coluna longa.
+                      autoScrollColuna(e.currentTarget, e.clientY);
                     }}
                     onDragLeave={(e) => {
                       if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                      pararAutoScroll();
                       setAlvo((a) => (a?.col === col.chave ? null : a));
                     }}
                     onDrop={(e) => {
                       e.preventDefault();
+                      pararAutoScroll();
                       const card = arrastando.current;
-                      const indice = alvo?.col === col.chave ? alvo.indice : 0;
+                      // Recalcula a posição pelo cursor no momento do drop — com o
+                      // auto-scroll, o alvo guardado pode estar defasado.
+                      const indice = indiceSobOCursor(e);
                       arrastando.current = null;
                       setAlvo(null);
                       if (!card) return;
@@ -537,7 +570,7 @@ export default function HmKanbanPage() {
                             card={card}
                             espelho={ehEspelho(card, aba)}
                             onDragStart={() => { arrastando.current = card; }}
-                            onDragEnd={() => { arrastando.current = null; setAlvo(null); }}
+                            onDragEnd={() => { pararAutoScroll(); arrastando.current = null; setAlvo(null); }}
                             onAbrir={() => setSelecionado(card.comprador_id)}
                             onMenu={(x, y) => setMenu({ card, x, y })}
                             selecionavel={podeDisparar}
