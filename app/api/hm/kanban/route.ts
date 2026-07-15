@@ -58,8 +58,17 @@ export async function GET(req: Request) {
     f,
   );
 
+  // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já
+  // tem card. Assim um operador novo aparece no seletor de responsável antes da
+  // primeira atribuição — senão ninguém consegue atribuir a ele. A união preserva
+  // responsáveis legados que porventura não estejam mais em usuarios.
   const respRows = await query<{ responsavel: string }>(
-    `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> '' order by responsavel`,
+    `select responsavel from (
+        select nome as responsavel from cs.usuarios where ativo
+        union
+        select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''
+     ) u
+     order by responsavel`,
   );
   // `qtd` alimenta a régua de canais fixos: o placar do canal INTEIRO, sem os
   // filtros da tela — o número é "quantas vendas o evento fez", não "quantas

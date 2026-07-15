@@ -27,8 +27,16 @@ export async function GET(req: Request) {
 
   // As listas dos filtros saem da base inteira (não da fatia filtrada): um
   // seletor que só mostra o que já passou pelo filtro não deixa trocar de filtro.
+  // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já
+  // tem card — senão um operador novo nunca aparece para ser atribuído. A união
+  // preserva responsáveis legados fora de usuarios.
   const respRows = await query<{ responsavel: string }>(
-    `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> '' order by responsavel`,
+    `select responsavel from (
+        select nome as responsavel from cs.usuarios where ativo
+        union
+        select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''
+     ) u
+     order by responsavel`,
   );
   // `qtd` alimenta a régua de canais fixos — o placar do canal inteiro, sem os
   // filtros da tela (mesma regra da rota do kanban).
