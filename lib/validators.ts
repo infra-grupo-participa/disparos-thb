@@ -203,9 +203,11 @@ export const HmContatoPatchSchema = z.object({
   marcar_pagamento: z.boolean().optional(),
   // desfazer o último movimento de etapa (miss click)
   reverter: z.boolean().optional(),
-  // desfazer a última EDIÇÃO de campo da ficha (A2) — distinto de `reverter`, que
-  // é o movimento de etapa. Restaura o snapshot e some (passo único).
+  // desfazer a última EDIÇÃO de campo da ficha — atalho para recuperar a versão
+  // mais recente. Distinto de `reverter`, que é o movimento de etapa.
   desfazer_edicao: z.boolean().optional(),
+  // recuperar uma versão específica do histórico (0097) — o id da versão.
+  restaurar_versao: z.number().int().positive().optional(),
 });
 // ----- Sócios do HM (aba "SÓCIOS T39") -----
 // O sócio tem checklist próprio: ele também é ativado, pendurado no titular.

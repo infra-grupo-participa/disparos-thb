@@ -43,14 +43,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok, reason: ok ? undefined : "sem_movimento_para_reverter" });
   }
 
-  // Desfazer a última EDIÇÃO de campo (A2) — também isolada. Restaura o snapshot
-  // que foi tirado antes daquela edição e some (não dá para desfazer duas vezes).
-  if (b.desfazer_edicao) {
+  // Histórico de versões (0097). Desfazer = recuperar a versão mais recente;
+  // restaurar_versao recupera uma específica. Ambos por cs.fn_hm_versao_restaurar.
+  if (b.desfazer_edicao || b.restaurar_versao !== undefined) {
     const r = await queryOne<{ res: { ok: boolean; reason?: string } }>(
-      `select cs.fn_hm_undo_aplicar($1, $2) as res`, [compradorId, operador],
+      `select cs.fn_hm_versao_restaurar($1, $2, $3) as res`,
+      [compradorId, b.restaurar_versao ?? null, operador],
     );
-    const res = r?.res ?? { ok: false, reason: "nada_a_desfazer" };
-    return NextResponse.json({ ok: res.ok === true, reason: res.ok ? undefined : (res.reason ?? "nada_a_desfazer") });
+    const res = r?.res ?? { ok: false, reason: "nada_a_recuperar" };
+    return NextResponse.json({ ok: res.ok === true, reason: res.ok ? undefined : (res.reason ?? "nada_a_recuperar") });
   }
 
   // Campos simples da ficha (atualiza só os enviados; string vazia limpa).

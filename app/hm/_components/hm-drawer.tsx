@@ -167,8 +167,9 @@ export function HmDrawer({
   const [socios, setSocios] = useState<Socio[]>([]);
   const [novoSocio, setNovoSocio] = useState({ nome: "", email: "", telefone: "" });
   const [catalogoTags, setCatalogoTags] = useState<TagOpcao[]>([]);
-  // A última edição desfazível (A2). Vem da ficha; some ao desfazer.
-  const [undo, setUndo] = useState<{ resumo: string; criado_em: string } | null>(null);
+  // O histórico de versões da ficha (0097) — ver e recuperar, como na planilha.
+  const [versoes, setVersoes] = useState<Array<{ id: number; resumo: string; autor: string | null; criado_em: string }>>([]);
+  const [historicoAberto, setHistoricoAberto] = useState(false);
   // Guarda de qual card já teve os rascunhos locais inicializados — impede que o
   // recarregar pós-ação atropele o que a pessoa está digitando (A3).
   const rascunhoIniciado = useRef<string | null>(null);
@@ -186,7 +187,7 @@ export function HmDrawer({
       setLinks(d.linksSaldo ?? []);
       setSocios(d.socios ?? []);
       setAgendamentos(d.agendamentos ?? []);
-      setUndo(d.undo ?? null);
+      setVersoes(d.versoes ?? []);
       setMotivoAgenda("");
       // Rascunhos locais (só gravam no blur): inicializados UMA VEZ por abertura,
       // não a cada recarregar. Senão avançar a etapa — que dispara recarregar —
@@ -371,24 +372,54 @@ export function HmDrawer({
                 </div>
               )}
 
-              {/* Desfazer a última edição de campo (A2). Aparece só quando há o que
-                  desfazer; some assim que a pessoa desfaz. É a rede de segurança
-                  para o valor sobrescrito por engano. */}
-              {undo && (
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-500/25 dark:bg-amber-500/10">
-                  <span className="min-w-0 text-xs text-amber-800 dark:text-amber-200">
-                    Última edição: <span className="font-medium">{undo.resumo}</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => patch({ desfazer_edicao: true })}
-                    disabled={salvando}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50 dark:text-amber-200 dark:hover:bg-amber-500/15"
-                    title="Restaurar os valores anteriores a esta edição"
-                  >
-                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" /></svg>
-                    Desfazer
-                  </button>
+              {/* Histórico de versões (0097) — como na planilha: ver as versões e
+                  recuperar qualquer uma. A rede de segurança para o valor
+                  sobrescrito por engano. "Desfazer" é o atalho da mais recente. */}
+              {versoes.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-500/25 dark:bg-amber-500/10">
+                  <div className="flex items-center justify-between gap-2 px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setHistoricoAberto((v) => !v)}
+                      className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200"
+                      title="Ver o histórico de versões da ficha"
+                    >
+                      <svg className={cn("h-3.5 w-3.5 shrink-0 transition-transform", historicoAberto && "rotate-90")} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+                      Histórico de versões ({versoes.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => patch({ desfazer_edicao: true })}
+                      disabled={salvando}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50 dark:text-amber-200 dark:hover:bg-amber-500/15"
+                      title="Recuperar a versão mais recente"
+                    >
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" /></svg>
+                      Desfazer
+                    </button>
+                  </div>
+                  {historicoAberto && (
+                    <ul className="max-h-56 overflow-y-auto border-t border-amber-200/70 px-1 py-1 dark:border-amber-500/20">
+                      {versoes.map((v) => (
+                        <li key={v.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-amber-100/60 dark:hover:bg-amber-500/10">
+                          <span className="min-w-0 text-[11px] text-amber-900/90 dark:text-amber-100/90">
+                            <span className="font-medium tabular-nums">{fmt(v.criado_em)}</span>
+                            {v.autor && <span className="text-amber-700/80 dark:text-amber-200/70"> · {v.autor}</span>}
+                            <span className="block truncate opacity-80">{v.resumo}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => patch({ restaurar_versao: v.id })}
+                            disabled={salvando}
+                            className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-amber-800 transition hover:bg-amber-200/70 disabled:opacity-50 dark:text-amber-200 dark:hover:bg-amber-500/20"
+                            title="Restaurar o card para esta versão"
+                          >
+                            Recuperar
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
 

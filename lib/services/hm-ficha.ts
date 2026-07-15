@@ -16,8 +16,8 @@ export type FichaHm = {
   financeiro: Record<string, unknown> | null;
   /** Todas as marcações de reunião/entrevista — inclusive as que foram remarcadas. */
   agendamentos: Record<string, unknown>[];
-  /** A última edição desfazível (A2), se houver — alimenta o botão "Desfazer edição". */
-  undo: { resumo: string; autor: string | null; criado_em: string } | null;
+  /** O histórico de versões da ficha (0097) — como a planilha: ver e recuperar. */
+  versoes: { id: number; resumo: string; autor: string | null; criado_em: string }[];
 };
 
 // Retorna null quando o comprador não tem card HM.
@@ -117,14 +117,16 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
     [compradorId],
   );
 
-  // A última edição desfazível (0095). Existe só entre uma edição e o próximo
-  // desfazer/edição — some assim que a pessoa desfaz.
-  const undo = await queryOne<{ resumo: string; autor: string | null; criado_em: string }>(
-    `select u.resumo, u.autor, u.criado_em
-       from cs.hm_undo u join cs.contatos_hm ch on ch.id = u.contato_hm_id
-      where ch.comprador_id = $1`,
+  // O histórico de versões (0097) — a lista que a ficha mostra para ver e
+  // recuperar, como na planilha. As mais recentes primeiro; o teto de 30 por card
+  // é aplicado na escrita.
+  const versoes = await query<{ id: number; resumo: string; autor: string | null; criado_em: string }>(
+    `select v.id, v.resumo, v.autor, v.criado_em
+       from cs.hm_versoes v join cs.contatos_hm ch on ch.id = v.contato_hm_id
+      where ch.comprador_id = $1
+      order by v.criado_em desc, v.id desc`,
     [compradorId],
   );
 
-  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, agendamentos, undo };
+  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, agendamentos, versoes };
 }
