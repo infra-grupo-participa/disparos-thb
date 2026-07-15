@@ -45,8 +45,10 @@ export type LinhaEsteira = {
   // ----- compromissos -----
   reuniao_em: QuandoHm;
   reuniao_resultado: string | null;
+  reuniao_gravacao_url: string | null;
   entrevista_em: QuandoHm;
   entrevista_resultado: string | null;
+  entrevista_gravacao_url: string | null;
   // ----- acordo do saldo (o que só o operador sabe) -----
   pagamento_meio: string | null;
   pagamento_previsto_em: QuandoHm;
@@ -162,7 +164,8 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
     `select k.comprador_id, k.nome, k.email, k.telefone,
             k.estagio_chave, k.estagio_nome, k.estagio_aba, est.ordem as estagio_ordem,
             k.responsavel, k.categoria_entrada, k.plano, k.turma, k.turma_origem, k.tags,
-            k.reuniao_em, k.reuniao_resultado, k.entrevista_em, k.entrevista_resultado,
+            k.reuniao_em, k.reuniao_resultado, k.reuniao_gravacao_url,
+            k.entrevista_em, k.entrevista_resultado, k.entrevista_gravacao_url,
             k.pagamento_meio, k.pagamento_previsto_em, k.acordo, k.oferta_saldo_codigo, k.link_saldo_enviado_em,
             k.sinal_pago_em, k.sinal_valor,
             k.pagamento_em, k.pagamento_forma, k.pagamento_parcelas, k.apto_ativacao,

@@ -12,10 +12,11 @@ export type FiltrosVisaoHm = { responsavel?: string[]; canal?: string[]; turma?:
 const VISOES = [
   { id: "kanban", label: "Kanban", rota: "/hm/kanban" },
   { id: "tabela", label: "Tabela", rota: "/hm/tabela" },
+  { id: "reunioes", label: "Reuniões", rota: "/hm/reunioes" },
   { id: "atividade", label: "Atividade", rota: "/hm/atividade" },
 ] as const;
 
-export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela" | "atividade"; filtros: FiltrosVisaoHm }) {
+export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela" | "atividade" | "reunioes"; filtros: FiltrosVisaoHm }) {
   // Filtro multi-valor = parâmetro repetido (?canal=A&canal=B) — o formato que
   // as rotas leem com getAll.
   const params = new URLSearchParams();
@@ -39,6 +40,8 @@ export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela" | "ativ
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="14" rx="1.5" /><rect x="14" y="3" width="7" height="9" rx="1.5" /></svg>
           ) : v.id === "tabela" ? (
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
+          ) : v.id === "reunioes" ? (
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
           ) : (
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="M7 14l3-3 3 3 5-6" /></svg>
           );

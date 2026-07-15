@@ -17,8 +17,8 @@ type Contato = {
   comprador_id: string; nome: string; email: string | null; telefone: string | null;
   turma: string | null; turma_origem: string | null; plano: string | null; categoria_entrada: string | null;
   estagio_chave: string | null; estagio_nome: string | null; estagio_aba: string | null; responsavel: string | null;
-  reuniao_em: string | null; reuniao_resultado: string | null;
-  entrevista_em: string | null; entrevista_resultado: string | null;
+  reuniao_em: string | null; reuniao_resultado: string | null; reuniao_gravacao_url: string | null;
+  entrevista_em: string | null; entrevista_resultado: string | null; entrevista_gravacao_url: string | null;
   pagamento_em: string | null; pagamento_forma: string | null; apto_ativacao: boolean; tags: string[] | null;
   // acordo do saldo
   pagamento_meio: string | null; pagamento_previsto_em: string | null; acordo: string | null;
@@ -463,6 +463,11 @@ export function HmDrawer({
                   <option value="">— Status da reunião —</option>
                   {RESULTADOS.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
+                <LinkGravacao
+                  atual={c.reuniao_gravacao_url}
+                  disabled={salvando}
+                  onSalvar={(v) => patch({ reuniao_gravacao_url: v })}
+                />
               </BlocoAgendamento>
 
               {/* ACORDO DO SALDO — o gargalo. Na planilha isto era "Como vai pagar
@@ -581,7 +586,13 @@ export function HmDrawer({
                 salvando={salvando}
                 onSalvar={(quando, motivo) => patch({ entrevista_em: quando, agendamento_motivo: motivo })}
                 onFechar={(status) => patch({ agendamento_tipo: "entrevista", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
-              />
+              >
+                <LinkGravacao
+                  atual={c.entrevista_gravacao_url}
+                  disabled={salvando}
+                  onSalvar={(v) => patch({ entrevista_gravacao_url: v })}
+                />
+              </BlocoAgendamento>
 
               {/* CHECKLIST DE ATIVAÇÃO — as 4 colunas TRUE/FALSE da planilha.
                   Juntas elas SÃO "ativado": é o que abre a porta de "Ativação
@@ -1042,6 +1053,39 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</label>
       {children}
+    </div>
+  );
+}
+
+// O link da gravação, ao lado da marcação (C1). Salva no blur (evita um PATCH por
+// tecla) e, quando há link, mostra o "▶" que abre a gravação numa aba. `key`
+// força o input a refletir o valor recém-salvo depois do recarregar da ficha.
+function LinkGravacao({ atual, disabled, onSalvar }: {
+  atual: string | null; disabled: boolean; onSalvar: (v: string | null) => void;
+}) {
+  return (
+    <div className="mt-1.5 flex items-center gap-1.5">
+      <input
+        key={atual ?? ""}
+        type="url"
+        defaultValue={atual ?? ""}
+        disabled={disabled}
+        onBlur={(e) => { const v = e.target.value.trim(); if (v !== (atual ?? "")) onSalvar(v || null); }}
+        placeholder="Link da gravação (Meet/Zoom…)"
+        className={cn(fieldClass, "flex-1")}
+      />
+      {atual && (
+        <a
+          href={atual}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 rounded-md border border-slate-300 px-2.5 py-2 text-xs font-medium text-brand transition hover:bg-brand/5 dark:border-slate-700"
+          title="Abrir a gravação"
+        >
+          ▶ Ver
+        </a>
+      )}
     </div>
   );
 }

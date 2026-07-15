@@ -145,8 +145,10 @@ export const HmContatoPatchSchema = z.object({
   plano: z.string().nullable().optional(),
   reuniao_em: z.string().nullable().optional(),
   reuniao_resultado: z.string().nullable().optional(),
+  reuniao_gravacao_url: z.string().nullable().optional(),
   entrevista_em: z.string().nullable().optional(),
   entrevista_resultado: z.string().nullable().optional(),
+  entrevista_gravacao_url: z.string().nullable().optional(),
   // ----- agendamento / reagendamento -----
   // Mudar reuniao_em/entrevista_em quando já havia data É um reagendamento: o
   // motivo explica por que a marcação anterior caiu, e o histórico guarda as duas.

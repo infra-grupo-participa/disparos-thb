@@ -63,7 +63,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.observacoes !== undefined) add("observacoes", b.observacoes);
   if (b.plano !== undefined) add("plano", b.plano);
   if (b.reuniao_resultado !== undefined) add("reuniao_resultado", b.reuniao_resultado);
+  if (b.reuniao_gravacao_url !== undefined) add("reuniao_gravacao_url", b.reuniao_gravacao_url);
   if (b.entrevista_resultado !== undefined) add("entrevista_resultado", b.entrevista_resultado);
+  if (b.entrevista_gravacao_url !== undefined) add("entrevista_gravacao_url", b.entrevista_gravacao_url);
   // reuniao_em / entrevista_em NÃO são escritas aqui: passam por agendarHm, que
   // sabe distinguir marcar de REMARCAR (e guarda a marcação anterior).
   if (b.tags !== undefined) { sets.push(`tags = $${vals.length + 1}`); vals.push(b.tags); }
@@ -232,6 +234,7 @@ function resumoEdicao(b: Record<string, unknown>): string {
   if (b.turma !== undefined) p.push("turma");
   if (b.responsavel !== undefined) p.push("responsável");
   if (b.reuniao_resultado !== undefined || b.entrevista_resultado !== undefined) p.push("resultado da reunião");
+  if (b.reuniao_gravacao_url !== undefined || b.entrevista_gravacao_url !== undefined) p.push("gravação");
   if (b.cancelamento_motivo !== undefined) p.push("motivo do cancelamento");
   if (b.link_facebook !== undefined) p.push("Facebook");
   return p.length ? p.join(", ") : "edição da ficha";

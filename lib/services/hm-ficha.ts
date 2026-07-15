@@ -25,7 +25,8 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
   const contato = await queryOne<ContatoHmFicha>(
     `select comprador_id, nome, email, telefone, turma, turma_origem, plano, categoria_entrada,
             estagio_chave, estagio_nome, estagio_aba, responsavel,
-            reuniao_em, reuniao_resultado, entrevista_em, entrevista_resultado,
+            reuniao_em, reuniao_resultado, reuniao_gravacao_url,
+            entrevista_em, entrevista_resultado, entrevista_gravacao_url,
             pagamento_forma, pagamento_parcelas, pagamento_em, apto_ativacao,
             pagamento_meio, pagamento_previsto_em, acordo, oferta_saldo_codigo, link_saldo_enviado_em,
             nao_contatar, nao_contatar_motivo, revisar, revisar_motivo,
