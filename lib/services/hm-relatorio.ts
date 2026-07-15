@@ -116,6 +116,12 @@ export type LinhaEsteira = {
   hotmart_cancelado_em: QuandoHm;
   hotmart_cancelamento_evento: string | null;
   hotmart_cancelamento_transacao: string | null;
+  // A situação da compra HM na Hotmart e o canal de aquisição (0094). O status é
+  // o FATO (APPROVED/REFUNDED/PROTESTED/EXPIRED…), ao lado da nossa `situacao`
+  // derivada. O canal vem das tags "pelo fato" (0052) — nunca do texto da oferta.
+  hotmart_status: string | null;
+  hotmart_status_em: QuandoHm;
+  canal_aquisicao: string | null;
   acessos_revogados_em: QuandoHm;
   acessos_revogados_por: string | null;
   criado_em: QuandoHm;
@@ -173,6 +179,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             k.cancelamento_em, k.cancelamento_motivo,
             k.cancelamento_efetivado_em, k.cancelamento_origem,
             k.hotmart_cancelado_em, k.hotmart_cancelamento_evento, k.hotmart_cancelamento_transacao,
+            k.hotmart_status, k.hotmart_status_em, k.canal_aquisicao,
             k.acessos_revogados_em, k.acessos_revogados_por,
             k.criado_em, k.observacoes,
             so.qtd as socios,

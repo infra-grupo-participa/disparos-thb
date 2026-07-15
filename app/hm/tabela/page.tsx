@@ -110,6 +110,27 @@ const EVENTO_CURTO: Record<string, string> = {
   PURCHASE_CANCELED: "Cancelada",
   SUBSCRIPTION_CANCELLATION: "Assinatura",
 };
+
+// A situação da compra HM na Hotmart (0094) — o FATO, ao lado da nossa leitura.
+// `ok` verde = dinheiro dentro; os demais são graus de problema.
+const STATUS_HOTMART: Record<string, { label: string; tom: "ok" | "espera" | "ruim" }> = {
+  APPROVED: { label: "Aprovada", tom: "ok" },
+  COMPLETE: { label: "Concluída", tom: "ok" },
+  COMPLETED: { label: "Concluída", tom: "ok" },
+  PRINTED_BILLET: { label: "Boleto impresso", tom: "espera" },
+  BILLET_PRINTED: { label: "Boleto impresso", tom: "espera" },
+  WAITING_PAYMENT: { label: "Aguardando pagamento", tom: "espera" },
+  EXPIRED: { label: "Expirada", tom: "ruim" },
+  REFUNDED: { label: "Reembolsada", tom: "ruim" },
+  CHARGEBACK: { label: "Chargeback", tom: "ruim" },
+  PROTESTED: { label: "Protestada", tom: "ruim" },
+  CANCELED: { label: "Cancelada", tom: "ruim" },
+};
+const TOM_STATUS: Record<"ok" | "espera" | "ruim", string> = {
+  ok: "text-emerald-600 dark:text-emerald-400",
+  espera: "text-amber-600 dark:text-amber-400",
+  ruim: "font-semibold text-rose-600 dark:text-rose-400",
+};
 // "há 2h", "ontem", "há 5 dias" — quem olha a fila quer saber se é recente, não a
 // data exata (essa fica no title).
 function haQuanto(d: Date): string {
@@ -325,13 +346,13 @@ const PRESETS: Record<VisaoId, string[]> = {
   agenda: ["nome", "responsavel", "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas", "no_shows"],
   // A visão da Jusy/Isabela: a história financeira em linha — sinal → o que já
   // entrou → parcelas → o que falta → cancelamento (ordem decidida em 14/07).
-  financeiro: ["nome", "origem", "sinal_pago_em", "recebido", "parcelas", "saldo", "ultimo_pagamento", "forma_obs", "cancelado", "hotmart_cancelado", "cancelamento_em"],
+  financeiro: ["nome", "origem", "sinal_pago_em", "recebido", "parcelas", "saldo", "situacao_hotmart", "ultimo_pagamento", "forma_obs", "cancelado", "hotmart_cancelado", "cancelamento_em"],
   // A auditoria: as colunas do XLSX, na mesma ordem (+ a Turma atual, editável).
   tudo: ["nome", "telefone", "email", "etapa", "esteira", "dias", "responsavel", "entrada", "turma_origem", "turma",
     "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas",
     "no_shows", "sinal_pago_em", "sinal_valor", "meio", "previsao", "acordo", "link", "saldo", "credito", "valor_total", "recebido", "parcelas", "ultimo_pagamento", "pagamento_em",
     "apto", "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa", "pendencia", "nao_contatar", "revisar",
-    "socios", "cancelado", "hotmart_cancelado", "cancelamento_em", "cancelamento_motivo", "na_base", "tags"],
+    "socios", "cancelado", "situacao_hotmart", "hotmart_cancelado", "cancelamento_em", "cancelamento_motivo", "na_base", "tags"],
 };
 
 // --------------------------------------------------------------------- página
@@ -1005,6 +1026,22 @@ export default function HmTabelaPage() {
     },
     valor_total: { id: "valor_total", label: "Valor total", dir: true, sortVal: (l) => num(l.valor_total), render: (l) => <Dinheiro v={num(l.valor_total)} /> },
     valor_pago: { id: "valor_pago", label: "Valor pago", dir: true, sortVal: (l) => num(l.valor_pago), render: (l) => <Dinheiro v={num(l.valor_pago)} /> },
+    // A situação da compra HM NA HOTMART — o fato do dinheiro, ao lado da nossa
+    // `saldo`/`situacao` derivada. Aprovada/Concluída = entrou; Reembolsada/
+    // Protestada/Expirada = alguém precisa olhar. Vincula ao que consta na Hotmart.
+    situacao_hotmart: {
+      id: "situacao_hotmart", label: "Situação Hotmart",
+      sortVal: (l) => l.hotmart_status ?? null,
+      render: (l) => {
+        if (!l.hotmart_status) return <span>—</span>;
+        const s = STATUS_HOTMART[l.hotmart_status] ?? { label: l.hotmart_status, tom: "espera" as const };
+        return (
+          <span className={cn("whitespace-nowrap", TOM_STATUS[s.tom])} title={`Status na Hotmart da compra HM${l.hotmart_status_em ? ` — ${fmtData(l.hotmart_status_em)}` : ""}`}>
+            {s.label}
+          </span>
+        );
+      },
+    },
     // ----- a história financeira em linha (visão da Jusy/Isabela) -----
     // Origem = as tags de canal do card (sem turma e sem público): de onde a
     // venda veio. É fato derivado — quem muda canal é tag, não célula.

@@ -86,6 +86,13 @@ const EVENTO: Record<string, string> = {
   PURCHASE_CANCELED: "Compra cancelada",
   SUBSCRIPTION_CANCELLATION: "Assinatura cancelada",
 };
+// A situação da compra HM na Hotmart (0094) — o fato do dinheiro.
+const STATUS_HM: Record<string, string> = {
+  APPROVED: "Aprovada", COMPLETE: "Concluída", COMPLETED: "Concluída",
+  PRINTED_BILLET: "Boleto impresso", BILLET_PRINTED: "Boleto impresso",
+  WAITING_PAYMENT: "Aguardando pagamento", EXPIRED: "Expirada",
+  REFUNDED: "Reembolsada", CHARGEBACK: "Chargeback", PROTESTED: "Protestada", CANCELED: "Cancelada",
+};
 
 type Col<T> = { header: string; width: number; get: (x: T) => unknown; fmt?: "data" | "datahora" | "dinheiro" | "pct" };
 
@@ -196,6 +203,21 @@ function resumo(wb: ExcelJS.Workbook, r: RelatorioFinanceiroHm, agora: Date) {
     ];
   }), { dinheiro: [3, 4] });
 
+  // ----- por canal de aquisição (B1) -----
+  // "Quanto de quanto": total de vendas e o que entrou, por onde a pessoa entrou.
+  // O canal é a tag "pelo fato" (0052), materializada na view (0094) — nunca o
+  // texto da oferta. Quem não tem canal classificado aparece (não some do total).
+  const canais = Array.from(new Set(r.linhas.map((l) => l.canal_aquisicao ?? "não identificado")));
+  const totalRecebido = r.linhas.reduce((a, l) => a + (n(l.valor_pago) ?? 0), 0);
+  secao(ws, "POR CANAL DE AQUISIÇÃO", ["Canal", "Vendas", "Recebido", "% do recebido"], canais
+    .map((c) => {
+      const ls = r.linhas.filter((l) => (l.canal_aquisicao ?? "não identificado") === c);
+      const receb = ls.reduce((a, l) => a + (n(l.valor_pago) ?? 0), 0);
+      return [c, ls.length, receb, totalRecebido ? receb / totalRecebido : null] as unknown[];
+    })
+    .sort((a, b) => (b[2] as number) - (a[2] as number)),
+    { dinheiro: [3], pct: [4] });
+
   // ----- parcelamento -----
   // Contratadas é o que a pessoa assinou; pagas é o que entrou. A diferença é a
   // inadimplência — por isso as duas andam juntas, nunca só o total.
@@ -251,7 +273,7 @@ function secao(
   titulo: string,
   cabecalho: string[],
   linhas: unknown[][],
-  opts: { dinheiro?: number[]; destacarUltima?: boolean; alertaSe?: (i: number) => boolean },
+  opts: { dinheiro?: number[]; pct?: number[]; destacarUltima?: boolean; alertaSe?: (i: number) => boolean },
 ) {
   ws.addRow([]);
   const t = ws.addRow([titulo]);
@@ -269,6 +291,10 @@ function secao(
     for (const c of opts.dinheiro ?? []) {
       const cel = linha.getCell(c);
       if (typeof cel.value === "number") cel.numFmt = DINHEIRO;
+    }
+    for (const c of opts.pct ?? []) {
+      const cel = linha.getCell(c);
+      if (typeof cel.value === "number") cel.numFmt = "0.0%";
     }
     if (opts.destacarUltima && i === linhas.length - 1) {
       linha.font = { bold: true };
@@ -295,6 +321,8 @@ const COLS_CARTEIRA: Col<LinhaEsteira>[] = [
   { header: "E-mail", width: 28, get: (l) => txt(l.email) },
   { header: "Turma", width: 14, get: (l) => txt(l.turma) },
   { header: "Público", width: 15, get: (l) => PUBLICO[l.publico ?? "nao_classificado"] ?? "—" },
+  { header: "Canal de aquisição", width: 20, get: (l) => txt(l.canal_aquisicao) },
+  { header: "Situação Hotmart", width: 16, get: (l) => (l.hotmart_status ? STATUS_HM[l.hotmart_status] ?? l.hotmart_status : "—") },
   { header: "Etapa", width: 22, get: (l) => txt(l.estagio_nome) },
   { header: "Responsável", width: 16, get: (l) => txt(l.responsavel) },
   { header: "Situação", width: 20, get: (l) => SITUACAO[l.situacao_financeira ?? ""] ?? txt(l.situacao_financeira) },
