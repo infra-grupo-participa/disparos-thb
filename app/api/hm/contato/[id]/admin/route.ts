@@ -33,6 +33,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   const mudancas: string[] = [];
 
+  // Snapshot para o "Desfazer edição" (A2) — só quando a edição toca campo do
+  // card (financeiro/datas/turma). Alterar só nome/e-mail/telefone não gera undo:
+  // esses vivem em compradores, fora do alcance do desfazer.
+  const tocaCard = b.valor_total !== undefined || b.valor_pago !== undefined
+    || b.pagamento_em !== undefined || b.cancelamento_em !== undefined || b.turma_origem !== undefined;
+  if (tocaCard) {
+    await query(`select cs.fn_hm_undo_registrar($1, $2, $3)`, [compradorId, "edição administrativa", sessao.nome || "admin"]);
+  }
+
   // Identidade + financeiro — na fonte, via definer.
   if (b.nome !== undefined || b.email !== undefined || b.telefone !== undefined || b.valor_total !== undefined || b.valor_pago !== undefined) {
     await queryOne(

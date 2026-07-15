@@ -43,6 +43,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok, reason: ok ? undefined : "sem_movimento_para_reverter" });
   }
 
+  // Desfazer a última EDIÇÃO de campo (A2) — também isolada. Restaura o snapshot
+  // que foi tirado antes daquela edição e some (não dá para desfazer duas vezes).
+  if (b.desfazer_edicao) {
+    const r = await queryOne<{ res: { ok: boolean; reason?: string } }>(
+      `select cs.fn_hm_undo_aplicar($1, $2) as res`, [compradorId, operador],
+    );
+    const res = r?.res ?? { ok: false, reason: "nada_a_desfazer" };
+    return NextResponse.json({ ok: res.ok === true, reason: res.ok ? undefined : (res.reason ?? "nada_a_desfazer") });
+  }
+
   // Campos simples da ficha (atualiza só os enviados; string vazia limpa).
   const sets: string[] = [];
   const vals: unknown[] = [atual.id];
@@ -113,6 +123,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.credito_valor_pago !== undefined) add("credito_valor_pago", b.credito_valor_pago);
   if (b.credito_dias_totais !== undefined) add("credito_dias_totais", b.credito_dias_totais);
   if (b.credito_compra_em !== undefined) sets.push(`credito_compra_em = ${b.credito_compra_em ? `$${vals.push(b.credito_compra_em)}::date` : "null"}`);
+
+  // Snapshot para o "Desfazer edição" (A2): guarda o estado ANTES de aplicar os
+  // campos. Só quando há edição de campo — mudança de etapa e agendamento têm
+  // desfazer próprio e não entram aqui.
+  if (sets.length || b.responsavel !== undefined) {
+    await query(`select cs.fn_hm_undo_registrar($1, $2, $3)`, [compradorId, resumoEdicao(b), operador]);
+  }
 
   if (sets.length) {
     await query(`update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now() where id = $1`, vals);
@@ -199,4 +216,23 @@ function fmtBr(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+// Rótulo curto do que a edição mudou — vira o texto do botão "Desfazer edição"
+// e a nota na timeline. Genérico quando não bate nenhum grupo conhecido.
+function resumoEdicao(b: Record<string, unknown>): string {
+  const p: string[] = [];
+  if (b.observacoes !== undefined) p.push("observações");
+  if (b.acordo !== undefined || b.pagamento_meio !== undefined || b.oferta_saldo_codigo !== undefined || b.pagamento_previsto_em !== undefined || b.link_saldo_enviado !== undefined) p.push("acordo do saldo");
+  if (b.credito_oferta !== undefined || b.credito_valor_pago !== undefined || b.credito_dias_totais !== undefined || b.credito_compra_em !== undefined) p.push("crédito pró-rata");
+  if (b.ativ_searchie !== undefined || b.ativ_comunidade !== undefined || b.ativ_grupo !== undefined || b.ativ_pesquisa !== undefined || b.grupo_informes !== undefined || b.pendencia !== undefined) p.push("ativação");
+  if (b.rev_searchie !== undefined || b.rev_comunidade !== undefined || b.rev_grupo !== undefined || b.rev_pesquisa !== undefined) p.push("revogação");
+  if (b.nao_contatar !== undefined || b.revisar !== undefined) p.push("travas");
+  if (b.tags !== undefined) p.push("tags");
+  if (b.turma !== undefined) p.push("turma");
+  if (b.responsavel !== undefined) p.push("responsável");
+  if (b.reuniao_resultado !== undefined || b.entrevista_resultado !== undefined) p.push("resultado da reunião");
+  if (b.cancelamento_motivo !== undefined) p.push("motivo do cancelamento");
+  if (b.link_facebook !== undefined) p.push("Facebook");
+  return p.length ? p.join(", ") : "edição da ficha";
 }
