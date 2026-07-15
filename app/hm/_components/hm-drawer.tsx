@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial, Avatar } from "@/app/_components/avatar";
@@ -169,6 +169,9 @@ export function HmDrawer({
   const [catalogoTags, setCatalogoTags] = useState<TagOpcao[]>([]);
   // A última edição desfazível (A2). Vem da ficha; some ao desfazer.
   const [undo, setUndo] = useState<{ resumo: string; criado_em: string } | null>(null);
+  // Guarda de qual card já teve os rascunhos locais inicializados — impede que o
+  // recarregar pós-ação atropele o que a pessoa está digitando (A3).
+  const rascunhoIniciado = useRef<string | null>(null);
 
   const recarregar = useCallback(async () => {
     const r = await fetch(`/api/hm/contato/${compradorId}`);
@@ -185,10 +188,17 @@ export function HmDrawer({
       setAgendamentos(d.agendamentos ?? []);
       setUndo(d.undo ?? null);
       setMotivoAgenda("");
-      setAcordo(d.contato.acordo ?? "");
-      setPrevisao(d.contato.pagamento_previsto_em?.slice(0, 10) ?? "");
-      setPendencia(d.contato.pendencia ?? "");
-      setGrupo(d.contato.grupo_informes ?? "");
+      // Rascunhos locais (só gravam no blur): inicializados UMA VEZ por abertura,
+      // não a cada recarregar. Senão avançar a etapa — que dispara recarregar —
+      // sobrescreveria o acordo/pendência que a pessoa está digitando com o valor
+      // antigo do servidor, e o dado lançado sumiria (era o bug do "avançar apaga").
+      if (rascunhoIniciado.current !== compradorId) {
+        setAcordo(d.contato.acordo ?? "");
+        setPrevisao(d.contato.pagamento_previsto_em?.slice(0, 10) ?? "");
+        setPendencia(d.contato.pendencia ?? "");
+        setGrupo(d.contato.grupo_informes ?? "");
+        rascunhoIniciado.current = compradorId;
+      }
       // Pré-preenche o formulário de pagamento com a sugestão do servidor
       // (15.000 para quem entrou pelo sinal). À vista => pago = total.
       const sugestao = num(d.financeiro?.valor_total) || num(d.financeiro?.sugestao_valor_total);
