@@ -119,6 +119,23 @@ export const HmMoverSchema = z.object({
   antesDe: id.nullable().optional(),
 });
 
+// Cadastro manual na esteira HM. O e-mail é obrigatório de propósito: é a chave
+// que casa com o que o webhook da Hotmart já gravou (evita criar um comprador
+// duplicado de alguém que a Hotmart mandou com outra grafia de nome). O resto é
+// opcional — o operador registra com o que tem na mão e completa depois na ficha.
+export const HmCadastroSchema = z.object({
+  nome: z.string().trim().min(1, "informe o nome"),
+  email: z.string().trim().min(1, "informe o e-mail").email("e-mail inválido"),
+  telefone: z.string().trim().optional(),
+  documento: z.string().trim().optional(),
+  turma: z.string().trim().optional(),
+  categoria: z.enum(["sinal", "compra_cheia"]).nullable().optional(),
+  responsavel: z.string().trim().nullable().optional(),
+  // Onde alocar. Padrão no serviço: "Contato Inicial" do comercial (a entrada do
+  // funil). Restrito às duas entradas que fazem sentido para um cadastro novo.
+  estagio_chave: z.enum(["hm_comprou", "hm_pendente_liberacao"]).optional(),
+});
+
 export const HmContatoPatchSchema = z.object({
   estagio_chave: z.string().optional(),
   responsavel: z.string().nullable().optional(),

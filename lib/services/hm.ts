@@ -657,3 +657,47 @@ export async function removeTagHm(compradorId: string, tag: string, autor = "cs"
   await addInteracaoHm(ch.id, "sistema", `Tag removida: "${t}"`, autor);
   return { ok: true, mudou: true };
 }
+
+// Cadastro manual na esteira HM — a porta para quem o seed não pegou (o boleto
+// do sinal que só é aprovado num UPDATE, que a trigger AFTER INSERT não vê) e
+// para quem entra sem compra na Hotmart (indicação, acordo por fora). Delega ao
+// banco (cs.fn_hm_cadastrar_manual): achar/criar o comprador e garantir o card
+// são uma transação só, idempotente por comprador. Devolve o comprador_id para
+// a tela abrir a ficha logo em seguida.
+export type CadastroManualHm = {
+  ok: boolean;
+  reason?: string;
+  compradorId?: string;
+  jaExistia?: boolean;    // o card já estava na esteira (nada foi criado)
+  criouComprador?: boolean;
+  nome?: string;
+};
+
+export async function cadastrarManualHm(
+  dados: {
+    nome: string; email: string; telefone?: string | null; documento?: string | null;
+    turma?: string | null; categoria?: string | null; responsavel?: string | null; estagioChave?: string | null;
+  },
+  autor = "cs",
+): Promise<CadastroManualHm> {
+  const r = await queryOne<{ res: Record<string, unknown> }>(
+    `select cs.fn_hm_cadastrar_manual($1,$2,$3,$4,$5,$6,$7,$8,$9) as res`,
+    [
+      dados.nome, dados.email, dados.telefone ?? null, dados.documento ?? null,
+      dados.turma ?? "T39", dados.categoria ?? null, dados.responsavel ?? null,
+      dados.estagioChave ?? "hm_comprou", autor,
+    ],
+  );
+  const res = (r?.res ?? {}) as Record<string, unknown>;
+  if (res.ok !== true) {
+    log.warn("cadastro manual HM recusado", { reason: res.reason, email: dados.email });
+    return { ok: false, reason: String(res.reason ?? "falha") };
+  }
+  return {
+    ok: true,
+    compradorId: res.comprador_id as string,
+    jaExistia: res.ja_existia === true,
+    criouComprador: res.criou_comprador === true,
+    nome: res.nome as string,
+  };
+}

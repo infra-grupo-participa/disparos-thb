@@ -6,6 +6,7 @@ import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
+import { HmCadastroModal } from "@/app/hm/_components/hm-cadastro";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { MultiSelect } from "@/app/_components/multi-select";
@@ -170,6 +171,7 @@ export default function HmKanbanPage() {
   // Card a caminho da coluna de cancelamento, esperando a resposta: pediu ou cancelou?
   const [cancelando, setCancelando] = useState<{ card: Card; antesDe: string | null } | null>(null);
   const [menu, setMenu] = useState<{ card: Card; x: number; y: number } | null>(null);
+  const [cadastrando, setCadastrando] = useState(false);
   const arrastando = useRef<Card | null>(null);
 
   function toggleMarcado(id: string) {
@@ -365,6 +367,8 @@ export default function HmKanbanPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Cadastrar à mão — quem o seed não pegou, ou quem entra por fora. */}
+          <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
           {/* A outra leitura da mesma esteira — os filtros viajam na URL */}
           <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} />
           {/* Relatório da esteira inteira — sai com os filtros que estão valendo */}
@@ -657,6 +661,19 @@ export default function HmKanbanPage() {
           responsaveis={responsaveis}
           onClose={() => setSelecionado(null)}
           onChanged={carregar}
+        />
+      )}
+
+      {cadastrando && (
+        <HmCadastroModal
+          onClose={() => setCadastrando(false)}
+          onCadastrado={async (compradorId) => {
+            setCadastrando(false);
+            await carregar();
+            // Abre a ficha do recém-cadastrado: quase sempre falta completar algo
+            // (o crédito pró-rata, o telefone) e a ficha é onde isso se faz.
+            setSelecionado(compradorId);
+          }}
         />
       )}
     </div>

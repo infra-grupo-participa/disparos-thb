@@ -8,6 +8,7 @@ import { Reveal } from "@/app/_components/anim";
 import { TagChip } from "@/app/_components/tags";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
+import { HmCadastroModal } from "@/app/hm/_components/hm-cadastro";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { MultiSelect } from "@/app/_components/multi-select";
@@ -356,6 +357,7 @@ export default function HmTabelaPage() {
   const [salvando, setSalvando] = useState<string | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [selecionado, setSelecionado] = useState<string | null>(null);
+  const [cadastrando, setCadastrando] = useState(false);
   // Pagamentos já vistos: comprador_id → data do último pagamento que o operador
   // conferiu. Só é lido no cliente (localStorage não existe no servidor).
   const [vistos, setVistos] = useState<Record<string, string>>({});
@@ -1275,6 +1277,8 @@ export default function HmTabelaPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Cadastrar à mão — quem o seed não pegou, ou quem entra por fora. */}
+          <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
           <HmVisao atual="tabela" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} />
           {/* O XLSX é o mesmo relatório desta tela — mesmos filtros, mesma função. */}
           <a href={`/api/hm/kanban/export?${paramsFiltro.toString()}`} title="Baixar o relatório da esteira (resumo + uma aba por etapa)">
@@ -1745,6 +1749,17 @@ export default function HmTabelaPage() {
           responsaveis={responsaveis}
           onClose={() => setSelecionado(null)}
           onChanged={() => carregar(true)}
+        />
+      )}
+
+      {cadastrando && (
+        <HmCadastroModal
+          onClose={() => setCadastrando(false)}
+          onCadastrado={async (compradorId) => {
+            setCadastrando(false);
+            await carregar(true);
+            setSelecionado(compradorId);
+          }}
         />
       )}
     </div>
