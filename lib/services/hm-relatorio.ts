@@ -139,6 +139,14 @@ export type LinhaEsteira = {
   nao_comparecimentos: number | null;
   entrou_estagio_em: QuandoHm;
   dias_na_etapa: number | null;
+  // ----- higiene: possível cadastro duplicado (0103) -----
+  // Existe OUTRO comprador com o mesmo telefone e e-mail diferente — candidato a
+  // ser a mesma pessoa (o pagamento pode ter caído no cadastro que o card não vê).
+  // Só alerta: fundir é decisão humana. `duplicado_cpf_confere` = CPF igual nos
+  // dois → quase certeza; os outros e-mails ajudam o operador a achar o par.
+  possivel_duplicado: boolean;
+  duplicado_cpf_confere: boolean;
+  duplicado_emails: string[];
 };
 export type ColunaHm = { chave: string; nome: string; cor: string; aba: string | null; ordem: number };
 
@@ -194,10 +202,14 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             rg.reunioes_remarcadas, rg.entrevistas_remarcadas, rg.nao_comparecimentos,
             me.criado_em as entrou_estagio_em,
             case when me.criado_em is not null
-                 then extract(day from now() - me.criado_em)::int end as dias_na_etapa
+                 then extract(day from now() - me.criado_em)::int end as dias_na_etapa,
+            (dup.comprador_id is not null) as possivel_duplicado,
+            coalesce(dup.cpf_confere, false) as duplicado_cpf_confere,
+            coalesce(dup.outros_emails, '{}'::text[]) as duplicado_emails
        from cs.contatos_hm_kanban k
        join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
        left join cs.estagios est on est.id = k.estagio_id
+       left join cs.vw_compradores_duplicados dup on dup.comprador_id = k.comprador_id
        left join lateral cs.fn_hm_prorata(k.comprador_id) pr on true
        left join cs.vw_hm_financeiro fin on fin.comprador_id = k.comprador_id
        left join lateral (

@@ -283,6 +283,16 @@ const LENTES: Lente[] = [
     test: (l) => l.apto_ativacao && !l.pode_finalizar,
   },
   {
+    // "Pagou e sumiu": existe OUTRO cadastro com o mesmo telefone e e-mail
+    // diferente — a mesma pessoa em dois lugares, com o pagamento podendo cair no
+    // cadastro que este card não vê (caso Caria). O webhook já não cria novos
+    // (funde por CPF); esta lente pega os antigos para um humano fundir. cpf
+    // conferindo = quase certeza; senão, checar (às vezes é sócio/cônjuge no mesmo
+    // telefone). Os e-mails do par aparecem no aviso da linha.
+    id: "possivel_duplicado", grupo: "Higiene", label: "Possível cadastro duplicado", destaque: true,
+    test: (l) => l.possivel_duplicado,
+  },
+  {
     // Deve o saldo e o sistema não sabe quanto. O lead novo saiu desta lente (o
     // saldo dele é dedutível: 14.700 − o que pagou); sobrou o aluno da base sem os
     // insumos do crédito — e esse dado não existe em planilha nenhuma, alguém
@@ -692,6 +702,12 @@ export default function HmTabelaPage() {
               <span className={cn("truncate", novo ? "font-bold text-slate-900 dark:text-white" : "font-semibold text-slate-800 dark:text-slate-100")}>{l.nome}</span>
               {l.nao_contatar && <span className="h-2 w-2 shrink-0 rounded-full bg-rose-500" title={`Não contatar${l.nao_contatar_motivo ? ` — ${l.nao_contatar_motivo}` : ""}`} />}
               {l.revisar && <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" title={`Revisar${l.revisar_motivo ? ` — ${l.revisar_motivo}` : ""}`} />}
+              {l.possivel_duplicado && (
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full bg-violet-500"
+                  title={`Possível cadastro duplicado (mesmo telefone)${l.duplicado_cpf_confere ? " — CPF confere, quase certeza" : " — CPF não confere, checar antes de fundir"}\nOutro(s) e-mail(s): ${l.duplicado_emails.join(", ")}`}
+                />
+              )}
             </div>
             {/* Telefone e e-mail andam junto com o nome: é o que o operador vai
                 usar em seguida, e copiar não pode custar abrir a ficha. */}
