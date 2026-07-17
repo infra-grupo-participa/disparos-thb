@@ -104,6 +104,20 @@ function normalizePhone(phone: string | null | undefined): string | null {
   return digits;
 }
 
+// CPF/CNPJ do comprador — a identidade FORTE, estável entre e-mails diferentes.
+// É o que impede o "pagou e sumiu": a mesma pessoa paga com outro e-mail e, sem
+// isto, virava cadastro novo com o pagamento órfão do card (caso Caria). O
+// telefone NÃO serve para isso — em holding familiar cônjuges/sócios dividem o
+// mesmo número (nos dados: mesmo telefone, CPFs distintos).
+function extractDocumento(buyer: Record<string, unknown>): { documento: string | null; tipo: string | null } {
+  const docs = buyer.documents as Record<string, unknown> | undefined;
+  const raw = (buyer.document ?? docs?.document ?? docs?.number) as string | undefined;
+  const digits = raw ? String(raw).replace(/\D/g, "") : "";
+  if (digits.length < 11) return { documento: null, tipo: null }; // CPF=11, CNPJ=14
+  const tipo = buyer.document_type ? String(buyer.document_type) : (digits.length === 14 ? "CNPJ" : "CPF");
+  return { documento: digits, tipo };
+}
+
 // True se a cidade for Porto Alegre OU o telefone (normalizado p/ 55DDD...) tiver DDD 51.
 function isPortoAlegre(city: string | null | undefined, phone: string | null): boolean {
   const cityNorm = city ? normalizeStr(city).trim() : "";
@@ -294,6 +308,8 @@ async function persistPurchase(args: {
   nome: string;
   email: string;
   telefone: string | null;
+  documento: string | null;
+  tipoDocumento: string | null;
   cidade: string | null;
   estado: string | null;
   transaction: string;
@@ -333,27 +349,68 @@ async function persistPurchase(args: {
 
     const agora = new Date().toISOString();
 
-    // 1) Comprador — upsert por email (UNIQUE). Não sobrescreve criado_em.
-    const { data: comprador, error: cErr } = await supabase
-      .from("compradores")
-      .upsert(
-        {
-          nome: args.nome,
-          email: args.email,
-          telefone: args.telefone,
-          endereco_cidade: args.cidade,
-          endereco_estado: args.estado,
-          is_manual: false,
-          atualizado_em: agora,
-        },
-        { onConflict: "email" },
-      )
-      .select("id")
-      .single();
+    // 1) Achar o comprador CERTO antes de criar um novo. Prioridade:
+    //      e-mail (caminho feliz, mesma conta) → CPF (identidade forte).
+    //    NUNCA por telefone: casaria pessoas diferentes que dividem o número.
+    //    Quando acha por CPF, a compra é anexada ao cadastro existente em vez de
+    //    nascer um duplicado com o novo e-mail — é a correção do "pagou e sumiu".
+    type CompradorLite = {
+      id: string; nome: string | null; telefone: string | null; documento: string | null;
+      endereco_cidade: string | null; endereco_estado: string | null;
+    };
+    const SEL = "id, nome, telefone, documento, endereco_cidade, endereco_estado";
+    let existente: CompradorLite | null = null;
 
-    if (cErr || !comprador) {
-      console.error("[DB] falha ao upsert comprador:", cErr?.message ?? cErr);
-      return;
+    {
+      const { data } = await supabase.from("compradores").select(SEL).eq("email", args.email).maybeSingle();
+      if (data) existente = data as CompradorLite;
+    }
+    if (!existente && args.documento) {
+      const { data } = await supabase.from("compradores").select(SEL)
+        .eq("documento", args.documento).limit(1).maybeSingle();
+      if (data) existente = data as CompradorLite;
+    }
+
+    let compradorId: string;
+    if (existente) {
+      // Enriquece SEM sobrescrever: preenche só o que falta. Reanexar uma compra
+      // nunca degrada um cadastro bom (nome certo, telefone canônico, e-mail original).
+      const patch: Record<string, unknown> = { atualizado_em: agora, is_manual: false };
+      if (!existente.nome || nomeSuspeito(existente.nome)) patch.nome = args.nome;
+      if (!existente.telefone && args.telefone) patch.telefone = args.telefone;
+      if (!existente.documento && args.documento) { patch.documento = args.documento; patch.tipo_documento = args.tipoDocumento; }
+      if (!existente.endereco_cidade && args.cidade) patch.endereco_cidade = args.cidade;
+      if (!existente.endereco_estado && args.estado) patch.endereco_estado = args.estado;
+      const { error: uErr } = await supabase.from("compradores").update(patch).eq("id", existente.id);
+      if (uErr) { console.error("[DB] falha ao enriquecer comprador:", uErr.message); return; }
+      compradorId = existente.id;
+      console.log(`[DB] compra anexada ao cadastro existente (${existente.id}) via ${existente.documento === args.documento && args.documento ? "CPF" : "e-mail"}`);
+    } else {
+      // Comprador novo — upsert por email (UNIQUE). Não sobrescreve criado_em.
+      const { data: comprador, error: cErr } = await supabase
+        .from("compradores")
+        .upsert(
+          {
+            nome: args.nome,
+            email: args.email,
+            telefone: args.telefone,
+            documento: args.documento,
+            tipo_documento: args.tipoDocumento,
+            endereco_cidade: args.cidade,
+            endereco_estado: args.estado,
+            is_manual: false,
+            atualizado_em: agora,
+          },
+          { onConflict: "email" },
+        )
+        .select("id")
+        .single();
+
+      if (cErr || !comprador) {
+        console.error("[DB] falha ao upsert comprador:", cErr?.message ?? cErr);
+        return;
+      }
+      compradorId = comprador.id;
     }
 
     // 2) Compra — upsert por hotmart_transaction (UNIQUE).
@@ -361,7 +418,7 @@ async function persistPurchase(args: {
       .from("compras")
       .upsert(
         {
-          comprador_id: comprador.id,
+          comprador_id: compradorId,
           hotmart_transaction: args.transaction,
           produto_id: args.productId || null,
           produto_nome: args.productName || null,
@@ -891,6 +948,8 @@ serve(async (req) => {
   const { cidade, estado } = extractAddress(data, buyer, purchase);
 
   const telefone = extractPhone(buyer);
+  // CPF/CNPJ — identidade forte que dedup usa para não criar cadastro órfão.
+  const { documento, tipo: tipoDocumento } = extractDocumento(buyer);
   // Marca a Isabela apenas em compras de HT vindas de Porto Alegre (cidade ou DDD 51).
   const markPortoAlegre = channel === "HT" && isPortoAlegre(cidade, telefone);
 
@@ -963,6 +1022,8 @@ serve(async (req) => {
     nome,
     email: String(buyer.email),
     telefone,
+    documento,
+    tipoDocumento,
     cidade,
     estado,
     transaction: String(purchase.transaction),
