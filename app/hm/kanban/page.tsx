@@ -35,6 +35,7 @@ type Card = {
   reuniao_em: string | null;
   entrevista_em: string | null;
   pagamento_em: string | null;
+  quitado: boolean;
   ultima_msg: string | null;
   entrou_estagio_em: string | null;
 };
@@ -853,8 +854,18 @@ function CardItem({
       onKeyDown={(e) => { if (e.key === "Enter") onAbrir(); }}
       title="Clique para abrir · botão direito para mover ou desfazer"
       className={cn(
-        "group relative block cursor-pointer rounded-lg border bg-white p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft active:cursor-grabbing dark:bg-slate-900 dark:hover:border-brand-400/30",
-        marcado ? "border-brand ring-1 ring-brand dark:border-brand-400 dark:ring-brand-400" : "border-slate-200 dark:border-slate-800",
+        "group relative block cursor-pointer rounded-lg border p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft active:cursor-grabbing",
+        // Saldo quitado: um verde sutil, só o suficiente para diferenciar de longe
+        // quem não deve mais nada. Não vale quando o card está selecionado (a borda
+        // da marca vence) nem sobrescreve o anel de seleção.
+        card.quitado
+          ? "bg-emerald-50/50 dark:bg-emerald-500/5"
+          : "bg-white dark:bg-slate-900",
+        marcado
+          ? "border-brand ring-1 ring-brand dark:border-brand-400 dark:ring-brand-400"
+          : card.quitado
+            ? "border-emerald-200 dark:border-emerald-500/25"
+            : "border-slate-200 dark:border-slate-800",
       )}
     >
       <div className="flex items-start justify-between gap-2">
