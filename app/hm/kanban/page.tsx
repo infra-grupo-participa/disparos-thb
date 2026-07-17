@@ -41,6 +41,34 @@ type Card = {
 };
 type Coluna = { chave: string; nome: string; cor: string; aba: string | null };
 
+// O sócio convidado (aba "SÓCIOS T39"). NÃO é comprador nem card financeiro:
+// mora pendurado no titular (cs.hm_socios) e aparece na Ativação só para o Thomas
+// liberar o acesso. Fluxo simples — três checks e pronto.
+type Socio = {
+  socio_id: string;
+  nome: string;
+  email: string | null;
+  telefone: string | null;
+  ativ_searchie: boolean;
+  ativ_comunidade: boolean;
+  ativ_grupo: boolean;
+  titular_comprador_id: string;
+  titular_nome: string;
+  titular_turma: string | null;
+  titular_origem: string | null;
+  titular_cancelado: boolean;
+  checks_feitos: number;
+  status: "nao_iniciado" | "em_ativacao" | "ativado" | "sem_acesso";
+};
+
+// Em qual coluna da Ativação o sócio aparece: quando os 3 acessos estão liberados
+// ele vai para "Acesso Liberado"; senão fica em "Pendente de Liberação", que é
+// onde o Thomas trabalha. Titular cancelado também fica em pendente (é a fila do
+// "remover acesso"), mas com o alerta vermelho.
+function colunaDoSocio(s: Socio): string {
+  return s.status === "ativado" ? "hm_acesso_liberado" : "hm_pendente_liberacao";
+}
+
 const ABAS: { id: string; label: string }[] = [
   { id: "comercial", label: "Comercial" },
   { id: "ativacao", label: "Ativação" },
@@ -175,6 +203,7 @@ export default function HmKanbanPage() {
   const { podeDisparar } = useMe();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
+  const [socios, setSocios] = useState<Socio[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
   const [canais, setCanais] = useState<string[]>([]);
   const [canaisQtd, setCanaisQtd] = useState<Record<string, number>>({});
@@ -230,6 +259,7 @@ export default function HmKanbanPage() {
       if (d.ok) {
         setColunas(d.colunas);
         setCards(d.cards);
+        if (Array.isArray(d.socios)) setSocios(d.socios);
         if (Array.isArray(d.responsaveis)) setResponsaveis(d.responsaveis);
         if (Array.isArray(d.canais)) setCanais(d.canais);
         if (Array.isArray(d.turmas)) setTurmas(d.turmas);
@@ -239,6 +269,25 @@ export default function HmKanbanPage() {
       setCarregando(false);
     }
   }, [filtroResp, filtroCanal, filtroTurma]);
+
+  // Liga/desliga um dos 3 acessos do sócio. Otimista, e reusa a rota que já
+  // existe (o sócio é editado pelo card do TITULAR). Sem financeiro, sem timeline.
+  async function toggleSocioCheck(s: Socio, campo: "ativ_searchie" | "ativ_comunidade" | "ativ_grupo") {
+    const novo = !s[campo];
+    setSocios((lista) => lista.map((x) => {
+      if (x.socio_id !== s.socio_id) return x;
+      const at = { ...x, [campo]: novo };
+      const n = Number(at.ativ_searchie) + Number(at.ativ_comunidade) + Number(at.ativ_grupo);
+      const status: Socio["status"] = at.titular_cancelado ? "sem_acesso"
+        : n === 3 ? "ativado" : n > 0 ? "em_ativacao" : "nao_iniciado";
+      return { ...at, checks_feitos: n, status };
+    }));
+    await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ socioId: s.socio_id, [campo]: novo }),
+    });
+  }
 
   // Lê os filtros da URL uma vez, antes do primeiro carregamento — senão o
   // board buscaria sem filtro e refaria a busca logo em seguida.
@@ -533,6 +582,11 @@ export default function HmKanbanPage() {
           <Reveal className="flex gap-3">
             {colunasAba.map((col) => {
               const doCol = cardsFiltrados.filter((c) => colunaNaAba(c, aba) === col.chave);
+              // Sócios só existem na Ativação; entram na coluna definida pelo status.
+              const sociosDaCol = aba === "ativacao"
+                ? socios.filter((s) => colunaDoSocio(s) === col.chave && (!q
+                    || s.nome.toLowerCase().includes(q) || s.titular_nome.toLowerCase().includes(q)))
+                : [];
               const ativa = alvo?.col === col.chave;
               // Onde a linha de inserção aparece nesta coluna (-1 = em nenhum lugar).
               const marca = ativa ? alvo.indice : -1;
@@ -556,7 +610,8 @@ export default function HmKanbanPage() {
                       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>
                     </a>
                     <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {cards.filter((c) => colunaNaAba(c, aba) === col.chave).length}
+                      {cards.filter((c) => colunaNaAba(c, aba) === col.chave).length
+                        + (aba === "ativacao" ? socios.filter((s) => colunaDoSocio(s) === col.chave).length : 0)}
                     </span>
                   </div>
                   <div
@@ -597,7 +652,7 @@ export default function HmKanbanPage() {
                     }}
                     className="flex max-h-[70vh] min-h-[72px] flex-col gap-2 overflow-y-auto p-2"
                   >
-                    {doCol.length === 0 && marca < 0 ? (
+                    {doCol.length === 0 && sociosDaCol.length === 0 && marca < 0 ? (
                       <p className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-600">Sem cards</p>
                     ) : (
                       doCol.map((card, i) => (
@@ -619,6 +674,11 @@ export default function HmKanbanPage() {
                       ))
                     )}
                     {marca === doCol.length && <LinhaDrop />}
+                    {/* Sócios convidados — cards azuis, fora da máquina financeira.
+                        O Thomas libera os 3 acessos aqui; a Ana toca depois. */}
+                    {sociosDaCol.map((s) => (
+                      <SocioCard key={s.socio_id} socio={s} onToggle={(campo) => toggleSocioCheck(s, campo)} />
+                    ))}
                   </div>
                 </div>
               );
@@ -763,6 +823,95 @@ export default function HmKanbanPage() {
 // Quando o cancelamento vem pela Hotmart, nada disto aparece: o webhook faz o
 // caminho inteiro sozinho. Esta tela é para o cancelamento fechado por fora
 // (acordo, Pix devolvido) — e o aviso ao Thomas sai UMA vez só, venha de onde vier.
+// O card do SÓCIO — azul sutil, para distinguir de longe do aluno titular. Ele
+// não é um card financeiro: não arrasta, não abre ficha de cobrança, não entra
+// em lente nenhuma. Só os 3 acessos e o status. Quando o titular cancela, o
+// acesso do sócio cai junto (cascata) e o card pede a remoção.
+function SocioCard({ socio: s, onToggle }: {
+  socio: Socio;
+  onToggle: (campo: "ativ_searchie" | "ativ_comunidade" | "ativ_grupo") => void;
+}) {
+  const wa = waLink(s.telefone);
+  const semAcesso = s.status === "sem_acesso";
+  const checks: { campo: "ativ_searchie" | "ativ_comunidade" | "ativ_grupo"; label: string; on: boolean }[] = [
+    { campo: "ativ_searchie", label: "Searchie", on: s.ativ_searchie },
+    { campo: "ativ_comunidade", label: "Comunidade", on: s.ativ_comunidade },
+    { campo: "ativ_grupo", label: "Grupo", on: s.ativ_grupo },
+  ];
+  const badge = semAcesso
+    ? { txt: "Sem acesso — remover", cls: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" }
+    : s.status === "ativado"
+      ? { txt: "Ativado", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" }
+      : s.status === "em_ativacao"
+        ? { txt: "Em ativação", cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300" }
+        : { txt: "Não iniciado", cls: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300" };
+
+  return (
+    <div
+      data-socio
+      className={cn(
+        "relative block rounded-lg border p-2.5 shadow-card",
+        semAcesso
+          ? "border-rose-200 bg-rose-50/50 dark:border-rose-500/25 dark:bg-rose-500/5"
+          : "border-sky-200 bg-sky-50/60 dark:border-sky-500/25 dark:bg-sky-500/5",
+      )}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-0.5 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+          <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          Sócio
+        </span>
+        <span className={cn("ml-auto inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", badge.cls)}>{badge.txt}</span>
+      </div>
+
+      <p className="mt-1.5 truncate text-sm font-semibold text-slate-800 dark:text-slate-100" title={s.nome}>{s.nome}</p>
+      <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+        sócio de <span className="font-medium text-slate-600 dark:text-slate-300">{s.titular_nome}</span>
+        {s.titular_origem ? ` · ${s.titular_origem}` : s.titular_turma ? ` · ${s.titular_turma}` : ""}
+      </p>
+
+      {semAcesso && (
+        <p className="mt-1.5 rounded bg-rose-100 px-2 py-1 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+          O titular cancelou — o acesso do sócio deve ser removido.
+        </p>
+      )}
+
+      {/* Os 3 acessos: o Thomas clica conforme libera. */}
+      <div className="mt-2 flex flex-wrap gap-1">
+        {checks.map((c) => (
+          <button
+            key={c.campo}
+            type="button"
+            onClick={() => onToggle(c.campo)}
+            title={c.on ? `${c.label} liberado — clique para desmarcar` : `Marcar ${c.label} como liberado`}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition",
+              c.on
+                ? "border-emerald-300 bg-emerald-100 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300"
+                : "border-slate-300 bg-white text-slate-500 hover:border-sky-300 hover:text-sky-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400",
+            )}
+          >
+            {c.on && <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>}
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {(s.telefone || s.email) && (
+        <div className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          {wa && (
+            <a href={wa} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="hover:text-emerald-600" title="WhatsApp">
+              {s.telefone}
+            </a>
+          )}
+          {!wa && s.telefone && <span>{s.telefone}</span>}
+          {s.email && <span className="truncate" title={s.email}>{s.email}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CancelamentoModal({ nome, onEscolher, onFechar }: {
   nome: string;
   onEscolher: (definitivo: boolean, motivo: string) => Promise<void>;

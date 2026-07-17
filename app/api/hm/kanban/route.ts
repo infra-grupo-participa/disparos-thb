@@ -61,6 +61,19 @@ export async function GET(req: Request) {
     f,
   );
 
+  // Sócios convidados (aba "SÓCIOS T39"): NÃO são compradores nem cards
+  // financeiros — vivem pendurados no titular (cs.hm_socios). O board os mostra
+  // como cards azuis na Ativação, para o Thomas liberar o acesso. Array separado
+  // de propósito: o sócio jamais entra na cobrança nem nas lentes financeiras.
+  const socios = await query(
+    `select socio_id, contato_hm_id, nome, email, telefone, link_facebook,
+            ativ_searchie, ativ_comunidade, ativ_grupo,
+            titular_comprador_id, titular_nome, titular_turma, titular_origem,
+            titular_cancelado, checks_feitos, status
+       from cs.vw_hm_socios
+      order by titular_nome, nome`,
+  );
+
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já
   // tem card. Assim um operador novo aparece no seletor de responsável antes da
   // primeira atribuição — senão ninguém consegue atribuir a ele. A união preserva
@@ -88,6 +101,7 @@ export async function GET(req: Request) {
     ok: true,
     colunas,
     cards,
+    socios,
     responsaveis: respRows.map((r) => r.responsavel),
     canais: tagRows.filter((t) => !t.eh_turma).map((t) => t.tag),
     turmas: tagRows.filter((t) => t.eh_turma).map((t) => t.tag),
