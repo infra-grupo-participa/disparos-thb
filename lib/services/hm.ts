@@ -435,13 +435,16 @@ export async function registrarPagamentoHm(
   );
   const label = forma === "parcelado" ? `parcelado${parcelas ? ` em ${parcelas}x` : ""}` : "à vista";
 
-  // O sinal/parcial NÃO finaliza (0098): registra o valor no card para o contas a
-  // receber refletir, mas não cria aluno, não marca apto e não move para a
-  // Ativação. Só o pagamento que cobre o pacote inteiro finaliza. Era este o furo
-  // do caso Décio — o botão provisionava o aluno com R$300 de sinal.
+  // Quem finaliza (0098/0100): o pagamento à vista que cobre o pacote inteiro OU
+  // o PARCELADO — quem parcelou assumiu o compromisso e prossegue para a Ativação
+  // pagando (desde que já tenha pago ao menos a entrada); o saldo segue no contas
+  // a receber. O que NÃO finaliza é o sinal-só à vista (o caso Décio): registra o
+  // valor para o financeiro refletir, mas não cria aluno, não marca apto, não move.
   const total = valorTotal ?? 0;
   const pago = valorPago ?? 0;
-  if (!(total > 0 && pago >= total)) {
+  const cobreTudo = total > 0 && pago >= total;
+  const parceladoValido = forma === "parcelado" && pago > 0;
+  if (!cobreTudo && !parceladoValido) {
     await query(`update cs.contatos_hm set valor_total = $2, valor_pago = $3, atualizado_em = now() where id = $1`,
       [ch.id, valorTotal, valorPago]);
     await addInteracaoHm(ch.id, "nota",
