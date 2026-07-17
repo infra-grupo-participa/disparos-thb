@@ -253,11 +253,32 @@ export function HmDrawer({
               `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
               "Marque os itens do checklist de ativação aqui na ficha.",
           );
+        } else if (d?.reason === "saldo_em_aberto") {
+          const falta = typeof d.faltam === "number" && d.faltam > 0
+            ? ` Faltam ${d.faltam.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} do saldo.`
+            : "";
+          window.alert(
+            `${c?.nome ?? "Este aluno"} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
+              "Registre o pagamento do saldo (valor cheio) antes de mover para a Ativação.",
+          );
         } else {
           window.alert("Não foi possível salvar esta alteração. Tente de novo.");
         }
         await recarregar();
         return;
+      }
+      // Pagamento parcial: registrou o valor, mas o sinal/parcial não finaliza —
+      // o card fica no comercial, com o saldo em aberto. Avisa em vez de deixar o
+      // operador achar que "deu baixa".
+      const d = await r.json().catch(() => ({}));
+      if (d?.pagamento_parcial) {
+        const falta = typeof d.faltam === "number" && d.faltam > 0
+          ? ` Faltam ${d.faltam.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`
+          : "";
+        window.alert(
+          `Pagamento parcial registrado.${falta}\n\n` +
+            "Como não cobre o pacote inteiro, o card continua no comercial e o saldo segue no contas a receber.",
+        );
       }
       await recarregar();
       onChanged();

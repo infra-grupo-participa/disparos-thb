@@ -288,6 +288,16 @@ export default function HmKanbanPage() {
               `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
               "Marque os itens do checklist na ficha do card.",
           );
+        } else if (d?.reason === "saldo_em_aberto") {
+          // O sinal não é pagamento realizado: só entra na Ativação quem quitou o
+          // saldo. O board desfaz o movimento otimista no carregar abaixo.
+          const falta = typeof d.faltam === "number" && d.faltam > 0
+            ? ` Faltam ${d.faltam.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} do saldo.`
+            : "";
+          window.alert(
+            `${card.nome} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
+              "Registre o pagamento do saldo (valor cheio) na ficha antes de mover para a Ativação.",
+          );
         }
       }
     } finally {

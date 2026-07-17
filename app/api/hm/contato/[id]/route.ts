@@ -163,10 +163,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     await fecharAgendamentoHm(compradorId, b.agendamento_tipo, b.agendamento_status, b.agendamento_motivo ?? null, operador);
   }
 
-  // Pagamento do saldo (14.700) — provisiona o aluno na base THB e dispara a
-  // transição para a Ativação.
+  // Pagamento do saldo — provisiona o aluno e vai para a Ativação SÓ se cobrir o
+  // pacote inteiro. Sinal/parcial fica registrado com o saldo em aberto, no
+  // comercial (0098). A tela avisa quando não finalizou.
   if (b.marcar_pagamento || b.pagamento_forma) {
-    await registrarPagamentoHm(
+    const pg = await registrarPagamentoHm(
       compradorId,
       b.pagamento_forma ?? "avista",
       b.pagamento_parcelas ?? null,
@@ -174,6 +175,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       b.valor_pago ?? null,
       operador,
     );
+    if (pg.ok && !pg.finalizado) {
+      return NextResponse.json({ ok: true, pagamento_parcial: true, faltam: pg.faltam });
+    }
   }
 
   // O cancelamento virou fato: o reembolso saiu (na Hotmart isso chega sozinho

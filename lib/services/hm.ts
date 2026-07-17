@@ -60,8 +60,8 @@ const CHECKLIST: { col: string; label: string }[] = [
   { col: "ativ_pesquisa", label: "Pesquisa" },
 ];
 
-export type MoverErro = "estagio_invalido" | "checklist_incompleto";
-export type MoverResultado = { ok: true } | { ok: false; reason: MoverErro; faltando?: string[] };
+export type MoverErro = "estagio_invalido" | "checklist_incompleto" | "saldo_em_aberto";
+export type MoverResultado = { ok: true } | { ok: false; reason: MoverErro; faltando?: string[]; faltam?: number };
 
 // Itens do checklist que ainda faltam. Lista vazia = ativação completa.
 export async function checklistPendente(compradorId: string): Promise<string[]> {
@@ -130,6 +130,20 @@ export async function moverEstagioHm(
   if (ch.estagio_id === novo.id && chave !== HM_STAGE_PAGAMENTO) {
     if (posicao) await reposicionarNaColuna(ch.id, novo.id, posicao);
     return { ok: true };
+  }
+
+  // Só finaliza (apto/aluno) quem tem o SALDO coberto (0098). Sinal ou pagamento
+  // parcial não entra na Ativação nem no "Pagamento Realizado" — fica no comercial,
+  // com o saldo em aberto no contas a receber. Foi por aqui que o Décio (só sinal)
+  // virou apto. Não trava o resto do board: só a entrada no estado de "pago".
+  const vaiFinalizar = chave === HM_STAGE_PAGAMENTO || (novo.aba === "ativacao" && !ch.apto_ativacao);
+  if (vaiFinalizar) {
+    const g = await queryOne<{ pode: boolean; faltam: number | null }>(
+      `select cs.fn_hm_pode_finalizar($1) as pode,
+              (select greatest(coalesce(f.saldo_a_perseguir,0),0) from cs.vw_hm_financeiro f where f.comprador_id=$1) as faltam`,
+      [compradorId],
+    );
+    if (!g?.pode) return { ok: false, reason: "saldo_em_aberto", faltam: g?.faltam ?? undefined };
   }
 
   // A ÚNICA trava do board: "Ativação Realizada" é a linha de chegada, e só entra
@@ -410,9 +424,9 @@ export async function registrarPagamentoHm(
   valorTotal: number | null,
   valorPago: number | null,
   autor = "cs",
-): Promise<boolean> {
+): Promise<{ ok: boolean; finalizado: boolean; faltam?: number }> {
   const ch = await queryOne<{ id: string }>(`select id from cs.contatos_hm where comprador_id = $1`, [compradorId]);
-  if (!ch) return false;
+  if (!ch) return { ok: false, finalizado: false };
   await query(
     `update cs.contatos_hm
         set pagamento_forma = $2, pagamento_parcelas = $3, atualizado_em = now()
@@ -420,6 +434,21 @@ export async function registrarPagamentoHm(
     [ch.id, forma, forma === "parcelado" ? parcelas : null],
   );
   const label = forma === "parcelado" ? `parcelado${parcelas ? ` em ${parcelas}x` : ""}` : "à vista";
+
+  // O sinal/parcial NÃO finaliza (0098): registra o valor no card para o contas a
+  // receber refletir, mas não cria aluno, não marca apto e não move para a
+  // Ativação. Só o pagamento que cobre o pacote inteiro finaliza. Era este o furo
+  // do caso Décio — o botão provisionava o aluno com R$300 de sinal.
+  const total = valorTotal ?? 0;
+  const pago = valorPago ?? 0;
+  if (!(total > 0 && pago >= total)) {
+    await query(`update cs.contatos_hm set valor_total = $2, valor_pago = $3, atualizado_em = now() where id = $1`,
+      [ch.id, valorTotal, valorPago]);
+    await addInteracaoHm(ch.id, "nota",
+      `Pagamento parcial do saldo registrado (${brl(pago)} de ${brl(total)}) — saldo em aberto, card mantido no comercial`, autor);
+    return { ok: true, finalizado: false, faltam: Math.max(total - pago, 0) };
+  }
+
   await addInteracaoHm(ch.id, "nota", `Pagamento do saldo registrado (${label})`, autor);
 
   try {
@@ -446,7 +475,8 @@ export async function registrarPagamentoHm(
     await addInteracaoHm(ch.id, "sistema", "Falha ao provisionar o aluno na base THB — confirme o pagamento de novo para reprocessar", autor);
   }
 
-  return (await moverEstagioHm(compradorId, HM_STAGE_PAGAMENTO, autor)).ok;
+  const mov = await moverEstagioHm(compradorId, HM_STAGE_PAGAMENTO, autor);
+  return { ok: mov.ok, finalizado: mov.ok };
 }
 
 function brl(v: number | null): string {
