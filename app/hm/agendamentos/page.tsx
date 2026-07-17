@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { Avatar } from "@/app/_components/avatar";
@@ -69,14 +69,48 @@ function fmtLongo(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR", { weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
 }
 
+// A grade por hora vai das 9h às 18h — a janela de atendimento (decisão de 17/07).
+const HORAS = Array.from({ length: 9 }, (_, i) => 9 + i); // 9,10,…,17 (cada linha é 1h)
+
+// O slot (dia + hora) vira um Date local — é o que o booking manda para agendarHm.
+function slotDate(dia: Date, hora: number): Date {
+  return new Date(dia.getFullYear(), dia.getMonth(), dia.getDate(), hora, 0, 0, 0);
+}
+
+// "Adicionar ao Google Agenda": abre o Google Calendar com tudo preenchido, sem
+// login nem API. O evento dura 1h; as datas vão em UTC (formato .../TEMPLATE).
+function gcalLink(ev: Agendamento): string | null {
+  if (!ev.quando) return null;
+  const ini = new Date(ev.quando);
+  if (isNaN(ini.getTime())) return null;
+  const fim = new Date(ini.getTime() + 60 * 60 * 1000);
+  const z = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const titulo = `${ev.tipo === "reuniao" ? "Reunião" : "Entrevista"} HM · ${ev.nome}`;
+  const detalhes = [
+    ev.responsavel ? `Responsável: ${ev.responsavel}` : "",
+    ev.telefone ? `Telefone: ${ev.telefone}` : "",
+    ev.estagio_nome ? `Etapa: ${ev.estagio_nome}` : "",
+    ev.acordo ? `Acordo: ${ev.acordo}` : "",
+  ].filter(Boolean).join("\n");
+  const p = new URLSearchParams({
+    action: "TEMPLATE",
+    text: titulo,
+    dates: `${z(ini)}/${z(fim)}`,
+    details: detalhes,
+  });
+  return `https://calendar.google.com/calendar/render?${p.toString()}`;
+}
+
 export default function HmAgendamentosPage() {
   const [rows, setRows] = useState<Agendamento[]>([]);
   const [tipo, setTipo] = useState("");
-  const [vista, setVista] = useState<"mes" | "semana">("mes");
+  const [colaborador, setColaborador] = useState("");
+  const [vista, setVista] = useState<"mes" | "semana" | "hora">("hora");
   const [cursor, setCursor] = useState(() => new Date());
   const [carregando, setCarregando] = useState(true);
   const [diaAberto, setDiaAberto] = useState<string | null>(null);
   const [aberto, setAberto] = useState<Agendamento | null>(null);   // modal do evento
+  const [criar, setCriar] = useState<{ dia: Date; hora: number } | null>(null); // slot para encaixar
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -93,10 +127,21 @@ export default function HmAgendamentosPage() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
+  // A lista de colaboradores para o filtro nasce dos próprios agendamentos.
+  const colaboradores = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.responsavel).filter((x): x is string => !!x))).sort(),
+    [rows],
+  );
+  // A agenda é compartilhada; o filtro por colaborador recorta o que se vê.
+  const rowsVis = useMemo(
+    () => (colaborador ? rows.filter((r) => r.responsavel === colaborador) : rows),
+    [rows, colaborador],
+  );
+
   // Indexa por dia uma vez — a grade só faz lookup.
   const porDia = useMemo(() => {
     const m = new Map<string, Agendamento[]>();
-    for (const r of rows) {
+    for (const r of rowsVis) {
       if (!r.quando) continue;
       const k = chaveDia(new Date(r.quando));
       const lista = m.get(k);
@@ -106,12 +151,30 @@ export default function HmAgendamentosPage() {
       lista.sort((a, b) => (a.quando ?? "").localeCompare(b.quando ?? ""));
     }
     return m;
-  }, [rows]);
+  }, [rowsVis]);
+
+  // Índice por SLOT (dia+hora) para a grade por hora. Eventos às 00:00 são
+  // "horário a definir" (vieram assim da planilha) e vão para uma faixa à parte.
+  const porSlot = useMemo(() => {
+    const m = new Map<string, Agendamento[]>();
+    const semHora = new Map<string, Agendamento[]>();
+    for (const r of rowsVis) {
+      if (!r.quando) continue;
+      const d = new Date(r.quando);
+      const dia = chaveDia(d);
+      const semDefinir = d.getHours() === 0 && d.getMinutes() === 0;
+      const alvo = semDefinir ? semHora : m;
+      const k = semDefinir ? dia : `${dia}-${d.getHours()}`;
+      const lista = alvo.get(k);
+      if (lista) lista.push(r); else alvo.set(k, [r]);
+    }
+    return { m, semHora };
+  }, [rowsVis]);
 
   // Mês: sempre 6 semanas (42 células), como no Google — a grade não "pula" de
   // altura ao trocar de mês. Semana: os 7 dias da semana do cursor.
   const celulas = useMemo(() => {
-    if (vista === "semana") {
+    if (vista === "semana" || vista === "hora") {
       const dom = inicioSemana(cursor);
       return Array.from({ length: 7 }, (_, i) => somaDias(dom, i));
     }
@@ -174,8 +237,14 @@ export default function HmAgendamentosPage() {
             <option value="entrevista">Só entrevistas</option>
           </select>
 
+          {/* A agenda é compartilhada; o filtro recorta o dia de um colaborador. */}
+          <select value={colaborador} onChange={(e) => setColaborador(e.target.value)} className={fieldCompactClass} title="Filtrar por colaborador">
+            <option value="">Toda a equipe</option>
+            {colaboradores.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+
           <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-900/60">
-            {(["mes", "semana"] as const).map((v) => (
+            {([["hora", "Semana"], ["mes", "Mês"]] as const).map(([v, label]) => (
               <button
                 key={v}
                 onClick={() => setVista(v)}
@@ -186,7 +255,7 @@ export default function HmAgendamentosPage() {
                     : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
                 )}
               >
-                {v === "mes" ? "Mês" : "Semana"}
+                {label}
               </button>
             ))}
           </div>
@@ -205,6 +274,14 @@ export default function HmAgendamentosPage() {
 
       {carregando && rows.length === 0 ? (
         <div className="flex items-center justify-center gap-3 py-20 text-slate-400"><Spinner className="h-6 w-6" /> Carregando agenda…</div>
+      ) : vista === "hora" ? (
+        <GradeHora
+          dias={celulas}
+          porSlot={porSlot.m}
+          semHora={porSlot.semHora}
+          onEvento={(ev) => setAberto(ev)}
+          onSlot={(dia, hora) => setCriar({ dia, hora })}
+        />
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
           {/* Cabeçalho dos dias da semana */}
@@ -323,7 +400,219 @@ export default function HmAgendamentosPage() {
       )}
 
       {aberto && <ModalEvento ev={aberto} onClose={() => setAberto(null)} />}
+      {criar && (
+        <CriarAgendamento
+          slot={criar}
+          onClose={() => setCriar(null)}
+          onCriado={() => { setCriar(null); carregar(); }}
+        />
+      )}
     </div>
+  );
+}
+
+// A GRADE POR HORA — o coração do "estilo Google Calendar". Colunas = 7 dias da
+// semana; linhas = 9h→18h. Cada evento cai no seu slot; clicar num espaço livre
+// abre o encaixe rápido daquele horário. A faixa de cima guarda o "horário a
+// definir" (eventos que vieram sem hora).
+function GradeHora({ dias, porSlot, semHora, onEvento, onSlot }: {
+  dias: Date[];
+  porSlot: Map<string, Agendamento[]>;
+  semHora: Map<string, Agendamento[]>;
+  onEvento: (ev: Agendamento) => void;
+  onSlot: (dia: Date, hora: number) => void;
+}) {
+  const temSemHora = Array.from(semHora.values()).some((l) => l.length > 0);
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="min-w-[52rem]">
+        {/* Cabeçalho: canto da hora + 7 dias */}
+        <div className="grid border-b border-slate-200 dark:border-slate-800" style={{ gridTemplateColumns: "3.5rem repeat(7, 1fr)" }}>
+          <div className="border-r border-slate-100 dark:border-slate-800" />
+          {dias.map((d, i) => (
+            <div key={i} className={cn("border-r border-slate-100 px-1 py-2 text-center dark:border-slate-800", ehHoje(d) && "bg-blue-50/60 dark:bg-blue-500/10")}>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{DIAS[d.getDay()]}</div>
+              <div className={cn("mx-auto mt-0.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold tabular-nums",
+                ehHoje(d) ? "bg-blue-600 text-white" : "text-slate-700 dark:text-slate-200")}>{d.getDate()}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Faixa "horário a definir" */}
+        {temSemHora && (
+          <div className="grid border-b border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/40" style={{ gridTemplateColumns: "3.5rem repeat(7, 1fr)" }}>
+            <div className="flex items-center justify-end border-r border-slate-100 pr-1.5 py-1 text-right text-[9px] font-medium uppercase text-slate-400 dark:border-slate-800 dark:text-slate-500">s/ hora</div>
+            {dias.map((d, i) => {
+              const evs = semHora.get(chaveDia(d)) ?? [];
+              return (
+                <div key={i} className="min-h-[2rem] space-y-0.5 border-r border-slate-100 p-0.5 dark:border-slate-800">
+                  {evs.map((ev, j) => <ChipHora key={j} ev={ev} onClick={() => onEvento(ev)} />)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Linhas de hora */}
+        {HORAS.map((h) => (
+          <div key={h} className="grid border-b border-slate-100 last:border-0 dark:border-slate-800" style={{ gridTemplateColumns: "3.5rem repeat(7, 1fr)" }}>
+            <div className="border-r border-slate-100 pr-1.5 pt-1 text-right text-[10px] font-medium tabular-nums text-slate-400 dark:border-slate-800 dark:text-slate-500">
+              {String(h).padStart(2, "0")}h
+            </div>
+            {dias.map((d, i) => {
+              const evs = porSlot.get(`${chaveDia(d)}-${h}`) ?? [];
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => onSlot(d, h)}
+                  title={`Encaixar às ${String(h).padStart(2, "0")}h`}
+                  className={cn("group/slot min-h-[3rem] space-y-0.5 border-r border-slate-100 p-0.5 text-left transition hover:bg-blue-50/50 dark:border-slate-800 dark:hover:bg-blue-500/5",
+                    ehHoje(d) && "bg-blue-50/30 dark:bg-blue-500/[0.04]")}
+                >
+                  {evs.map((ev, j) => (
+                    <ChipHora key={j} ev={ev} onClick={(e) => { e.stopPropagation(); onEvento(ev); }} />
+                  ))}
+                  {evs.length === 0 && (
+                    <span className="hidden text-[10px] text-blue-500 group-hover/slot:inline dark:text-blue-400">+ encaixar</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChipHora({ ev, onClick }: { ev: Agendamento; onClick: (e: ReactMouseEvent) => void }) {
+  const t = TIPOS[ev.tipo];
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter") onClick(e as unknown as ReactMouseEvent); }}
+      title={`${t.label} · ${ev.nome}`}
+      className={cn("flex cursor-pointer items-center gap-0.5 truncate rounded px-1 py-0.5 text-[10px] font-medium transition", t.chip)}
+    >
+      {(ev.nao_contatar || ev.revisar) && <span aria-hidden>⚠</span>}
+      <span className="truncate">{ev.nome}</span>
+    </span>
+  );
+}
+
+// ENCAIXE RÁPIDO — o clique num horário livre vira agendamento. Escolhe reunião ou
+// entrevista, busca a pessoa (com quem PRECISA daquele compromisso no topo) e
+// grava: o PATCH do contato roda agendarHm, que move o card de etapa sozinho.
+function CriarAgendamento({ slot, onClose, onCriado }: {
+  slot: { dia: Date; hora: number };
+  onClose: () => void;
+  onCriado: () => void;
+}) {
+  const [tipo, setTipo] = useState<"reuniao" | "entrevista">("reuniao");
+  const [q, setQ] = useState("");
+  const [cands, setCands] = useState<{ comprador_id: string; nome: string; telefone: string | null; estagio_nome: string | null; responsavel: string | null; precisa: boolean; ja_em: string | null }[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [salvando, setSalvando] = useState<string | null>(null);
+  const quando = slotDate(slot.dia, slot.hora);
+
+  useEffect(() => {
+    let vivo = true;
+    setBuscando(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/hm/agendamentos/candidatos?tipo=${tipo}&q=${encodeURIComponent(q)}`);
+        const d = await r.json();
+        if (vivo && d.ok) setCands(d.candidatos);
+      } finally {
+        if (vivo) setBuscando(false);
+      }
+    }, q ? 250 : 0);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [q, tipo]);
+
+  async function agendar(compradorId: string) {
+    setSalvando(compradorId);
+    try {
+      const campo = tipo === "reuniao" ? "reuniao_em" : "entrevista_em";
+      const r = await fetch(`/api/hm/contato/${compradorId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [campo]: quando.toISOString() }),
+      });
+      const d = await r.json();
+      if (d.ok) onCriado(); else setSalvando(null);
+    } catch { setSalvando(null); }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-pop dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Encaixar às {String(slot.hora).padStart(2, "0")}h</h2>
+          <p className="text-xs capitalize text-slate-500 dark:text-slate-400">
+            {quando.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}
+          </p>
+        </div>
+
+        <div className="flex gap-1 px-4 pt-3">
+          {(["reuniao", "entrevista"] as const).map((tp) => (
+            <button
+              key={tp}
+              onClick={() => setTipo(tp)}
+              className={cn("flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition",
+                tipo === tp
+                  ? (tp === "reuniao" ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300" : "border-orange-500 bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300")
+                  : "border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800")}
+            >
+              {tp === "reuniao" ? "Reunião comercial" : "Entrevista de ativação"}
+            </button>
+          ))}
+        </div>
+
+        <div className="px-4 pt-3">
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar por nome ou telefone…"
+            className={fieldClass}
+          />
+        </div>
+
+        <div className="mt-2 max-h-[45vh] overflow-y-auto px-2 pb-3">
+          {buscando && cands.length === 0 ? (
+            <p className="px-2 py-6 text-center text-xs text-slate-400">Buscando…</p>
+          ) : cands.length === 0 ? (
+            <p className="px-2 py-6 text-center text-xs text-slate-400">
+              {q ? "Ninguém encontrado." : "Ninguém na fila para este tipo — busque por nome."}
+            </p>
+          ) : (
+            cands.map((c) => (
+              <button
+                key={c.comprador_id}
+                disabled={salvando !== null}
+                onClick={() => agendar(c.comprador_id)}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-slate-50 disabled:opacity-50 dark:hover:bg-slate-800"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{c.nome}</p>
+                  <p className="truncate text-[11px] text-slate-400 dark:text-slate-500">
+                    {c.estagio_nome ?? "—"}{c.responsavel ? ` · ${c.responsavel}` : ""}
+                    {c.ja_em ? ` · já tem ${tipo === "reuniao" ? "reunião" : "entrevista"} — remarca` : ""}
+                  </p>
+                </div>
+                {c.precisa && <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">na fila</span>}
+                {salvando === c.comprador_id && <Spinner className="h-4 w-4 shrink-0" />}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -341,6 +630,7 @@ function ModalEvento({ ev, onClose }: { ev: Agendamento; onClose: () => void }) 
   ] as const;
   const feitos = checklist.filter(([, v]) => v).length;
   const wa = ev.telefone ? `https://wa.me/${ev.telefone.replace(/\D/g, "").replace(/^(?!55)/, "55")}` : null;
+  const gcal = gcalLink(ev);
 
   return (
     <>
@@ -426,15 +716,23 @@ function ModalEvento({ ev, onClose }: { ev: Agendamento; onClose: () => void }) 
           )}
         </div>
 
-        <div className="sticky bottom-0 flex gap-2 border-t border-slate-100 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-          <Link href={`/hm/contatos/${ev.comprador_id}`} className="flex-1">
-            <Button variant="secondary" className="w-full">Abrir ficha</Button>
-          </Link>
-          {wa && !ev.nao_contatar && (
-            <a href={wa} target="_blank" rel="noreferrer" className="flex-1">
-              <Button variant="primary" className="w-full">WhatsApp</Button>
+        <div className="sticky bottom-0 space-y-2 border-t border-slate-100 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+          {gcal && (
+            <a href={gcal} target="_blank" rel="noreferrer" className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+              Adicionar ao Google Agenda
             </a>
           )}
+          <div className="flex gap-2">
+            <Link href={`/hm/contatos/${ev.comprador_id}`} className="flex-1">
+              <Button variant="secondary" className="w-full">Abrir ficha</Button>
+            </Link>
+            {wa && !ev.nao_contatar && (
+              <a href={wa} target="_blank" rel="noreferrer" className="flex-1">
+                <Button variant="primary" className="w-full">WhatsApp</Button>
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </>
