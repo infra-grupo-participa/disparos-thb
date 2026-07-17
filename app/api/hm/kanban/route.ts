@@ -37,9 +37,12 @@ export async function GET(req: Request) {
   const cards = await query(
     `select k.comprador_id, k.nome, k.email, k.telefone, k.turma, k.plano, k.categoria_entrada,
             k.estagio_chave, k.estagio_nome, k.estagio_aba, k.responsavel, k.tags, k.apto_ativacao,
-            k.reuniao_em, k.entrevista_em, k.pagamento_em,
+            k.reuniao_em, k.entrevista_em, k.pagamento_em, k.pagamento_previsto_em,
             -- Saldo quitado: não deve mais nada. Colore o card de verde sutil (0099).
             (coalesce(fin.quitado, false) or coalesce(fin.saldo_a_perseguir, 1) <= 0) as quitado,
+            -- Parcelando: pagou ≥1 parcela e ainda deve. O espelho no Comercial mostra
+            -- esse card em "Pagamento Parcelado", não em "Pagamento Realizado" (0108).
+            (fin.situacao = 'mensalidade_em_curso') as parcelado,
             um.descricao as ultima_msg,
             me.criado_em as entrou_estagio_em
        from cs.contatos_hm_kanban k

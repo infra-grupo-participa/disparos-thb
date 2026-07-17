@@ -35,7 +35,9 @@ type Card = {
   reuniao_em: string | null;
   entrevista_em: string | null;
   pagamento_em: string | null;
+  pagamento_previsto_em: string | null;
   quitado: boolean;
+  parcelado: boolean;
   ultima_msg: string | null;
   entrou_estagio_em: string | null;
 };
@@ -77,6 +79,7 @@ const ABAS: { id: string; label: string }[] = [
 const COL_PAGAMENTO = "hm_pagamento_realizado";
 const COL_CANCELAMENTO = "hm_cancelamento"; // "Reclamada" — o cliente PEDIU o cancelamento
 const COL_REEMBOLSADO = "hm_reembolsado"; // o reembolso foi EXECUTADO (o fato) — marca o aluno
+const COL_PARCELADO = "hm_pagamento_parcelado"; // espelho de quem paga em parcelas (ainda deve)
 
 // Em qual coluna DESTA aba o card aparece — ou null se ele não pertence a ela.
 // Quem quitou o saldo vive na Ativação, mas o Comercial não pode perdê-lo de
@@ -85,7 +88,9 @@ const COL_REEMBOLSADO = "hm_reembolsado"; // o reembolso foi EXECUTADO (o fato) 
 function colunaNaAba(card: Card, aba: string): string | null {
   const abaDoCard = card.estagio_aba ?? "comercial";
   if (abaDoCard === aba) return card.estagio_chave;
-  if (aba === "comercial" && abaDoCard === "ativacao") return COL_PAGAMENTO;
+  // Espelho no Comercial: quem quitou aparece em "Pagamento Realizado"; quem ainda
+  // paga em parcelas aparece em "Pagamento Parcelado" (a parcela está em curso).
+  if (aba === "comercial" && abaDoCard === "ativacao") return card.parcelado ? COL_PARCELADO : COL_PAGAMENTO;
   return null;
 }
 // Espelho = card que está de fato na Ativação e aparece no Comercial só como
@@ -124,6 +129,21 @@ function catLabel(cat: string | null): { txt: string; cls: string } | null {
   if (cat === "sinal") return { txt: "Sinal", cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300" };
   if (cat === "compra_cheia") return { txt: "Compra cheia", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" };
   return null;
+}
+
+// O estado da parcela — a leitura RASA que a Ativação faz do financeiro. "Em dia"
+// (indigo) enquanto não vence a data prometida; "atrasada" (vermelho) depois — e aí
+// quem age é o Financeiro (grupoparticipa.app.br), não a ativação. Sem data
+// combinada, fica neutro: o Financeiro ainda não definiu o vencimento.
+function parcelaStatus(card: Card): { txt: string; cls: string; title: string } | null {
+  if (!card.parcelado) return null;
+  const prev = card.pagamento_previsto_em ? new Date(card.pagamento_previsto_em) : null;
+  if (prev && prev.getTime() < Date.now()) {
+    return { txt: "Parcela atrasada", cls: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+      title: `Parcela vencida em ${prev.toLocaleDateString("pt-BR")} — a cobrança é do Financeiro (grupoparticipa.app.br)` };
+  }
+  return { txt: prev ? "Parcela em dia" : "Parcelando", cls: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
+    title: prev ? `Próxima parcela combinada para ${prev.toLocaleDateString("pt-BR")}` : "Pagando em parcelas — sem data de vencimento combinada com o Financeiro" };
 }
 
 // Posição onde o card cairá: entre quais dois cards da coluna o cursor está.
@@ -1014,6 +1034,7 @@ function CardItem({
   coresTags: Record<string, string | null>;
 }) {
   const cat = catLabel(card.categoria_entrada);
+  const parcela = parcelaStatus(card);
   const wa = waLink(card.telefone);
   // Data relevante à etapa: reunião (Comercial) ou entrevista (Ativação).
   const dataEtapa = card.estagio_chave === "hm_reuniao_agendada" ? { label: "Reunião", quando: card.reuniao_em }
@@ -1059,7 +1080,15 @@ function CardItem({
             />
           )}
           {cat && <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>}
-          {card.apto_ativacao && (
+          {/* Parcelando ainda deve o saldo: mostra o estado da parcela, não "pago". */}
+          {parcela ? (
+            <span className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", parcela.cls)} title={parcela.title}>
+              {parcela.txt === "Parcela atrasada"
+                ? <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+                : <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4m10-10h-4M6 12H2" /></svg>}
+              {parcela.txt}
+            </span>
+          ) : card.apto_ativacao && (
             <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" title="Pagamento do saldo confirmado">
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
               pago
