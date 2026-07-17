@@ -196,6 +196,19 @@ const LENTES: Lente[] = [
       && (l.estagio_chave === "hm_reuniao_finalizada" || /^realizada/i.test(l.reuniao_resultado ?? "")) && !l.acordo,
   },
   {
+    // O FURO que escorre dinheiro: já passou da reunião (ou está na Ativação),
+    // ainda deve, e ninguém combinou NADA — sem acordo, sem previsão e sem link de
+    // saldo enviado. É o saldo sem plano de cobrança. Exclui quem já parcela (tem
+    // plano) e quem foi cancelado. O sistema acende isto sozinho, para o comercial
+    // não deixar a venda fechada virar dinheiro perdido.
+    id: "devendo_sem_plano", grupo: "Cobrança do saldo", label: "Fechou, deve e sem plano", destaque: true,
+    test: (l) => !l.quitado && !l.cancelamento_efetivado_em
+      && l.situacao_financeira !== "mensalidade_em_curso"
+      && (saldoDe(l) ?? 1) > 0
+      && !l.acordo && !l.pagamento_previsto_em && !l.link_saldo_enviado_em
+      && (l.estagio_aba === "ativacao" || l.estagio_chave === "hm_reuniao_finalizada" || l.estagio_chave === "hm_pagamento_realizado"),
+  },
+  {
     id: "checklist_metade", grupo: "Ativação incompleta", label: "Checklist pela metade",
     test: (l) => l.estagio_aba === "ativacao" && feitosChecklist(l) >= 1 && feitosChecklist(l) <= 3,
   },
@@ -260,6 +273,14 @@ const LENTES: Lente[] = [
     // GPS nunca vai criar o acesso dessa pessoa.
     id: "pagou_sem_base", grupo: "Higiene", label: "Pagou e não está na base THB", destaque: true,
     test: (l) => l.apto_ativacao && !l.aluno_id,
+  },
+  {
+    // AUTO-AUDITORIA do pagamento: o card está marcado como pago (apto) mas NÃO
+    // qualifica pela regra (0098/0100) — sinal-só, sem saldo pago nem parcelamento.
+    // Foi exatamente o furo do Décio. Deve dar zero; se acender, é erro de operador
+    // a corrigir na hora, e o sistema não deixa passar em silêncio.
+    id: "apto_sem_qualificar", grupo: "Higiene", label: "Marcado pago sem qualificar", destaque: true,
+    test: (l) => l.apto_ativacao && !l.pode_finalizar,
   },
   {
     // Deve o saldo e o sistema não sabe quanto. O lead novo saiu desta lente (o

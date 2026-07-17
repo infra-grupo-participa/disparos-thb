@@ -80,6 +80,10 @@ export type LinhaEsteira = {
   /** quitado · mensalidade_em_curso · oferta_enviada · saldo_parado · incalculavel · cancelado */
   situacao_financeira: string | null;
   quitado: boolean;
+  /** O card qualifica para ser "pagamento finalizado" (0098/0100)? Saldo pago ou
+   *  parcelado. Falso = sinal-só. Alimenta a lente de auto-auditoria "marcado pago
+   *  sem qualificar" — o sistema pega sozinho um card apto que não deveria estar. */
+  pode_finalizar: boolean;
   // ----- o extrato em uma linha (0084) -----
   /** Quando caiu o último real desta pessoa — qualquer um, inclusive o sinal. */
   ultimo_pagamento_em: QuandoHm;
@@ -173,6 +177,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             pr.saldo_a_pagar, pr.credito,
             fin.publico, fin.saldo_a_perseguir, fin.pacote_regra,
             fin.situacao as situacao_financeira, fin.quitado,
+            cs.fn_hm_pode_finalizar(k.comprador_id) as pode_finalizar,
             fin.ultimo_pagamento_em, fin.parcelas_pagas, fin.parcelas_contratadas,
             fin.valor_parcela, fin.pago_pct,
             fin.ultimo_abatimento_em, fin.ultimo_abatimento_valor, fin.ultimo_abatimento_categoria,
