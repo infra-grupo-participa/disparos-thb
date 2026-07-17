@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthed, getSessao } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -183,12 +183,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // O cancelamento virou fato: o reembolso saiu (na Hotmart isso chega sozinho
   // pelo webhook; acordo por fora precisa de alguém para dizer). Marca o aluno
   // como cancelado — sem apagá-lo — e abre a pendência de remover os acessos.
-  // O card também vai para "Solicitou Cancelamento" se ainda não estiver lá:
-  // confirmar um cancelamento de um card que segue no meio da esteira deixaria
-  // a coluna contando uma história e a base, outra.
+  // O card vai para "Reembolsado" (0101), o estágio do FATO: confirmar um
+  // cancelamento sem mover deixaria a coluna contando uma história e a base, outra.
   if (b.confirmar_cancelamento) {
-    if (atual.estagio_chave !== HM_STAGE_CANCELAMENTO) {
-      await moverEstagioHm(compradorId, HM_STAGE_CANCELAMENTO, operador);
+    if (atual.estagio_chave !== HM_STAGE_REEMBOLSADO) {
+      await moverEstagioHm(compradorId, HM_STAGE_REEMBOLSADO, operador);
     }
     const r = await confirmarCancelamentoHm(compradorId, b.cancelamento_motivo ?? null, operador);
     if (!r.ok) return NextResponse.json({ ok: false, reason: "falha_ao_cancelar" }, { status: 500 });

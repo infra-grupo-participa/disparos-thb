@@ -47,7 +47,8 @@ const ABAS: { id: string; label: string }[] = [
 ];
 
 const COL_PAGAMENTO = "hm_pagamento_realizado";
-const COL_CANCELAMENTO = "hm_cancelamento";
+const COL_CANCELAMENTO = "hm_cancelamento"; // "Reclamada" — o cliente PEDIU o cancelamento
+const COL_REEMBOLSADO = "hm_reembolsado"; // o reembolso foi EXECUTADO (o fato) — marca o aluno
 
 // Em qual coluna DESTA aba o card aparece — ou null se ele não pertence a ela.
 // Quem quitou o saldo vive na Ativação, mas o Comercial não pode perdê-lo de
@@ -306,6 +307,23 @@ export default function HmKanbanPage() {
     }
   }
 
+  // O reembolso é o fato consumado: confirma antes de marcar o aluno na base.
+  // O servidor (confirmar_cancelamento) já leva o card para "Reembolsado".
+  async function confirmarReembolso(card: Card) {
+    const ok = window.confirm(
+      `Confirmar o REEMBOLSO de ${card.nome}?\n\n` +
+        "Use quando o reembolso já foi executado (na Hotmart ou por fora). " +
+        "Marca o aluno como cancelado na base (cadastro e histórico ficam) e avisa no Slack para removerem os acessos.",
+    );
+    if (!ok) { await carregar(); return; }
+    await fetch(`/api/hm/contato/${card.comprador_id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmar_cancelamento: true }),
+    });
+    await carregar();
+  }
+
   // Mover pelo menu — para QUALQUER etapa, inclusive de outra esteira. O arrasto
   // só alcança as colunas visíveis na aba atual; era por isso que um card na
   // Ativação não conseguia voltar ao Comercial (e vice-versa) sem passar pelo
@@ -316,6 +334,8 @@ export default function HmKanbanPage() {
     // mundo: o definitivo marca o aluno na base e chama quem remove os acessos.
     // Perguntar aqui é o que permite o gesto único sem confundir as duas.
     if (destino.chave === COL_CANCELAMENTO) { setCancelando({ card, antesDe: null }); return; }
+    // "Reembolsado" é o fato consumado — confirma e marca o aluno na base.
+    if (destino.chave === COL_REEMBOLSADO) { await confirmarReembolso(card); return; }
     const abaDestino = destino.aba ?? "comercial";
     const abaAtual = card.estagio_aba ?? "comercial";
     // Tirar da Ativação um card pago desfaz o pagamento (o servidor limpa a marca).
@@ -359,6 +379,12 @@ export default function HmKanbanPage() {
     // Reordenar DENTRO dela, não: quem já está lá já foi perguntado.
     if (mudouDeColuna && estagioChave === COL_CANCELAMENTO) {
       setCancelando({ card, antesDe });
+      return;
+    }
+    // Cair em "Reembolsado" é declarar o FATO: o reembolso foi executado. Isso
+    // marca o aluno na base e chama quem remove os acessos — pede confirmação.
+    if (mudouDeColuna && estagioChave === COL_REEMBOLSADO) {
+      await confirmarReembolso(card);
       return;
     }
     // O espelho é só o registro do pagamento no Comercial: o card mora na
@@ -677,21 +703,24 @@ export default function HmKanbanPage() {
           onEscolher={async (definitivo, motivo) => {
             const { card, antesDe } = cancelando;
             setCancelando(null);
-            // O card vai para a coluna nos dois casos — a coluna é onde se vê
-            // quem está saindo. O que muda é o que acontece na BASE.
-            await patchMover(card, COL_CANCELAMENTO, antesDe);
             if (definitivo) {
+              // O FATO: confirmar_cancelamento já leva o card para "Reembolsado"
+              // e marca o aluno na base — não passa por "Reclamada".
               await fetch(`/api/hm/contato/${card.comprador_id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ confirmar_cancelamento: true, cancelamento_motivo: motivo || null }),
               });
-            } else if (motivo) {
-              await fetch(`/api/hm/contato/${card.comprador_id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ cancelamento_motivo: motivo }),
-              });
+            } else {
+              // O PEDIDO: só move para "Reclamada". O acesso continua valendo.
+              await patchMover(card, COL_CANCELAMENTO, antesDe);
+              if (motivo) {
+                await fetch(`/api/hm/contato/${card.comprador_id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ cancelamento_motivo: motivo }),
+                });
+              }
             }
             await carregar();
           }}
@@ -786,9 +815,9 @@ function CancelamentoModal({ nome, onEscolher, onFechar }: {
             disabled={salvando}
             className="w-full rounded-lg border border-rose-300 px-3 py-2 text-left text-sm hover:bg-rose-50 disabled:opacity-50 dark:border-rose-500/40 dark:hover:bg-rose-500/10"
           >
-            <span className="font-medium text-rose-700 dark:text-rose-300">Cancelamento definitivo</span>
+            <span className="font-medium text-rose-700 dark:text-rose-300">Reembolso confirmado</span>
             <span className="block text-[11px] text-slate-500 dark:text-slate-400">
-              Marca o aluno como cancelado (o cadastro e o histórico ficam) e avisa no Slack para removerem os acessos.
+              Vai para <strong>Reembolsado</strong>. Marca o aluno como cancelado (o cadastro e o histórico ficam) e avisa no Slack para removerem os acessos.
             </span>
           </button>
         </div>

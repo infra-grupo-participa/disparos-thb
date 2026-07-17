@@ -8,7 +8,10 @@ const log = logger("hm");
 // a timeline. NÃO toca cs.contatos (HT/SEM). Sem disparos — só esteira/ficha.
 
 export const HM_STAGE_PAGAMENTO = "hm_pagamento_realizado";
+// Cancelamento tem dois estágios (0101): "Reclamada" (hm_cancelamento) é o PEDIDO;
+// "Reembolsado" (hm_reembolsado) é o FATO — reembolso confirmado/executado.
 export const HM_STAGE_CANCELAMENTO = "hm_cancelamento";
+export const HM_STAGE_REEMBOLSADO = "hm_reembolsado";
 export const HM_STAGE_PENDENTE = "hm_pendente_liberacao";
 export const HM_STAGE_ACESSO = "hm_acesso_liberado";
 // A linha de chegada da esteira (0065): só entra quem cumpriu o checklist inteiro.
@@ -224,6 +227,17 @@ export async function moverEstagioHm(
       [ch.id, novo.id],
     );
     await addInteracaoHm(ch.id, "sistema", "Solicitou cancelamento — card fora da esteira de Ativação (o acesso continua valendo até o cancelamento ser confirmado)", autor);
+    await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
+    await reposicionarNaColuna(ch.id, novo.id, posicao);
+    return { ok: true };
+  }
+
+  // "Reembolsado" é o FATO (reembolso confirmado/executado). Quem marca o aluno e
+  // pede a remoção de acesso é o confirmarCancelamentoHm/o webhook — chamados à
+  // parte. Aqui só posicionamos o card, sem passar pela lógica de "voltar ao
+  // Comercial desfaz o pagamento" (que não faz sentido para um reembolso).
+  if (chave === HM_STAGE_REEMBOLSADO) {
+    await query(`update cs.contatos_hm set estagio_id = $2, atualizado_em = now() where id = $1`, [ch.id, novo.id]);
     await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
     await reposicionarNaColuna(ch.id, novo.id, posicao);
     return { ok: true };
