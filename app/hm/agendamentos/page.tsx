@@ -69,8 +69,12 @@ function fmtLongo(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR", { weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
 }
 
-// A grade por hora vai das 9h às 18h — a janela de atendimento (decisão de 17/07).
-const HORAS = Array.from({ length: 9 }, (_, i) => 9 + i); // 9,10,…,17 (cada linha é 1h)
+// A janela PADRÃO de atendimento (9h–18h). Mas ela é só o mínimo: a grade se
+// estica para caber qualquer compromisso fora dela. Uma grade fixa escondia em
+// silêncio o que estava marcado às 8h, 18h e 19h — o compromisso existia e não
+// aparecia. Grade que esconde agendamento é pior do que grade feia.
+const HORA_INICIO_PADRAO = 9;
+const HORA_FIM_PADRAO = 18;
 
 // O slot (dia + hora) vira um Date local — é o que o booking manda para agendarHm.
 function slotDate(dia: Date, hora: number): Date {
@@ -111,6 +115,28 @@ export default function HmAgendamentosPage() {
   const [diaAberto, setDiaAberto] = useState<string | null>(null);
   const [aberto, setAberto] = useState<Agendamento | null>(null);   // modal do evento
   const [criar, setCriar] = useState<{ dia: Date; hora: number } | null>(null); // slot para encaixar
+
+  // A vista e os filtros são escolha de quem usa. Perdê-los a cada visita é o que
+  // o time chamou de "a agenda desconfigura": a pessoa arruma e, no dia seguinte,
+  // está tudo de volta ao padrão. Guarda no navegador e restaura na volta.
+  const [prefsProntas, setPrefsProntas] = useState(false);
+  useEffect(() => {
+    try {
+      const p = JSON.parse(localStorage.getItem("hm-agenda-prefs") ?? "{}");
+      if (p.vista === "hora" || p.vista === "mes") setVista(p.vista);
+      if (typeof p.tipo === "string") setTipo(p.tipo);
+      if (typeof p.colaborador === "string") setColaborador(p.colaborador);
+    } catch {
+      // preferência corrompida não pode derrubar a agenda — segue no padrão
+    }
+    setPrefsProntas(true);
+  }, []);
+  useEffect(() => {
+    if (!prefsProntas) return;
+    try {
+      localStorage.setItem("hm-agenda-prefs", JSON.stringify({ vista, tipo, colaborador }));
+    } catch { /* modo anônimo / storage cheio: não é motivo para quebrar a tela */ }
+  }, [vista, tipo, colaborador, prefsProntas]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -158,6 +184,10 @@ export default function HmAgendamentosPage() {
   const porSlot = useMemo(() => {
     const m = new Map<string, Agendamento[]>();
     const semHora = new Map<string, Agendamento[]>();
+    // A faixa começa na janela padrão e se ESTICA para caber tudo que existe —
+    // assim nenhum compromisso fica fora da grade sem ninguém perceber.
+    let ini = HORA_INICIO_PADRAO;
+    let fim = HORA_FIM_PADRAO;
     for (const r of rowsVis) {
       if (!r.quando) continue;
       const d = new Date(r.quando);
@@ -167,8 +197,13 @@ export default function HmAgendamentosPage() {
       const k = semDefinir ? dia : `${dia}-${d.getHours()}`;
       const lista = alvo.get(k);
       if (lista) lista.push(r); else alvo.set(k, [r]);
+      if (!semDefinir) {
+        if (d.getHours() < ini) ini = d.getHours();
+        if (d.getHours() > fim) fim = d.getHours();
+      }
     }
-    return { m, semHora };
+    const horas = Array.from({ length: fim - ini + 1 }, (_, i) => ini + i);
+    return { m, semHora, horas };
   }, [rowsVis]);
 
   // Mês: sempre 6 semanas (42 células), como no Google — a grade não "pula" de
@@ -277,6 +312,7 @@ export default function HmAgendamentosPage() {
       ) : vista === "hora" ? (
         <GradeHora
           dias={celulas}
+          horas={porSlot.horas}
           porSlot={porSlot.m}
           semHora={porSlot.semHora}
           onEvento={(ev) => setAberto(ev)}
@@ -415,8 +451,9 @@ export default function HmAgendamentosPage() {
 // semana; linhas = 9h→18h. Cada evento cai no seu slot; clicar num espaço livre
 // abre o encaixe rápido daquele horário. A faixa de cima guarda o "horário a
 // definir" (eventos que vieram sem hora).
-function GradeHora({ dias, porSlot, semHora, onEvento, onSlot }: {
+function GradeHora({ dias, horas, porSlot, semHora, onEvento, onSlot }: {
   dias: Date[];
+  horas: number[];
   porSlot: Map<string, Agendamento[]>;
   semHora: Map<string, Agendamento[]>;
   onEvento: (ev: Agendamento) => void;
@@ -454,7 +491,7 @@ function GradeHora({ dias, porSlot, semHora, onEvento, onSlot }: {
         )}
 
         {/* Linhas de hora */}
-        {HORAS.map((h) => (
+        {horas.map((h) => (
           <div key={h} className="grid border-b border-slate-100 last:border-0 dark:border-slate-800" style={{ gridTemplateColumns: "3.5rem repeat(7, 1fr)" }}>
             <div className="border-r border-slate-100 pr-1.5 pt-1 text-right text-[10px] font-medium tabular-nums text-slate-400 dark:border-slate-800 dark:text-slate-500">
               {String(h).padStart(2, "0")}h
