@@ -7,8 +7,11 @@ import BuscaGlobal from "./busca-global";
 import UserMenu from "./user-menu";
 import { MarcaPortal } from "./marca";
 import { usePortal } from "./use-portal";
+import { useMe } from "./use-me";
 
-type LinkDef = { sub: string; label: string; icon: string };
+// `soAdmin` esconde o link de quem não é admin — a rota já barra no servidor, isto
+// é só para não oferecer uma porta que a pessoa não pode abrir.
+type LinkDef = { sub: string; label: string; icon: string; soAdmin?: boolean };
 
 // Ícones (heroicons outline, 24x24).
 const LINKS: LinkDef[] = [
@@ -30,6 +33,9 @@ const LINKS_HM: LinkDef[] = [
   { sub: "/kanban", label: "Jornada", icon: iconeDe("/kanban") },
   { sub: "/agendamentos", label: "Agendamentos", icon: "M8 2v4M16 2v4M3.5 9.09h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5ZM11.995 13.7h.009M8.294 13.7h.01M8.294 16.7h.01" },
   { sub: "/templates", label: "Templates", icon: iconeDe("/templates") },
+  // Consulta dos acessos do GPS (habilitado x entrou). Só admin.
+  { sub: "/acessos", label: "Acessos", soAdmin: true,
+    icon: "M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3ZM9.5 12l1.8 1.8 3.7-3.7" },
 ];
 
 function Icon({ d }: { d: string }) {
@@ -43,11 +49,13 @@ function Icon({ d }: { d: string }) {
 export default function TopNav() {
   const pathname = usePathname();
   const { portal, base, nome, cor } = usePortal();
+  const { me } = useMe();
 
   // Sem cabeçalho na tela de seleção de portal e no login.
   if (pathname === "/login" || pathname === "/") return null;
 
-  const links = portal === "hm" ? LINKS_HM : LINKS;
+  const links = (portal === "hm" ? LINKS_HM : LINKS)
+    .filter((l) => !l.soAdmin || me?.papel === "admin");
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/80">
