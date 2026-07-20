@@ -43,10 +43,16 @@ export async function GET(req: Request) {
             -- Parcelando: pagou ≥1 parcela e ainda deve. O espelho no Comercial mostra
             -- esse card em "Pagamento Parcelado", não em "Pagamento Realizado" (0108).
             (fin.situacao = 'mensalidade_em_curso') as parcelado,
+            -- Falso-verde: o pacote foi cravado ignorando o crédito pró-rata e o
+            -- pagamento que virou esse crédito segue contado como pagamento. O saldo
+            -- dá zero por coincidência aritmética, não por quitação (0112). Enquanto
+            -- o comercial não decide quanto cobrar, o card avisa em vez de mentir.
+            (cd.comprador_id is not null) as conferir_saldo,
             um.descricao as ultima_msg,
             me.criado_em as entrou_estagio_em
        from cs.contatos_hm_kanban k
        left join cs.vw_hm_financeiro fin on fin.comprador_id = k.comprador_id
+       left join cs.vw_hm_credito_duplo cd on cd.comprador_id = k.comprador_id
        left join lateral (
          select i.descricao from cs.interacoes i
           where i.contato_hm_id = k.contato_hm_id

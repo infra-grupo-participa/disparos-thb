@@ -38,6 +38,9 @@ type Card = {
   pagamento_previsto_em: string | null;
   quitado: boolean;
   parcelado: boolean;
+  /** Falso-verde: o saldo zerou por dupla contagem do crédito pró-rata (0112),
+   *  não por quitação. O card avisa em vez de mentir; quanto cobrar é do comercial. */
+  conferir_saldo: boolean;
   ultima_msg: string | null;
   entrou_estagio_em: string | null;
 };
@@ -1035,6 +1038,9 @@ function CardItem({
 }) {
   const cat = catLabel(card.categoria_entrada);
   const parcela = parcelaStatus(card);
+  // Verde é "não deve mais nada". Quem está em conferência não entra: ali o zero é
+  // aritmética, não quitação — e um verde errado faz o time parar de cobrar.
+  const verde = card.quitado && !card.conferir_saldo;
   const wa = waLink(card.telefone);
   // Data relevante à etapa: reunião (Comercial) ou entrevista (Ativação).
   const dataEtapa = card.estagio_chave === "hm_reuniao_agendada" ? { label: "Reunião", quando: card.reuniao_em }
@@ -1057,14 +1063,18 @@ function CardItem({
         // Saldo quitado: um verde sutil, só o suficiente para diferenciar de longe
         // quem não deve mais nada. Não vale quando o card está selecionado (a borda
         // da marca vence) nem sobrescreve o anel de seleção.
-        card.quitado
+        // `conferir_saldo` TIRA o verde: nesses o saldo zerou por dupla contagem do
+        // crédito (0112), não por quitação — pintar de verde seria o board mentindo.
+        verde
           ? "bg-emerald-50/50 dark:bg-emerald-500/5"
           : "bg-white dark:bg-slate-900",
         marcado
           ? "border-brand ring-1 ring-brand dark:border-brand-400 dark:ring-brand-400"
-          : card.quitado
+          : verde
             ? "border-emerald-200 dark:border-emerald-500/25"
-            : "border-slate-200 dark:border-slate-800",
+            : card.conferir_saldo
+              ? "border-amber-300 dark:border-amber-500/40"
+              : "border-slate-200 dark:border-slate-800",
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -1080,6 +1090,16 @@ function CardItem({
             />
           )}
           {cat && <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>}
+          {/* Falso-verde do crédito pró-rata: avisa em vez de deixar o card mentir. */}
+          {card.conferir_saldo && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+              title="Saldo zerado por dupla contagem do crédito pró-rata — não é quitação. O comercial precisa decidir quanto cobrar antes de dar como pago."
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+              conferir saldo
+            </span>
+          )}
           {/* Parcelando ainda deve o saldo: mostra o estado da parcela, não "pago". */}
           {parcela ? (
             <span className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", parcela.cls)} title={parcela.title}>
