@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import type { ColunaHm, LinhaEsteira, RelatorioHm } from "@/lib/services/hm-relatorio";
+import type { ColunaHm, LinhaEsteira, RelatorioHm, SocioEsteira } from "@/lib/services/hm-relatorio";
 
 // Relatório da esteira HM. Duas leituras no mesmo arquivo:
 //   1) "Resumo" — a esteira de cima: quantos em cada etapa, há quantos dias estão
@@ -175,6 +175,13 @@ export async function relatorioHmParaXlsx(r: RelatorioHm, agora: Date): Promise<
   total.fill = { type: "pattern", pattern: "solid", fgColor: { argb: LARANJA_CLARO } };
   total.getCell(8).numFmt = 'R$ #,##0.00';
 
+  // -------------------------------------------------------------- aba Sócios
+  // O sócio convidado não é card financeiro, então tem aba própria — do mesmo
+  // jeito que no board ele é um card à parte. Sem isso, exportar a Ativação
+  // perdia justamente a coluna que mais tem sócio. Só aparece se houver algum
+  // (no relatório de uma coluna do Comercial, `r.socios` vem vazio).
+  if (r.socios.length) tabelaSocios(wb, r.socios);
+
   // ----------------------------------------------- aba com todos (só no geral)
   if (!r.filtros.estagio) tabela(wb, "Todos os alunos", r.linhas);
 
@@ -219,4 +226,51 @@ function tabela(wb: ExcelJS.Workbook, nome: string, linhas: LinhaEsteira[]) {
   // O filtro do Excel na primeira linha: o relatório precisa continuar utilizável
   // depois de baixado (ordenar por dias parados, achar quem não tem responsável).
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: COLUNAS.length } };
+}
+
+// A aba dos sócios: quem é, de quem é sócio, os 3 acessos e — o que fechava o
+// gargalo — se ele já está na base mestre THB. "Fora da base" é o sócio cujo
+// titular já pagou mas que o GPS ainda não enxerga.
+const STATUS_SOCIO: Record<SocioEsteira["status"], string> = {
+  nao_iniciado: "Não iniciado",
+  em_ativacao: "Em ativação",
+  ativado: "Ativado",
+  sem_acesso: "Sem acesso (titular cancelou)",
+};
+function naBaseTxt(s: SocioEsteira): string {
+  if (s.na_base) return "Sim";
+  return s.titular_na_base ? "Não — provisionar" : "Aguarda o titular pagar";
+}
+
+const COLUNAS_SOCIO: { header: string; width: number; get: (s: SocioEsteira) => unknown }[] = [
+  { header: "Sócio", width: 28, get: (s) => txt(s.nome) },
+  { header: "Sócio de (titular)", width: 28, get: (s) => txt(s.titular_nome) },
+  { header: "Turma do titular", width: 15, get: (s) => txt(s.titular_origem ?? s.titular_turma) },
+  { header: "Telefone", width: 16, get: (s) => txt(s.telefone) },
+  { header: "E-mail", width: 28, get: (s) => txt(s.email) },
+  { header: "Searchie", width: 10, get: (s) => sn(s.ativ_searchie) },
+  { header: "Comunidade", width: 12, get: (s) => sn(s.ativ_comunidade) },
+  { header: "Grupo", width: 10, get: (s) => sn(s.ativ_grupo) },
+  { header: "Status", width: 26, get: (s) => STATUS_SOCIO[s.status] },
+  { header: "Na base THB", width: 20, get: (s) => naBaseTxt(s) },
+];
+
+function tabelaSocios(wb: ExcelJS.Workbook, socios: SocioEsteira[]) {
+  const ws = wb.addWorksheet("Sócios", { views: [{ state: "frozen", xSplit: 1, ySplit: 1 }] });
+  ws.columns = COLUNAS_SOCIO.map((c) => ({ header: c.header, width: c.width }));
+
+  const cab = ws.getRow(1);
+  cab.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  cab.fill = { type: "pattern", pattern: "solid", fgColor: { argb: LARANJA } };
+  cab.height = 20;
+  cab.alignment = { vertical: "middle" };
+
+  for (const s of socios) ws.addRow(COLUNAS_SOCIO.map((c) => c.get(s)));
+
+  if (socios.length === 0) {
+    const l = ws.addRow(["Nenhum sócio nesta etapa."]);
+    l.getCell(1).font = { italic: true, color: { argb: "FF94A3B8" } };
+    return;
+  }
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: COLUNAS_SOCIO.length } };
 }

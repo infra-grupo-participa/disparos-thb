@@ -64,7 +64,19 @@ type Socio = {
   titular_cancelado: boolean;
   checks_feitos: number;
   status: "nao_iniciado" | "em_ativacao" | "ativado" | "sem_acesso";
+  // O sócio já existe em public.thb_alunos (a base que o GPS lê)? E o titular?
+  na_base: boolean;
+  titular_na_base: boolean;
 };
+
+// O sócio "certinho na base": só está de fato na base mestre THB quando tem
+// cadastro lá (na_base). Se o titular já é aluno mas o sócio não, é o gargalo —
+// ele pagou e quer acesso, mas o GPS não o enxerga. Antes de o titular pagar, o
+// sócio ainda não deve existir na base (é só um convidado).
+function estadoNaBase(s: Socio): "na_base" | "fora_da_base" | "aguarda_titular" {
+  if (s.na_base) return "na_base";
+  return s.titular_na_base ? "fora_da_base" : "aguarda_titular";
+}
 
 // Em qual coluna da Ativação o sócio aparece: quando os 3 acessos estão liberados
 // ele vai para "Acesso Liberado"; senão fica em "Pendente de Liberação", que é
@@ -310,6 +322,24 @@ export default function HmKanbanPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ socioId: s.socio_id, [campo]: novo }),
     });
+  }
+
+  // "Enviar à base": empurra o sócio órfão para a base mestre THB. Reusa a função
+  // que já roda no provisionamento do titular; aqui é sob demanda, para os sócios
+  // cujo titular pagou mas que nunca entraram na base. Recarrega para o selo virar
+  // "Na base THB". Só faz sentido quando o titular já é aluno.
+  const [enviandoBase, setEnviandoBase] = useState<Set<string>>(new Set());
+  async function enviarSocioParaBase(s: Socio) {
+    setEnviandoBase((atual) => new Set(atual).add(s.socio_id));
+    try {
+      const r = await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios/provisionar`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.ok) window.alert(`Não foi possível enviar ${s.nome} à base. Tente de novo.`);
+      else if (!d.provisionados) window.alert(`${s.nome} não foi enviado: o titular precisa estar como aluno na base primeiro.`);
+      await carregar();
+    } finally {
+      setEnviandoBase((atual) => { const n = new Set(atual); n.delete(s.socio_id); return n; });
+    }
   }
 
   // Lê os filtros da URL uma vez, antes do primeiro carregamento — senão o
@@ -700,7 +730,13 @@ export default function HmKanbanPage() {
                     {/* Sócios convidados — cards azuis, fora da máquina financeira.
                         O Thomas libera os 3 acessos aqui; a Ana toca depois. */}
                     {sociosDaCol.map((s) => (
-                      <SocioCard key={s.socio_id} socio={s} onToggle={(campo) => toggleSocioCheck(s, campo)} />
+                      <SocioCard
+                        key={s.socio_id}
+                        socio={s}
+                        onToggle={(campo) => toggleSocioCheck(s, campo)}
+                        onEnviarBase={() => enviarSocioParaBase(s)}
+                        enviandoBase={enviandoBase.has(s.socio_id)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -850,12 +886,20 @@ export default function HmKanbanPage() {
 // não é um card financeiro: não arrasta, não abre ficha de cobrança, não entra
 // em lente nenhuma. Só os 3 acessos e o status. Quando o titular cancela, o
 // acesso do sócio cai junto (cascata) e o card pede a remoção.
-function SocioCard({ socio: s, onToggle }: {
+function SocioCard({ socio: s, onToggle, onEnviarBase, enviandoBase }: {
   socio: Socio;
   onToggle: (campo: "ativ_searchie" | "ativ_comunidade" | "ativ_grupo") => void;
+  onEnviarBase: () => void;
+  enviandoBase: boolean;
 }) {
   const wa = waLink(s.telefone);
   const semAcesso = s.status === "sem_acesso";
+  const base = estadoNaBase(s);
+  const baseBadge = base === "na_base"
+    ? { txt: "Na base THB", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300", title: "O sócio já tem cadastro na base mestre (o GPS o enxerga)." }
+    : base === "fora_da_base"
+      ? { txt: "Fora da base — provisionar", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300", title: "O titular já é aluno, mas este sócio ainda não foi enviado à base THB. O GPS não o enxerga." }
+      : { txt: "Aguarda o titular pagar", cls: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400", title: "O sócio entra na base quando o titular quitar (mesma turma e validade)." };
   const checks: { campo: "ativ_searchie" | "ativ_comunidade" | "ativ_grupo"; label: string; on: boolean }[] = [
     { campo: "ativ_searchie", label: "Searchie", on: s.ativ_searchie },
     { campo: "ativ_comunidade", label: "Comunidade", on: s.ativ_comunidade },
@@ -892,6 +936,25 @@ function SocioCard({ socio: s, onToggle }: {
         sócio de <span className="font-medium text-slate-600 dark:text-slate-300">{s.titular_nome}</span>
         {s.titular_origem ? ` · ${s.titular_origem}` : s.titular_turma ? ` · ${s.titular_turma}` : ""}
       </p>
+
+      {/* "Certinho na base": diz se o GPS já enxerga o sócio. Fora da base com o
+          titular pagante é o gargalo — vira botão para enviar à base num clique. */}
+      {base === "fora_da_base" ? (
+        <button
+          type="button"
+          onClick={onEnviarBase}
+          disabled={enviandoBase}
+          title="O titular já é aluno, mas este sócio ainda não está na base THB. Clique para enviá-lo (mesma turma e validade do titular)."
+          className={cn("mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition", baseBadge.cls, "hover:brightness-95 disabled:opacity-60")}
+        >
+          <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /></svg>
+          {enviandoBase ? "Enviando…" : "Enviar à base THB"}
+        </button>
+      ) : (
+        <span className={cn("mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium", baseBadge.cls)} title={baseBadge.title}>
+          {baseBadge.txt}
+        </span>
+      )}
 
       {semAcesso && (
         <p className="mt-1.5 rounded bg-rose-100 px-2 py-1 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">

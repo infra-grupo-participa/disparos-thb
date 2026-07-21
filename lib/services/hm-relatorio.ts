@@ -150,11 +150,43 @@ export type LinhaEsteira = {
 };
 export type ColunaHm = { chave: string; nome: string; cor: string; aba: string | null; ordem: number };
 
+// O sócio convidado na esteira de Ativação — NÃO é card financeiro, então tem
+// linha própria (nunca se mistura com os titulares no relatório, como não se
+// mistura no board). Só o essencial: quem é, de quem é sócio, os 3 acessos e se
+// já está na base mestre THB.
+export type SocioEsteira = {
+  socio_id: string;
+  nome: string;
+  email: string | null;
+  telefone: string | null;
+  titular_comprador_id: string;
+  titular_nome: string;
+  titular_turma: string | null;
+  titular_origem: string | null;
+  ativ_searchie: boolean;
+  ativ_comunidade: boolean;
+  ativ_grupo: boolean;
+  status: "nao_iniciado" | "em_ativacao" | "ativado" | "sem_acesso";
+  na_base: boolean;
+  titular_na_base: boolean;
+  /** Coluna da Ativação onde o card aparece (ativado → liberado; senão pendente). */
+  estagio_chave: string;
+};
+
 export type RelatorioHm = {
   colunas: ColunaHm[];
   linhas: LinhaEsteira[];
+  socios: SocioEsteira[];
   filtros: FiltrosHm;
 };
+
+// Mesma regra do board (colunaDoSocio): quem tem os 3 acessos vai para "Acesso
+// Liberado"; o resto fica em "Pendente de Liberação".
+const HM_SOCIO_LIBERADO = "hm_acesso_liberado";
+const HM_SOCIO_PENDENTE = "hm_pendente_liberacao";
+function colunaDoSocio(status: SocioEsteira["status"]): string {
+  return status === "ativado" ? HM_SOCIO_LIBERADO : HM_SOCIO_PENDENTE;
+}
 
 export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
   const lista = (v?: string[] | null) => (v && v.length ? v : null);
@@ -229,5 +261,24 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
     p,
   );
 
-  return { colunas, linhas, filtros: f };
+  // Sócios: mesma esteira de Ativação, linha própria. Reusa o filtro já resolvido
+  // nas linhas — um sócio entra no relatório se o TITULAR dele passou nos filtros
+  // (responsável/canal/turma) do board. Quando a exportação é de uma coluna só, o
+  // sócio entra apenas se cair naquela coluna da Ativação.
+  const titularesVisiveis = new Set(linhas.map((l) => l.comprador_id));
+  const sociosBrutos = await query<Omit<SocioEsteira, "estagio_chave">>(
+    `select socio_id, nome, email, telefone,
+            titular_comprador_id, titular_nome, titular_turma, titular_origem,
+            ativ_searchie, ativ_comunidade, ativ_grupo, status,
+            (aluno_id is not null) as na_base,
+            (titular_aluno_id is not null) as titular_na_base
+       from cs.vw_hm_socios
+      order by titular_nome, nome`,
+  );
+  const socios: SocioEsteira[] = sociosBrutos
+    .filter((s) => titularesVisiveis.has(s.titular_comprador_id))
+    .map((s) => ({ ...s, estagio_chave: colunaDoSocio(s.status) }))
+    .filter((s) => !f.estagio || s.estagio_chave === f.estagio);
+
+  return { colunas, linhas, socios, filtros: f };
 }
