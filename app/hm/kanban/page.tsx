@@ -57,6 +57,7 @@ type Socio = {
   email: string | null;
   telefone: string | null;
   link_facebook: string | null;
+  origem: string | null;
   ativ_searchie: boolean;
   ativ_comunidade: boolean;
   ativ_grupo: boolean;

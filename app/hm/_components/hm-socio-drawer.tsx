@@ -17,6 +17,7 @@ export type SocioFicha = {
   email: string | null;
   telefone: string | null;
   link_facebook: string | null;
+  origem: string | null;
   ativ_searchie: boolean;
   ativ_comunidade: boolean;
   ativ_grupo: boolean;
@@ -118,9 +119,14 @@ export function HmSocioDrawer({ socio, onClose, onChanged }: {
         <div className="flex items-start gap-3 border-b border-slate-100 p-5 dark:border-slate-800">
           <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base font-semibold", corAvatar(s.nome))}>{inicial(s.nome)}</span>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               <span className="inline-flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-300">Sócio</span>
               <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", statusInfo.cls)}>{statusInfo.txt}</span>
+              {s.origem && (
+                <span className="inline-flex items-center rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300" title="Origem do sócio (de onde veio)">
+                  {s.origem}
+                </span>
+              )}
             </div>
             <h2 className="mt-1 truncate text-lg font-semibold text-slate-900 dark:text-slate-100" title={s.nome}>{s.nome}</h2>
             <ContatoDoNome telefone={s.telefone} email={s.email} className="mt-0.5" />

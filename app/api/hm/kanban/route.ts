@@ -75,7 +75,7 @@ export async function GET(req: Request) {
   // como cards azuis na Ativação, para o Thomas liberar o acesso. Array separado
   // de propósito: o sócio jamais entra na cobrança nem nas lentes financeiras.
   const socios = await query(
-    `select socio_id, contato_hm_id, nome, email, telefone, link_facebook,
+    `select socio_id, contato_hm_id, nome, email, telefone, link_facebook, origem,
             ativ_searchie, ativ_comunidade, ativ_grupo,
             titular_comprador_id, titular_nome, titular_turma, titular_origem,
             titular_cancelado, checks_feitos, status,
