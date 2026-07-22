@@ -262,6 +262,7 @@ export default function HmKanbanPage() {
   const [alvo, setAlvo] = useState<Alvo | null>(null);
   const [selecionado, setSelecionado] = useState<string | null>(null);
   const [socioAberto, setSocioAberto] = useState<Socio | null>(null);
+  const [addSocio, setAddSocio] = useState<{ compradorId: string; nome: string } | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [dispararLote, setDispararLote] = useState(false);
   // Card a caminho da coluna de cancelamento, esperando a resposta: pediu ou cancelou?
@@ -768,6 +769,7 @@ export default function HmKanbanPage() {
           >
             <p className="truncate px-3 py-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">{menu.card.nome}</p>
             <MenuItem onClick={() => { setSelecionado(menu.card.comprador_id); setMenu(null); }}>Abrir ficha</MenuItem>
+            <MenuItem onClick={() => { const c = menu.card; setMenu(null); setAddSocio({ compradorId: c.comprador_id, nome: c.nome }); }}>+ Adicionar sócio</MenuItem>
             <MenuItem onClick={() => { const c = menu.card; setMenu(null); desfazerMovimento(c); }}>Desfazer último movimento</MenuItem>
 
             {ABAS.map((a) => {
@@ -868,6 +870,15 @@ export default function HmKanbanPage() {
           socio={socioAberto}
           onClose={() => setSocioAberto(null)}
           onChanged={carregar}
+        />
+      )}
+
+      {addSocio && (
+        <AddSocioModal
+          compradorId={addSocio.compradorId}
+          titularNome={addSocio.nome}
+          onClose={() => setAddSocio(null)}
+          onSalvo={() => { setAddSocio(null); carregar(); }}
         />
       )}
 
@@ -1013,6 +1024,47 @@ function SocioCard({ socio: s, onAbrir, onToggle, onEnviarBase, enviandoBase }: 
         </div>
       )}
     </div>
+  );
+}
+
+// Atalho do kanban: convidar o 1º sócio de um titular sem abrir a ficha inteira.
+// O vínculo ao titular é automático (a rota grava com o contato_hm_id dele) e, se
+// o titular já for aluno, o sócio já vai para a base THB.
+function AddSocioModal({ compradorId, titularNome, onClose, onSalvo }: {
+  compradorId: string; titularNome: string; onClose: () => void; onSalvo: () => void;
+}) {
+  const [f, setF] = useState({ nome: "", email: "", telefone: "" });
+  const [salvando, setSalvando] = useState(false);
+  async function salvar() {
+    setSalvando(true);
+    try {
+      await fetch(`/api/hm/contato/${compradorId}/socios`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: f.nome.trim(), email: f.email.trim() || null, telefone: f.telefone.trim() || null }),
+      });
+      onSalvo();
+    } finally { setSalvando(false); }
+  }
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-5 shadow-pop dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">Adicionar sócio</h2>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Vincula automaticamente a <span className="font-medium">{titularNome}</span>.</p>
+        <div className="mt-3 space-y-2">
+          <input autoFocus value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} placeholder="Nome do sócio" className={cn(fieldClass, "w-full")} />
+          <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="E-mail" className={cn(fieldClass, "w-full")} />
+          <input value={f.telefone} onChange={(e) => setF({ ...f, telefone: e.target.value })} placeholder="Telefone" className={cn(fieldClass, "w-full")} />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button variant="primary" size="sm" disabled={salvando || f.nome.trim().length < 2} onClick={salvar}>
+            {salvando ? "Salvando…" : "Adicionar"}
+          </Button>
+        </div>
+      </div>
+    </>
   );
 }
 
