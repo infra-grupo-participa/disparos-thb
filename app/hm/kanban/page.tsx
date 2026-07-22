@@ -6,6 +6,7 @@ import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
+import { HmSocioDrawer } from "@/app/hm/_components/hm-socio-drawer";
 import { HmCadastroModal } from "@/app/hm/_components/hm-cadastro";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
@@ -51,9 +52,11 @@ type Coluna = { chave: string; nome: string; cor: string; aba: string | null };
 // liberar o acesso. Fluxo simples — três checks e pronto.
 type Socio = {
   socio_id: string;
+  contato_hm_id: string;
   nome: string;
   email: string | null;
   telefone: string | null;
+  link_facebook: string | null;
   ativ_searchie: boolean;
   ativ_comunidade: boolean;
   ativ_grupo: boolean;
@@ -258,6 +261,7 @@ export default function HmKanbanPage() {
   const [carregando, setCarregando] = useState(true);
   const [alvo, setAlvo] = useState<Alvo | null>(null);
   const [selecionado, setSelecionado] = useState<string | null>(null);
+  const [socioAberto, setSocioAberto] = useState<Socio | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [dispararLote, setDispararLote] = useState(false);
   // Card a caminho da coluna de cancelamento, esperando a resposta: pediu ou cancelou?
@@ -735,6 +739,7 @@ export default function HmKanbanPage() {
                       <SocioCard
                         key={s.socio_id}
                         socio={s}
+                        onAbrir={() => setSocioAberto(s)}
                         onToggle={(campo) => toggleSocioCheck(s, campo)}
                         onEnviarBase={() => enviarSocioParaBase(s)}
                         enviandoBase={enviandoBase.has(s.socio_id)}
@@ -858,6 +863,14 @@ export default function HmKanbanPage() {
         />
       )}
 
+      {socioAberto && (
+        <HmSocioDrawer
+          socio={socioAberto}
+          onClose={() => setSocioAberto(null)}
+          onChanged={carregar}
+        />
+      )}
+
       {cadastrando && (
         <HmCadastroModal
           onClose={() => setCadastrando(false)}
@@ -888,8 +901,9 @@ export default function HmKanbanPage() {
 // não é um card financeiro: não arrasta, não abre ficha de cobrança, não entra
 // em lente nenhuma. Só os 3 acessos e o status. Quando o titular cancela, o
 // acesso do sócio cai junto (cascata) e o card pede a remoção.
-function SocioCard({ socio: s, onToggle, onEnviarBase, enviandoBase }: {
+function SocioCard({ socio: s, onAbrir, onToggle, onEnviarBase, enviandoBase }: {
   socio: Socio;
+  onAbrir: () => void;
   onToggle: (campo: "ativ_searchie" | "ativ_comunidade" | "ativ_grupo") => void;
   onEnviarBase: () => void;
   enviandoBase: boolean;
@@ -918,8 +932,10 @@ function SocioCard({ socio: s, onToggle, onEnviarBase, enviandoBase }: {
   return (
     <div
       data-socio
+      onClick={onAbrir}
+      title="Abrir a ficha do sócio"
       className={cn(
-        "relative block rounded-lg border p-2.5 shadow-card",
+        "relative block cursor-pointer rounded-lg border p-2.5 shadow-card transition hover:shadow-pop",
         semAcesso
           ? "border-rose-200 bg-rose-50/50 dark:border-rose-500/25 dark:bg-rose-500/5"
           : "border-sky-200 bg-sky-50/60 dark:border-sky-500/25 dark:bg-sky-500/5",
@@ -944,7 +960,7 @@ function SocioCard({ socio: s, onToggle, onEnviarBase, enviandoBase }: {
       {base === "fora_da_base" ? (
         <button
           type="button"
-          onClick={onEnviarBase}
+          onClick={(e) => { e.stopPropagation(); onEnviarBase(); }}
           disabled={enviandoBase}
           title="O titular já é aluno, mas este sócio ainda não está na base THB. Clique para enviá-lo (mesma turma e validade do titular)."
           className={cn("mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition", baseBadge.cls, "hover:brightness-95 disabled:opacity-60")}
@@ -970,7 +986,7 @@ function SocioCard({ socio: s, onToggle, onEnviarBase, enviandoBase }: {
           <button
             key={c.campo}
             type="button"
-            onClick={() => onToggle(c.campo)}
+            onClick={(e) => { e.stopPropagation(); onToggle(c.campo); }}
             title={c.on ? `${c.label} liberado — clique para desmarcar` : `Marcar ${c.label} como liberado`}
             className={cn(
               "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition",
