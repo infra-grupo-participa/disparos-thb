@@ -8,7 +8,7 @@ import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmCadastroModal } from "@/app/hm/_components/hm-cadastro";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
-import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
+import { gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { MultiSelect } from "@/app/_components/multi-select";
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
@@ -344,14 +344,16 @@ export default function HmKanbanPage() {
 
   // Lê os filtros da URL uma vez, antes do primeiro carregamento — senão o
   // board buscaria sem filtro e refaria a busca logo em seguida.
-  // Sem canal na URL, os 5 fixados entram PRÉ-MARCADOS (decisão de 14/07): a
-  // tela abre já recortada nos eventos que o time acompanha. "Limpar filtros"
-  // mostra todo mundo; recarregar volta ao padrão.
+  // O board abre SEM filtro: mostra todo mundo. A régua de canais fixos e os
+  // dropdowns (canal/turma/responsável) seguem à mão para recortar quando o time
+  // quiser — mas nada some por padrão. (Antes os 5 canais fixos entravam
+  // pré-marcados e escondiam quem não estava neles — Venda direta, Imersão POA,
+  // sem-canal —; só apareciam via "Limpar filtros".) Um ?canal=X na URL — vindo
+  // da tabela ou de um link — ainda é respeitado.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
-    const canaisUrl = sp.getAll("canal");
     setFiltroResp(sp.getAll("responsavel"));
-    setFiltroCanal(canaisUrl.length ? canaisUrl : [...CANAIS_FIXOS]);
+    setFiltroCanal(sp.getAll("canal"));
     setFiltroTurma(sp.getAll("turma"));
     setFiltrosProntos(true);
   }, []);

@@ -470,12 +470,11 @@ export default function HmTabelaPage() {
   // contexto) e voltam para ela a cada mudança.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
-    // Sem canal na URL, os 5 fixados entram PRÉ-MARCADOS (decisão de 14/07) —
-    // a tela abre recortada nos eventos que o time acompanha; "Limpar filtros"
-    // mostra todo mundo, e recarregar volta ao padrão.
-    const canaisUrl = sp.getAll("canal");
+    // Abre SEM filtro (mostra todo mundo); a régua e os dropdowns seguem à mão
+    // para recortar. Nada some por padrão. Um ?canal=X na URL (vindo do kanban)
+    // ainda é respeitado, para o alternador Kanban ⇄ Tabela preservar o recorte.
     setFiltroResp(sp.getAll("responsavel"));
-    setFiltroCanal(canaisUrl.length ? canaisUrl : [...CANAIS_FIXOS]);
+    setFiltroCanal(sp.getAll("canal"));
     setFiltroTurma(sp.getAll("turma"));
     setFiltrosProntos(true);
   }, []);
