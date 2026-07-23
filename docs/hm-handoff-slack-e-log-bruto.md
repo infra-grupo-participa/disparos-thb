@@ -82,6 +82,45 @@ Observações:
 
 ---
 
+## Item 7 — 🔴 CRÍTICO: webhook ignora `PURCHASE_COMPLETE` (boleto/pix compensado)
+
+**Sintoma (achado na reconciliação de 23/07):** boleto que COMPENSA não vira "pago"
+no banco — fica preso em `PRINTED_BILLET`. Caso concreto: Rafael Bayard
+(`HP1699412937`) pagou o sinal, a Hotmart marcou "Completo", mas o sistema achava
+que ele não tinha pago (sinal fora do razão, esteira errada, canal forçado por
+override "sem sinal aprovado").
+
+**Causa-raiz (provada pelo log cru 15–17/07):** a Hotmart manda `PURCHASE_COMPLETE`
+(89×), `PURCHASE_BILLET_PRINTED` (9×) e `PURCHASE_EXPIRED` (8×) — mas o handler só
+age em `PURCHASE_APPROVED` + cancelamentos. O guard descarta os outros:
+
+```ts
+const statusCancelamento = EVENTOS_CANCELAMENTO[event];
+if (event !== "PURCHASE_APPROVED" && !statusCancelamento) { return event_ignored; }
+```
+
+`PURCHASE_COMPLETE` é o "pagamento liberado/compensado" — tratá-lo IGUAL ao
+`PURCHASE_APPROVED` (persistir/atualizar status). **Patch mínimo:**
+
+```ts
+// trata COMPLETE junto com APPROVED (ambos = pagamento confirmado)
+const EVENTOS_COMPRA = ["PURCHASE_APPROVED", "PURCHASE_COMPLETE"];
+if (!EVENTOS_COMPRA.includes(event) && !statusCancelamento) { return event_ignored; }
+```
+
+E em `persistPurchase`, parar de cravar `hotmart_event: "PURCHASE_APPROVED"` —
+usar o `event` real (senão um COMPLETE grava rótulo de APPROVED). O `status` já
+vem de `purchase.status` (virá `COMPLETE`), o upsert é por `hotmart_transaction`
+(idempotente) e o gatilho `trg_seed_contato_hm_upd` reconcilia o card. Seguro:
+não cria duplicado, não regride estágio, não re-lança razão (on-conflict).
+
+**Bônus (higiene, opcional):** tratar `PURCHASE_BILLET_PRINTED` (gravar boleto) e
+`PURCHASE_EXPIRED` (baixar status) para o boleto não ficar preso — o vigia diário
+(`boleto_preso`, migration 0131) hoje cobre isso apontando, mas na origem é melhor.
+
+**Enquanto não sobe:** o vigia diário `boleto_preso` (0131) segura, apontando todo
+boleto parado >10 dias para conferência manual na Hotmart.
+
 ## Também vale conferir (fora do banco)
 
 Config **duplicada** na Hotmart apontando para URL errada (`/hotmart-webhook` e
