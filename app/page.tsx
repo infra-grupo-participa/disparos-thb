@@ -7,7 +7,7 @@ import { PORTAIS, type PortalId } from "@/lib/marcas";
 // /seminario/* ou /hm/*; a troca também fica no cabeçalho, dentro do sistema.
 // A identidade de cada portal (nome, cor, logo) vem de lib/marcas — a mesma que
 // o cabeçalho usa, para o card e o topo nunca discordarem.
-const ORDEM: PortalId[] = ["ht", "seminario", "hm"];
+const ORDEM: PortalId[] = ["ht", "seminario", "hm", "curso"];
 
 export default function SelecaoPortal() {
   return (

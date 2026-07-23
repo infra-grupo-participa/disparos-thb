@@ -7,10 +7,10 @@
 // nenhuma marca é redesenhada ou imitada aqui — ou é o arquivo oficial, ou é a
 // sigla. Para ativar a logo de um evento, basta soltar o SVG em public/marcas/ e
 // apontar `logo` (e `logoRatio`, a proporção do desenho) para ele.
-export type PortalId = "ht" | "seminario" | "hm";
+export type PortalId = "ht" | "seminario" | "hm" | "curso";
 
 export type Marca = {
-  evento: "HT" | "SEM" | "HM";
+  evento: "HT" | "SEM" | "HM" | "CNHF";
   nome: string;
   sigla: string;
   cor: string;
@@ -55,6 +55,16 @@ export const PORTAIS: Record<PortalId, Marca> = {
     logoRatio: [1686, 840],
     logoNegativa: true,
   },
+  curso: {
+    evento: "CNHF",
+    nome: "Curso de Holding",
+    sigla: "CNHF",
+    cor: "#7C3AED",
+    desc: "Curso Nacional de Formação em Holding Familiar — jornada dos inscritos, do lead à matrícula.",
+    gradiente: "from-violet-600 to-purple-400",
+    logo: null, // → public/marcas/curso.svg (enquanto não houver, cai no monograma "CFH")
+    logoRatio: null,
+  },
 };
 
 // Marca da casa (login e tela de seleção). Mesma regra: sem arquivo oficial, o
@@ -70,5 +80,6 @@ export function portalDoPath(pathname: string | null | undefined): PortalId {
   const seg = (pathname || "").split("/").filter(Boolean)[0];
   if (seg === "seminario") return "seminario";
   if (seg === "hm") return "hm";
+  if (seg === "curso") return "curso";
   return "ht";
 }
