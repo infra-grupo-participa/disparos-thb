@@ -67,8 +67,16 @@ export async function GET(req: Request) {
     f,
   );
 
+  // Edições ordenadas pela mais RECENTE (por data de criação dos contatos, não
+  // alfabética — "JUL" viria depois de "JUN" no alfabeto, mas é mais novo). O
+  // front pré-seleciona a primeira, então a edição vigente entra como padrão.
   const edicoesRows = await query<{ edicao: string }>(
-    `select distinct edicao from cs.contatos_evento where evento = $1 and edicao is not null order by edicao desc`,
+    `select ce.edicao
+       from cs.contatos_evento ce
+       join cs.contatos ct on ct.comprador_id = ce.comprador_id and ct.evento = ce.evento
+      where ce.evento = $1 and ce.edicao is not null
+      group by ce.edicao
+      order by max(ct.criado_em) desc nulls last`,
     [evento],
   );
   const respRows = await query<{ responsavel: string }>(

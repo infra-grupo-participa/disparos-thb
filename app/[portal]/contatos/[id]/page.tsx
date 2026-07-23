@@ -77,7 +77,7 @@ function Sinal({ on, label }: { on: boolean; label: string }) {
   );
 }
 
-const FORM_TITULO: Record<string, string> = { matricula: "Qualificação", ficha_hm: "Ficha de Interesse HM" };
+const FORM_TITULO: Record<string, string> = { matricula: "Qualificação", ficha_hm: "Ficha de Interesse HM", pesquisa: "Pesquisa de qualificação" };
 
 // Cor da tag por natureza: edição (HT##), grupo, formulário, demais.
 function tagStyle(tag: string): string {
@@ -251,7 +251,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
         {/* Sinais-chave reunidos */}
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
           <Sinal on={!!(contato.tags?.includes("No grupo") || contato.legado_no_grupo)} label="No grupo" />
-          <Sinal on={formularios.some((f) => f.tipo === "matricula")} label="Matrícula" />
+          <Sinal on={formularios.some((f) => f.tipo === "matricula" || f.tipo === "pesquisa")} label="Qualificação" />
           <Sinal on={formularios.some((f) => f.tipo === "ficha_hm")} label="Ficha HM" />
           <Sinal on={!!contato.legado_ativado} label="Ativado" />
           {metricas && metricas.disparos_recebidos > 0 && (

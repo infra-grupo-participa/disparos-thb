@@ -44,7 +44,7 @@ type Detalhe = {
   score?: number;
 };
 
-const FORM_TITULO: Record<string, string> = { matricula: "Qualificação", ficha_hm: "Ficha de Interesse HM" };
+const FORM_TITULO: Record<string, string> = { matricula: "Qualificação", ficha_hm: "Ficha de Interesse HM", pesquisa: "Pesquisa de qualificação" };
 
 function nivelScore(score: number) {
   if (score >= 60) return { label: "Quente", txt: "text-emerald-600 dark:text-emerald-400", bar: "bg-emerald-500" };
@@ -631,7 +631,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     <Sinal on={noGrupo} label="No grupo" />
-                    <Sinal on={forms.some((f) => f.tipo === "matricula")} label="Qualificação" />
+                    <Sinal on={forms.some((f) => f.tipo === "matricula" || f.tipo === "pesquisa")} label="Qualificação" />
                     <Sinal on={forms.some((f) => f.tipo === "ficha_hm")} label="Ficha HM" />
                     <Sinal on={!!det.contato.legado_ativado} label="Ativado" />
                   </div>
