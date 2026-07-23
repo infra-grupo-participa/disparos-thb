@@ -962,10 +962,11 @@ function SocioCard({ socio: s, onAbrir, onToggle, onEnviarBase, enviandoBase }: 
       </div>
 
       <p className="mt-1.5 truncate text-sm font-semibold text-slate-800 dark:text-slate-100" title={s.nome}>{s.nome}</p>
-      <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-        sócio de <span className="font-medium text-slate-600 dark:text-slate-300">{s.titular_nome}</span>
-        {s.titular_origem ? ` · ${s.titular_origem}` : s.titular_turma ? ` · ${s.titular_turma}` : ""}
-      </p>
+      {/* Indicador visível de vínculo: "sócio de [titular]" — badge de acesso rápido */}
+      <div className="mt-1 flex max-w-full items-center gap-1 rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 dark:border-slate-700 dark:bg-slate-800/80" title={`Sócio de ${s.titular_nome}`}>
+        <svg className="h-3 w-3 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2m6 0h2a5 5 0 0 1 0 10h-2m-7-5h8" /></svg>
+        <span className="truncate text-[11px] text-slate-600 dark:text-slate-300">sócio de <span className="font-semibold text-slate-800 dark:text-slate-100">{s.titular_nome}</span></span>
+      </div>
 
       {/* "Certinho na base": diz se o GPS já enxerga o sócio. Fora da base com o
           titular pagante é o gargalo — vira botão para enviar à base num clique. */}
@@ -1014,16 +1015,16 @@ function SocioCard({ socio: s, onAbrir, onToggle, onEnviarBase, enviandoBase }: 
       </div>
 
       {(s.telefone || s.email) && (
-        <div className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-          {wa && (
-            <a href={wa} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="hover:text-emerald-600" title="WhatsApp">
-              {s.telefone}
-            </a>
-          )}
-          {!wa && s.telefone && <span>{s.telefone}</span>}
-          {s.email && <span className="truncate" title={s.email}>{s.email}</span>}
+        <div className="mt-1.5 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+          {wa ? (
+            <a href={wa} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="block hover:text-emerald-600" title="WhatsApp">{s.telefone}</a>
+          ) : s.telefone ? <span className="block">{s.telefone}</span> : null}
+          {/* E-mail em linha própria e com quebra (break-all) — não corta mais */}
+          {s.email && <span className="block break-all" title={s.email}>{s.email}</span>}
         </div>
       )}
+      {/* Deixa explícito que o card abre a ficha */}
+      <p className="mt-1.5 text-right text-[10px] font-medium text-sky-600 dark:text-sky-400">abrir ficha →</p>
     </div>
   );
 }
