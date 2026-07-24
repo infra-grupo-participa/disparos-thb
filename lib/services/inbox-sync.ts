@@ -19,7 +19,7 @@ import { logger } from "@/lib/log";
 const log = logger("inbox-sync");
 
 const CONCORRENCIA = 5;
-const eventoAtivo = (e: string) => e === "SEM" || e === "CNHF";
+const EVENTOS_PADRAO = ["SEM", "CNHF"];
 
 // Marca a resposta do lead no contato: timeline + ultima_resposta_em + reabre a
 // pendência do inbox + avança o estágio. É a fonte única usada pelo webhook E
@@ -77,7 +77,7 @@ export type ResultadoInboxSync = { verificados: number; novas: number; erros: nu
 // Puxa do Unnichat as respostas dos contatos que receberam disparo (SEM/CNHF) e
 // ainda não responderam. Idempotente: o UPDATE só vence com respondeu=false, e um
 // lead já registrado não é reprocessado (fica fora do alvo).
-export async function sincronizarRespostasInbox(limite = 40): Promise<ResultadoInboxSync> {
+export async function sincronizarRespostasInbox(limite = 40, eventos: string[] = EVENTOS_PADRAO): Promise<ResultadoInboxSync> {
   const lim = Math.min(Math.max(limite, 1), 120);
   const alvos = await query<Alvo>(
     `select dc.id as dc_id, dc.disparo_id, dc.comprador_id, dc.unnichat_contact_id,
@@ -86,11 +86,11 @@ export async function sincronizarRespostasInbox(limite = 40): Promise<ResultadoI
        join cs.disparos d on d.id = dc.disparo_id
       where dc.enviado = true and dc.respondeu = false
         and dc.unnichat_contact_id is not null
-        and d.evento in ('SEM', 'CNHF')
+        and d.evento = any($2::text[])
         and dc.enviado_em > now() - interval '21 days'
       order by dc.enviado_em desc
       limit $1`,
-    [lim],
+    [lim, eventos],
   );
   if (alvos.length === 0) return { verificados: 0, novas: 0, erros: 0 };
 
@@ -104,7 +104,6 @@ export async function sincronizarRespostasInbox(limite = 40): Promise<ResultadoI
     await Promise.all(
       alvos.slice(i, i + CONCORRENCIA).map(async (a) => {
         try {
-          if (!eventoAtivo(a.evento)) return;
           const canal = await canalDe(a.evento);
           const { ok, messages } = await getContactMessages(a.unnichat_contact_id, canal);
           if (!ok) { erros++; return; }
@@ -152,4 +151,38 @@ export async function sincronizarRespostasInbox(limite = 40): Promise<ResultadoI
 
   if (novas > 0) log.info("respostas sincronizadas do Unnichat", { verificados: alvos.length, novas, erros });
   return { verificados: alvos.length, novas, erros };
+}
+
+// ----- Gatilho on-demand (o inbox aberto puxa as respostas sozinho) ----------
+//
+// Independência de infra: além do cron, o próprio inbox dispara este sync quando
+// o operador está com a tela aberta (o polling chama /api/inbox/sync). Com isto,
+// a resposta do lead aparece em segundos MESMO sem cron externo nem webhook — a
+// única coisa necessária é ter alguém trabalhando no inbox.
+//
+// Trava de servidor (memória do processo): por mais que 3 operadores puxem a cada
+// 12s, o Unnichat só é consultado no máximo 1x a cada `minIntervalMs` por conjunto
+// de eventos — e nunca duas execuções simultâneas. Processo persistente (Hostinger)
+// mantém este estado entre requisições; se rodar duplicado, o sync é idempotente.
+const ultimaExecPorChave = new Map<string, number>();
+const emExecucao = new Set<string>();
+
+export async function sincronizarRespostasInboxOnDemand(
+  eventos: string[] = EVENTOS_PADRAO,
+  minIntervalMs = 20_000,
+): Promise<{ executou: boolean; novas: number }> {
+  const chave = eventos.slice().sort().join(",");
+  const agora = Date.now();
+  const ultima = ultimaExecPorChave.get(chave) ?? 0;
+  if (emExecucao.has(chave) || agora - ultima < minIntervalMs) {
+    return { executou: false, novas: 0 };
+  }
+  emExecucao.add(chave);
+  ultimaExecPorChave.set(chave, agora);
+  try {
+    const r = await sincronizarRespostasInbox(40, eventos);
+    return { executou: true, novas: r.novas };
+  } finally {
+    emExecucao.delete(chave);
+  }
 }

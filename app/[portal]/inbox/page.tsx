@@ -202,13 +202,24 @@ export default function InboxPage() {
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [mensagens]);
 
-  // Tempo real (leve): a cada 12s repuxa a fila do banco. É isto que faz a
-  // resposta do lead "aparecer sozinha" no inbox, sem F5 — desde que o webhook do
-  // Unnichat esteja ligado (é ele quem grava a resposta que este polling lê).
+  // Tempo real (leve): a cada 12s repuxa a fila do banco e, em paralelo, pede ao
+  // servidor para puxar do Unnichat as respostas novas (trava de servidor evita
+  // excesso). É isto que faz a resposta do lead "aparecer sozinha" — sem depender
+  // de cron externo nem webhook: basta o inbox estar aberto. Se o sync trouxe algo
+  // novo, recarrega a fila de novo para a conversa subir na hora.
   useEffect(() => {
-    const t = setInterval(() => { void carregarConversas(); }, 12000);
+    const puxar = async () => {
+      void carregarConversas();
+      try {
+        const r = await fetch(`/api/inbox/sync?evento=${evento}`, { method: "POST" });
+        const d = await r.json();
+        if (d.ok && d.novas > 0) void carregarConversas();
+      } catch { /* silencioso: é atualização de fundo */ }
+    };
+    void puxar(); // já na entrada, sem esperar o primeiro ciclo
+    const t = setInterval(() => { void puxar(); }, 12000);
     return () => clearInterval(t);
-  }, [carregarConversas]);
+  }, [carregarConversas, evento]);
 
   // Notificação discreta: o título da aba conta os pendentes (como o WhatsApp
   // Web), então o operador vê que chegou algo mesmo com a aba em segundo plano.
