@@ -1,5 +1,5 @@
 import { query, queryOne } from "@/lib/db";
-import { sendTemplate, createContact, type BodyParam, type CanalCfg, type EnvioResultado } from "@/lib/unnichat";
+import { sendTemplate, createContact, addTagToContact, type BodyParam, type CanalCfg, type EnvioResultado } from "@/lib/unnichat";
 import { getCanal } from "@/lib/services/canais";
 import { primeiroNome } from "@/lib/phone";
 import { logger } from "@/lib/log";
@@ -41,6 +41,7 @@ type Template = {
   variaveis_map: unknown;
   evento: string;
   operador: string | null;
+  unnichat_tag_id: string | null;
 };
 type LinhaDB = {
   id: string;
@@ -49,6 +50,7 @@ type LinhaDB = {
   contato_criado: boolean;
   nome: string | null;
   edicao: string | null;
+  unnichat_contact_id: string | null;
 };
 
 // De onde o serviço sabe tirar o valor de uma variável do template.
@@ -57,7 +59,7 @@ type CampoVariavel = (typeof CAMPOS_VARIAVEL)[number];
 
 export async function processarDisparo(disparoId: string): Promise<void> {
   const template = await queryOne<Template>(
-    `select t.id, t.nome, t.unnichat_id, t.variaveis, t.variaveis_map,
+    `select t.id, t.nome, t.unnichat_id, t.variaveis, t.variaveis_map, t.unnichat_tag_id,
             coalesce(d.evento, 'HT') as evento, d.operador
        from cs.disparos d join cs.templates t on t.id = d.template_id
       where d.id = $1`,
@@ -103,7 +105,7 @@ export async function processarDisparo(disparoId: string): Promise<void> {
     // (variáveis do template) vêm de cs.contatos_evento (HT/SEM) OU da tabela base
     // `compradores` (HM, que não está em contatos_evento) — coalesce cobre os dois.
     const pendentes = await query<LinhaDB>(
-      `select dc.id, dc.comprador_id, dc.telefone, dc.contato_criado,
+      `select dc.id, dc.comprador_id, dc.telefone, dc.contato_criado, dc.unnichat_contact_id,
               coalesce(v.nome, cmp.nome) as nome, v.edicao
          from cs.disparo_contatos dc
          left join cs.contatos_evento v on v.comprador_id = dc.comprador_id
@@ -119,6 +121,7 @@ export async function processarDisparo(disparoId: string): Promise<void> {
       const r = await createContact({ name: l.nome || l.telefone, phone: l.telefone, cfg: canal });
       if (r.ok) {
         l.contato_criado = true;
+        l.unnichat_contact_id = r.contactId ?? null;
         await query(
           `update cs.disparo_contatos set contato_criado = true, erro_contato = null, unnichat_contact_id = $2 where id = $1`,
           [l.id, r.contactId ?? null],
@@ -176,6 +179,13 @@ export async function processarDisparo(disparoId: string): Promise<void> {
              select id, 'disparo', 'whatsapp', $2, $3, $4 from cs.contatos where comprador_id = $1`,
             [l.comprador_id, `Template "${template.nome}" enviado`, disparoId, template.operador || "cs"],
           );
+        }
+
+        // Carimba a tag do Unnichat, se o template define uma. A mensagem já saiu;
+        // se a tag falhar, apenas registra o aviso — não derruba o disparo.
+        if (template.unnichat_tag_id && l.unnichat_contact_id) {
+          const tg = await addTagToContact(l.unnichat_contact_id, template.unnichat_tag_id, canal);
+          if (!tg.ok) log.warn("template enviado, mas falhou ao aplicar a tag no Unnichat", { disparoId, comprador: l.comprador_id, erro: tg.erro });
         }
       } else {
         await query(`update cs.disparo_contatos set enviado = false, erro = $2 where id = $1`, [l.id, r.erro || "falha no envio"]);

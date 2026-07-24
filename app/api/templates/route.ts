@@ -12,6 +12,7 @@ type LinhaTemplate = {
   estagio_sugerido_id: number | null; canal: string; ac_tag_id: string | null;
   ac_tag_nome: string | null; estagio_sugerido_nome: string | null;
   modo: string; assunto: string | null; corpo_html: string | null;
+  unnichat_tag_id: string | null; unnichat_tag_nome: string | null;
   auto_nome: string | null; auto_ativa: boolean | null; auto_multientry: boolean | null;
 };
 
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
   // tabela de automações ausente (migration pendente → coalesce vazio).
   const linhas = await query<LinhaTemplate>(
     `select t.id, t.nome, t.unnichat_id, t.categoria, t.variaveis, t.variaveis_map, t.preview,
-            t.ativo, t.estagio_sugerido_id, t.canal, t.ac_tag_id, t.ac_tag_nome,
+            t.ativo, t.estagio_sugerido_id, t.canal, t.ac_tag_id, t.ac_tag_nome, t.unnichat_tag_id, t.unnichat_tag_nome,
             t.modo, t.assunto, t.corpo_html,
             e.nome as estagio_sugerido_nome,
             auto.nome as auto_nome, auto.ativa as auto_ativa, auto.multientry as auto_multientry
@@ -45,7 +46,7 @@ export async function GET(req: Request) {
     // Fallback se cs.ac_automacoes ainda não existe: query sem o join lateral.
     query<LinhaTemplate>(
       `select t.id, t.nome, t.unnichat_id, t.categoria, t.variaveis, t.variaveis_map, t.preview,
-              t.ativo, t.estagio_sugerido_id, t.canal, t.ac_tag_id, t.ac_tag_nome,
+              t.ativo, t.estagio_sugerido_id, t.canal, t.ac_tag_id, t.ac_tag_nome, t.unnichat_tag_id, t.unnichat_tag_nome,
               t.modo, t.assunto, t.corpo_html,
             t.modo, t.assunto, t.corpo_html,
               e.nome as estagio_sugerido_nome,
@@ -85,7 +86,7 @@ export async function POST(req: Request) {
 
   const evento = eventoDe(req);
   const b = await req.json().catch(() => ({}));
-  const { nome, unnichat_id, categoria, variaveis, preview, estagio_sugerido_id, ativo, ac_tag_id, ac_tag_nome, variaveis_map, assunto, corpo_html, corpo_texto } = b as Record<string, unknown>;
+  const { nome, unnichat_id, categoria, variaveis, preview, estagio_sugerido_id, ativo, ac_tag_id, ac_tag_nome, variaveis_map, assunto, corpo_html, corpo_texto, unnichat_tag_id, unnichat_tag_nome } = b as Record<string, unknown>;
   const canal = b.canal === "email" ? "email" : "whatsapp";
   // Modo do e-mail: 'campanha' escreve o corpo aqui e lança a campanha no AC;
   // 'tag' é o legado, que aplica uma tag e depende de automação lá dentro.
@@ -132,8 +133,8 @@ export async function POST(req: Request) {
   }
 
   const row = await queryOne(
-    `insert into cs.templates (nome, unnichat_id, categoria, variaveis, preview, estagio_sugerido_id, ativo, evento, canal, ac_tag_id, ac_tag_nome, variaveis_map, modo, assunto, corpo_html, corpo_texto)
-     values ($1,$2,$3,$4,$5,$6,coalesce($7,true),$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16)
+    `insert into cs.templates (nome, unnichat_id, categoria, variaveis, preview, estagio_sugerido_id, ativo, evento, canal, ac_tag_id, ac_tag_nome, variaveis_map, modo, assunto, corpo_html, corpo_texto, unnichat_tag_id, unnichat_tag_nome)
+     values ($1,$2,$3,$4,$5,$6,coalesce($7,true),$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16,$17,$18)
      returning id`,
     [
       String(nome),
@@ -155,6 +156,9 @@ export async function POST(req: Request) {
       assunto ? String(assunto) : null,
       corpo_html ? String(corpo_html) : null,
       corpo_texto ? String(corpo_texto) : null,
+      // Tag do Unnichat que o disparo carimba no contato (só WhatsApp).
+      canal === "whatsapp" && unnichat_tag_id ? String(unnichat_tag_id) : null,
+      canal === "whatsapp" && unnichat_tag_nome ? String(unnichat_tag_nome) : null,
     ],
   );
   return NextResponse.json({ ok: true, id: (row as { id: string } | null)?.id });

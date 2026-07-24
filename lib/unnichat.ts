@@ -215,6 +215,64 @@ export async function searchContactByPhone(phone: string, cfg?: CanalCfg): Promi
   }
 }
 
+// ===== Tags do Unnichat ====================================================
+// O Unnichat mantém tags de contato próprias (segmentação dele). O sistema pode
+// listá-las, criar novas e carimbá-las nos contatos — usado no disparo para
+// marcar quem recebeu qual template, alimentando as automações/segmentos de lá.
+
+export type UnniTag = { id: string; name: string };
+
+// GET /tags?type=contact — lista as tags de contato (paginado).
+export async function listTags(cfg?: CanalCfg, page = 1, perPage = 100): Promise<{ ok: boolean; tags: UnniTag[]; hasNext: boolean }> {
+  try {
+    const res = await fetch(`${resolveBase(cfg)}/tags?type=contact&page=${page}&perPage=${perPage}`, {
+      headers: headers(cfg), signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) return { ok: false, tags: [], hasNext: false };
+    const json = (await res.json()) as { data?: Array<{ id?: unknown; name?: unknown }>; metadata?: { hasNext?: boolean } };
+    const tags = (json.data ?? []).map((t) => ({ id: String(t.id), name: String(t.name) }));
+    return { ok: true, tags, hasNext: !!json.metadata?.hasNext };
+  } catch {
+    return { ok: false, tags: [], hasNext: false };
+  }
+}
+
+// POST /tags — cria uma tag de contato. Retorna o id da tag criada.
+export async function createTag(name: string, cfg?: CanalCfg): Promise<{ ok: boolean; id?: string; erro?: string }> {
+  try {
+    const res = await fetch(`${resolveBase(cfg)}/tags`, {
+      method: "POST", headers: headers(cfg), signal: AbortSignal.timeout(TIMEOUT_MS),
+      body: JSON.stringify({ name, type: "contact" }),
+    });
+    const txt = await res.text();
+    let data: unknown; try { data = JSON.parse(txt); } catch { data = txt; }
+    if (!res.ok) {
+      return { ok: false, erro: (typeof data === "object" && data && "message" in data) ? String((data as { message: unknown }).message) : `HTTP ${res.status}` };
+    }
+    const id = typeof data === "object" && data && "data" in data
+      ? String(((data as { data?: { id?: unknown } }).data?.id) ?? "") || undefined
+      : undefined;
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, erro: e instanceof Error ? e.message : "erro de rede" };
+  }
+}
+
+// POST /contact/{id}/tags — carimba uma tag no contato (por contactId da Unnichat).
+export async function addTagToContact(contactId: string, tagId: string, cfg?: CanalCfg): Promise<{ ok: boolean; erro?: string }> {
+  try {
+    const res = await fetch(`${resolveBase(cfg)}/contact/${encodeURIComponent(contactId)}/tags`, {
+      method: "POST", headers: headers(cfg), signal: AbortSignal.timeout(TIMEOUT_MS),
+      body: JSON.stringify({ tag_id: tagId }),
+    });
+    if (res.ok) return { ok: true };
+    const t = await res.text();
+    return { ok: false, erro: `HTTP ${res.status}: ${t.slice(0, 120)}` };
+  } catch (e) {
+    return { ok: false, erro: e instanceof Error ? e.message : "erro de rede" };
+  }
+}
+
 // POST /meta/messages — envia mensagem de texto livre ao contato. Só funciona
 // dentro da janela de 24h (a Meta exige uma interação recente do contato);
 // fora dela, a API retorna erro de "janela de envio fechada".

@@ -25,13 +25,16 @@ type Template = {
   corpo_html: string | null;
   ac_tag_id: string | null;
   ac_tag_nome?: string | null;
+  unnichat_tag_id?: string | null;
+  unnichat_tag_nome?: string | null;
   veredito?: Veredito;
 };
+type UnniTag = { id: string; name: string };
 type StatusTag = "pronta" | "pausada" | "sem_automacao" | "desconhecido";
 type Veredito = { status: StatusTag; automacao: string | null; multientry: boolean; pronto: boolean; rotulo: string; detalhe: string };
 type Tag = { id: string; nome: string; veredito?: Veredito };
 
-const vazio = { nome: "", unnichat_id: "", categoria: "", variaveis: 0, preview: "", ac_tag_id: "", assunto: "", corpo_html: "" };
+const vazio = { nome: "", unnichat_id: "", categoria: "", variaveis: 0, preview: "", ac_tag_id: "", assunto: "", corpo_html: "", unnichat_tag_id: "", unnichat_tag_nome: "" };
 
 // Agrupa as tags do dropdown pelo veredito da automação, para o operador ver
 // quais DISPARAM antes de selecionar. As "prontas" vêm primeiro; cada option
@@ -98,6 +101,11 @@ export default function TemplatesPage() {
   const [telTeste, setTelTeste] = useState("");
   const [enviandoTeste, setEnviandoTeste] = useState(false);
 
+  // Tags do Unnichat: o template carimba a tag no contato ao disparar. Criar tag nova aqui mesmo.
+  const [unnichatTags, setUnnichatTags] = useState<UnniTag[]>([]);
+  const [novaTagNome, setNovaTagNome] = useState("");
+  const [criandoTag, setCriandoTag] = useState(false);
+
   // Guia de primeiro uso + auto-save do rascunho (o SDR não perde o que digitou).
   const [guiaAberto, setGuiaAberto] = useState(false);
   const [rascunhoSalvo, setRascunhoSalvo] = useState(false);
@@ -121,6 +129,36 @@ export default function TemplatesPage() {
   useEffect(() => {
     try { setGuiaAberto(localStorage.getItem("cs_guia_templates_off") !== "1"); } catch { /* noop */ }
   }, []);
+
+  // Tags do Unnichat do canal do evento (só o WhatsApp usa).
+  useEffect(() => {
+    if (canal !== "whatsapp") return;
+    fetch(`/api/unnichat/tags?evento=${evento}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.ok) setUnnichatTags(d.tags); })
+      .catch(() => {});
+  }, [canal, evento]);
+
+  async function criarTagUnnichat() {
+    const name = novaTagNome.trim();
+    if (!name) return;
+    setCriandoTag(true);
+    try {
+      const r = await fetch(`/api/unnichat/tags?evento=${evento}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+      });
+      const d = await r.json();
+      if (d.ok && d.tag?.id) {
+        setUnnichatTags((prev) => [...prev, d.tag].sort((a, b) => a.name.localeCompare(b.name, "pt-BR")));
+        setForm((f) => ({ ...f, unnichat_tag_id: d.tag.id, unnichat_tag_nome: d.tag.name }));
+        setNovaTagNome("");
+      } else {
+        alert(d.motivo || "Não foi possível criar a tag no Unnichat.");
+      }
+    } finally {
+      setCriandoTag(false);
+    }
+  }
 
   // Auto-save: restaura o rascunho ao abrir / trocar de evento.
   useEffect(() => {
@@ -356,6 +394,12 @@ export default function TemplatesPage() {
                           <span className="font-mono">ID {t.unnichat_id}</span>
                           <span>·</span>
                           <span>{t.variaveis} {t.variaveis === 1 ? "variável" : "variáveis"}</span>
+                          {t.unnichat_tag_nome && (
+                            <>
+                              <span>·</span>
+                              <span className="rounded bg-brand/10 px-1.5 py-0.5 font-medium text-brand dark:bg-brand-400/15 dark:text-brand-300">tag: {t.unnichat_tag_nome}</span>
+                            </>
+                          )}
                         </>
                       )}
                     </div>
@@ -646,6 +690,34 @@ export default function TemplatesPage() {
                       Você indicou {vars} variável(eis), mas o texto não tem {"{{1}}"}. Adicione {"{{1}}"} onde entra o primeiro nome.
                     </p>
                   )}
+                </div>
+
+                {/* Tag do Unnichat aplicada no contato ao disparar este template. */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Tag no Unnichat ao disparar (opcional)</label>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                    Quem receber este template ganha esta tag no Unnichat — para segmentar e automatizar lá dentro.
+                  </p>
+                  <select
+                    value={form.unnichat_tag_id}
+                    onChange={(e) => { const id = e.target.value; const t = unnichatTags.find((x) => x.id === id); setForm({ ...form, unnichat_tag_id: id, unnichat_tag_nome: t?.name || "" }); }}
+                    className={cn(fieldClass, "mt-1.5")}
+                  >
+                    <option value="">— Nenhuma tag —</option>
+                    {unnichatTags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <div className="mt-1.5 flex gap-2">
+                    <input
+                      value={novaTagNome}
+                      onChange={(e) => setNovaTagNome(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); criarTagUnnichat(); } }}
+                      placeholder="ou crie uma tag nova…"
+                      className={cn(fieldClass, "flex-1")}
+                    />
+                    <Button type="button" variant="secondary" onClick={criarTagUnnichat} disabled={criandoTag || !novaTagNome.trim()}>
+                      {criandoTag ? "Criando…" : "Criar tag"}
+                    </Button>
+                  </div>
                 </div>
               </>
             )}
