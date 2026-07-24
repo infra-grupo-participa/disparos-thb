@@ -226,6 +226,44 @@ export default function KanbanPage() {
   }
   const cardsSelecionados = () => cards.filter((c) => selecaoMulti.has(c.comprador_id));
 
+  // Seleciona a COLUNA INTEIRA — inclusive os cards além dos ~40 renderizados no
+  // DOM. Busca os ids da etapa no servidor e marca todos; clicar de novo desmarca.
+  const [colBusy, setColBusy] = useState<string | null>(null);
+  async function selecionarColunaToda(col: Coluna) {
+    setColBusy(col.chave);
+    try {
+      const params = new URLSearchParams({ estagio: col.chave, evento });
+      if (edicao) params.set("edicao", edicao);
+      const r = await fetch(`/api/contatos?${params.toString()}`);
+      const d = await r.json();
+      const ids: string[] = (d.ok ? d.contatos : []).map((c: { comprador_id: string }) => c.comprador_id);
+      setSelecaoMulti((s) => {
+        const n = new Set(s);
+        const todosJa = ids.length > 0 && ids.every((id) => n.has(id));
+        ids.forEach((id) => (todosJa ? n.delete(id) : n.add(id)));
+        return n;
+      });
+    } finally {
+      setColBusy(null);
+    }
+  }
+
+  // Disparo da seleção múltipla: como a seleção pode conter cards não
+  // renderizados (coluna inteira), resolve os telefones no servidor pelos ids.
+  async function dispararSelecaoMulti() {
+    const ids = new Set(selecaoMulti);
+    if (!ids.size) return;
+    const params = new URLSearchParams({ com_telefone: "1", evento });
+    if (edicao) params.set("edicao", edicao);
+    const r = await fetch(`/api/contatos?${params.toString()}`);
+    const d = await r.json();
+    const lista = (d.ok ? d.contatos : [])
+      .filter((c: { comprador_id: string; telefone: string | null }) => ids.has(c.comprador_id) && c.telefone)
+      .map((c: { comprador_id: string; nome: string; telefone: string; edicao: string | null }) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone, edicao: c.edicao }));
+    if (!lista.length) { alert("Nenhum dos selecionados tem telefone."); return; }
+    setDispararSelecao(lista);
+  }
+
   // Ações em lote sobre a seleção (tag / responsável).
   async function lote(payload: { addTag?: string; responsavel?: string | null }) {
     const ids = [...selecaoMulti];
@@ -300,6 +338,18 @@ export default function KanbanPage() {
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: col.cor }} />
                   <span className="flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{col.nome}</span>
                   <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">{col.total}</span>
+                  {col.total > 0 && (
+                    <button
+                      onClick={() => selecionarColunaToda(col)}
+                      disabled={colBusy === col.chave}
+                      title={`Selecionar todos os ${col.total} cards desta coluna`}
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-brand/10 hover:text-brand disabled:opacity-50 dark:text-slate-500 dark:hover:bg-brand-400/15 dark:hover:text-brand-300"
+                    >
+                      {colBusy === col.chave
+                        ? <Spinner className="h-3.5 w-3.5" />
+                        : <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /><path d="m9 11 3 3L22 4" /></svg>}
+                    </button>
+                  )}
                   {col.total > 0 && podeDisparar && (
                     <button
                       onClick={() => dispararEtapa(col)}
@@ -380,7 +430,7 @@ export default function KanbanPage() {
               <option value="__nenhum__">— Remover responsável —</option>
             </select>
             {podeDisparar && (
-              <Button variant="primary" onClick={() => dispararCards(cardsSelecionados())}>Disparar para {selecaoMulti.size}</Button>
+              <Button variant="primary" onClick={dispararSelecaoMulti}>Disparar para {selecaoMulti.size}</Button>
             )}
           </div>
         </div>
@@ -397,13 +447,13 @@ export default function KanbanPage() {
             <MenuItem onClick={() => { toggleSel(menu.card.comprador_id); setMenu(null); }}>
               {selecaoMulti.has(menu.card.comprador_id) ? "Desselecionar" : "Selecionar"}
             </MenuItem>
-            <MenuItem onClick={() => { selecionarEtapa(menu.card.estagio_chave); setMenu(null); }}>Selecionar todos desta etapa</MenuItem>
+            <MenuItem onClick={() => { const col = colunas.find((c) => c.chave === menu.card.estagio_chave); if (col) selecionarColunaToda(col); setMenu(null); }}>Selecionar toda a coluna</MenuItem>
             {podeDisparar && (
               <>
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
                 <MenuItem onClick={() => { dispararCards([menu.card]); setMenu(null); }}>Disparar para este</MenuItem>
                 {selecaoMulti.size > 0 && (
-                  <MenuItem onClick={() => { dispararCards(cardsSelecionados()); setMenu(null); }}>Disparar para selecionados ({selecaoMulti.size})</MenuItem>
+                  <MenuItem onClick={() => { dispararSelecaoMulti(); setMenu(null); }}>Disparar para selecionados ({selecaoMulti.size})</MenuItem>
                 )}
               </>
             )}
