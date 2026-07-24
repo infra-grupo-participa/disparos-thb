@@ -21,6 +21,11 @@ const DELAY_CRIAR_MS = 200;
 const DELAY_429_MS = 5000;
 const RETRY_BACKOFF_MS = [1000, 3000, 8000];
 const FALLBACK_VAR = "tudo bem";
+// Jitter: humaniza o ritmo. Intervalo fixo é padrão robótico que a Meta detecta;
+// variar aleatoriamente entre `base` e `base+extra` deixa o envio menos mecânico.
+const DELAY_JITTER_MS = 1000; // envio: 350–1350ms
+const DELAY_CRIAR_JITTER_MS = 400; // criação: 200–600ms
+const comJitter = (base: number, extra: number) => base + Math.floor(Math.random() * extra);
 // Um batimento a cada 30s é folgado para o cron (que exige 5 min de silêncio) e
 // barato: um update de uma coluna, não a cada contato.
 const BATIMENTO_MS = 30_000;
@@ -125,7 +130,7 @@ export async function processarDisparo(disparoId: string): Promise<void> {
         );
       }
       await baterCoracao();
-      await sleep(DELAY_CRIAR_MS);
+      await sleep(comJitter(DELAY_CRIAR_MS, DELAY_CRIAR_JITTER_MS));
     }
     await query(
       `update cs.disparos set total_contatos_criados = (select count(*) from cs.disparo_contatos where disparo_id = $1 and contato_criado) where id = $1`,
@@ -147,7 +152,7 @@ export async function processarDisparo(disparoId: string): Promise<void> {
       }
 
       const r = await enviarComRetry(l.telefone, template.unnichat_id, p.params, l.id, canal);
-      const pausaProximo = r.status === 429 ? DELAY_429_MS : DELAY_MS;
+      const pausaProximo = r.status === 429 ? DELAY_429_MS : comJitter(DELAY_MS, DELAY_JITTER_MS);
 
       if (r.ok) {
         await query(`update cs.disparo_contatos set enviado = true, enviado_em = now(), erro = null where id = $1`, [l.id]);

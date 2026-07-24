@@ -171,8 +171,8 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
       if (!d.ok) {
         // Limite estourado: mantém o modal aberto com o motivo, em vez de um
         // alert que some. Quem não é admin lê e desiste; o admin decide.
-        if (d.reason === "limite_de_disparo") {
-          setLimite({ motivo: d.motivo || "Limite de disparo atingido.", podeForcar: !!d.podeForcar });
+        if (d.reason === "disparo_bloqueado" || d.reason === "limite_de_disparo") {
+          setLimite({ motivo: d.motivo || "Disparo bloqueado pelo controle preventivo.", podeForcar: !!d.podeForcar });
           setEnviando(false);
           return;
         }

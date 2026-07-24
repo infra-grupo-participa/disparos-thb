@@ -5,7 +5,8 @@ import { normalizePhone } from "@/lib/phone";
 import { logger } from "@/lib/log";
 import { parseBody, SendSchema } from "@/lib/validators";
 import { processarDisparo } from "@/lib/services/disparo";
-import { checarLimiteDisparo } from "@/lib/services/limite";
+import { checarGuardaDisparo } from "@/lib/services/guardaDisparo";
+import { getConfig } from "@/lib/services/config";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -44,20 +45,33 @@ export async function POST(req: Request) {
   // — e o HM respeita também o `nao_contatar`, a trava que o operador levanta no
   // card. Antes, o ramo HM não filtrava nenhum dos dois: quem pediu para não ser
   // contatado recebia mesmo assim.
+  // Dedup temporal (anti-flood): não reenviar para quem já recebeu um disparo
+  // deste evento dentro da janela (default 24h). Evita que dois operadores — ou
+  // duas campanhas seguidas — martelem o mesmo número. 0 desativa.
+  const dedupHoras = await getConfig<number>("disparo_dedup_horas", 24);
+
   const ehHM = evento === "HM";
   const contatos = ehHM
     ? await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
         `select comprador_id, telefone, null::text as edicao from cs.contatos_hm_kanban
           where comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
             and not coalesce(nao_contatar, false)
-            and comprador_id not in (select comprador_id from cs.contatos where opt_out)`,
-        [compradorIds],
+            and comprador_id not in (select comprador_id from cs.contatos where opt_out)
+            and comprador_id not in (
+              select dc.comprador_id from cs.disparo_contatos dc
+                join cs.disparos d on d.id = dc.disparo_id
+               where d.evento = 'HM' and dc.enviado and dc.enviado_em > now() - make_interval(hours => $2))`,
+        [compradorIds, dedupHoras],
       )
     : await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
         `select comprador_id, telefone, edicao from cs.contatos_evento
           where evento = $2 and comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
-            and comprador_id not in (select comprador_id from cs.contatos where opt_out)`,
-        [compradorIds, evento],
+            and comprador_id not in (select comprador_id from cs.contatos where opt_out)
+            and comprador_id not in (
+              select dc.comprador_id from cs.disparo_contatos dc
+                join cs.disparos d on d.id = dc.disparo_id
+               where d.evento = $2 and dc.enviado and dc.enviado_em > now() - make_interval(hours => $3))`,
+        [compradorIds, evento, dedupHoras],
       );
 
   // Quantos ficaram de fora e por quê — o operador precisa saber que 12 dos 50
@@ -84,25 +98,25 @@ export async function POST(req: Request) {
     }, { status: 400 });
   }
 
-  // Limite anti-ban: até aqui o painel de saúde aconselhava e ninguém obedecia.
-  // Agora barra. Admin pode passar por cima com `forcar` — e assume, porque o
-  // log guarda quem forçou.
-  const limite = await checarLimiteDisparo(evento, contatos.length);
-  if (!limite.liberado) {
+  // Guarda preventivo anti-ban: horário permitido + freio de segurança (saúde do
+  // número na Meta) + limite de volume. Até aqui o painel só aconselhava; agora
+  // barra. Admin pode passar por cima com `forcar` — e assume, porque o log
+  // guarda quem forçou e o motivo.
+  const guarda = await checarGuardaDisparo(evento, contatos.length);
+  if (!guarda.liberado) {
     if (!forcar || sessao.papel !== "admin") {
       return NextResponse.json(
         {
+          ...guarda,
           ok: false,
-          reason: "limite_de_disparo",
-          motivo: limite.motivo,
+          reason: "disparo_bloqueado",
           podeForcar: sessao.papel === "admin",
-          ...limite,
         },
         { status: 409 },
       );
     }
-    log.warn("limite de disparo ignorado por decisão do admin", {
-      evento, operador: sessao.nome, aEnviar: contatos.length, enviados24h: limite.enviados24h, limiteDia: limite.limiteDia,
+    log.warn("guarda de disparo ignorado por decisão do admin", {
+      evento, operador: sessao.nome, aEnviar: contatos.length, bloqueios: guarda.bloqueios,
     });
   }
 
