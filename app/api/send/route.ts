@@ -21,7 +21,10 @@ export async function POST(req: Request) {
   // da verdade — a UI apenas espelha (esconde os botões).
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeDisparar(sessao.papel)) {
+  const evento = eventoDe(req);
+  // Operador (SDR) dispara nos eventos de ativação (SEM/CNHF); nos demais, só
+  // admin/disparador. A regra é por evento — ver lib/papeis.
+  if (!podeDisparar(sessao.papel, evento)) {
     return NextResponse.json({ ok: false, reason: "sem_permissao_disparo" }, { status: 403 });
   }
 
@@ -29,7 +32,6 @@ export async function POST(req: Request) {
   if (!p.ok) return p.res;
   const { templateId, compradorIds, forcar } = p.data;
   const edicao = p.data.edicao ? String(p.data.edicao) : null;
-  const evento = eventoDe(req);
 
   const template = await queryOne<{ id: string }>(
     `select id from cs.templates where id = $1 and ativo`,

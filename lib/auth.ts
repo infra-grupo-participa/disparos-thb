@@ -1,22 +1,19 @@
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { queryOne } from "@/lib/db";
+import { podeDisparar, type Papel } from "@/lib/papeis";
 
 export const SESSION_COOKIE = "cs_session";
 const MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30; // 30 dias
 
 // Papéis e suas capacidades:
-//   admin       — acesso total (gestão de usuários + disparos).
-//   disparador  — operador que TAMBÉM pode efetuar disparos.
-//   operador    — opera Kanban/contatos/inbox, mas NÃO dispara.
-export type Papel = "admin" | "disparador" | "operador";
+//   admin       — acesso total (gestão de usuários + disparos em tudo).
+//   disparador  — operador que TAMBÉM dispara em qualquer evento.
+//   operador    — opera Kanban/contatos/inbox; dispara só nos eventos de SDR
+//                 (SEM/CNHF). A regra vive em lib/papeis (compartilhada com a UI).
+export type { Papel };
+export { podeDisparar };
 export type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean };
-
-// Regra única de "pode efetuar disparos" — fonte da verdade compartilhada
-// entre o backend (app/api/send) e o gating de UI. Mude aqui e vale em tudo.
-export function podeDisparar(papel: Papel | null | undefined): boolean {
-  return papel === "admin" || papel === "disparador";
-}
 
 function secret(): string {
   return process.env.SESSION_SECRET || "dev-insecure-secret-troque-isto";

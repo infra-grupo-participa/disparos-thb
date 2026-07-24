@@ -140,7 +140,8 @@ export function HmDrawer({
   compradorId: string; estagios: Estagio[]; responsaveis: string[];
   onClose: () => void; onChanged: () => void;
 }) {
-  const { me, podeDisparar } = useMe();
+  const { me, podeDisparar: podeDisparaFn } = useMe();
+  const podeDisparar = podeDisparaFn("HM");
   const [c, setC] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
   const [salvando, setSalvando] = useState(false);

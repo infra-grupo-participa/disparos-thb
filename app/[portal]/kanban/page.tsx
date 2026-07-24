@@ -134,8 +134,9 @@ const EDICAO_COR: Record<string, string> = {
 };
 
 export default function KanbanPage() {
-  const { me, podeDisparar } = useMe();
+  const { me, podeDisparar: podeDisparaFn } = useMe();
   const { portal, evento, base, nome: eventoNome, ehHT } = usePortal();
+  const podeDisparar = podeDisparaFn(evento);
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [edicoes, setEdicoes] = useState<string[]>([]);

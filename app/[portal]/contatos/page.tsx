@@ -50,8 +50,9 @@ function fmtData(iso: string | null): string {
 }
 
 export default function ContatosPage() {
-  const { podeDisparar } = useMe();
+  const { podeDisparar: podeDisparaFn } = useMe();
   const { evento, base, nome: eventoNome, ehHT } = usePortal();
+  const podeDisparar = podeDisparaFn(evento);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [contatos, setContatos] = useState<Contato[]>([]);
   const [carregando, setCarregando] = useState(true);
