@@ -1,6 +1,7 @@
 import { query, queryOne } from "@/lib/db";
 import { sendTemplate, createContact, addTagToContact, type BodyParam, type CanalCfg, type EnvioResultado } from "@/lib/unnichat";
 import { getCanal } from "@/lib/services/canais";
+import { getConfig } from "@/lib/services/config";
 import { primeiroNome } from "@/lib/phone";
 import { logger } from "@/lib/log";
 
@@ -16,14 +17,12 @@ import { logger } from "@/lib/log";
 // o que parou de bater. Ver retomarTravados, embaixo.
 const log = logger("disparo");
 
-const DELAY_MS = 350;
 const DELAY_CRIAR_MS = 200;
 const DELAY_429_MS = 5000;
 const RETRY_BACKOFF_MS = [1000, 3000, 8000];
 const FALLBACK_VAR = "tudo bem";
-// Jitter: humaniza o ritmo. Intervalo fixo é padrão robótico que a Meta detecta;
-// variar aleatoriamente entre `base` e `base+extra` deixa o envio menos mecânico.
-const DELAY_JITTER_MS = 1000; // envio: 350–1350ms
+// Jitter na criação de contatos (fase 1). Já o intervalo entre ENVIOS (fase 2) é
+// configurável em cs.config (disparo_intervalo_seg_min/max) — ver processarDisparo.
 const DELAY_CRIAR_JITTER_MS = 400; // criação: 200–600ms
 const comJitter = (base: number, extra: number) => base + Math.floor(Math.random() * extra);
 // Um batimento a cada 30s é folgado para o cron (que exige 5 min de silêncio) e
@@ -93,6 +92,14 @@ export async function processarDisparo(disparoId: string): Promise<void> {
   // Sem canal cadastrado, getCanal devolve {} e a unnichat cai na env global.
   const canal = await getCanal(template.evento);
 
+  // Intervalo entre ENVIOS (anti-ban), configurável em cs.config e em SEGUNDOS.
+  // Ritmo humano: cada envio espera um tempo aleatório entre o mínimo e o máximo,
+  // em vez de um ritmo fixo (padrão robótico que a Meta detecta). Folgado por
+  // padrão, para número em aquecimento; o admin ajusta em cs.config sem deploy.
+  const intMinMs = Math.max(0, (await getConfig<number>("disparo_intervalo_seg_min", 6)) * 1000);
+  const intMaxMs = Math.max(intMinMs, (await getConfig<number>("disparo_intervalo_seg_max", 15)) * 1000);
+  const intervaloEnvio = () => intMinMs + Math.floor(Math.random() * (intMaxMs - intMinMs + 1));
+
   let ultimoBatimento = Date.now(); // a reivindicação acabou de carimbar
   const baterCoracao = async () => {
     if (Date.now() - ultimoBatimento < BATIMENTO_MS) return;
@@ -155,7 +162,7 @@ export async function processarDisparo(disparoId: string): Promise<void> {
       }
 
       const r = await enviarComRetry(l.telefone, template.unnichat_id, p.params, l.id, canal);
-      const pausaProximo = r.status === 429 ? DELAY_429_MS : comJitter(DELAY_MS, DELAY_JITTER_MS);
+      const pausaProximo = r.status === 429 ? DELAY_429_MS : intervaloEnvio();
 
       if (r.ok) {
         await query(`update cs.disparo_contatos set enviado = true, enviado_em = now(), erro = null where id = $1`, [l.id]);
