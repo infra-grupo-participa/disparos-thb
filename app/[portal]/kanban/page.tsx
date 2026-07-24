@@ -5,6 +5,7 @@ import type { MouseEvent, ReactNode, WheelEvent } from "react";
 import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
+import { DisparoInteligente } from "@/app/_components/disparo-inteligente";
 import { TagsIcon, TAGS_PADRAO, tagTone } from "@/app/_components/tags";
 import { Reveal } from "@/app/_components/anim";
 import { Avatar } from "@/app/_components/avatar";
@@ -149,6 +150,7 @@ export default function KanbanPage() {
   const [carregando, setCarregando] = useState(true);
   const [selecionado, setSelecionado] = useState<Card | null>(null);
   const [dispararSelecao, setDispararSelecao] = useState<SelDisparo[] | null>(null);
+  const [showInteligente, setShowInteligente] = useState(false);
   const [selecaoMulti, setSelecaoMulti] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<{ card: Card; x: number; y: number } | null>(null);
   const arrastando = useRef<Card | null>(null);
@@ -307,6 +309,12 @@ export default function KanbanPage() {
               {tags.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
+          {podeDisparar && (
+            <Button variant="primary" size="sm" onClick={() => setShowInteligente(true)} title="O sistema monta a lista de quem abordar">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>
+              Disparo inteligente
+            </Button>
+          )}
         </div>
       </div>
 
@@ -407,6 +415,13 @@ export default function KanbanPage() {
 
       {dispararSelecao && (
         <DisparoModal selecao={dispararSelecao} onClose={() => { setDispararSelecao(null); setSelecaoMulti(new Set()); carregar(); }} />
+      )}
+
+      {showInteligente && (
+        <DisparoInteligente
+          onClose={() => setShowInteligente(false)}
+          onDisparar={(sel) => { setShowInteligente(false); if (sel.length) setDispararSelecao(sel); }}
+        />
       )}
 
       {/* Barra de ação da seleção múltipla */}
