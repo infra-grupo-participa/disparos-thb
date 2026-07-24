@@ -20,7 +20,10 @@ function previewMsg(c: Conversa): string {
   if (!txt) return "—";
   return c.ultima_de_cs ? `Você: ${txt}` : txt;
 }
-type Mensagem = { id: string; de: "lead" | "cs"; tipo: string; texto: string; data: string | null };
+type Mensagem = { id: string; de: "lead" | "cs"; origem?: "lead" | "template" | "equipe"; senderBy?: string | null; tipo: string; texto: string; data: string | null };
+// Rótulo humano da origem da bolha — o operador distingue o que foi TEMPLATE
+// (disparo/abertura) do que a equipe escreveu à mão no chat.
+const ROTULO_ORIGEM: Record<string, string> = { template: "Template", equipe: "Equipe" };
 type Janela = { aberta: boolean; ultimaEntrada: string | null; expiraEm: string | null };
 type TemplateItem = { id: string; nome: string; canal: string; ativo: boolean };
 type Metricas = {
@@ -449,7 +452,11 @@ export default function InboxPage() {
                   return (
                     <div key={m.id} className={cn("flex", cs ? "justify-end" : "justify-start")}>
                       <div className={cn("max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm", cs ? "rounded-br-sm bg-[#DCF8C6] dark:bg-emerald-900/40 dark:text-slate-100" : "rounded-bl-sm bg-white dark:bg-slate-700 dark:text-slate-100")}>
-                        {m.tipo === "template" && <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Template</span>}
+                        {cs && m.origem && ROTULO_ORIGEM[m.origem] && (
+                          <span className={cn("mb-0.5 block text-[10px] font-semibold uppercase tracking-wide", m.origem === "template" ? "text-brand-500 dark:text-brand-300" : "text-slate-400 dark:text-slate-500")}>
+                            {ROTULO_ORIGEM[m.origem]}
+                          </span>
+                        )}
                         <p className="whitespace-pre-wrap break-words text-slate-800 dark:text-slate-200">{m.texto}</p>
                         <span className="mt-1 block text-right text-[10px] tabular-nums text-slate-400 dark:text-slate-500">{fmtHora(m.data)}</span>
                       </div>

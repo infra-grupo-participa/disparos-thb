@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { avancarDisparos } from "@/lib/services/disparo";
+import { sincronizarRespostasInbox } from "@/lib/services/inbox-sync";
 import { sincronizarStatusRecentes } from "@/lib/services/disparo-status";
 import { sincronizarTagsEdicao } from "@/lib/services/contato";
 import { sincronizarLote } from "@/lib/sync-conversas";
@@ -28,6 +29,13 @@ async function executar() {
   // estão sob um processo vivo (devolvidos por lote ou abandonados). O disparo
   // vivo se defende sozinho: recusa a reivindicação (ver 0074).
   const retomados = await avancarDisparos();
+  // Rede de segurança do webhook: puxa do Unnichat as respostas dos leads de
+  // ativação (SEM/CNHF) e as faz aparecer no inbox, mesmo sem a automação de
+  // webhook ligada no painel. Não derruba o cron se o Unnichat estiver instável.
+  const inboxSync = await sincronizarRespostasInbox(40).catch((e) => {
+    log.error("falha ao sincronizar respostas do inbox", e);
+    return { verificados: 0, novas: 0, erros: 0 };
+  });
   const tagsEdicao = await sincronizarTagsEdicao();
   const sync = await sincronizarLote(60);
   // Mantém o status de entrega (Meta) fresco para o painel de saúde do disparo.
@@ -67,8 +75,8 @@ async function executar() {
     log.error("falha ao sincronizar automações do AC", e);
     return { ok: false, automacoes: 0, gatilhos: 0 };
   });
-  log.info("cron executado", { retomados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes, status_atualizados: statusEntrega.atualizados, email_sincronizadas: email.sincronizadas, email_casadas: email.casadas, email_retomados: emailRetomados, email_engaj: emailEngaj.verificados, email_optout_novos: emailOptOut.novos, ac_automacoes: automacoes.automacoes });
-  return { retomados, tagsEdicao, sync, statusEntrega, email, emailRetomados, emailEngaj, emailOptOut, automacoes };
+  log.info("cron executado", { retomados, inbox_respostas_novas: inboxSync.novas, inbox_verificados: inboxSync.verificados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes, status_atualizados: statusEntrega.atualizados, email_sincronizadas: email.sincronizadas, email_casadas: email.casadas, email_retomados: emailRetomados, email_engaj: emailEngaj.verificados, email_optout_novos: emailOptOut.novos, ac_automacoes: automacoes.automacoes });
+  return { retomados, inboxSync, tagsEdicao, sync, statusEntrega, email, emailRetomados, emailEngaj, emailOptOut, automacoes };
 }
 
 export async function GET(req: Request) {

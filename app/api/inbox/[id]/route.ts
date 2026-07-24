@@ -52,13 +52,23 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 
   const { messages } = await getContactMessages(contactId, canal);
-  const mensagens = messages.map((m) => ({
-    id: m.id,
-    de: m.senderBy === "contact" ? "lead" : "cs",
-    tipo: m.type,
-    texto: m.type === "template" ? (m.text || "[template enviado]") : m.text,
-    data: m.date ?? null,
-  }));
+  const mensagens = messages.map((m) => {
+    const ehLead = String(m.senderBy || "").toLowerCase() === "contact";
+    // Origem da bolha, para o operador saber de onde veio cada mensagem do lado
+    // "nosso": um TEMPLATE (disparo/abertura, type=template) vs texto livre que
+    // saiu da equipe pelo chat. `senderBy` cru vai junto para refinar depois
+    // (distinguir automação de humano) quando confirmarmos os valores do Unnichat.
+    const origem = ehLead ? "lead" : m.type === "template" ? "template" : "equipe";
+    return {
+      id: m.id,
+      de: ehLead ? "lead" : "cs",
+      origem,
+      senderBy: m.senderBy ?? null,
+      tipo: m.type,
+      texto: m.type === "template" ? (m.text || "[template enviado]") : m.text,
+      data: m.date ?? null,
+    };
+  });
 
   // Janela de atendimento (Meta): texto livre só vale até 24h após a ÚLTIMA
   // mensagem que o LEAD enviou. Fora disso, só um template de abertura reabre a

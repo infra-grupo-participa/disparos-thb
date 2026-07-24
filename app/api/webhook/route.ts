@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
 import { ehOptOut } from "@/lib/classificar";
+import { registrarRespostaLead } from "@/lib/services/inbox-sync";
 import { logger } from "@/lib/log";
 
 export const runtime = "nodejs";
@@ -113,7 +114,7 @@ export async function POST(req: Request) {
     await query(`update cs.disparos set total_respondidos = total_respondidos + 1 where id = $1`, [pendente.disparo_id]);
 
     if (pendente.comprador_id) {
-      await avancarContato(pendente.comprador_id, desc, pendente.disparo_id, optOut);
+      await registrarRespostaLead(pendente.comprador_id, desc, pendente.disparo_id, optOut);
     }
     await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "matched", payload: body });
     return NextResponse.json({ ok: true, matched: true, sla_minutos: upd.sla_minutos ?? null });
@@ -126,47 +127,11 @@ export async function POST(req: Request) {
     [tel],
   );
   if (contato) {
-    await avancarContato(contato.comprador_id, desc, null, optOut);
+    await registrarRespostaLead(contato.comprador_id, desc, null, optOut);
     await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "registrado_sem_disparo", payload: body });
     return NextResponse.json({ ok: true, matched: false, registrado: true });
   }
 
   await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "telefone_nao_encontrado", payload: body });
   return NextResponse.json({ ok: true, matched: false, registrado: false });
-}
-
-// Marca resposta no contato: timeline + ultima_resposta_em + avança estágio (novo/contatado → respondeu).
-async function avancarContato(compradorId: string, descricao: string, disparoId: string | null, optOut: boolean) {
-  await query(
-    `update cs.contatos
-        set ultima_resposta_em = now(),
-            estagio_id = case
-              when estagio_id = (select id from cs.estagios where chave = 'comprou_ingresso')
-              then (select id from cs.estagios where chave = 'em_onboarding')
-              else estagio_id end,
-            inbox_status = 'pendente',
-            aguardando_desde = coalesce(aguardando_desde, now()),
-            atualizado_em = now()
-      where comprador_id = $1`,
-    [compradorId],
-  );
-  await query(
-    `insert into cs.interacoes (contato_id, tipo, descricao, disparo_id, autor)
-     select id, 'resposta', $2, $3, 'lead' from cs.contatos where comprador_id = $1`,
-    [compradorId, descricao, disparoId],
-  );
-  // Opt-out: registra a saída e bloqueia disparos futuros.
-  if (optOut) {
-    await query(
-      `update cs.contatos set opt_out = true, opt_out_em = coalesce(opt_out_em, now()),
-              inbox_status = 'resolvido', aguardando_desde = null, atualizado_em = now()
-        where comprador_id = $1`,
-      [compradorId],
-    );
-    await query(
-      `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-       select id, 'sistema', 'Pediu para parar de receber (opt-out)', 'sistema' from cs.contatos where comprador_id = $1`,
-      [compradorId],
-    );
-  }
 }
