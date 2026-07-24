@@ -100,7 +100,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
   const [sincronizando, setSincronizando] = useState(false);
   // Limite anti-ban recusado pelo servidor (409). Fica na tela em vez de virar
   // um alert(): o operador precisa ler quanto já saiu hoje para decidir.
-  const [limite, setLimite] = useState<{ motivo: string; podeForcar: boolean } | null>(null);
+  const [limite, setLimite] = useState<{ motivo: string; podeForcar: boolean; cabem: number } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -152,8 +152,9 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
 
   // `forcar` só passa por cima do limite anti-ban se o servidor aceitar — lá é
   // que se confere o papel de admin. Aqui é a intenção, não a permissão.
-  async function disparar(forcar = false) {
-    if (!templateId || selecao.length === 0) return;
+  async function disparar(forcar = false, override?: Selecionado[]) {
+    const lista = override ?? selecao;
+    if (!templateId || lista.length === 0) return;
     setEnviando(true);
     setLimite(null);
     try {
@@ -162,7 +163,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           templateId,
-          compradorIds: selecao.map((s) => s.comprador_id),
+          compradorIds: lista.map((s) => s.comprador_id),
           edicao: edicao || undefined,
           ...(forcar ? { forcar: true } : {}),
         }),
@@ -170,9 +171,12 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
       const d = await r.json();
       if (!d.ok) {
         // Limite estourado: mantém o modal aberto com o motivo, em vez de um
-        // alert que some. Quem não é admin lê e desiste; o admin decide.
+        // alert que some. Quem não é admin lê e desiste; o admin decide. `cabem`
+        // = quantos ainda entram no limite (para a sugestão de sortear).
         if (d.reason === "disparo_bloqueado" || d.reason === "limite_de_disparo") {
-          setLimite({ motivo: d.motivo || "Disparo bloqueado pelo controle preventivo.", podeForcar: !!d.podeForcar });
+          // `cabem` = quantos ainda entram no limite diário (o restante do dia).
+          const cabem = Math.max(0, Number(d.restante ?? 0));
+          setLimite({ motivo: d.motivo || "Disparo bloqueado pelo controle preventivo.", podeForcar: !!d.podeForcar, cabem });
           setEnviando(false);
           return;
         }
@@ -186,6 +190,22 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
     } catch {
       setEnviando(false);
     }
+  }
+
+  // Seleção excede o limite: embaralha (Fisher-Yates) e envia só o que cabe hoje.
+  // Justo — sorteia quem vai agora; o resto fica para o próximo disparo.
+  function sortearEEnviar() {
+    const n = limite?.cabem ?? 0;
+    if (n <= 0) return;
+    const arr = [...selecao];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    const sorteados = arr.slice(0, n);
+    setSelecao(sorteados);
+    setLimite(null);
+    void disparar(false, sorteados);
   }
 
   function iniciarPolling(id: string) {
@@ -599,6 +619,17 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
                     ? "Passar por cima aumenta o risco de a Meta restringir o número."
                     : "Fale com um admin se este envio não puder esperar."}
                 </p>
+                {limite.cabem > 0 && limite.cabem < selecao.length && (
+                  <div className="mt-2.5 rounded-md border border-emerald-200 bg-emerald-50 p-2.5 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                    <p className="text-xs text-emerald-800 dark:text-emerald-200">
+                      Cabem <strong>{limite.cabem}</strong> hoje. Podemos sortear {limite.cabem} da sua lista de {selecao.length} e enviar agora — o resto fica para o próximo disparo.
+                    </p>
+                    <Button variant="primary" size="sm" className="mt-2" onClick={sortearEEnviar} disabled={enviando}>
+                      {enviando && <Spinner className="text-white" />}
+                      Sortear e enviar para {limite.cabem}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
