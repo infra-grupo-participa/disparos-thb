@@ -88,6 +88,7 @@ export default function InboxPage() {
   const [showDesempenho, setShowDesempenho] = useState(false);
   const [snippets, setSnippets] = useState<string[]>(SNIPPETS_DEFAULT);
   const [deepLink, setDeepLink] = useState<string | null>(null);
+  const [modoDisparo, setModoDisparo] = useState<string | null>(null);
   const [janela, setJanela] = useState<Janela | null>(null);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [tplSel, setTplSel] = useState("");
@@ -112,10 +113,11 @@ export default function InboxPage() {
   function salvarAtendente(v: string) { setAtendente(v); try { localStorage.setItem("cs_atendente", v); } catch { /* noop */ } }
 
   const carregarConversas = useCallback(async () => {
-    const r = await fetch(`/api/inbox?evento=${evento}${filtro ? `&status=${filtro}` : ""}`);
+    const qs = modoDisparo ? `&disparo=${modoDisparo}` : (filtro ? `&status=${filtro}` : "");
+    const r = await fetch(`/api/inbox?evento=${evento}${qs}`);
     const d = await r.json();
     if (d.ok) { setConversas(d.conversas); setPendentes(d.pendentes ?? 0); }
-  }, [filtro, evento]);
+  }, [filtro, evento, modoDisparo]);
   const carregarMetricas = useCallback(async () => {
     const r = await fetch(`/api/inbox/metricas?evento=${evento}`);
     const d = await r.json();
@@ -128,8 +130,11 @@ export default function InboxPage() {
   // Deep-link vindo do Kanban (/inbox?c=comprador_id): abre todas as conversas e seleciona a do cliente.
   useEffect(() => {
     try {
-      const c = new URLSearchParams(window.location.search).get("c");
+      const sp = new URLSearchParams(window.location.search);
+      const c = sp.get("c");
       if (c) { setDeepLink(c); setFiltro(""); }
+      const disp = sp.get("disparo");
+      if (disp) setModoDisparo(disp);
     } catch { /* noop */ }
   }, []);
 
@@ -253,6 +258,20 @@ export default function InboxPage() {
         <KpiCS label="Atendidas hoje" valor={k?.atendidas_hoje ?? 0} tom="sky" sub={`${k?.total_atendimentos ?? 0} no total`} />
         <KpiCS label={`Dentro do SLA (${k?.sla_min ?? 15}min)`} valor={k?.sla_pct != null ? `${k.sla_pct}%` : "—"} tom="emerald" sub="1º contato no prazo" />
       </div>
+
+      {modoDisparo && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2 dark:border-brand-400/20 dark:bg-brand-400/5">
+          <span className="text-sm text-brand-700 dark:text-brand-300">
+            Mostrando os contatos deste disparo, na ordem em que a mensagem saiu — as respostas aparecem aqui conforme chegam.
+          </span>
+          <button
+            onClick={() => { setModoDisparo(null); try { window.history.replaceState(null, "", window.location.pathname); } catch { /* noop */ } }}
+            className="shrink-0 text-sm font-medium text-brand hover:underline dark:text-brand-300"
+          >
+            Ver toda a fila
+          </button>
+        </div>
+      )}
 
       <Card className="grid h-[68vh] grid-cols-1 overflow-hidden p-0 lg:grid-cols-[340px_1fr]">
         {/* Fila */}

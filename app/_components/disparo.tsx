@@ -358,22 +358,22 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
 
         {concluido && (
           <div className="mt-6 flex flex-wrap gap-3">
+            {/* Ação principal: abrir o inbox com os disparados listados na ordem
+                em que a mensagem saiu, para acompanhar as respostas chegando. */}
+            <Link href={`${base}/inbox?disparo=${disparoId}`}>
+              <Button variant="primary">Abrir conversas no inbox</Button>
+            </Link>
             {resumo.erros > 0 && (
-              <Button variant="primary" onClick={reenviarFalhas}>
+              <Button variant="secondary" onClick={reenviarFalhas}>
                 Reenviar para os {resumo.erros} que falharam
               </Button>
             )}
             {aoFechar ? (
-              <Button variant={resumo.erros > 0 ? "secondary" : "primary"} onClick={aoFechar}>Concluir</Button>
+              <Button variant="ghost" onClick={aoFechar}>Fechar</Button>
             ) : (
-              <>
-                <Link href={`${base}/contatos`}>
-                  <Button variant={resumo.erros > 0 ? "secondary" : "primary"}>Voltar aos contatos</Button>
-                </Link>
-                <Link href={`${base}/dashboard`}>
-                  <Button variant="secondary">Ver métricas</Button>
-                </Link>
-              </>
+              <Link href={`${base}/dashboard`}>
+                <Button variant="ghost">Ver métricas</Button>
+              </Link>
             )}
           </div>
         )}
