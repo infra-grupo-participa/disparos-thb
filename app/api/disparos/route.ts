@@ -21,6 +21,14 @@ export async function GET(req: Request) {
             count(*) filter (where not dc.enviado)::int as pendentes,
             count(*) filter (where dc.erro is not null)::int as erros,
             count(*) filter (where dc.respondeu)::int as respondidos,
+            -- Entrega real (Meta), quando o status já foi sincronizado.
+            count(*) filter (where dc.status_meta = 'delivered')::int as entregue,
+            count(*) filter (where dc.status_meta = 'read')::int as lido,
+            count(*) filter (where dc.status_meta = 'sent')::int as so_enviado,
+            count(*) filter (where dc.status_meta = 'failed')::int as falha_entrega,
+            -- "Não chegaram": nunca saíram (fila) + a Meta recusou a entrega. É o
+            -- alvo do botão "Reenviar os que não chegaram".
+            count(*) filter (where not dc.enviado or dc.status_meta = 'failed')::int as nao_chegaram,
             -- Travado: em andamento mas sem processo vivo (heartbeat parado > 2min).
             -- É o gatilho do botão "Retomar": há pendentes e ninguém cuidando.
             (d.status = 'em_andamento'

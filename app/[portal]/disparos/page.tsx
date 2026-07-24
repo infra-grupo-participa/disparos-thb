@@ -13,6 +13,7 @@ type Disparo = {
   iniciado_em: string | null; concluido_em: string | null; processando_em: string | null;
   template_nome: string | null;
   total: number; enviados: number; pendentes: number; erros: number; respondidos: number;
+  entregue: number; lido: number; so_enviado: number; falha_entrega: number; nao_chegaram: number;
   travado: boolean;
 };
 
@@ -45,6 +46,8 @@ export default function DisparosPage() {
   const [disparos, setDisparos] = useState<Disparo[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [retomando, setRetomando] = useState<string | null>(null);
+  const [atualizandoEntrega, setAtualizandoEntrega] = useState<string | null>(null);
+  const [reenviando, setReenviando] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -83,6 +86,40 @@ export default function DisparosPage() {
       setAviso("Falha de conexão ao retomar. Tente novamente.");
     } finally {
       setRetomando(null);
+    }
+  }
+
+  // Consulta a entrega real (Meta) dos contatos deste disparo e recarrega a lista.
+  async function atualizarEntrega(d: Disparo) {
+    setAtualizandoEntrega(d.id); setAviso(null);
+    try {
+      await fetch(`/api/disparos/${d.id}/status`, { method: "POST" });
+      await carregar();
+    } catch {
+      setAviso("Falha ao consultar a entrega. Tente de novo.");
+    } finally {
+      setAtualizandoEntrega(null);
+    }
+  }
+
+  // Reenvia SÓ os que não chegaram (nunca saíram + falha de entrega). Confirma
+  // antes: é envio real de WhatsApp para pessoas.
+  async function reenviarCaidos(d: Disparo) {
+    if (!window.confirm(`Reenviar para os ${d.nao_chegaram} contato(s) que não receberam (nunca enviados + falha de entrega)? Quem já recebeu não será incomodado.`)) return;
+    setReenviando(d.id); setAviso(null);
+    try {
+      const r = await fetch(`/api/disparos/${d.id}/reenviar-caidos?evento=${evento}`, { method: "POST" });
+      const j = await r.json();
+      if (j.ok) {
+        setAviso(`Reenviando para ${j.reenviando} contato(s) que não chegaram. Acompanhe a barra.`);
+        await carregar();
+      } else {
+        setAviso(j.reason || "Não foi possível reenviar agora.");
+      }
+    } catch {
+      setAviso("Falha de conexão ao reenviar.");
+    } finally {
+      setReenviando(null);
     }
   }
 
@@ -154,6 +191,30 @@ export default function DisparosPage() {
                     {d.respondidos > 0 && <span className="tabular-nums text-emerald-600 dark:text-emerald-400">{d.respondidos} responderam</span>}
                     {d.erros > 0 && <span className="tabular-nums text-rose-600 dark:text-rose-400">{d.erros} com erro</span>}
                   </div>
+
+                  {/* Entrega real (Meta) — só aparece quando já foi sincronizada */}
+                  {(d.entregue + d.lido + d.so_enviado + d.falha_entrega) > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Entrega:</span>
+                      {d.lido > 0 && <span className="tabular-nums text-blue-600 dark:text-blue-300">{d.lido} lidos ✓✓</span>}
+                      {d.entregue > 0 && <span className="tabular-nums text-emerald-600 dark:text-emerald-400">{d.entregue} entregues ✓✓</span>}
+                      {d.so_enviado > 0 && <span className="tabular-nums text-slate-500 dark:text-slate-400" title="Enviado ao WhatsApp, entrega ainda não confirmada">{d.so_enviado} enviados ✓</span>}
+                      {d.falha_entrega > 0 && <span className="tabular-nums text-rose-600 dark:text-rose-400">{d.falha_entrega} falha de entrega ✗</span>}
+                    </div>
+                  )}
+                </div>
+
+                {/* Barra de ações de resultado */}
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+                  <Button variant="ghost" size="sm" onClick={() => atualizarEntrega(d)} disabled={atualizandoEntrega === d.id}>
+                    {atualizandoEntrega === d.id ? (<><Spinner className="h-3.5 w-3.5" /> Consultando…</>) : "Atualizar entrega"}
+                  </Button>
+                  {/* Reenvio só quando o disparo já parou (travado usa o Retomar acima) */}
+                  {pode && d.nao_chegaram > 0 && !d.travado && d.status !== "em_andamento" && (
+                    <Button variant="secondary" size="sm" onClick={() => reenviarCaidos(d)} disabled={reenviando === d.id || retomando === d.id}>
+                      {reenviando === d.id ? (<><Spinner className="h-3.5 w-3.5" /> Reenviando…</>) : `Reenviar os ${d.nao_chegaram} que não chegaram`}
+                    </Button>
+                  )}
                 </div>
 
                 {d.travado && (
