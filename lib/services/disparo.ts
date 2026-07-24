@@ -268,6 +268,40 @@ export async function avancarDisparos(): Promise<number> {
   return abertos.length;
 }
 
+// Retomada MANUAL, pelo operador (botão na tela de Disparos). Diferente do cron,
+// não espera o heartbeat morrer: reabre o disparo (mesmo que tenha sido fechado
+// como 'erro' ou 'concluido' com pendentes), solta a reivindicação e reprocessa
+// já. Só age se ainda há o que enviar — idempotente e seguro de clicar de novo.
+export async function retomarDisparo(
+  disparoId: string,
+): Promise<{ ok: boolean; motivo?: string; pendentes: number }> {
+  const d = await queryOne<{ status: string; pendentes: number }>(
+    `select d.status,
+            (select count(*)::int from cs.disparo_contatos dc
+              where dc.disparo_id = d.id and dc.enviado = false) as pendentes
+       from cs.disparos d where d.id = $1`,
+    [disparoId],
+  );
+  if (!d) return { ok: false, motivo: "Disparo não encontrado.", pendentes: 0 };
+  if (d.pendentes === 0) {
+    return { ok: false, motivo: "Este disparo já enviou para todos — não há o que retomar.", pendentes: 0 };
+  }
+  // Reabre e libera a reivindicação num update só. Se um processo ainda estiver
+  // vivo (heartbeat recente), processarDisparo recusa a reivindicação e nada
+  // duplica; se morreu, este clique o traz de volta imediatamente.
+  await query(
+    `update cs.disparos
+        set status = 'em_andamento', fase = 'enviando', concluido_em = null, processando_em = null
+      where id = $1`,
+    [disparoId],
+  );
+  log.info("disparo retomado manualmente pelo operador", { disparoId, pendentes: d.pendentes });
+  // Processa em background (servidor persistente): a UI recebe a resposta na hora
+  // e a fila vai andando em lotes auto-continuados.
+  void processarDisparo(disparoId).catch((e) => log.error("erro ao retomar disparo (manual)", e, { disparoId }));
+  return { ok: true, pendentes: d.pendentes };
+}
+
 // Fecha o disparo. Um disparo em que NADA foi enviado é um disparo com erro —
 // marcá-lo 'concluido' (o que o código fazia) esconde a falha do painel.
 async function finalizar(disparoId: string): Promise<void> {

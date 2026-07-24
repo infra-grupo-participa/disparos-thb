@@ -73,7 +73,7 @@ function Avatar({ nome, size = "md" }: { nome: string; size?: "sm" | "md" }) {
 }
 
 export default function InboxPage() {
-  const { evento } = usePortal();
+  const { evento, nome } = usePortal();
   const [conversas, setConversas] = useState<Conversa[]>([]);
   const [pendentes, setPendentes] = useState(0);
   const [filtro, setFiltro] = useState<"pendente" | "" | "resolvido">("pendente");
@@ -94,6 +94,10 @@ export default function InboxPage() {
   const [tplSel, setTplSel] = useState("");
   const [enviandoTpl, setEnviandoTpl] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
+  // Marca da última mensagem já vista na conversa aberta — o polling compara com
+  // esta para saber se chegou resposta nova (e só então recarrega o thread).
+  const ultimaMsgRef = useRef<string | null>(null);
+  const pendAntesRef = useRef<number>(0);
 
   // Templates de abertura (WhatsApp) do evento — o que reabre a janela de 24h.
   useEffect(() => {
@@ -140,11 +144,23 @@ export default function InboxPage() {
 
   const abrir = useCallback(async (c: Conversa) => {
     setSel(c); setMensagens([]); setAviso(null); setJanela(null); setTplSel(""); setCarregandoMsg(true);
+    ultimaMsgRef.current = c.ultima_msg_em; // sincroniza: abrir já traz o thread
     try {
       const r = await fetch(`/api/inbox/${c.comprador_id}`);
       const d = await r.json();
       if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); setJanela(d.janela ?? null); }
     } finally { setCarregandoMsg(false); }
+  }, []);
+
+  // Recarrega SÓ as mensagens da conversa aberta, sem limpar a tela nem mostrar
+  // spinner — é o refresh silencioso do polling quando o lead responde, para não
+  // piscar a conversa a cada ciclo.
+  const recarregarThread = useCallback(async (compradorId: string) => {
+    try {
+      const r = await fetch(`/api/inbox/${compradorId}`);
+      const d = await r.json();
+      if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); setJanela(d.janela ?? null); }
+    } catch { /* silencioso: é atualização de fundo */ }
   }, []);
 
   // Janela fechada (ou lead nunca respondeu): a única forma de (re)abrir a
@@ -182,6 +198,49 @@ export default function InboxPage() {
   }, [deepLink, conversas, abrir]);
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [mensagens]);
+
+  // Tempo real (leve): a cada 12s repuxa a fila do banco. É isto que faz a
+  // resposta do lead "aparecer sozinha" no inbox, sem F5 — desde que o webhook do
+  // Unnichat esteja ligado (é ele quem grava a resposta que este polling lê).
+  useEffect(() => {
+    const t = setInterval(() => { void carregarConversas(); }, 12000);
+    return () => clearInterval(t);
+  }, [carregarConversas]);
+
+  // Notificação discreta: o título da aba conta os pendentes (como o WhatsApp
+  // Web), então o operador vê que chegou algo mesmo com a aba em segundo plano.
+  useEffect(() => {
+    document.title = pendentes > 0 ? `(${pendentes}) Inbox · ${nome}` : `Inbox · ${nome}`;
+    return () => { document.title = nome; };
+  }, [pendentes, nome]);
+
+  // Toca um bip curto quando o nº de pendentes SOBE (resposta nova entrou na
+  // fila). Gerado na hora (sem arquivo externo); silencioso se o browser bloquear.
+  useEffect(() => {
+    if (pendentes > pendAntesRef.current && pendAntesRef.current !== 0) {
+      try {
+        const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const ctx = new Ctx();
+        const osc = ctx.createOscillator(); const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = 880; gain.gain.value = 0.05;
+        osc.start(); osc.stop(ctx.currentTime + 0.15);
+      } catch { /* browser bloqueou áudio sem interação: tudo bem */ }
+    }
+    pendAntesRef.current = pendentes;
+  }, [pendentes]);
+
+  // Conversa aberta: se o polling trouxe uma mensagem nova do lead nela, recarrega
+  // o thread silenciosamente para a bolha aparecer sem o operador clicar de novo.
+  useEffect(() => {
+    if (!sel) { ultimaMsgRef.current = null; return; }
+    const atual = conversas.find((c) => c.comprador_id === sel.comprador_id);
+    const marca = atual?.ultima_msg_em ?? null;
+    if (marca && marca !== ultimaMsgRef.current) {
+      if (ultimaMsgRef.current !== null && !atual?.ultima_de_cs) void recarregarThread(sel.comprador_id);
+      ultimaMsgRef.current = marca;
+    }
+  }, [conversas, sel, recarregarThread]);
 
   async function enviar() {
     if (!sel || !texto.trim()) return;
@@ -238,6 +297,13 @@ export default function InboxPage() {
       {/* KPIs de desempenho do CS */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Inbox</h1>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400" title="A fila atualiza sozinha a cada poucos segundos">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
+          ao vivo
+        </span>
         <div className="flex-1" />
         <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <span>Atendendo como</span>
