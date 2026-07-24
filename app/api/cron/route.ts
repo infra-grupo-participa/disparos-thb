@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { retomarTravados } from "@/lib/services/disparo";
+import { avancarDisparos } from "@/lib/services/disparo";
 import { sincronizarStatusRecentes } from "@/lib/services/disparo-status";
 import { sincronizarTagsEdicao } from "@/lib/services/contato";
 import { sincronizarLote } from "@/lib/sync-conversas";
@@ -24,9 +24,10 @@ function autorizado(req: Request): boolean {
 }
 
 async function executar() {
-  // Retoma o que foi ABANDONADO (heartbeat parado), não o que está demorando.
-  // O disparo vivo se defende sozinho: recusa a reivindicação (ver 0074).
-  const retomados = await retomarTravados();
+  // Consome a fila de disparo: continua disparos com contatos pendentes que não
+  // estão sob um processo vivo (devolvidos por lote ou abandonados). O disparo
+  // vivo se defende sozinho: recusa a reivindicação (ver 0074).
+  const retomados = await avancarDisparos();
   const tagsEdicao = await sincronizarTagsEdicao();
   const sync = await sincronizarLote(60);
   // Mantém o status de entrega (Meta) fresco para o painel de saúde do disparo.

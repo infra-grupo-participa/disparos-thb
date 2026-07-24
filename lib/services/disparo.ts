@@ -25,10 +25,17 @@ const FALLBACK_VAR = "tudo bem";
 // configurável em cs.config (disparo_intervalo_seg_min/max) — ver processarDisparo.
 const DELAY_CRIAR_JITTER_MS = 400; // criação: 200–600ms
 const comJitter = (base: number, extra: number) => base + Math.floor(Math.random() * extra);
-// Um batimento a cada 30s é folgado para o cron (que exige 5 min de silêncio) e
-// barato: um update de uma coluna, não a cada contato.
+// Um batimento a cada 30s é folgado para o cron e barato: um update de uma
+// coluna, não a cada contato.
 const BATIMENTO_MS = 30_000;
-const CORACAO_PARADO_SEG = 300;
+// Um disparo cujo processo MORREU (heartbeat congelado) é resgatado pelo cron
+// após ~2min de silêncio (era 5min) — retomada mais rápida.
+const CORACAO_PARADO_SEG = 120;
+// A fila durável é a própria cs.disparo_contatos (enviado=false = pendente). Cada
+// passada processa por no máximo isto e então DEVOLVE a fila ao cron (grava o
+// progresso, solta a reivindicação). Assim um restart do servidor perde no
+// máximo um lote — o cron continua de onde parou, e o disparo sempre completa.
+const LIMITE_EXEC_MS = 180_000; // 3 min por lote
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const ehTransitorio = (status: number) => status === 0 || status === 429 || status >= 500;
 
@@ -121,10 +128,14 @@ export async function processarDisparo(disparoId: string): Promise<void> {
       [disparoId],
     );
 
+    const inicioExec = Date.now();
+    let interrompido = false; // true quando o lote atinge o tempo-limite com fila restante
+
     // ===== Fase 1: garantir os contatos na Unnichat (idempotente) =====
     await query(`update cs.disparos set fase = 'criando_contatos' where id = $1`, [disparoId]);
     for (const l of pendentes) {
       if (l.contato_criado) continue;
+      if (Date.now() - inicioExec > LIMITE_EXEC_MS) { interrompido = true; break; }
       const r = await createContact({ name: l.nome || l.telefone, phone: l.telefone, cfg: canal });
       if (r.ok) {
         l.contato_criado = true;
@@ -147,10 +158,14 @@ export async function processarDisparo(disparoId: string): Promise<void> {
       [disparoId],
     );
 
+    // Estourou o tempo do lote ainda garantindo contatos: devolve ao cron.
+    if (interrompido) { await continuarLote(disparoId); return; }
+
     // ===== Fase 2: enviar o template (só para quem foi criado) =====
     await query(`update cs.disparos set fase = 'enviando' where id = $1`, [disparoId]);
     for (const l of pendentes) {
       if (!l.contato_criado) continue;
+      if (Date.now() - inicioExec > LIMITE_EXEC_MS) { interrompido = true; break; }
 
       // Uma variável sem valor (ex.: template pede a edição e o contato não tem)
       // é problema DAQUELE contato, não do disparo: a Meta recusa parâmetro
@@ -209,6 +224,10 @@ export async function processarDisparo(disparoId: string): Promise<void> {
       await sleep(pausaProximo);
     }
 
+    // Estourou o tempo do lote com fila restante: devolve ao cron (o disparo
+    // segue 'em_andamento'; o próximo lote continua de onde parou).
+    if (interrompido) { await continuarLote(disparoId); return; }
+
     await finalizar(disparoId);
   } catch (e) {
     // Solta a reivindicação para o cron poder retomar já na próxima passada, em
@@ -216,6 +235,37 @@ export async function processarDisparo(disparoId: string): Promise<void> {
     await query(`update cs.disparos set processando_em = null where id = $1`, [disparoId]).catch(() => {});
     throw e;
   }
+}
+
+// Fim de um lote com fila restante: solta a reivindicação e AUTO-CONTINUA o
+// próximo lote imediatamente (sem esperar o cron), para o disparo rodar contínuo
+// no caminho feliz. Se ESTE processo morrer antes do próximo lote, o cron
+// (avancarDisparos) é a rede de segurança. reivindicar evita processamento dobrado.
+async function continuarLote(disparoId: string): Promise<void> {
+  await query(`update cs.disparos set processando_em = null where id = $1`, [disparoId]).catch(() => {});
+  log.info("lote concluído; continuando o próximo", { disparoId });
+  setTimeout(() => {
+    void processarDisparo(disparoId).catch((e) => log.error("erro ao continuar lote", e, { disparoId }));
+  }, 200);
+}
+
+// Consumidor da fila (chamado pelo cron): pega TODOS os disparos que ainda têm
+// contatos pendentes e não estão sob um processo vivo — os devolvidos (heartbeat
+// nulo) e os que MORRERAM (heartbeat congelado > CORACAO_PARADO_SEG) — e processa
+// o próximo lote de cada. processarDisparo reivindica: sem duplicação.
+export async function avancarDisparos(): Promise<number> {
+  const abertos = await query<{ id: string }>(
+    `select distinct d.id
+       from cs.disparos d
+       join cs.disparo_contatos dc on dc.disparo_id = d.id and dc.enviado = false
+      where d.status = 'em_andamento'
+        and (d.processando_em is null or d.processando_em < now() - make_interval(secs => $1))`,
+    [CORACAO_PARADO_SEG],
+  );
+  for (const d of abertos) {
+    await processarDisparo(d.id).catch((e) => log.error("erro ao avançar disparo", e, { disparoId: d.id }));
+  }
+  return abertos.length;
 }
 
 // Fecha o disparo. Um disparo em que NADA foi enviado é um disparo com erro —
