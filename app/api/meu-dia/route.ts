@@ -33,6 +33,10 @@ export async function GET(req: Request) {
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const evento = eventoDe(req);
   const operador = sessao.nome || "cs";
+  // "Meus" filtra as filas pelos leads sob responsabilidade do operador logado —
+  // com vários SDRs, cada um vê a própria carteira e não colide no mesmo lead.
+  // Sem o filtro (Todos), mostra a fila do portal inteiro (comportamento antigo).
+  const meus = new URL(req.url).searchParams.get("meus") === "1";
 
   // 1) Retornos que ele agendou e já venceram (ou vencem hoje).
   const retornos = await query<Fila>(
@@ -45,9 +49,10 @@ export async function GET(req: Request) {
         and c.proxima_acao_em < (date_trunc('day', now() at time zone 'America/Sao_Paulo') + interval '1 day') at time zone 'America/Sao_Paulo'
         and not c.opt_out
         and v.telefone is not null and v.telefone <> ''
+        and (not $3::bool or c.responsavel = $4)
       order by c.proxima_acao_em asc
       limit $2`,
-    [evento, LIMITE],
+    [evento, LIMITE, meus, operador],
   );
 
   // 2) Quem escreveu e está esperando resposta.
@@ -60,9 +65,10 @@ export async function GET(req: Request) {
       where c.inbox_status = 'pendente'
         and c.aguardando_desde is not null
         and not c.opt_out
+        and (not $3::bool or c.responsavel = $4)
       order by c.aguardando_desde asc
       limit $2`,
-    [evento, LIMITE],
+    [evento, LIMITE, meus, operador],
   );
 
   // 3) Quem está no funil e ninguém toca há dias. Exclui os já listados acima
@@ -79,9 +85,10 @@ export async function GET(req: Request) {
         and (c.ultimo_contato_em is null or c.ultimo_contato_em < now() - make_interval(days => $3))
         and c.proxima_acao_em is null
         and c.inbox_status is distinct from 'pendente'
+        and (not $4::bool or c.responsavel = $5)
       order by c.ultimo_contato_em asc nulls first
       limit $2`,
-    [evento, LIMITE, DIAS_SEM_TOQUE],
+    [evento, LIMITE, DIAS_SEM_TOQUE, meus, operador],
   );
 
   const placar = await placarDoDia(operador);
@@ -89,6 +96,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     operador,
+    meus,
     placar,
     filas: { retornos, esperando, semToque },
     dias_sem_toque: DIAS_SEM_TOQUE,

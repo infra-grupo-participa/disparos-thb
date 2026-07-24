@@ -52,17 +52,40 @@ export default function MeuDiaPage() {
   const [d, setD] = useState<Dados | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [alvo, setAlvo] = useState<Item | null>(null);
+  const [meus, setMeus] = useState(true);
+  const [pegando, setPegando] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
-      const r = await fetch(`/api/meu-dia?evento=${evento}`);
+      const r = await fetch(`/api/meu-dia?evento=${evento}&meus=${meus ? 1 : 0}`);
       const j = await r.json();
       if (j.ok) setD(j);
     } finally {
       setCarregando(false);
     }
-  }, [evento]);
+  }, [evento, meus]);
   useEffect(() => { carregar(); }, [carregar]);
+
+  // "Pegar próximos" — o SDR puxa para si os leads sem dono mais quentes e a fila
+  // já reabastece com o filtro "Meus" ligado.
+  async function pegarLeads() {
+    setPegando(true);
+    try {
+      const r = await fetch(`/api/kanban/pegar-leads?evento=${evento}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantos: 20 }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        setMeus(true);
+        await carregar();
+        alert(j.pegos > 0 ? `${j.pegos} lead(s) atribuído(s) a você.` : "Nenhum lead sem dono disponível agora.");
+      }
+    } finally {
+      setPegando(false);
+    }
+  }
 
   if (carregando) {
     return <div className="flex items-center justify-center gap-2 py-16 text-slate-400"><Spinner /> Carregando seu dia…</div>;
@@ -81,6 +104,27 @@ export default function MeuDiaPage() {
         description={`Sua fila de trabalho e o que você já fez hoje, ${d.operador}.`}
       />
 
+      {/* Foco da fila (minha carteira × portal inteiro) + reabastecer a carteira. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700">
+          <button
+            onClick={() => setMeus(true)}
+            className={cn("rounded-md px-3 py-1 text-xs font-medium transition", meus ? "bg-brand text-white dark:bg-brand-500" : "text-slate-500 hover:text-slate-800 dark:text-slate-400")}
+          >
+            Meus leads
+          </button>
+          <button
+            onClick={() => setMeus(false)}
+            className={cn("rounded-md px-3 py-1 text-xs font-medium transition", !meus ? "bg-brand text-white dark:bg-brand-500" : "text-slate-500 hover:text-slate-800 dark:text-slate-400")}
+          >
+            Todos do portal
+          </button>
+        </div>
+        <Button variant="secondary" className="h-8 px-3 text-xs" onClick={pegarLeads} disabled={pegando}>
+          {pegando ? "Pegando…" : "Pegar próximos 20 para mim"}
+        </Button>
+      </div>
+
       {/* O placar: o resultado do próprio trabalho, de volta para quem o fez. */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi titulo="Atendimentos hoje" valor={fmt(placar.total)} sub="registrados por você" />
@@ -92,8 +136,12 @@ export default function MeuDiaPage() {
       {nada ? (
         <div className="mt-6">
           <EmptyState
-            title="Fila vazia"
-            description="Nenhum retorno vencendo, ninguém esperando resposta e todo mundo do funil recebeu um toque recente. Bom trabalho."
+            title={meus ? "Sua carteira está vazia" : "Fila vazia"}
+            description={
+              meus
+                ? "Você ainda não tem leads sob sua responsabilidade nesta fila. Clique em “Pegar próximos 20 para mim” para começar a trabalhar."
+                : "Nenhum retorno vencendo, ninguém esperando resposta e todo mundo do funil recebeu um toque recente. Bom trabalho."
+            }
           />
         </div>
       ) : (
