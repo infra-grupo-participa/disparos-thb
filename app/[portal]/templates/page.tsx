@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
 import { Reveal } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
@@ -98,6 +98,13 @@ export default function TemplatesPage() {
   const [telTeste, setTelTeste] = useState("");
   const [enviandoTeste, setEnviandoTeste] = useState(false);
 
+  // Guia de primeiro uso + auto-save do rascunho (o SDR não perde o que digitou).
+  const [guiaAberto, setGuiaAberto] = useState(false);
+  const [rascunhoSalvo, setRascunhoSalvo] = useState(false);
+  const rascunhoKey = `cs_template_rascunho_${evento}`;
+  const restaurado = useRef(false);
+  function fecharGuia() { setGuiaAberto(false); try { localStorage.setItem("cs_guia_templates_off", "1"); } catch { /* noop */ } }
+
   async function carregar() {
     const r = await fetch(`/api/templates?evento=${evento}`);
     const d = await r.json();
@@ -109,6 +116,36 @@ export default function TemplatesPage() {
   useEffect(() => {
     fetch("/api/me").then((r) => r.json()).then((d) => { if (d.ok) setMeTelefone(d.usuario.telefone || null); }).catch(() => {});
   }, []);
+
+  // Guia de primeiro uso: aparece até o SDR fechar.
+  useEffect(() => {
+    try { setGuiaAberto(localStorage.getItem("cs_guia_templates_off") !== "1"); } catch { /* noop */ }
+  }, []);
+
+  // Auto-save: restaura o rascunho ao abrir / trocar de evento.
+  useEffect(() => {
+    restaurado.current = false;
+    try {
+      const raw = localStorage.getItem(rascunhoKey);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d.form) setForm({ ...vazio, ...d.form });
+        if (d.canal) setCanal(d.canal);
+        if (d.modo) setModo(d.modo);
+      }
+    } catch { /* noop */ }
+    restaurado.current = true;
+  }, [rascunhoKey]);
+
+  // Auto-save: guarda a cada alteração; some quando o form esvazia (após salvar).
+  useEffect(() => {
+    if (!restaurado.current) return;
+    try {
+      const vazioForm = !form.nome && !form.unnichat_id && !form.preview && !form.assunto && !form.corpo_html && !form.ac_tag_id && !form.categoria;
+      if (vazioForm) { localStorage.removeItem(rascunhoKey); setRascunhoSalvo(false); }
+      else { localStorage.setItem(rascunhoKey, JSON.stringify({ form, canal, modo })); setRascunhoSalvo(true); }
+    } catch { /* noop */ }
+  }, [form, canal, modo, rascunhoKey]);
 
   function abrirTeste(t: Template) { setTesteAlvo(t); setTelTeste(meTelefone || ""); }
   async function enviarTeste() {
@@ -253,6 +290,28 @@ export default function TemplatesPage() {
         title="Templates"
         description="Mensagens de WhatsApp (Unnichat) e de e-mail (ActiveCampaign). Ative ou desative cada uma direto na lista."
       />
+
+      {guiaAberto && (
+        <div className="mb-5 rounded-xl border border-brand/20 bg-brand/5 p-4 dark:border-brand-400/20 dark:bg-brand-400/5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-brand-700 dark:text-brand-300">
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+                Como funciona — passo a passo
+              </h3>
+              <ol className="mt-2 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
+                <li><strong className="text-brand-700 dark:text-brand-300">1.</strong> Cadastre o template ao lado: cole o <strong>ID da Unnichat</strong> (do template já aprovado na Meta) e escreva o preview do texto.</li>
+                <li><strong className="text-brand-700 dark:text-brand-300">2.</strong> Clique em <strong>Testar</strong> no card para receber a mensagem no <strong>seu próprio WhatsApp</strong> e conferir como fica.</li>
+                <li><strong className="text-brand-700 dark:text-brand-300">3.</strong> Deixe o template <strong>ativo</strong> (a bolinha verde).</li>
+                <li><strong className="text-brand-700 dark:text-brand-300">4.</strong> No <strong>Kanban</strong> você dispara para os leads; no <strong>Inbox</strong>, quando a janela de 24h fechar, um template reabre a conversa.</li>
+              </ol>
+            </div>
+            <button onClick={fecharGuia} title="Não mostrar mais este guia" className="shrink-0 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_400px]">
         {/* ---- Coluna esquerda: lista ---- */}
@@ -598,6 +657,12 @@ export default function TemplatesPage() {
             <Button type="submit" disabled={salvando} className="w-full">
               {salvando ? "Salvando…" : `Cadastrar template de ${canal === "email" ? "e-mail" : "WhatsApp"}`}
             </Button>
+            {rascunhoSalvo && (
+              <p className="flex items-center justify-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+                <svg className="h-3 w-3 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                Rascunho salvo automaticamente — você pode sair e voltar.
+              </p>
+            )}
           </form>
         </Card>
       </div>
