@@ -21,6 +21,8 @@ function previewMsg(c: Conversa): string {
   return c.ultima_de_cs ? `Você: ${txt}` : txt;
 }
 type Mensagem = { id: string; de: "lead" | "cs"; tipo: string; texto: string; data: string | null };
+type Janela = { aberta: boolean; ultimaEntrada: string | null; expiraEm: string | null };
+type TemplateItem = { id: string; nome: string; canal: string; ativo: boolean };
 type Metricas = {
   kpis: { pendentes: number; total_atendimentos: number; atendidas_hoje: number; frt_medio: number | null; frt_hoje: number | null; sla_pct: number | null; maior_espera_min: number | null; sla_min: number };
   porAtendente: { atendente: string; atendimentos: number; frt_medio: number | null; sla_pct: number | null }[];
@@ -86,7 +88,19 @@ export default function InboxPage() {
   const [showDesempenho, setShowDesempenho] = useState(false);
   const [snippets, setSnippets] = useState<string[]>(SNIPPETS_DEFAULT);
   const [deepLink, setDeepLink] = useState<string | null>(null);
+  const [janela, setJanela] = useState<Janela | null>(null);
+  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [tplSel, setTplSel] = useState("");
+  const [enviandoTpl, setEnviandoTpl] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
+
+  // Templates de abertura (WhatsApp) do evento — o que reabre a janela de 24h.
+  useEffect(() => {
+    fetch(`/api/templates?evento=${evento}`)
+      .then((r) => r.json())
+      .then((d) => { if (d.ok) setTemplates((d.templates as TemplateItem[]).filter((t) => t.ativo && t.canal !== "email")); })
+      .catch(() => {});
+  }, [evento]);
 
   useEffect(() => {
     try {
@@ -120,13 +134,40 @@ export default function InboxPage() {
   }, []);
 
   const abrir = useCallback(async (c: Conversa) => {
-    setSel(c); setMensagens([]); setAviso(null); setCarregandoMsg(true);
+    setSel(c); setMensagens([]); setAviso(null); setJanela(null); setTplSel(""); setCarregandoMsg(true);
     try {
       const r = await fetch(`/api/inbox/${c.comprador_id}`);
       const d = await r.json();
-      if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); }
+      if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); setJanela(d.janela ?? null); }
     } finally { setCarregandoMsg(false); }
   }, []);
+
+  // Janela fechada (ou lead nunca respondeu): a única forma de (re)abrir a
+  // conversa é um template aprovado. Reusa /api/send (cria contato + envia +
+  // guarda anti-ban). Quando o lead responder ao template, a janela de 24h abre.
+  async function enviarTemplateAbertura() {
+    if (!sel || !tplSel) return;
+    setEnviandoTpl(true);
+    try {
+      const r = await fetch(`/api/send?evento=${evento}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId: tplSel, compradorIds: [sel.comprador_id] }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setTplSel("");
+        alert("Template de abertura enviado. Quando o lead responder, a conversa reabre e você poderá escrever livremente.");
+        void carregarConversas();
+      } else {
+        alert(d.motivo || d.reason || "Não foi possível enviar o template de abertura.");
+      }
+    } catch {
+      alert("Falha ao enviar o template. Tente novamente.");
+    } finally {
+      setEnviandoTpl(false);
+    }
+  }
 
   // Quando a lista carrega e há um deep-link pendente, seleciona a conversa-alvo.
   useEffect(() => {
@@ -333,34 +374,64 @@ export default function InboxPage() {
                 {!carregandoMsg && mensagens.length === 0 && !aviso && <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Sem mensagens nesta conversa.</p>}
               </div>
 
-              <div className="border-t border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
-                {/* Respostas rápidas */}
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {snippets.map((s, i) => (
-                    <button key={i} onClick={() => setTexto((t) => (t ? t + " " : "") + s)} title={s}
-                      className="max-w-[180px] truncate rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-brand/30 hover:bg-brand/5 dark:border-slate-700 dark:text-slate-300 dark:hover:border-brand-400/30 dark:hover:bg-brand-400/10">
-                      {s}
-                    </button>
-                  ))}
-                  <button onClick={addSnippet} title="Adicionar resposta rápida" className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs text-slate-400 transition hover:text-slate-600 dark:border-slate-600 dark:hover:text-slate-300">+ atalho</button>
+              {janela && !janela.aberta ? (
+                /* Janela de 24h fechada: o SDR só reabre com um template pronto. */
+                <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
+                  <div className="flex items-start gap-2.5">
+                    <svg className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" strokeLinecap="round" strokeLinejoin="round" /><path d="M12 9v4M12 17h.01" strokeLinecap="round" /></svg>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Janela de conversa fechada</p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-amber-700 dark:text-amber-300/90">
+                        {janela.ultimaEntrada
+                          ? "Passaram-se mais de 24h desde a última mensagem do lead."
+                          : "Este lead ainda não iniciou uma conversa no WhatsApp."}{" "}
+                        Você só pode começar a abordagem enviando um <strong>template pronto</strong>. Assim que o lead responder, a conversa reabre e você escreve livremente aqui.
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <select value={tplSel} onChange={(e) => setTplSel(e.target.value)} className={cn(fieldClass, "w-auto min-w-[220px]")}>
+                          <option value="">Escolha um template de abertura…</option>
+                          {templates.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                        </select>
+                        <Button onClick={enviarTemplateAbertura} disabled={enviandoTpl || !tplSel}>
+                          {enviandoTpl ? (<><Spinner className="text-white" /> Enviando…</>) : "Enviar template"}
+                        </Button>
+                        {templates.length === 0 && (
+                          <span className="text-xs text-amber-700 dark:text-amber-300">Nenhum template cadastrado — crie um em Templates.</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-end gap-2">
-                  <input
-                    value={texto}
-                    onChange={(e) => setTexto(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }}
-                    placeholder="Escreva uma resposta…"
-                    className={cn(fieldClass, "flex-1")}
-                  />
-                  <Button onClick={enviar} disabled={enviando || !texto.trim()}>
-                    {enviando ? (<><Spinner className="text-white" /> Enviando…</>) : "Enviar"}
-                  </Button>
+              ) : (
+                <div className="border-t border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+                  {/* Respostas rápidas */}
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {snippets.map((s, i) => (
+                      <button key={i} onClick={() => setTexto((t) => (t ? t + " " : "") + s)} title={s}
+                        className="max-w-[180px] truncate rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-brand/30 hover:bg-brand/5 dark:border-slate-700 dark:text-slate-300 dark:hover:border-brand-400/30 dark:hover:bg-brand-400/10">
+                        {s}
+                      </button>
+                    ))}
+                    <button onClick={addSnippet} title="Adicionar resposta rápida" className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs text-slate-400 transition hover:text-slate-600 dark:border-slate-600 dark:hover:text-slate-300">+ atalho</button>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <input
+                      value={texto}
+                      onChange={(e) => setTexto(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }}
+                      placeholder="Escreva uma resposta…"
+                      className={cn(fieldClass, "flex-1")}
+                    />
+                    <Button onClick={enviar} disabled={enviando || !texto.trim()}>
+                      {enviando ? (<><Spinner className="text-white" /> Enviando…</>) : "Enviar"}
+                    </Button>
+                  </div>
+                  <p className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                    <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    Janela aberta{janela?.expiraEm ? ` · fecha ${fmtData(janela.expiraEm)}` : ""} — você pode escrever livremente. Responder marca a conversa como resolvida.
+                  </p>
                 </div>
-                <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-                  <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                  A resposta só é entregue na janela de 24h após a última mensagem do lead. Responder marca a conversa como resolvida.
-                </p>
-              </div>
+              )}
             </>
           )}
         </section>

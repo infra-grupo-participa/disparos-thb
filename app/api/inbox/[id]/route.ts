@@ -60,7 +60,23 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     data: m.date ?? null,
   }));
 
-  return NextResponse.json({ ok: true, contato: c, mensagens });
+  // Janela de atendimento (Meta): texto livre só vale até 24h após a ÚLTIMA
+  // mensagem que o LEAD enviou. Fora disso, só um template de abertura reabre a
+  // conversa. O front usa isto para guiar o SDR (input livre × enviar template).
+  const JANELA_MS = 24 * 60 * 60 * 1000;
+  const ultimaEntradaMs = messages.reduce((max, m) => {
+    if (m.senderBy !== "contact" || !m.date) return max;
+    const t = new Date(m.date).getTime();
+    return Number.isFinite(t) && t > max ? t : max;
+  }, 0);
+  const janelaAberta = ultimaEntradaMs > 0 && Date.now() - ultimaEntradaMs < JANELA_MS;
+  const janela = {
+    aberta: janelaAberta,
+    ultimaEntrada: ultimaEntradaMs > 0 ? new Date(ultimaEntradaMs).toISOString() : null,
+    expiraEm: ultimaEntradaMs > 0 ? new Date(ultimaEntradaMs + JANELA_MS).toISOString() : null,
+  };
+
+  return NextResponse.json({ ok: true, contato: c, mensagens, janela });
 }
 
 // POST — envia uma mensagem de texto livre ao contato (dentro da janela de 24h).
