@@ -13,7 +13,7 @@ const MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30; // 30 dias
 //                 (SEM/CNHF). A regra vive em lib/papeis (compartilhada com a UI).
 export type { Papel };
 export { podeDisparar };
-export type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean };
+export type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean; telefone: string | null };
 
 function secret(): string {
   return process.env.SESSION_SECRET || "dev-insecure-secret-troque-isto";
@@ -62,7 +62,7 @@ export async function getSessao(): Promise<Usuario | null> {
   const userId = verifyToken(cookies().get(SESSION_COOKIE)?.value);
   if (!userId) return null;
   const u = await queryOne<Usuario>(
-    `select id, nome, email, papel, ativo from cs.usuarios where id = $1 and ativo = true`,
+    `select id, nome, email, papel, ativo, telefone from cs.usuarios where id = $1 and ativo = true`,
     [userId],
   );
   return u ?? null;

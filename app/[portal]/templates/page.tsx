@@ -92,12 +92,43 @@ export default function TemplatesPage() {
   const [tagsErro, setTagsErro] = useState<string | null>(null);
   const [tagManual, setTagManual] = useState(false);
 
+  // "Enviar teste para o meu WhatsApp": o SDR vê a mensagem chegar antes de disparar.
+  const [meTelefone, setMeTelefone] = useState<string | null>(null);
+  const [testeAlvo, setTesteAlvo] = useState<Template | null>(null);
+  const [telTeste, setTelTeste] = useState("");
+  const [enviandoTeste, setEnviandoTeste] = useState(false);
+
   async function carregar() {
     const r = await fetch(`/api/templates?evento=${evento}`);
     const d = await r.json();
     if (d.ok) setTemplates(d.templates);
   }
   useEffect(() => { carregar(); }, [evento]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Número do operador (para pré-preencher o teste). Salvo no 1º teste.
+  useEffect(() => {
+    fetch("/api/me").then((r) => r.json()).then((d) => { if (d.ok) setMeTelefone(d.usuario.telefone || null); }).catch(() => {});
+  }, []);
+
+  function abrirTeste(t: Template) { setTesteAlvo(t); setTelTeste(meTelefone || ""); }
+  async function enviarTeste() {
+    if (!testeAlvo) return;
+    setEnviandoTeste(true);
+    try {
+      const r = await fetch(`/api/templates/teste?evento=${evento}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId: testeAlvo.id, telefone: telTeste.trim() || undefined }),
+      });
+      const d = await r.json();
+      if (d.ok) { setMeTelefone(d.telefone); setTesteAlvo(null); alert("Teste enviado! Confira seu WhatsApp em instantes."); }
+      else alert(d.motivo || d.reason || "Não foi possível enviar o teste.");
+    } catch {
+      alert("Falha ao enviar o teste. Tente de novo.");
+    } finally {
+      setEnviandoTeste(false);
+    }
+  }
 
   // Carrega as tags do AC só quando forem necessárias — ou seja, no modo legado.
   // Escrever o e-mail aqui não depende de tag nenhuma.
@@ -274,21 +305,34 @@ export default function TemplatesPage() {
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => alternarAtivo(t)}
-                    disabled={alternando === t.id}
-                    title={t.ativo ? "Clique para desativar" : "Clique para ativar"}
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition disabled:opacity-60",
-                      t.ativo
-                        ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:hover:bg-emerald-500/25"
-                        : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700",
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => alternarAtivo(t)}
+                      disabled={alternando === t.id}
+                      title={t.ativo ? "Clique para desativar" : "Clique para ativar"}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition disabled:opacity-60",
+                        t.ativo
+                          ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:hover:bg-emerald-500/25"
+                          : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700",
+                      )}
+                    >
+                      <span className={cn("h-1.5 w-1.5 rounded-full", t.ativo ? "bg-emerald-600 dark:bg-emerald-400" : "bg-slate-400 dark:bg-slate-500")} />
+                      {t.ativo ? "ativo" : "inativo"}
+                    </button>
+                    {t.canal === "whatsapp" && (
+                      <button
+                        type="button"
+                        onClick={() => abrirTeste(t)}
+                        title="Enviar este template para o seu próprio WhatsApp"
+                        className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-brand ring-1 ring-inset ring-brand/30 transition hover:bg-brand/10 dark:text-brand-300 dark:ring-brand-400/30"
+                      >
+                        <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z M22 2 11 13" /></svg>
+                        Testar
+                      </button>
                     )}
-                  >
-                    <span className={cn("h-1.5 w-1.5 rounded-full", t.ativo ? "bg-emerald-600 dark:bg-emerald-400" : "bg-slate-400 dark:bg-slate-500")} />
-                    {t.ativo ? "ativo" : "inativo"}
-                  </button>
+                  </div>
                 </div>
               </Card>
             ))
@@ -557,6 +601,40 @@ export default function TemplatesPage() {
           </form>
         </Card>
       </div>
+
+      {/* Modal: enviar teste para o WhatsApp do operador */}
+      {testeAlvo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" onClick={() => setTesteAlvo(null)}>
+          <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-pop dark:border-slate-800 dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Testar no seu WhatsApp</h3>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Enviamos <strong className="text-slate-700 dark:text-slate-200">{testeAlvo.nome}</strong> para o seu número, para você ver como o contato vai receber — antes de disparar para os leads.
+            </p>
+            {testeAlvo.preview && (
+              <div className="mt-3 rounded-lg p-2.5" style={{ backgroundColor: "#ECE5DD" }}>
+                <div className="ml-auto max-w-[90%] whitespace-pre-wrap break-words rounded-lg rounded-tr-sm px-3 py-2 text-sm text-slate-800 shadow-sm" style={{ backgroundColor: "#DCF8C6" }}>
+                  {montarPreview(testeAlvo.preview)}
+                </div>
+              </div>
+            )}
+            <label className="mt-4 block text-sm font-medium text-slate-700 dark:text-slate-200">Seu número de WhatsApp</label>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Com DDD. Guardamos para os próximos testes.</p>
+            <input
+              value={telTeste}
+              onChange={(e) => setTelTeste(e.target.value)}
+              placeholder="21 99999-8888"
+              className={cn(fieldClass, "mt-1.5")}
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setTesteAlvo(null)}>Cancelar</Button>
+              <Button onClick={enviarTeste} disabled={enviandoTeste || !telTeste.trim()}>
+                {enviandoTeste ? "Enviando…" : "Enviar teste"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

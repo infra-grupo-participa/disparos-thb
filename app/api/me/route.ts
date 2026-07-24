@@ -7,5 +7,5 @@ export const runtime = "nodejs";
 export async function GET() {
   const u = await getSessao();
   if (!u) return NextResponse.json({ ok: false }, { status: 401 });
-  return NextResponse.json({ ok: true, usuario: { id: u.id, nome: u.nome, email: u.email, papel: u.papel } });
+  return NextResponse.json({ ok: true, usuario: { id: u.id, nome: u.nome, email: u.email, papel: u.papel, telefone: u.telefone } });
 }
