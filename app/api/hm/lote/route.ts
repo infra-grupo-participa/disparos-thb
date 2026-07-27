@@ -3,7 +3,8 @@ import { guard } from "@/lib/guard";
 import { query } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { parseBody, HmLoteSchema } from "@/lib/validators";
-import { addTagHm, moverEstagioHm, removeTagHm, atribuirResponsavelHm, podeVerCardHm, type DestinoAtribuicao } from "@/lib/services/hm";
+import { addTagHm, moverEstagioHm, removeTagHm, atribuirResponsavelHm, podeVerCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
+import { ehMaster } from "@/lib/papeis";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,9 @@ export async function POST(req: Request) {
   const p = await parseBody(req, HmLoteSchema);
   if (!p.ok) return p.res;
   const b = p.data;
+  // Trava dos cancelados: destino Reclamada/Reembolsado ou card já lá = só MASTER.
+  const souMaster = ehMaster(sessao);
+  const destinoCancel = !!b.estagio_chave && HM_ESTAGIOS_CANCELAMENTO.includes(b.estagio_chave);
 
   // Nome de cada um antes de começar: a falha é reportada pela pessoa
   // ("Fulano — falta a pesquisa"), não por um uuid que ninguém reconhece.
@@ -72,6 +76,11 @@ export async function POST(req: Request) {
     // própria equipe / GP). Cards de outra equipe são pulados (não bloqueia o lote).
     if (!(await podeVerCardHm(sessao, compradorId))) {
       falhas.push({ compradorId, nome, motivo: "sem acesso a este card" });
+      continue;
+    }
+    // Trava dos cancelados: card em Reclamada/Reembolsado (ou indo p/ lá) só master.
+    if (!souMaster && (destinoCancel || (await cancelamentoBloqueado(sessao, compradorId)))) {
+      falhas.push({ compradorId, nome, motivo: "cancelado — só admin do GP altera" });
       continue;
     }
     try {

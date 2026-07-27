@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
-import { escopoVisibilidade, nivelDe, paramsEscopo } from "@/lib/papeis";
+import { ehMaster, escopoVisibilidade, nivelDe, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
-import { moverEstagioHm, podeVerCardHm } from "@/lib/services/hm";
+import { moverEstagioHm, podeVerCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -175,6 +175,13 @@ export async function PATCH(req: Request) {
   // Sem isso, um líder de equipe comum forçaria o compradorId de um card alheio.
   if (!(await podeVerCardHm(sessao, compradorId))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
+  // Trava dos cancelados (27/07): mexer num card já em Reclamada/Reembolsado, ou
+  // MOVER um card PARA essas colunas, é só do MASTER (admin do GP). Demais: 403.
+  const souMaster = ehMaster(sessao);
+  const destinoCancel = HM_ESTAGIOS_CANCELAMENTO.includes(estagioChave);
+  if (!souMaster && (destinoCancel || (await cancelamentoBloqueado(sessao, compradorId)))) {
+    return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
   const posicao = antesDe === undefined ? undefined : { antesDe };
   const r = await moverEstagioHm(compradorId, estagioChave, sessao.nome || "cs", posicao);

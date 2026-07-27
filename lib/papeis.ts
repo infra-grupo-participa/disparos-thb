@@ -66,6 +66,9 @@ export function ehMaster(u: Ator | null | undefined): boolean {
 // Vê TODOS os cards de todas as equipes = SÓ o master (admin do GP). Um membro
 // comum do GP NÃO vê tudo (era o Furo 1: a equipe sozinha liberava a visão
 // global), e um admin de equipe comum também não — cada equipe tem os seus.
+// Merge 27/07: o db4dd24 (origin/main) tentava o mesmo conserto com
+// `podeVerTudo = papel === 'admin'` — descartado de propósito: reabria o admin
+// de equipe COMUM ver tudo. Aqui admin comum = gestor (só a própria equipe).
 export function podeVerTudo(u: Ator | null | undefined): boolean {
   return ehMaster(u);
 }

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { ehMaster } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, type DestinoAtribuicao } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -50,6 +51,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     [compradorId],
   );
   if (!atual) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
+
+  // Trava dos cancelados (27/07): card em Reclamada/Reembolsado é IMUTÁVEL para
+  // quem não é MASTER (admin do GP) — e mandar um card PARA essas colunas também
+  // é só do master. As demais equipes veem, mas não alteram nem confirmam/desfazem.
+  const souMaster = ehMaster(sessao);
+  if (!souMaster) {
+    const jaCancelado = atual.estagio_chave !== null && HM_ESTAGIOS_CANCELAMENTO.includes(atual.estagio_chave);
+    const vaiCancelar = !!b.confirmar_cancelamento || !!b.desfazer_cancelamento
+      || (!!b.estagio_chave && HM_ESTAGIOS_CANCELAMENTO.includes(b.estagio_chave));
+    if (jaCancelado || vaiCancelar) {
+      return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
+    }
+  }
 
   // Desfazer o último movimento (miss click) — ação isolada, ignora os demais campos.
   if (b.reverter) {

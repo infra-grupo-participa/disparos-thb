@@ -74,6 +74,8 @@ export function msgErroPermissao(reason?: string | null): string | null {
       return "Você só pode atribuir para alguém da sua equipe.";
     case "atribuicao_travada":
       return "A atribuição deste card foi travada pelo administrador — só o Grupo Participa pode alterá-la.";
+    case "cancelamento_so_admin_gp":
+      return "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.";
     case "unauthorized":
       return "Sua sessão expirou — entre de novo.";
     default:

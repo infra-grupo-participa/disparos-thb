@@ -1,6 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
-import { escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
+import { ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
 
 const log = logger("hm");
 
@@ -663,6 +663,25 @@ export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): 
   const ehPool = k.responsavel_id === null && k.equipe_id === null;
   if (ehPool) return true;
   return escopo.modo === "equipe" ? k.equipe_id === escopo.equipeId : k.responsavel_id === escopo.usuarioId;
+}
+
+// Colunas de cancelamento — Reclamada (pedido) e Reembolsado (fato).
+export const HM_ESTAGIOS_CANCELAMENTO = [HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO];
+
+// Trava dos cancelados (decisão do Marcio 27/07): um card em Reembolsado/Reclamada
+// é IMUTÁVEL para quem não é MASTER (admin do Grupo Participa) — só o master
+// mexe (mover de/para, editar, atribuir, confirmar/desfazer). Retorna true se a
+// ação deve ser BLOQUEADA para esta sessão. As demais equipes veem, mas não alteram.
+// (Merge 27/07: portado do origin/main adaptando podeGerirAcesso(papel, tipo) —
+// API antiga de 2 args — para ehMaster(sessao), mesma semântica no modelo novo.)
+export async function cancelamentoBloqueado(sessao: SessaoEquipe, compradorId: string): Promise<boolean> {
+  if (ehMaster(sessao)) return false; // só o master libera
+  const r = await queryOne<{ chave: string | null }>(
+    `select est.chave from cs.contatos_hm ch left join cs.estagios est on est.id = ch.estagio_id
+      where ch.comprador_id = $1`,
+    [compradorId],
+  );
+  return !!r?.chave && HM_ESTAGIOS_CANCELAMENTO.includes(r.chave);
 }
 
 // Leva os sócios convidados para a base mestre — mesma turma e mesma validade do
