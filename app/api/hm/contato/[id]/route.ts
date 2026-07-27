@@ -42,8 +42,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }
 
-  const atual = await queryOne<{ id: string; estagio_chave: string | null; reuniao_em: string | null; responsavel_id: string | null }>(
-    `select ch.id, est.chave as estagio_chave, ch.reuniao_em, ch.responsavel_id
+  const atual = await queryOne<{ id: string; estagio_chave: string | null; reuniao_em: string | null; responsavel_id: string | null; atribuicao_admin: boolean }>(
+    `select ch.id, est.chave as estagio_chave, ch.reuniao_em, ch.responsavel_id, ch.atribuicao_admin
        from cs.contatos_hm ch left join cs.estagios est on est.id = ch.estagio_id
       where ch.comprador_id = $1`,
     [compradorId],
@@ -151,16 +151,20 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     await query(`update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now() where id = $1`, vals);
   }
 
-  // Responsável por ID (caminho das equipes: "Assumir para mim" / devolver ao
-  // pool / reatribuir). Regra: assumir card do POOL é livre; reatribuir ou
-  // devolver um card que JÁ tem dono só GP/admin (roubar card alheio é gerência).
+  // Responsável por ID (equipes: "Assumir para mim" / devolver ao pool / reatribuir).
+  // Regras (0142):
+  //  - admin/GP faz tudo, e a atribuição que ele faz TRAVA o card (porAdmin=true).
+  //  - operador comum só assume card do POOL (sem dono). Card com dono OU travado
+  //    pelo admin é imutável para ele — nem o próprio, nem o de outro (403).
   if (b.responsavel_id !== undefined) {
-    const cardTemDono = atual.responsavel_id !== null;
-    const virandoMeu = b.responsavel_id === sessao.id;
-    if (cardTemDono && !virandoMeu && !podeVerTudo(sessao.papel, sessao.equipe_tipo)) {
-      return NextResponse.json({ ok: false, reason: "reatribuicao_restrita" }, { status: 403 });
+    const souAdmin = podeVerTudo(sessao.papel, sessao.equipe_tipo);
+    if (!souAdmin) {
+      const cardTemDono = atual.responsavel_id !== null;
+      if (cardTemDono || atual.atribuicao_admin) {
+        return NextResponse.json({ ok: false, reason: "atribuicao_travada" }, { status: 403 });
+      }
     }
-    await setResponsavelHmPorId(compradorId, b.responsavel_id, operador);
+    await setResponsavelHmPorId(compradorId, b.responsavel_id, operador, souAdmin);
   }
   // Responsável por NOME — caminho legado do seletor. Mantido por compat; o texto
   // é reconciliado com um usuário quando o nome casa (senão fica só texto = pool).

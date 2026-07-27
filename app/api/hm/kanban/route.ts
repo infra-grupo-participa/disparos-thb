@@ -27,13 +27,13 @@ export async function GET(req: Request) {
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E.
   const lista = (nome: string) => { const v = sp.getAll(nome); return v.length ? v : null; };
-  // Escopo de equipe (Fase 1): GP/admin veem tudo; equipe comum vê o pool (card
-  // sem dono e sem equipe roteada) + os cards da própria equipe. O recorte é de
-  // SEGURANÇA — o filtro por responsável (abaixo) é só conveniência.
+  // Escopo de visibilidade: GP/admin veem tudo; operador comum vê SÓ os cards
+  // atribuídos a ele + o pool (sem dono, para poder assumir). Recorte de SEGURANÇA
+  // — o filtro por responsável (abaixo) é só conveniência.
   const escopo = escopoVisibilidade(sessao);
   const verTudo = escopo.modo === "tudo";
-  const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
-  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, equipeId];
+  const usuarioId = escopo.modo === "operador" ? escopo.usuarioId : null;
+  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId];
 
   const colunas = await query(
     `select e.chave, e.nome, e.cor, e.aba
@@ -46,6 +46,7 @@ export async function GET(req: Request) {
     `select k.comprador_id, k.nome, k.email, k.telefone, k.turma, k.plano, k.categoria_entrada,
             k.estagio_chave, k.estagio_nome, k.estagio_aba, k.responsavel, k.tags, k.apto_ativacao,
             k.responsavel_id, k.equipe_id, k.equipe_nome, k.equipe_cor, k.equipe_tipo,
+            ch2.atribuicao_admin, ch2.inbox_status,
             k.reuniao_em, k.entrevista_em, k.pagamento_em, k.pagamento_previsto_em,
             -- Saldo quitado: não deve mais nada. Colore o card de verde sutil (0099).
             (coalesce(fin.quitado, false) or coalesce(fin.saldo_a_perseguir, 1) <= 0) as quitado,
@@ -60,6 +61,7 @@ export async function GET(req: Request) {
             um.descricao as ultima_msg,
             me.criado_em as entrou_estagio_em
        from cs.contatos_hm_kanban k
+       join cs.contatos_hm ch2 on ch2.comprador_id = k.comprador_id
        left join cs.vw_hm_financeiro fin on fin.comprador_id = k.comprador_id
        left join cs.vw_hm_credito_duplo cd on cd.comprador_id = k.comprador_id
        left join lateral (
@@ -75,11 +77,11 @@ export async function GET(req: Request) {
       where ($1::text[] is null or k.responsavel = any($1))
         and ($2::text[] is null or k.tags && $2)
         and ($3::text[] is null or k.tags && $3)
-        -- Escopo de equipe: vejo tudo (GP/admin) OU é pool (sem dono e sem
-        -- equipe roteada) OU o card é da minha equipe.
+        -- Escopo por operador: vejo tudo (GP/admin) OU é pool (sem dono e sem
+        -- equipe roteada) OU o card é MEU (responsavel_id = eu).
         and ($4::boolean
              or (k.responsavel_id is null and k.equipe_id is null)
-             or k.equipe_id = $5::uuid)
+             or k.responsavel_id = $5::uuid)
       order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
   );
@@ -103,9 +105,9 @@ export async function GET(req: Request) {
               select 1 from cs.contatos_hm_kanban tk
                where tk.comprador_id = s.titular_comprador_id
                  and ((tk.responsavel_id is null and tk.equipe_id is null)
-                      or tk.equipe_id = $2::uuid))
+                      or tk.responsavel_id = $2::uuid))
       order by s.titular_nome, s.nome`,
-    [verTudo, equipeId],
+    [verTudo, usuarioId],
   );
 
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já

@@ -39,6 +39,10 @@ type Card = {
   equipe_nome: string | null;
   equipe_cor: string | null;
   equipe_tipo: "principal" | "comum" | null;
+  // Atribuição travada pelo admin (0142): operador comum não mexe. inbox_status
+  // dá o selo de conversa pendente no card.
+  atribuicao_admin: boolean;
+  inbox_status: string | null;
   tags: string[];
   apto_ativacao: boolean;
   reuniao_em: string | null;
@@ -1346,6 +1350,18 @@ function CardItem({
               title={`Equipe: ${card.equipe_nome}${card.responsavel_id ? "" : " (canal roteado — sem dono ainda)"}`}
             >
               {seloEquipe(card.equipe_nome)}
+            </span>
+          )}
+          {/* Cadeado: atribuição travada pelo admin (0142) — operador comum não mexe. */}
+          {card.atribuicao_admin && (
+            <span title="Atribuição travada pelo admin" className="inline-flex shrink-0 items-center text-amber-500 dark:text-amber-400">
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+            </span>
+          )}
+          {/* Conversa pendente no inbox (Fase 2) — o lead respondeu e espera. */}
+          {card.inbox_status === "pendente" && (
+            <span title="Conversa pendente no inbox" className="inline-flex shrink-0 items-center text-emerald-500 dark:text-emerald-400">
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.02 2 11c0 2.6 1.23 4.94 3.2 6.55L4 22l4.9-1.66c.98.27 2.02.41 3.1.41 5.52 0 10-4.02 10-9S17.52 2 12 2Z" /></svg>
             </span>
           )}
         </div>

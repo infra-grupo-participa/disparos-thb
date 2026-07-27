@@ -14,10 +14,10 @@ export type FiltrosHm = {
   turma?: string[] | null;
   /** Só uma coluna (chave do estágio) — o relatório de uma etapa específica. */
   estagio?: string | null;
-  /** Escopo de equipe (Fase 1): true = vê tudo (GP/admin). */
+  /** Escopo: true = vê tudo (GP/admin). */
   verTudo?: boolean;
-  /** Equipe do usuário comum — vê o pool + os cards da própria equipe. */
-  equipeId?: string | null;
+  /** Usuário comum — vê o pool + os cards atribuídos a ele (responsavel_id). */
+  usuarioId?: string | null;
 };
 
 // Datas: o driver pg entrega Date no servidor (o XLSX as recebe assim), mas a
@@ -195,7 +195,7 @@ function colunaDoSocio(status: SocioEsteira["status"]): string {
 export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
   const lista = (v?: string[] | null) => (v && v.length ? v : null);
   const p = [lista(f.responsavel), lista(f.canal), lista(f.turma), f.estagio || null,
-             f.verTudo ?? false, f.equipeId ?? null];
+             f.verTudo ?? false, f.usuarioId ?? null];
 
   const colunas = await query<ColunaHm>(
     `select e.chave, e.nome, e.cor, e.aba, e.ordem
@@ -262,11 +262,11 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
         and ($2::text[] is null or k.tags && $2)
         and ($3::text[] is null or k.tags && $3)
         and ($4::text is null or k.estagio_chave = $4)
-        -- Escopo de equipe (igual à rota do kanban): vejo tudo OU é pool
-        -- (sem dono e sem equipe roteada) OU o card é da minha equipe.
+        -- Escopo por operador (igual à rota do kanban): vejo tudo OU é pool
+        -- (sem dono e sem equipe roteada) OU o card é MEU (responsavel_id = eu).
         and ($5::boolean
              or (k.responsavel_id is null and k.equipe_id is null)
-             or k.equipe_id = $6::uuid)
+             or k.responsavel_id = $6::uuid)
       order by est.ordem, ch.ordem, k.nome`,
     p,
   );

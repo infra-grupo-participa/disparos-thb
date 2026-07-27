@@ -37,12 +37,12 @@ export async function GET(req: Request) {
   let contatos: Elegivel[];
   if (evento === "HM") {
     // Ramo HM: destinatários do overlay (cs.contatos_hm_kanban, análogo ao /api/send),
-    // respeitando nao_contatar + opt_out. O RECORTE DE EQUIPE é de segurança: um
-    // operador comum só recebe sugestões de cards que ele vê (pool + própria equipe);
+    // respeitando nao_contatar + opt_out. O RECORTE é de segurança: um operador
+    // comum só recebe sugestões de cards que ele vê (pool + os atribuídos a ele);
     // GP/admin veem tudo. Predicado idêntico ao do board/tabela.
     const escopo = escopoVisibilidade(sessao);
     const verTudo = escopo.modo === "tudo";
-    const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
+    const usuarioId = escopo.modo === "operador" ? escopo.usuarioId : null;
     contatos = await query<Elegivel>(
       `with ult as (
          select dc.comprador_id, max(dc.enviado_em) as ultimo
@@ -61,11 +61,11 @@ export async function GET(req: Request) {
           and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
           and ($3::boolean
                or (v.responsavel_id is null and v.equipe_id is null)
-               or v.equipe_id = $4::uuid)
+               or v.responsavel_id = $4::uuid)
           and (${filtroModo})
         order by (u.ultimo is null) desc, u.ultimo asc nulls first, v.nome
         limit $1`,
-      [limite, dias, verTudo, equipeId],
+      [limite, dias, verTudo, usuarioId],
     );
   } else {
     contatos = await query<Elegivel>(

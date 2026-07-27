@@ -19,8 +19,8 @@ export async function GET(req: Request) {
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const sp = new URL(req.url).searchParams;
 
-  // Mesmo escopo de equipe do board (Fase 1): GP/admin veem tudo; comum vê o
-  // pool + os próprios. Segue idêntico à rota do kanban por construção.
+  // Mesmo escopo do board: GP/admin veem tudo; operador comum vê o pool + os
+  // cards atribuídos a ele. Idêntico à rota do kanban por construção.
   const escopo = escopoVisibilidade(sessao);
 
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
     canal: sp.getAll("canal"),
     turma: sp.getAll("turma"),
     verTudo: escopo.modo === "tudo",
-    equipeId: escopo.modo === "equipe" ? escopo.equipeId : null,
+    usuarioId: escopo.modo === "operador" ? escopo.usuarioId : null,
   });
 
   // As listas dos filtros saem da base inteira (não da fatia filtrada): um

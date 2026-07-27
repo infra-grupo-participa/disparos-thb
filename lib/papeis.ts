@@ -32,17 +32,21 @@ export function podeVerTudo(papel: Papel | null | undefined, tipoEquipe?: TipoEq
   return papel === "admin" || ehEquipePrincipal(tipoEquipe);
 }
 
-// Escopo de visibilidade para o WHERE das queries do board/tabela do HM:
-//   tudo   → GP/admin (sem recorte)
-//   equipe → comum: pool (sem dono e sem equipe) + cards da própria equipe
+// Escopo de visibilidade para o WHERE das queries do board/tabela/inbox do HM.
+//   tudo     → GP/admin (sem recorte): vê tudo.
+//   operador → comum: vê SÓ os cards atribuídos a ELE (responsavel_id = usuarioId)
+//              + o POOL (sem dono, para poder assumir). NÃO vê os cards dos colegas
+//              da mesma equipe — a decisão do Marcio (27/07) apertou de "equipe"
+//              para "por operador": cada um enxerga só o que é dele + o que está livre.
 export type EscopoVisibilidade =
   | { modo: "tudo" }
-  | { modo: "equipe"; equipeId: string | null };
+  | { modo: "operador"; usuarioId: string };
 
 export function escopoVisibilidade(u: {
+  id: string;
   papel: Papel | null | undefined;
   equipe_id: string | null;
   equipe_tipo: TipoEquipe | null;
 }): EscopoVisibilidade {
-  return podeVerTudo(u.papel, u.equipe_tipo) ? { modo: "tudo" } : { modo: "equipe", equipeId: u.equipe_id };
+  return podeVerTudo(u.papel, u.equipe_tipo) ? { modo: "tudo" } : { modo: "operador", usuarioId: u.id };
 }
