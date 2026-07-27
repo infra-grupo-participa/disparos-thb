@@ -6,6 +6,7 @@ import { PageFade } from "@/app/_components/anim";
 import { MarcaPortal } from "@/app/_components/marca";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { useMe } from "@/app/_components/use-me";
+import { Avatar } from "@/app/_components/avatar";
 
 // Config de equipes do HM (0140) — só para quem vê tudo (GP/admin). Aqui o ADM
 // geral define quem é de qual equipe, o cargo (operador normal x de disparos), a
@@ -21,6 +22,7 @@ const LABEL_PAPEL: Record<Papel, string> = {
   disparador: "Operador de disparos",
   operador: "Operador",
 };
+
 
 export default function HmEquipesPage() {
   const { me, podeVerTudo } = useMe();
@@ -110,29 +112,47 @@ export default function HmEquipesPage() {
           <Card className="p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Equipes e membros</h2>
             <div className="space-y-4">
-              {equipes.map((eq) => (
-                <div key={eq.id} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
+              {equipes.map((eq) => {
+                const membrosEq = usuarios.filter((u) => u.equipe_id === eq.id);
+                return (
+                <div key={eq.id} className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+                  {/* Cabeçalho da equipe: faixa na cor da equipe + nome + contagem */}
+                  <div className="flex items-center gap-2 border-l-4 bg-slate-50 px-3 py-2 dark:bg-slate-800/40" style={{ borderLeftColor: eq.cor }}>
                     <input
                       type="color"
                       value={eq.cor}
                       onChange={(e) => patchEquipe(eq.id, { cor: e.target.value })}
-                      title="Cor da equipe (borda/selo do card)"
-                      className="h-6 w-6 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600"
+                      title="Cor da equipe (borda/selo do card no board)"
+                      className="h-5 w-5 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600"
                     />
-                    <span className="font-medium text-slate-800 dark:text-slate-100">{eq.nome}</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-100">{eq.nome}</span>
                     {eq.tipo === "principal" && (
                       <span className="rounded bg-indigo-100 px-1.5 py-px text-[10px] font-semibold uppercase text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" title="Vê todos os cards de todas as equipes">
                         principal · vê tudo
                       </span>
                     )}
-                    <span className="ml-auto text-xs text-slate-400">{eq.membros} membro(s)</span>
+                    <span className="ml-auto rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-500 shadow-sm dark:bg-slate-900 dark:text-slate-400">
+                      {membrosEq.length} {membrosEq.length === 1 ? "pessoa" : "pessoas"}
+                    </span>
                   </div>
                   {/* Membros desta equipe */}
-                  <div className="mt-2 space-y-1">
-                    {usuarios.filter((u) => u.equipe_id === eq.id).map((u) => (
-                      <div key={u.id} className="flex items-center gap-2 text-sm">
-                        <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">{u.nome}</span>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                    {membrosEq.map((u) => (
+                      <div key={u.id} className="flex items-center gap-2.5 px-3 py-2">
+                        <Avatar nome={u.nome} className="h-8 w-8 shrink-0 text-xs" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{u.nome}</span>
+                            {eq.tipo === "comum" && u.lider_equipe && (
+                              <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-px text-[9px] font-bold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" title="Líder desta equipe">
+                                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
+                                líder
+                              </span>
+                            )}
+                          </div>
+                          <span className="truncate text-xs text-slate-400">{u.email}</span>
+                        </div>
+                        {/* Cargo */}
                         <select
                           value={u.papel}
                           onChange={(e) => membro(eq.id, u.id, "vincular", e.target.value as Papel)}
@@ -143,44 +163,55 @@ export default function HmEquipesPage() {
                           <option value="disparador">Operador de disparos</option>
                           <option value="admin">Administrador</option>
                         </select>
-                        {/* Líder da equipe (só faz sentido em equipe comum): distribui
-                            cards entre os operadores desta equipe. */}
+                        {/* Líder: botão-estrela claro (só em equipe comum) */}
                         {eq.tipo === "comum" && (
-                          <label className="flex shrink-0 items-center gap-1 text-xs text-slate-500 dark:text-slate-400" title="Líder desta equipe: distribui cards entre os operadores dela">
-                            <input
-                              type="checkbox"
-                              checked={u.lider_equipe}
-                              onChange={(e) => membro(eq.id, u.id, "vincular", undefined, e.target.checked)}
-                              className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand/30 dark:border-slate-600 dark:bg-slate-800"
-                            />
-                            líder
-                          </label>
+                          <button
+                            type="button"
+                            onClick={() => membro(eq.id, u.id, "vincular", undefined, !u.lider_equipe)}
+                            title={u.lider_equipe ? "Tirar como líder da equipe" : "Tornar líder desta equipe (distribui cards entre os operadores dela)"}
+                            className={cn("shrink-0 rounded-md p-1 transition",
+                              u.lider_equipe
+                                ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10"
+                                : "text-slate-300 hover:bg-slate-100 hover:text-amber-400 dark:text-slate-600 dark:hover:bg-slate-800")}
+                          >
+                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill={u.lider_equipe ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
+                          </button>
                         )}
-                        <button onClick={() => membro(eq.id, u.id, "remover")} className="text-xs text-slate-400 hover:text-rose-500" title="Tirar da equipe">remover</button>
+                        <button onClick={() => membro(eq.id, u.id, "remover")} className="shrink-0 rounded-md p-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-600 dark:hover:bg-rose-500/10" title="Tirar da equipe">
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                        </button>
                       </div>
                     ))}
-                    {usuarios.filter((u) => u.equipe_id === eq.id).length === 0 && (
-                      <p className="text-xs text-slate-400">Sem membros ainda.</p>
+                    {membrosEq.length === 0 && (
+                      <p className="px-3 py-3 text-xs text-slate-400">Sem ninguém nesta equipe ainda — adicione alguém da lista &ldquo;Sem equipe&rdquo; abaixo.</p>
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
-            {/* Sem equipe → atribuir */}
+            {/* Sem equipe → atribuir (destaque para o admin distribuir) */}
             {usuarios.some((u) => u.ativo && !u.equipe_id) && (
-              <div className="mt-4 rounded-lg border border-dashed border-slate-300 p-3 dark:border-slate-700">
-                <p className="mb-2 text-xs font-medium text-slate-500">Sem equipe</p>
+              <div className="mt-4 rounded-xl border border-dashed border-amber-300 bg-amber-50/40 p-3 dark:border-amber-500/30 dark:bg-amber-500/5">
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>
+                  {usuarios.filter((u) => u.ativo && !u.equipe_id).length} sem equipe — atribua a alguma
+                </p>
                 <div className="space-y-1">
                   {usuarios.filter((u) => u.ativo && !u.equipe_id).map((u) => (
-                    <div key={u.id} className="flex items-center gap-2 text-sm">
-                      <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">{u.nome} <span className="text-xs text-slate-400">· {LABEL_PAPEL[u.papel]}</span></span>
+                    <div key={u.id} className="flex items-center gap-2.5 rounded-lg bg-white px-2.5 py-1.5 dark:bg-slate-900">
+                      <Avatar nome={u.nome} className="h-7 w-7 shrink-0 text-[10px]" />
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-sm text-slate-700 dark:text-slate-200">{u.nome}</span>
+                        <span className="block truncate text-xs text-slate-400">{LABEL_PAPEL[u.papel]}</span>
+                      </div>
                       <select
                         defaultValue=""
                         onChange={(e) => { if (e.target.value) membro(e.target.value, u.id, "vincular"); }}
                         className={cn(fieldClass, "h-7 w-auto py-0 text-xs")}
                       >
-                        <option value="">Adicionar à equipe…</option>
+                        <option value="">Adicionar à…</option>
                         {equipes.map((eq) => <option key={eq.id} value={eq.id}>{eq.nome}</option>)}
                       </select>
                     </div>
@@ -191,7 +222,7 @@ export default function HmEquipesPage() {
 
             {/* Criar equipe comum */}
             <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
-              <input type="color" value={novaCor} onChange={(e) => setNovaCor(e.target.value)} className="h-8 w-8 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600" />
+              <input type="color" value={novaCor} onChange={(e) => setNovaCor(e.target.value)} className="h-8 w-8 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600" title="Cor da nova equipe" />
               <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Nome da nova equipe" className={cn(fieldClass, "flex-1")} />
               <Button onClick={criarEquipe} disabled={novoNome.trim().length < 2}>Criar equipe</Button>
             </div>
