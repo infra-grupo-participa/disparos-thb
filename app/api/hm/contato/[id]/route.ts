@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
-import { podeVerTudo } from "@/lib/papeis";
+import { podeVerTudo, podeGerirAcesso } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, setResponsavelHmPorId, podeVerCardHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, setResponsavelHmPorId, podeVerCardHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -49,6 +49,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     [compradorId],
   );
   if (!atual) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
+
+  // Trava dos cancelados (27/07): card em Reclamada/Reembolsado é IMUTÁVEL para
+  // quem não é admin do GP — e mandar um card PARA essas colunas também é só do GP.
+  // As demais equipes veem, mas não alteram nem confirmam/desfazem cancelamento.
+  const souGP = podeGerirAcesso(sessao.papel, sessao.equipe_tipo);
+  if (!souGP) {
+    const jaCancelado = atual.estagio_chave !== null && HM_ESTAGIOS_CANCELAMENTO.includes(atual.estagio_chave);
+    const vaiCancelar = !!b.confirmar_cancelamento || !!b.desfazer_cancelamento
+      || (!!b.estagio_chave && HM_ESTAGIOS_CANCELAMENTO.includes(b.estagio_chave));
+    if (jaCancelado || vaiCancelar) {
+      return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
+    }
+  }
 
   // Desfazer o último movimento (miss click) — ação isolada, ignora os demais campos.
   if (b.reverter) {

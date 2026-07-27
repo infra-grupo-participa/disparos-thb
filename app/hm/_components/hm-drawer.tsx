@@ -170,7 +170,7 @@ export function HmDrawer({
   compradorId: string; estagios: Estagio[]; responsaveis: string[];
   onClose: () => void; onChanged: () => void;
 }) {
-  const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir } = useMe();
+  const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, podeGerirAcesso } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   const [c, setC] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
@@ -341,6 +341,9 @@ export function HmDrawer({
   // confirmação — senão o formulário de pagamento nunca mais reapareceria.
   const jaPagou = !!c?.apto_ativacao;
   const temHistorico = timeline.some((it) => it.tipo === "mudanca_estagio");
+  // Trava dos cancelados (27/07): card em Reclamada/Reembolsado é read-only para
+  // quem não é admin do GP. O backend barra; aqui a UI avisa e desabilita.
+  const travadoCancelado = (c?.estagio_chave === "hm_cancelamento" || c?.estagio_chave === "hm_reembolsado") && !podeGerirAcesso();
   const feitos = c ? ITENS_CHECKLIST.filter((i) => !!c[i.campo]).length : 0;
   const revogados = c ? ITENS_REVOGACAO.filter((i) => !!c[i.campo]).length : 0;
 
@@ -475,8 +478,14 @@ export function HmDrawer({
                 </div>
               )}
 
+              {travadoCancelado && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                  <strong>Card em {c.estagio_chave === "hm_reembolsado" ? "Reembolsado" : "Reclamada"}.</strong> Só o administrador do Grupo Participa pode alterar cards cancelados. Você pode visualizar, mas não editar.
+                </div>
+              )}
+
               <Campo label="Etapa">
-                <select value={c.estagio_chave ?? ""} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass} disabled={salvando}>
+                <select value={c.estagio_chave ?? ""} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass} disabled={salvando || travadoCancelado}>
                   {estagios.map((s) => <option key={s.chave} value={s.chave}>{s.aba === "ativacao" ? "Ativação · " : "Comercial · "}{s.nome}</option>)}
                 </select>
                 {temHistorico && (
