@@ -119,6 +119,36 @@ function brl(v: number): string {
 function fmt(iso: string | null) {
   return iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
 }
+
+// ===== Timeline do card (auditoria) =========================================
+// Atores automáticos do sistema — não são gente; no rodapé viram "automático"
+// para não parecer que alguém da operação fez a ação.
+const ATORES_SISTEMA = new Set(["sistema", "make", "hotmart", "lead", "cs", "webhook"]);
+function autorLegivel(autor: string | null): string {
+  const a = (autor ?? "").trim();
+  if (!a || ATORES_SISTEMA.has(a.toLowerCase()) || a.toLowerCase().startsWith("migration")) return "automático";
+  return a;
+}
+// Cor da barra/ponto por tipo de interação — leitura rápida do que é cada linha.
+function corTimeline(tipo: string): string {
+  switch (tipo) {
+    case "mudanca_estagio": return "#6366f1"; // indigo — mudou de etapa
+    case "nota": return "#0d9488";             // teal — anotação da operação
+    case "resposta": return "#059669";         // emerald — lead respondeu
+    case "disparo": return "#7c3aed";          // violet — disparo enviado
+    default: return "#94a3b8";                 // slate — sistema/outros
+  }
+}
+function rotuloTipo(tipo: string): string {
+  switch (tipo) {
+    case "mudanca_estagio": return "Mudança de etapa";
+    case "nota": return "Anotação";
+    case "resposta": return "Resposta do lead";
+    case "disparo": return "Disparo enviado";
+    case "sistema": return "Ação do sistema";
+    default: return tipo;
+  }
+}
 function toLocalInput(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -1058,15 +1088,26 @@ export function HmDrawer({
 
               {timeline.length > 0 && (
                 <div>
-                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Últimas interações</p>
-                  <ul className="space-y-1.5">
-                    {timeline.slice(0, 6).map((it, i) => (
-                      <li key={i} className="text-xs text-slate-500 dark:text-slate-400">
-                        <span className="text-slate-700 dark:text-slate-200">{it.descricao || it.tipo}</span>
-                        <span className="tabular-nums"> · {fmt(it.criado_em)}</span>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    Histórico do card <span className="font-normal normal-case text-slate-400">· {timeline.length} registro{timeline.length > 1 ? "s" : ""}</span>
+                  </p>
+                  {/* Cronológico do INÍCIO ao FIM (mais antigo em cima) — a API entrega
+                      desc, então invertemos. Cada entrada mostra o que aconteceu + o
+                      rodapé com QUEM fez e QUANDO: o card vira registro auditável. */}
+                  <ol className="max-h-72 space-y-2.5 overflow-y-auto pr-1">
+                    {[...timeline].reverse().map((it, i) => (
+                      <li key={i} className="relative border-l-2 pl-3" style={{ borderColor: corTimeline(it.tipo) }}>
+                        <span className="absolute -left-[5px] top-1 h-2 w-2 rounded-full" style={{ backgroundColor: corTimeline(it.tipo) }} />
+                        <p className="text-xs leading-snug text-slate-700 dark:text-slate-200">{it.descricao || rotuloTipo(it.tipo)}</p>
+                        {/* Rodapé: autor + data/hora. Autor 'sistema'/atores automáticos
+                            aparecem como "automático" para não confundir com gente. */}
+                        <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                          <span className="font-medium text-slate-500 dark:text-slate-400">{autorLegivel(it.autor)}</span>
+                          <span className="tabular-nums"> · {fmt(it.criado_em)}</span>
+                        </p>
                       </li>
                     ))}
-                  </ul>
+                  </ol>
                 </div>
               )}
 
