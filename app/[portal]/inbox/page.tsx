@@ -155,22 +155,22 @@ export default function InboxPage() {
     setSel(c); setMensagens([]); setAviso(null); setJanela(null); setTplSel(""); setCarregandoMsg(true);
     ultimaMsgRef.current = c.ultima_msg_em; // sincroniza: abrir já traz o thread
     try {
-      const r = await fetch(`${inboxBase}/${c.comprador_id}`);
+      const r = await fetch(`${inboxBase}/${c.comprador_id}?evento=${evento}`);
       const d = await r.json();
       if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); setJanela(d.janela ?? null); }
     } finally { setCarregandoMsg(false); }
-  }, [inboxBase]);
+  }, [inboxBase, evento]);
 
   // Recarrega SÓ as mensagens da conversa aberta, sem limpar a tela nem mostrar
   // spinner — é o refresh silencioso do polling quando o lead responde, para não
   // piscar a conversa a cada ciclo.
   const recarregarThread = useCallback(async (compradorId: string) => {
     try {
-      const r = await fetch(`${inboxBase}/${compradorId}`);
+      const r = await fetch(`${inboxBase}/${compradorId}?evento=${evento}`);
       const d = await r.json();
       if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); setJanela(d.janela ?? null); }
     } catch { /* silencioso: é atualização de fundo */ }
-  }, [inboxBase]);
+  }, [inboxBase, evento]);
 
   // Janela fechada (ou lead nunca respondeu): a única forma de (re)abrir a
   // conversa é um template aprovado. Reusa /api/send (cria contato + envia +
@@ -271,7 +271,7 @@ export default function InboxPage() {
     // Otimista: mostra a mensagem na hora, sem esperar o ida-e-volta à Unnichat.
     setMensagens((m) => [...m, { id: tmpId, de: "cs", tipo: "message", texto: txt, data: new Date().toISOString() }]);
     try {
-      const r = await fetch(`${inboxBase}/${sel.comprador_id}`, {
+      const r = await fetch(`${inboxBase}/${sel.comprador_id}?evento=${evento}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto: txt, atendente: atendente || undefined }),
       });
       const d = await r.json();
@@ -295,7 +295,7 @@ export default function InboxPage() {
   }
 
   async function resolver(c: Conversa, status: "resolvido" | "pendente") {
-    await fetch(`${inboxBase}/${c.comprador_id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    await fetch(`${inboxBase}/${c.comprador_id}?evento=${evento}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
     if (sel?.comprador_id === c.comprador_id) setSel({ ...sel, inbox_status: status });
     await carregarConversas();
     await carregarMetricas();

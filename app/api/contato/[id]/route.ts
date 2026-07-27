@@ -2,14 +2,19 @@ import { NextResponse } from "next/server";
 import { isAuthed, getSessao } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, ContatoPatchSchema } from "@/lib/validators";
+import { eventoDe } from "@/lib/services/evento";
 import { moverEstagio, setTags, setResponsavel, setOptOut } from "@/lib/services/contato";
 
 export const runtime = "nodejs";
 
 // GET: detalhe do contato HT + estado de CS + timeline.
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: { id: string } }) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
   const compradorId = params.id;
+  // Filtra pelo evento do portal atual: uma pessoa pode existir em mais de um
+  // evento (HT+SEM…) na view; sem o filtro, a linha vinha arbitrária e podia
+  // abrir o contato de OUTRO portal (isolamento de portais, 27/07).
+  const evento = eventoDe(req);
 
   const contato = await queryOne(
     `select v.comprador_id, v.nome, v.email, v.telefone, v.edicao, v.ultima_compra_ht,
@@ -22,9 +27,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
             ct.tags, ct.opt_out, ct.opt_out_em
        from cs.contatos_evento v
        left join cs.contatos ct on ct.comprador_id = v.comprador_id
-      where v.comprador_id = $1`,
+      where v.comprador_id = $1 and v.evento = $2`,
 
-    [compradorId],
+    [compradorId, evento],
   );
   if (!contato) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 

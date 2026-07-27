@@ -167,7 +167,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   const [proxNota, setProxNota] = useState("");
 
   const carregar = useCallback(async () => {
-    const r = await fetch(`/api/contato/${id}`);
+    const r = await fetch(`/api/contato/${id}?evento=${evento}`);
     const d = await r.json();
     if (d.ok) {
       setContato(d.contato);
@@ -180,7 +180,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
       setProxNota(d.contato.proxima_acao_nota || "");
       setProxData(d.contato.proxima_acao_em ? d.contato.proxima_acao_em.slice(0, 16) : "");
     }
-  }, [id]);
+  }, [id, evento]);
 
   useEffect(() => {
     fetch(`/api/estagios?evento=${evento}`).then((r) => r.json()).then((d) => d.ok && setEstagios(d.estagios)).catch(() => {});

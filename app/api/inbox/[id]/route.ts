@@ -6,6 +6,7 @@ import { getCanal } from "@/lib/services/canais";
 import { normalizePhone } from "@/lib/phone";
 import { parseBody, InboxMsgSchema, InboxStatusSchema } from "@/lib/validators";
 import { registrarRespostaCS, mudarStatus } from "@/lib/services/atendimento";
+import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -29,20 +30,22 @@ async function resolverContactId(c: Contato, cfg: CanalCfg): Promise<string | nu
   return r.contactId ?? null;
 }
 
-async function carregarContato(id: string): Promise<Contato | null> {
+async function carregarContato(id: string, evento: string): Promise<Contato | null> {
   // Via unificada (HT + Seminário): leads do Seminário não estão em contatos_ht,
-  // então usamos contatos_evento para o inbox funcionar em qualquer portal.
+  // então usamos contatos_evento. FILTRA por evento: uma pessoa pode existir em
+  // mais de um portal na view — sem o filtro, o thread abriria pela conta/canal do
+  // portal errado (isolamento de portais, 27/07).
   return queryOne<Contato>(
-    `select comprador_id, nome, telefone, evento from cs.contatos_evento where comprador_id = $1`,
-    [id],
+    `select comprador_id, nome, telefone, evento from cs.contatos_evento where comprador_id = $1 and evento = $2`,
+    [id, evento],
   );
 }
 
 // GET — carrega a conversa (mensagens trocadas) do contato com a Unnichat.
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: { id: string } }) {
   if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
 
-  const c = await carregarContato(params.id);
+  const c = await carregarContato(params.id, eventoDe(req));
   if (!c) return NextResponse.json({ ok: false, reason: "contato não encontrado" }, { status: 404 });
 
   const canal = await getCanal(c.evento);
@@ -97,7 +100,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!p.ok) return p.res;
   const texto = p.data.texto.trim();
 
-  const c = await carregarContato(params.id);
+  const c = await carregarContato(params.id, eventoDe(req));
   if (!c) return NextResponse.json({ ok: false, reason: "contato não encontrado" }, { status: 404 });
 
   // Quem pediu para parar, parou — inclusive na conversa 1:1. Insistir com quem

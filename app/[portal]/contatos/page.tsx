@@ -339,7 +339,7 @@ export default function ContatosPage() {
                   </td>
                   <td className="px-4 py-3">
                     <Link
-                      href={`/contatos/${c.comprador_id}`}
+                      href={`${base}/contatos/${c.comprador_id}`}
                       className="font-medium text-slate-900 hover:text-brand hover:underline dark:text-slate-100 dark:hover:text-brand-300"
                     >
                       {c.nome}
