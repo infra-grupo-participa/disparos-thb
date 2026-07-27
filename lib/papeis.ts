@@ -27,9 +27,13 @@ export function ehEquipePrincipal(tipo?: TipoEquipe | null): boolean {
   return tipo === "principal";
 }
 
-// Vê TODOS os cards de todas as equipes: admin (gestão) OU equipe principal (GP).
-export function podeVerTudo(papel: Papel | null | undefined, tipoEquipe?: TipoEquipe | null): boolean {
-  return papel === "admin" || ehEquipePrincipal(tipoEquipe);
+// Vê TODOS os cards de todas as equipes = SÓ a equipe principal (Grupo Participa).
+// Decisão do Marcio (27/07): o papel `admin` sozinho NÃO basta mais para ver tudo —
+// um admin de equipe COMUM (ex.: Kelly na Equipe 2) não pode enxergar os cards do GP.
+// Cada equipe tem os seus cards; só o GP tem visão global. (O papel `admin` segue
+// valendo para o que é gestão de conta, mas a VISIBILIDADE de cards é por equipe.)
+export function podeVerTudo(_papel: Papel | null | undefined, tipoEquipe?: TipoEquipe | null): boolean {
+  return ehEquipePrincipal(tipoEquipe);
 }
 
 // Líder/ADM da própria equipe (0143): distribui e enxerga dentro da equipe dele,
