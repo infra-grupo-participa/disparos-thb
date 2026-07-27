@@ -23,10 +23,18 @@ export async function GET() {
     return NextResponse.json({ ok: true, usuarios, sou_admin: false, pode_gerir_acesso: false });
   }
 
+  // equipe_id/equipe_tipo/lider_equipe entram no payload de master para o
+  // SeloNivel da tela de Contas calcular o nível efetivo via lib/papeis.nivelDe
+  // (sem eles o selo degrada para "nível ?"). O payload MÍNIMO de não-master
+  // acima segue sem esses campos DE PROPÓSITO — só alimenta seletores de
+  // responsável e não deve crescer.
   const usuarios = await query(
     `select u.id, u.nome, u.email, u.papel, u.ativo, u.criado_em,
+            u.equipe_id, e.tipo as equipe_tipo, u.lider_equipe,
             coalesce((select array_agg(up.portal) from cs.usuario_portais up where up.usuario_id = u.id), '{}') as portais
-       from cs.usuarios u order by u.ativo desc, u.nome`,
+       from cs.usuarios u
+       left join cs.equipes e on e.id = u.equipe_id
+      order by u.ativo desc, u.nome`,
   );
   // pode_gerir_acesso (= master) controla a edição de portais na UI.
   return NextResponse.json({ ok: true, usuarios, sou_admin: true, pode_gerir_acesso: true });

@@ -3,7 +3,7 @@ import { guard } from "@/lib/guard";
 import { ehMaster } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -19,6 +19,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   // equipe (nem do GP). O pool e os próprios cards seguem abertos.
   if (!(await podeVerCardHm(sessao, params.id))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
+  // Trava dos cancelados (27/07, decisão do Marcio): card em Reclamada/Reembolsado
+  // não é só imutável para quem não é master — nem ABRE. A ficha inteira (dados,
+  // timeline, financeiro) fica restrita ao admin do GP; o card segue visível na
+  // listagem, mas o clique é negado. Mesmo reason das escritas: a UI já traduz.
+  if (await cancelamentoBloqueado(sessao, params.id)) {
+    return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
 
   const ficha = await fichaHm(params.id);

@@ -16,6 +16,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { DisparoModal } from "@/app/_components/disparo";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
+import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 
 // A visão em tabela da esteira HM — a terceira leitura da mesma esteira (o board
@@ -388,8 +389,12 @@ const PRESETS: Record<VisaoId, string[]> = {
 
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
-  const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir } = useMe();
+  const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster } = useMe();
   const podeDisparar = podeDisparaFn("HM");
+  // Linha em Reclamada/Reembolsado é SÓ do master (o backend devolve 403 no GET
+  // da ficha e no PATCH) — para os demais a linha fica visível, mas não abre nem
+  // edita. Enquanto a sessão carrega, nasce bloqueada (na dúvida, fecha).
+  const linhaBloqueada = (l: LinhaEsteira) => ehEstagioCancelamento(l.estagio_chave) && !ehMaster();
   // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
   const podeConfigEquipes = podeDistribuir();
   const [linhas, setLinhas] = useState<LinhaEsteira[]>([]);
@@ -451,9 +456,14 @@ export default function HmTabelaPage() {
   }, [linhas]);
 
   const abrirFicha = useCallback((compradorId: string) => {
+    // Linha cancelada + não-master: não abre (nem pelo clique na linha, nem pelo
+    // botão "Ficha", nem pela seleção — todos passam por aqui). O backend já
+    // devolve 403; a UI não oferece a porta trancada.
+    const l = linhas.find((x) => x.comprador_id === compradorId);
+    if (l && ehEstagioCancelamento(l.estagio_chave) && !ehMaster()) return;
     setSelecionado(compradorId);
     marcarVisto(compradorId);
-  }, [marcarVisto]);
+  }, [marcarVisto, linhas, ehMaster]);
   const [dispararLote, setDispararLote] = useState(false);
   const [aplicandoLote, setAplicandoLote] = useState(false);
   const [resultadoLote, setResultadoLote] = useState<{ pedido: string; total: number; aplicados: number; falhas: FalhaLote[] } | null>(null);
@@ -535,6 +545,14 @@ export default function HmTabelaPage() {
   // moverEstagioHm, data de reunião/entrevista vira agendarHm — a tabela nunca
   // escreve por fora dos serviços.
   const patch = useCallback(async (compradorId: string, nome: string, payload: Record<string, unknown>) => {
+    // Linha cancelada + não-master: TODA célula editável desemboca aqui — barrar
+    // no ponto único evita depender de cada render desabilitar o próprio input.
+    // O backend recusaria de qualquer forma; aqui o motivo aparece na hora.
+    const linha = linhas.find((x) => x.comprador_id === compradorId);
+    if (linha && ehEstagioCancelamento(linha.estagio_chave) && !ehMaster()) {
+      window.alert(msgErroPermissao("cancelamento_so_admin_gp"));
+      return;
+    }
     setSalvando(compradorId);
     try {
       const r = await fetch(`/api/hm/contato/${compradorId}`, {
@@ -563,7 +581,7 @@ export default function HmTabelaPage() {
       setSalvando(null);
       await carregar(true);
     }
-  }, [carregar]);
+  }, [carregar, linhas, ehMaster]);
 
   // Os mesmos avisos do board ao cruzar de esteira: entrar na Ativação é dizer
   // "pagou" (provisiona o aluno na base THB); voltar ao Comercial desfaz a marca.
@@ -696,9 +714,17 @@ export default function HmTabelaPage() {
       sortVal: (l) => l.nome.toLowerCase(),
       render: (l) => {
         const novo = pagouAgora(l);
+        const recompra = origemRecompra(l.tags);
         return (
           <div className="flex min-w-0 max-w-[16rem] flex-col">
             <div className="flex min-w-0 items-center gap-1.5">
+              {/* Cadeado: linha cancelada, só o master abre/edita (o title da
+                  linha explica; o clique não abre a ficha). */}
+              {linhaBloqueada(l) && (
+                <span className="shrink-0 text-rose-500 dark:text-rose-400" title={TITLE_CARD_CANCELADO}>
+                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                </span>
+              )}
               {/* O ponto verde é o "não lido": some quando alguém abre a ficha. */}
               {novo && (
                 <span className="relative flex h-2 w-2 shrink-0" title={`Pagou ${brl(num(novo.valor) ?? 0)} ${haQuanto(novo.quando)} — clique para abrir e dar baixa no aviso`}>
@@ -719,6 +745,9 @@ export default function HmTabelaPage() {
             {/* Telefone e e-mail andam junto com o nome: é o que o operador vai
                 usar em seguida, e copiar não pode custar abrir a ficha. */}
             <ContatoDoNome telefone={l.telefone} email={l.email} />
+            {/* Recompra (27/07): o MESMO selo do board, na coluna fixa — visível
+                em qualquer visão e em qualquer scroll horizontal. */}
+            {recompra && <SeloRecompra origem={recompra} className="mt-0.5 self-start" />}
           </div>
         );
       },
@@ -1366,7 +1395,10 @@ export default function HmTabelaPage() {
   const diasArr = visiveis.map((l) => l.dias_na_etapa).filter((x): x is number => x !== null && x !== undefined);
   const mediaDias = diasArr.length ? Math.round(diasArr.reduce((a, b) => a + b, 0) / diasArr.length) : 0;
 
-  const todosMarcados = visiveis.length > 0 && visiveis.every((l) => marcados.has(l.comprador_id));
+  // Linha cancelada (não-master) fica fora da seleção em massa: o lote inteiro
+  // falharia nela (403) e a seleção é um caminho indireto de mexer no card.
+  const selecionaveis = visiveis.filter((l) => !linhaBloqueada(l));
+  const todosMarcados = selecionaveis.length > 0 && selecionaveis.every((l) => marcados.has(l.comprador_id));
   const gruposLente = Array.from(new Set(LENTES.map((le) => le.grupo)));
 
   return (
@@ -1585,10 +1617,10 @@ export default function HmTabelaPage() {
                         type="checkbox"
                         checked={todosMarcados}
                         onChange={() => {
-                          const ids = visiveis.map((l) => l.comprador_id);
+                          const ids = selecionaveis.map((l) => l.comprador_id);
                           setMarcados(todosMarcados ? new Set() : new Set(ids));
                         }}
-                        title={todosMarcados ? "Limpar seleção" : `Selecionar os ${visiveis.length} visíveis`}
+                        title={todosMarcados ? "Limpar seleção" : `Selecionar os ${selecionaveis.length} visíveis`}
                         className={celCheck}
                       />
                     </th>
@@ -1625,16 +1657,20 @@ export default function HmTabelaPage() {
                       </td>
                     </tr>
                   ) : (
-                    visiveis.map((l) => (
+                    visiveis.map((l) => {
+                      const bloq = linhaBloqueada(l);
+                      const recompra = !!origemRecompra(l.tags);
+                      return (
                       <tr
                         key={l.comprador_id}
                         onClick={() => abrirFicha(l.comprador_id)}
-                        title="Clique para abrir a ficha"
+                        title={bloq ? TITLE_CARD_CANCELADO : "Clique para abrir a ficha"}
                         // O `bg-*` explícito em TODA linha não é decoração: as células
                         // fixas usam `bg-inherit`, e sem um fundo sólido no <tr> o texto
                         // rolado por baixo apareceria através delas.
                         className={cn(
-                          "cursor-pointer border-b transition",
+                          "border-b transition",
+                          bloq ? "cursor-not-allowed" : "cursor-pointer",
                           idsNovos.has(l.comprador_id)
                             ? "bg-emerald-50 hover:bg-emerald-100/70 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/15"
                             : l.nao_contatar
@@ -1646,10 +1682,22 @@ export default function HmTabelaPage() {
                           marcados.has(l.comprador_id) && "bg-brand/5 dark:bg-brand-400/10",
                         )}
                       >
-                        <td className="sticky left-0 z-[1] w-8 border-b border-slate-100 bg-inherit px-2 py-1.5 dark:border-slate-800" onClick={(e) => e.stopPropagation()}>
+                        {/* Filete esquerdo vermelho = RECOMPRA. É o portador livre da
+                            linha: o fundo já é do não-lido/travas/seleção (o rose de
+                            fundo é do "não contatar" — usar fundo aqui os confundiria)
+                            e o selo textual na coluna Nome tira a ambiguidade. */}
+                        <td
+                          className={cn(
+                            "sticky left-0 z-[1] w-8 border-b border-slate-100 bg-inherit px-2 py-1.5 dark:border-slate-800",
+                            recompra && "border-l-[3px] border-l-rose-500 dark:border-l-rose-400",
+                          )}
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <input
                             type="checkbox"
                             checked={marcados.has(l.comprador_id)}
+                            disabled={bloq}
+                            title={bloq ? TITLE_CARD_CANCELADO : undefined}
                             onChange={() => setMarcados((prev) => {
                               const next = new Set(prev);
                               if (next.has(l.comprador_id)) next.delete(l.comprador_id); else next.add(l.comprador_id);
@@ -1676,17 +1724,25 @@ export default function HmTabelaPage() {
                         ))}
                         <td className="border-b border-slate-100 px-2 py-1.5 text-right dark:border-slate-800" onClick={(e) => e.stopPropagation()}>
                           {/* Pagamento e cancelamento NÃO são células — têm consequência
-                              na base mestre e a confirmação vive na ficha. */}
+                              na base mestre e a confirmação vive na ficha. Linha
+                              cancelada (não-master) não tem ficha para abrir. */}
                           <button
                             onClick={() => abrirFicha(l.comprador_id)}
-                            title="Abrir a ficha (pagamento, cancelamento, sócios, timeline)"
-                            className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-brand dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-brand-300"
+                            disabled={bloq}
+                            title={bloq ? TITLE_CARD_CANCELADO : "Abrir a ficha (pagamento, cancelamento, sócios, timeline)"}
+                            className={cn(
+                              "rounded-md px-2 py-1 text-[11px] font-medium transition",
+                              bloq
+                                ? "cursor-not-allowed text-slate-300 dark:text-slate-600"
+                                : "text-slate-500 hover:bg-slate-100 hover:text-brand dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-brand-300",
+                            )}
                           >
                             Ficha
                           </button>
                         </td>
                       </tr>
-                    ))
+                      );
+                    })
                   )}
                 </tbody>
               </table>

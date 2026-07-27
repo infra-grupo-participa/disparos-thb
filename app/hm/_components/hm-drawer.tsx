@@ -9,6 +9,8 @@ import { TagChip } from "@/app/_components/tags";
 import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
+import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
+import { origemRecompra, SeloRecompra } from "@/app/hm/_components/card-sinais";
 
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
 
@@ -20,6 +22,8 @@ type Contato = {
   // Dono por id + trava do admin (0142) — decidem o que o OPERADOR pode fazer
   // com a atribuição. Opcionais: a rota pode ainda não devolvê-los (em voo).
   responsavel_id?: string | null; atribuicao_admin?: boolean;
+  // Equipe dona do card (0140/0146) — a ficha (hm-ficha.ts) já devolve.
+  equipe_id?: string | null; equipe_nome?: string | null; equipe_cor?: string | null;
   reuniao_em: string | null; reuniao_resultado: string | null; reuniao_gravacao_url: string | null;
   entrevista_em: string | null; entrevista_resultado: string | null; entrevista_gravacao_url: string | null;
   pagamento_em: string | null; pagamento_forma: string | null; apto_ativacao: boolean; tags: string[] | null;
@@ -176,6 +180,9 @@ export function HmDrawer({
   const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   const [c, setC] = useState<Contato | null>(null);
+  // O GET pode ser RECUSADO (403 cancelamento_so_admin_gp num link colado, sessão
+  // caída…). Sem este estado o drawer ficava no "Carregando…" para sempre.
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
   const [salvando, setSalvando] = useState(false);
   const [reuniao, setReuniao] = useState("");
@@ -210,8 +217,13 @@ export function HmDrawer({
 
   const recarregar = useCallback(async () => {
     const r = await fetch(`/api/hm/contato/${compradorId}`);
-    const d = await r.json();
-    if (d.ok) {
+    const d = await r.json().catch(() => ({}));
+    if (!d.ok) {
+      setErroCarga(msgErroPermissao(d?.reason) ?? "Não foi possível abrir esta ficha. Tente de novo.");
+      return;
+    }
+    setErroCarga(null);
+    {
       setC(d.contato);
       setTimeline(d.timeline ?? []);
       setReuniao(toLocalInput(d.contato.reuniao_em));
@@ -243,7 +255,7 @@ export function HmDrawer({
       }
     }
   }, [compradorId]);
-  useEffect(() => { setC(null); recarregar(); }, [recarregar]);
+  useEffect(() => { setC(null); setErroCarga(null); recarregar(); }, [recarregar]);
   useEffect(() => {
     fetch("/api/hm/tags").then((r) => r.json()).then((d) => { if (d.ok) setCatalogoTags(d.tags); }).catch(() => {});
   }, []);
@@ -360,7 +372,17 @@ export function HmDrawer({
     <>
       <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
       <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col overflow-hidden border-l border-slate-200 bg-white shadow-pop animate-fade-in dark:border-slate-800 dark:bg-slate-900">
-        {!c ? (
+        {erroCarga ? (
+          // 403/erro no GET (ex.: card cancelado aberto por link — só o master
+          // acessa): diz o motivo e oferece a saída, em vez de girar para sempre.
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+            </span>
+            <p className="max-w-xs text-sm text-slate-600 dark:text-slate-300">{erroCarga}</p>
+            <Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>
+          </div>
+        ) : !c ? (
           <div className="flex flex-1 items-center justify-center gap-2 text-sm text-slate-400"><Spinner className="h-5 w-5" /> Carregando…</div>
         ) : (
           <>
@@ -373,6 +395,14 @@ export function HmDrawer({
                 <ContatoDoNome telefone={c.telefone} email={c.email} className="mt-0.5" />
                 {c.turma && <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{c.turma}</p>}
                 {c.plano && <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{c.plano}</p>}
+                {/* Equipe dona + recompra — os mesmos selos do board, para a ficha
+                    não contar outra história. Equipe sem cor cai no cinza padrão. */}
+                {(c.equipe_nome || origemRecompra(c.tags)) && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {c.equipe_nome && <SeloEquipe nome={c.equipe_nome} cor={c.equipe_cor} grande abreviado={false} />}
+                    {origemRecompra(c.tags) && <SeloRecompra origem={origemRecompra(c.tags)!} />}
+                  </div>
+                )}
                 {/* Tags editáveis: × remove (menos as gerenciadas — turma/origem
                     são do sistema) e "+ Tag" busca/cria/atribui na hora. */}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1">

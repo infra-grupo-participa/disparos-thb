@@ -17,6 +17,8 @@ import { TagChip } from "@/app/_components/tags";
 import { ContatoDoNome } from "@/app/_components/copiavel";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
+import { SeloEquipe, COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
+import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
 
@@ -155,16 +157,6 @@ function tempoTom(iso: string | null): string {
   if (dias >= 3) return "text-amber-500 dark:text-amber-400";
   return "text-slate-400 dark:text-slate-500";
 }
-// Rótulo curto da equipe no selo do card: "Grupo Participa (Pro Max)" → "GP";
-// "Equipe 2" → "EQ2"; nomes livres → as 2 primeiras iniciais. Curto de propósito
-// (o card é apertado); o nome inteiro fica no title.
-function seloEquipe(nome: string): string {
-  const n = nome.toLowerCase();
-  if (n.includes("participa") || n.includes("pro max")) return "GP";
-  const mEq = nome.match(/equipe\s*(\d+)/i);
-  if (mEq) return `EQ${mEq[1]}`;
-  return nome.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || nome.slice(0, 3).toUpperCase();
-}
 // Categoria de entrada → rótulo curto no card.
 function catLabel(cat: string | null): { txt: string; cls: string } | null {
   if (cat === "sinal") return { txt: "Sinal", cls: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300" };
@@ -261,8 +253,12 @@ function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
 }
 
 export default function HmKanbanPage() {
-  const { nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir } = useMe();
+  const { nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster } = useMe();
   const podeDisparar = podeDisparaFn("HM");
+  // Card em Reclamada/Reembolsado é SÓ do master (o backend devolve 403 no GET
+  // da ficha) — para os demais a UI nem convida ao clique. Enquanto a sessão
+  // carrega (ehMaster()=false), nasce bloqueado: na dúvida, a regra fecha.
+  const cardBloqueado = (c: Card) => ehEstagioCancelamento(c.estagio_chave) && !ehMaster();
   // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
   const podeConfigEquipes = podeDistribuir();
   const [colunas, setColunas] = useState<Coluna[]>([]);
@@ -554,6 +550,7 @@ export default function HmKanbanPage() {
 
   const q = busca.trim().toLowerCase();
   const cardsFiltrados = q ? cards.filter((c) => c.nome.toLowerCase().includes(q) || (c.telefone ?? "").includes(q)) : cards;
+  const cardsSelecionaveis = cardsFiltrados.filter((c) => !cardBloqueado(c));
   const colunasAba = colunas.filter((c) => (c.aba ?? "comercial") === aba);
   // O card pago conta nas duas abas (ele aparece nas duas) — por isso o total
   // sai daqui, e não de um count no banco que não conhece o espelho.
@@ -598,19 +595,22 @@ export default function HmKanbanPage() {
           >
             <Button variant="secondary" size="sm">Financeiro .xlsx</Button>
           </a>
-          {podeDisparar && cardsFiltrados.length > 0 && (
+          {podeDisparar && cardsSelecionaveis.length > 0 && (
             <Button
               variant="secondary"
               size="sm"
               onClick={() => {
-                const ids = cardsFiltrados.map((c) => c.comprador_id);
+                // Cards cancelados ficam FORA do "selecionar todos" para quem
+                // não é master — seleção em massa é um caminho indireto de agir
+                // sobre um card que a pessoa não pode nem abrir.
+                const ids = cardsSelecionaveis.map((c) => c.comprador_id);
                 const todos = ids.length > 0 && ids.every((id) => marcados.has(id));
                 setMarcados(todos ? new Set() : new Set(ids));
               }}
             >
-              {cardsFiltrados.every((c) => marcados.has(c.comprador_id))
+              {cardsSelecionaveis.every((c) => marcados.has(c.comprador_id))
                 ? "Limpar seleção"
-                : `Selecionar todos (${cardsFiltrados.length})`}
+                : `Selecionar todos (${cardsSelecionaveis.length})`}
             </Button>
           )}
           {podeDisparar && (
@@ -777,11 +777,15 @@ export default function HmKanbanPage() {
                             // assumir) vs. o que já tem dono — master/gestor não
                             // precisam do selo (eles distribuem, não assumem).
                             ehPool={nivel === "operador" && !card.responsavel_id && !card.equipe_id && !card.atribuicao_admin}
+                            // Cancelado (Reclamada/Reembolsado) + não-master: o card
+                            // fica visível, mas não abre nem arrasta — o backend já
+                            // devolve 403; aqui a UI deixa de convidar ao gesto.
+                            bloqueado={cardBloqueado(card)}
                             onDragStart={() => { arrastando.current = card; }}
                             onDragEnd={() => { pararAutoScroll(); arrastando.current = null; setAlvo(null); }}
-                            onAbrir={() => setSelecionado(card.comprador_id)}
+                            onAbrir={() => { if (!cardBloqueado(card)) setSelecionado(card.comprador_id); }}
                             onMenu={(x, y) => setMenu({ card, x, y })}
-                            selecionavel={podeDisparar}
+                            selecionavel={podeDisparar && !cardBloqueado(card)}
                             marcado={marcados.has(card.comprador_id)}
                             onToggleMarcado={() => toggleMarcado(card.comprador_id)}
                             coresTags={coresTags}
@@ -824,8 +828,13 @@ export default function HmKanbanPage() {
             }}
           >
             <p className="truncate px-3 py-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">{menu.card.nome}</p>
-            <MenuItem onClick={() => { setSelecionado(menu.card.comprador_id); setMenu(null); }}>Abrir ficha</MenuItem>
-            <MenuItem onClick={() => { const c = menu.card; setMenu(null); setAddSocio({ compradorId: c.comprador_id, nome: c.nome }); }}>+ Adicionar sócio</MenuItem>
+            {/* Card cancelado (não-master): ficha e sócios são as rotas que o
+                backend fecha com 403 — o menu não oferece a porta trancada. */}
+            {cardBloqueado(menu.card) && (
+              <p className="px-3 pb-1.5 text-[11px] text-rose-600 dark:text-rose-400">{TITLE_CARD_CANCELADO}</p>
+            )}
+            <MenuItem disabled={cardBloqueado(menu.card)} onClick={() => { setSelecionado(menu.card.comprador_id); setMenu(null); }}>Abrir ficha</MenuItem>
+            <MenuItem disabled={cardBloqueado(menu.card)} onClick={() => { const c = menu.card; setMenu(null); setAddSocio({ compradorId: c.comprador_id, nome: c.nome }); }}>+ Adicionar sócio</MenuItem>
             <MenuItem onClick={() => { const c = menu.card; setMenu(null); desfazerMovimento(c); }}>Desfazer último movimento</MenuItem>
 
             {ABAS.map((a) => {
@@ -1234,9 +1243,9 @@ function MenuItem({ children, onClick, disabled }: { children: React.ReactNode; 
 }
 
 function CardItem({
-  card, espelho, ehPool, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags,
+  card, espelho, ehPool, bloqueado, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags,
 }: {
-  card: Card; espelho: boolean; ehPool?: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
+  card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
   onMenu: (x: number, y: number) => void;
   selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
   coresTags: Record<string, string | null>;
@@ -1247,6 +1256,14 @@ function CardItem({
   // aritmética, não quitação — e um verde errado faz o time parar de cobrar.
   const verde = card.quitado && !card.conferir_saldo;
   const wa = waLink(card.telefone);
+  // Recompra (27/07, "por ora"): já era aluno antes de comprar — tag "Origem Txx"
+  // ou "Aluno THB"/"Aluno Aurum" (nunca "Turma T39", que todo mundo ganha).
+  const recompra = origemRecompra(card.tags);
+  // O card tem equipe? A borda esquerda é DELA (modelo de acesso, mais importante
+  // que qualquer outro sinal). `equipe_cor` nula NÃO apaga a faixa: cai no cinza
+  // padrão — antes o card de uma equipe sem cor parecia do pool sem ser.
+  const temEquipe = !!(card.equipe_id || card.equipe_nome);
+  const poolSemDono = !temEquipe && !card.responsavel_id;
   // Data relevante à etapa: reunião (Comercial) ou entrevista (Ativação).
   const dataEtapa = card.estagio_chave === "hm_reuniao_agendada" ? { label: "Reunião", quando: card.reuniao_em }
     : card.estagio_chave === "hm_entrevista_agendada" ? { label: "Entrevista", quando: card.entrevista_em }
@@ -1254,20 +1271,36 @@ function CardItem({
   return (
     <div
       data-card
-      role="button"
-      tabIndex={0}
-      draggable
-      onDragStart={onDragStart}
+      role={bloqueado ? undefined : "button"}
+      tabIndex={bloqueado ? -1 : 0}
+      draggable={!bloqueado}
+      onDragStart={bloqueado ? undefined : onDragStart}
       onDragEnd={onDragEnd}
-      onClick={onAbrir}
+      onClick={bloqueado ? undefined : onAbrir}
       onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}
-      onKeyDown={(e) => { if (e.key === "Enter") onAbrir(); }}
-      title="Clique para abrir · botão direito para mover ou desfazer"
-      // Faixa lateral na cor da equipe dona (0140). Card do pool (sem equipe) não
-      // recebe faixa — fica neutro, sinalizando "livre para assumir".
-      style={card.equipe_cor ? { borderLeftColor: card.equipe_cor, borderLeftWidth: 3 } : undefined}
+      onKeyDown={(e) => { if (e.key === "Enter" && !bloqueado) onAbrir(); }}
+      title={bloqueado ? TITLE_CARD_CANCELADO : "Clique para abrir · botão direito para mover ou desfazer"}
+      // Portadores de cor por INLINE STYLE (vencem qualquer classe):
+      //   • borda ESQUERDA = cor da equipe dona (0140). Cor nula cai no cinza
+      //     padrão; pool de verdade (sem equipe e sem dono) ganha a MESMA faixa
+      //     tracejada — "livre" é um estado, não um defeito de renderização.
+      //   • borda SUPERIOR = recompra (vermelho). É o único portador livre do
+      //     card: a esquerda é da equipe, o fundo é do quitado, a borda/anel são
+      //     da seleção e os badges já disputam a primeira linha. O rose-500 lê
+      //     bem sobre branco e sobre slate-900.
+      style={{
+        ...(temEquipe
+          ? { borderLeftColor: card.equipe_cor || COR_EQUIPE_PADRAO, borderLeftWidth: 3 }
+          : poolSemDono
+            ? { borderLeft: "3px dashed rgba(148, 163, 184, 0.7)" }
+            : {}),
+        ...(recompra ? { borderTopColor: "#f43f5e", borderTopWidth: 3 } : {}),
+      }}
       className={cn(
-        "group relative block cursor-pointer rounded-lg border p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft active:cursor-grabbing",
+        "group relative block rounded-lg border p-2.5 shadow-card transition",
+        bloqueado
+          ? "cursor-not-allowed"
+          : "cursor-pointer hover:border-brand/30 hover:shadow-soft active:cursor-grabbing",
         // Saldo quitado: um verde sutil, só o suficiente para diferenciar de longe
         // quem não deve mais nada. Não vale quando o card está selecionado (a borda
         // da marca vence) nem sobrescreve o anel de seleção.
@@ -1297,6 +1330,20 @@ function CardItem({
               className="mr-1 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand dark:border-slate-600"
             />
           )}
+          {/* Card cancelado bloqueado: o cadeado diz POR QUE o clique não abre.
+              Rose (e não âmbar, que é a trava de atribuição do admin). */}
+          {bloqueado && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
+              title={TITLE_CARD_CANCELADO}
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+              só admin GP
+            </span>
+          )}
+          {/* Recompra: o selo repete a cor da borda superior com TEXTO — a marca
+              precisa ser inequívoca, não um palpite de quem nota a borda. */}
+          {recompra && <SeloRecompra origem={recompra} />}
           {/* Selo do pool (só na visão do operador): este card está livre —
               abra a ficha e clique em "Atribuir a mim". */}
           {ehPool && (
@@ -1375,15 +1422,16 @@ function CardItem({
             <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
             {card.entrou_estagio_em ? `${relativo(card.entrou_estagio_em)} na etapa` : "—"}
           </span>
-          {/* Selo da equipe dona (0140) — na cor da equipe. Pool não mostra selo. */}
-          {card.equipe_nome && card.equipe_cor && (
-            <span
-              className="inline-flex shrink-0 items-center rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-white"
-              style={{ backgroundColor: card.equipe_cor }}
+          {/* Selo da equipe dona (0140) — o componente resolve cor nula (cinza
+              padrão, o selo não some) e o contraste do texto (WCAG sobre a cor
+              livre do picker — antes era branco fixo e sumia sobre cor clara).
+              Pool não mostra selo. */}
+          {card.equipe_nome && (
+            <SeloEquipe
+              nome={card.equipe_nome}
+              cor={card.equipe_cor}
               title={`Equipe: ${card.equipe_nome}${card.responsavel_id ? "" : " (canal roteado — sem dono ainda)"}`}
-            >
-              {seloEquipe(card.equipe_nome)}
-            </span>
+            />
           )}
           {/* Cadeado: atribuição travada pelo admin (0142) — operador comum não mexe. */}
           {card.atribuicao_admin && (

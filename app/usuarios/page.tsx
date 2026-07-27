@@ -4,10 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import { Avatar } from "@/app/_components/avatar";
 import { Button, Card, EmptyState, PageHeader, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
+import { LegendaNiveis, SeloNivel } from "@/app/_components/selo-nivel";
 
 type Papel = "admin" | "disparador" | "operador";
 type Portal = "HT" | "SEM" | "CNHF" | "HM";
-type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean; criado_em: string; portais: Portal[] };
+type Usuario = {
+  id: string; nome: string; email: string; papel: Papel; ativo: boolean; criado_em: string; portais: Portal[];
+  // Campos de equipe que o NÍVEL efetivo (lib/papeis.nivelDe) precisa. O GET
+  // /api/usuarios os devolve no payload de MASTER (quem vê esta tela); seguem
+  // opcionais porque o payload mínimo de não-master não os traz — nesse caso o
+  // SeloNivel degrada para "nível ?" em vez de chutar (admin sem equipe_tipo
+  // tanto pode ser master quanto gestor).
+  equipe_id?: string | null;
+  equipe_tipo?: "principal" | "comum" | null;
+  lider_equipe?: boolean | null;
+};
 
 // Rótulos dos portais para o admin marcar o acesso de cada conta.
 const PORTAIS: { id: Portal; label: string }[] = [
@@ -70,6 +81,10 @@ export default function UsuariosPage() {
         actions={<Button onClick={() => setNovo(true)}>+ Novo usuário</Button>}
       />
 
+      {/* Como se produz cada nível — o papel sozinho NÃO conta a história toda:
+          "Administrador" pode ser master (GP) ou gestor (outra equipe). */}
+      <LegendaNiveis className="mb-4" />
+
       {carregando && usuarios.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-16 text-slate-400"><Spinner /> Carregando…</div>
       ) : (
@@ -79,6 +94,9 @@ export default function UsuariosPage() {
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-2.5 font-semibold">Usuário</th>
+                  <th className="px-4 py-2.5 font-semibold">Papel</th>
+                  {/* O NÍVEL efetivo é derivado (papel × equipe) — coluna própria
+                      para ficar claro que trocar o papel não decide sozinho. */}
                   <th className="px-4 py-2.5 font-semibold">Nível</th>
                   {podeGerirAcesso && <th className="px-4 py-2.5 font-semibold">Portais</th>}
                   <th className="px-4 py-2.5 font-semibold">Status</th>
@@ -107,6 +125,12 @@ export default function UsuariosPage() {
                         <option value="disparador">Operador de disparos</option>
                         <option value="admin">Administrador</option>
                       </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      {/* master = admin + Grupo Participa; gestor = admin de outra
+                          equipe ou estrela de líder; operador = o resto. A equipe
+                          e a estrela se mexem na tela de Equipes do HM. */}
+                      <SeloNivel usuario={u} />
                     </td>
                     {podeGerirAcesso && (
                       <td className="px-4 py-3">

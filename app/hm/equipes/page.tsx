@@ -7,6 +7,7 @@ import { MarcaPortal } from "@/app/_components/marca";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { useMe } from "@/app/_components/use-me";
 import { Avatar } from "@/app/_components/avatar";
+import { SeloNivel } from "@/app/_components/selo-nivel";
 
 // Equipes do HM (0140), em DOIS modos pelos níveis (lib/papeis):
 //   • MASTER (admin do GP): gere tudo — membros, cargos, líderes, cores, rotas
@@ -171,31 +172,37 @@ export default function HmEquipesPage() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
                               <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{u.nome}</span>
-                              {eq.tipo === "comum" && u.lider_equipe && (
+                              {/* A estrela existe em QUALQUER equipe (modelo 27/07):
+                                  líder do GP = gestor do GP, não mais master. */}
+                              {u.lider_equipe && (
                                 <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" title="Líder desta equipe">
                                   <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
                                   líder
                                 </span>
                               )}
+                              {/* O nível EFETIVO (lib/papeis.nivelDe): deixa visível
+                                  que admin + GP = master e admin + Equipe 2 = gestor. */}
+                              <SeloNivel usuario={{ id: u.id, papel: u.papel, equipe_id: u.equipe_id, equipe_tipo: eq.tipo, lider_equipe: u.lider_equipe }} />
                             </div>
                             <span className="block truncate text-xs text-slate-400 dark:text-slate-500">{u.email}</span>
                           </div>
                           {/* Ações à direita — SÓ o master mexe na composição */}
                           {podeEditar && (
                             <div className="flex shrink-0 items-center gap-0.5">
-                              {eq.tipo === "comum" && (
-                                <button
-                                  type="button"
-                                  onClick={() => membro(eq.id, u.id, "vincular", undefined, !u.lider_equipe)}
-                                  title={u.lider_equipe ? "Tirar como líder da equipe" : "Tornar líder desta equipe (distribui cards entre os operadores dela)"}
-                                  className={cn("rounded-md p-1.5 transition",
-                                    u.lider_equipe
-                                      ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10"
-                                      : "text-slate-300 hover:bg-slate-100 hover:text-amber-400 dark:text-slate-600 dark:hover:bg-slate-800")}
-                                >
-                                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill={u.lider_equipe ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
-                                </button>
-                              )}
+                              {/* Estrela em QUALQUER equipe — inclusive no GP (líder
+                                  do GP = gestor do GP). O backend já aceitava; só a
+                                  UI travava em equipe comum (sobra do modelo antigo). */}
+                              <button
+                                type="button"
+                                onClick={() => membro(eq.id, u.id, "vincular", undefined, !u.lider_equipe)}
+                                title={u.lider_equipe ? "Tirar como líder da equipe" : "Tornar líder desta equipe (vira gestor: vê e distribui os cards dela)"}
+                                className={cn("rounded-md p-1.5 transition",
+                                  u.lider_equipe
+                                    ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10"
+                                    : "text-slate-300 hover:bg-slate-100 hover:text-amber-400 dark:text-slate-600 dark:hover:bg-slate-800")}
+                              >
+                                <svg className="h-4 w-4" viewBox="0 0 24 24" fill={u.lider_equipe ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
+                              </button>
                               <button onClick={() => membro(eq.id, u.id, "remover")} className="rounded-md p-1.5 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-600 dark:hover:bg-rose-500/10" title="Tirar da equipe">
                                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                               </button>

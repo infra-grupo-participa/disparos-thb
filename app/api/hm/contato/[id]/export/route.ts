@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
-import { podeVerCardHm } from "@/lib/services/hm";
+import { podeVerCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 import { fichaHmParaXlsx, nomeArquivoFicha } from "@/lib/export/hm-ficha-xlsx";
 
@@ -16,6 +16,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   // Mesmo gating do drawer: não exporta a ficha de card de outra equipe.
   if (!(await podeVerCardHm(sessao, params.id))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
+  // Card cancelado (Reclamada/Reembolsado) não abre para quem não é master — e o
+  // XLSX é a MESMA ficha por outra porta. Bloqueio que deixa o export aberto não
+  // é bloqueio.
+  if (await cancelamentoBloqueado(sessao, params.id)) {
+    return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
 
   const ficha = await fichaHm(params.id);

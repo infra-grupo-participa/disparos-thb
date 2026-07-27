@@ -5,7 +5,7 @@ import { createContact, getContactMessages, sendMessage, type CanalCfg } from "@
 import { getCanal } from "@/lib/services/canais";
 import { normalizePhone } from "@/lib/phone";
 import { parseBody, InboxMsgSchema, InboxStatusSchema } from "@/lib/validators";
-import { podeVerCardHm } from "@/lib/services/hm";
+import { podeVerCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,6 +48,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
+  // Card cancelado (Reclamada/Reembolsado): quem não é master não abre a ficha —
+  // e a thread é conteúdo do mesmo card por outra porta. A conversa segue
+  // LISTADA na fila (a decisão é sobre abrir, não sobre sumir com o card).
+  if (await cancelamentoBloqueado(sessao, params.id)) {
+    return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
 
   const c = await carregarContatoHm(params.id);
@@ -98,6 +104,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
+  // Cancelado: não abre, logo também não manda mensagem (WhatsApp pra aluno
+  // reembolsado é ação do master, não da equipe).
+  if (await cancelamentoBloqueado(sessao, params.id)) {
+    return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
 
   const p = await parseBody(req, InboxMsgSchema);
@@ -152,6 +163,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
+  // Cancelado: mudar status da conversa é escrita no card — só master.
+  if (await cancelamentoBloqueado(sessao, params.id)) {
+    return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
   const p = await parseBody(req, InboxStatusSchema);
   if (!p.ok) return p.res;
