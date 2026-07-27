@@ -1,5 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
+import { escopoVisibilidade, type Papel, type TipoEquipe } from "@/lib/papeis";
 
 const log = logger("hm");
 
@@ -518,6 +519,46 @@ export async function setResponsavelHm(compradorId: string, responsavel: string 
       : `Responsável atribuído: "${novo}"`
     : `Responsável removido (era "${anterior}")`;
   await addInteracaoHm(ch.id, "sistema", descricao, autor);
+}
+
+// Atribui o responsável por ID (o caminho das equipes): grava responsavel_id — o
+// texto `responsavel` é derivado por trigger (0140). Passar null = devolve ao
+// pool. Registra na timeline com o nome legível. Assumir = passar o próprio id.
+export async function setResponsavelHmPorId(compradorId: string, responsavelId: string | null, autor = "cs") {
+  const ch = await queryOne<{ id: string; responsavel: string | null; responsavel_id: string | null }>(
+    `select id, responsavel, responsavel_id from cs.contatos_hm where comprador_id = $1`,
+    [compradorId],
+  );
+  if (!ch) return;
+  if ((ch.responsavel_id ?? null) === (responsavelId ?? null)) return;
+  const anterior = ch.responsavel?.trim() || null;
+  const nomeNovo = responsavelId
+    ? (await queryOne<{ nome: string }>(`select nome from cs.usuarios where id = $1`, [responsavelId]))?.nome ?? null
+    : null;
+  await query(`update cs.contatos_hm set responsavel_id = $2, atualizado_em = now() where id = $1`, [ch.id, responsavelId]);
+  const descricao = nomeNovo
+    ? anterior
+      ? `Responsável alterado de "${anterior}" para "${nomeNovo}"`
+      : `Responsável atribuído: "${nomeNovo}"`
+    : `Responsável removido (era "${anterior}") — devolvido ao pool`;
+  await addInteracaoHm(ch.id, "sistema", descricao, autor);
+}
+
+// Gating de visibilidade de um card HM: quem pode ABRIR/EDITAR o card. GP/admin
+// veem tudo; equipe comum vê o pool (sem dono e sem equipe roteada) ou o card da
+// própria equipe. Espelha o WHERE das listagens — a lista não mostra, a ficha
+// não abre. Retorna true se pode ver.
+type SessaoEquipe = { papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null };
+export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): Promise<boolean> {
+  const escopo = escopoVisibilidade(sessao);
+  if (escopo.modo === "tudo") return true;
+  const k = await queryOne<{ responsavel_id: string | null; equipe_id: string | null }>(
+    `select responsavel_id, equipe_id from cs.contatos_hm_kanban where comprador_id = $1`,
+    [compradorId],
+  );
+  if (!k) return true; // inexistente → deixa o 404 acontecer no fluxo normal
+  const ehPool = k.responsavel_id === null && k.equipe_id === null;
+  return ehPool || (k.equipe_id !== null && k.equipe_id === escopo.equipeId);
 }
 
 // Leva os sócios convidados para a base mestre — mesma turma e mesma validade do

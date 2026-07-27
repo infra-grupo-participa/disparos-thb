@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { getSessao } from "@/lib/auth";
+import { escopoVisibilidade } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { relatorioHm } from "@/lib/services/hm-relatorio";
 
@@ -14,8 +15,13 @@ const RE_TURMA = "^(Origem|Turma|Aurum) ";
 // função do XLSX (relatorioHm): a tabela e a planilha saem da mesma leitura por
 // construção — se contarem histórias diferentes, é bug.
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const sp = new URL(req.url).searchParams;
+
+  // Mesmo escopo de equipe do board (Fase 1): GP/admin veem tudo; comum vê o
+  // pool + os próprios. Segue idêntico à rota do kanban por construção.
+  const escopo = escopoVisibilidade(sessao);
 
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E.
@@ -23,6 +29,8 @@ export async function GET(req: Request) {
     responsavel: sp.getAll("responsavel"),
     canal: sp.getAll("canal"),
     turma: sp.getAll("turma"),
+    verTudo: escopo.modo === "tudo",
+    equipeId: escopo.modo === "equipe" ? escopo.equipeId : null,
   });
 
   // As listas dos filtros saem da base inteira (não da fatia filtrada): um

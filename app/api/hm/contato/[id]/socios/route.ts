@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmSocioCriarSchema, HmSocioPatchSchema } from "@/lib/validators";
-import { addNotaHm, provisionarSociosHm } from "@/lib/services/hm";
+import { addNotaHm, provisionarSociosHm, podeVerCardHm } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -24,6 +24,7 @@ async function cardDo(compradorId: string) {
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   const p = await parseBody(req, HmSocioCriarSchema);
   if (!p.ok) return p.res;
 
@@ -46,6 +47,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   const p = await parseBody(req, HmSocioPatchSchema);
   if (!p.ok) return p.res;
   const b = p.data;
@@ -83,6 +85,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   const socioId = new URL(req.url).searchParams.get("socioId");
   if (!socioId) return NextResponse.json({ ok: false, reason: "socioId ausente" }, { status: 400 });
 

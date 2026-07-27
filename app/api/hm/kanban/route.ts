@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isAuthed, getSessao } from "@/lib/auth";
+import { getSessao } from "@/lib/auth";
+import { escopoVisibilidade } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
 import { moverEstagioHm } from "@/lib/services/hm";
@@ -20,12 +21,19 @@ const RE_TURMA = "^(Origem|Turma|Aurum) ";
 // Os totais das colunas NÃO vêm daqui: um card pago aparece em duas colunas
 // (espelho do pagamento no Comercial), e só a tela sabe dessa regra.
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const sp = new URL(req.url).searchParams;
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E.
   const lista = (nome: string) => { const v = sp.getAll(nome); return v.length ? v : null; };
-  const f = [lista("responsavel"), lista("canal"), lista("turma")];
+  // Escopo de equipe (Fase 1): GP/admin veem tudo; equipe comum vê o pool (card
+  // sem dono e sem equipe roteada) + os cards da própria equipe. O recorte é de
+  // SEGURANÇA — o filtro por responsável (abaixo) é só conveniência.
+  const escopo = escopoVisibilidade(sessao);
+  const verTudo = escopo.modo === "tudo";
+  const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
+  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, equipeId];
 
   const colunas = await query(
     `select e.chave, e.nome, e.cor, e.aba
@@ -37,6 +45,7 @@ export async function GET(req: Request) {
   const cards = await query(
     `select k.comprador_id, k.nome, k.email, k.telefone, k.turma, k.plano, k.categoria_entrada,
             k.estagio_chave, k.estagio_nome, k.estagio_aba, k.responsavel, k.tags, k.apto_ativacao,
+            k.responsavel_id, k.equipe_id, k.equipe_nome, k.equipe_cor, k.equipe_tipo,
             k.reuniao_em, k.entrevista_em, k.pagamento_em, k.pagamento_previsto_em,
             -- Saldo quitado: não deve mais nada. Colore o card de verde sutil (0099).
             (coalesce(fin.quitado, false) or coalesce(fin.saldo_a_perseguir, 1) <= 0) as quitado,
@@ -66,6 +75,11 @@ export async function GET(req: Request) {
       where ($1::text[] is null or k.responsavel = any($1))
         and ($2::text[] is null or k.tags && $2)
         and ($3::text[] is null or k.tags && $3)
+        -- Escopo de equipe: vejo tudo (GP/admin) OU é pool (sem dono e sem
+        -- equipe roteada) OU o card é da minha equipe.
+        and ($4::boolean
+             or (k.responsavel_id is null and k.equipe_id is null)
+             or k.equipe_id = $5::uuid)
       order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
   );
@@ -74,15 +88,24 @@ export async function GET(req: Request) {
   // financeiros — vivem pendurados no titular (cs.hm_socios). O board os mostra
   // como cards azuis na Ativação, para o Thomas liberar o acesso. Array separado
   // de propósito: o sócio jamais entra na cobrança nem nas lentes financeiras.
+  // Sócios herdam a visibilidade do TITULAR: só aparecem se o card do titular
+  // é visível para esta equipe (pool ou da minha equipe), ou se vejo tudo.
   const socios = await query(
-    `select socio_id, contato_hm_id, nome, email, telefone, link_facebook, origem,
-            ativ_searchie, ativ_comunidade, ativ_grupo,
-            titular_comprador_id, titular_nome, titular_turma, titular_origem,
-            titular_cancelado, checks_feitos, status,
-            (aluno_id is not null) as na_base,
-            (titular_aluno_id is not null) as titular_na_base
-       from cs.vw_hm_socios
-      order by titular_nome, nome`,
+    `select s.socio_id, s.contato_hm_id, s.nome, s.email, s.telefone, s.link_facebook, s.origem,
+            s.ativ_searchie, s.ativ_comunidade, s.ativ_grupo,
+            s.titular_comprador_id, s.titular_nome, s.titular_turma, s.titular_origem,
+            s.titular_cancelado, s.checks_feitos, s.status,
+            (s.aluno_id is not null) as na_base,
+            (s.titular_aluno_id is not null) as titular_na_base
+       from cs.vw_hm_socios s
+      where $1::boolean
+         or exists (
+              select 1 from cs.contatos_hm_kanban tk
+               where tk.comprador_id = s.titular_comprador_id
+                 and ((tk.responsavel_id is null and tk.equipe_id is null)
+                      or tk.equipe_id = $2::uuid))
+      order by s.titular_nome, s.nome`,
+    [verTudo, equipeId],
   );
 
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já

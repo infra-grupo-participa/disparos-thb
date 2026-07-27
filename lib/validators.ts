@@ -139,6 +139,9 @@ export const HmCadastroSchema = z.object({
 export const HmContatoPatchSchema = z.object({
   estagio_chave: z.string().optional(),
   responsavel: z.string().nullable().optional(),
+  // Responsável por ID (equipes): "Assumir para mim" / devolver ao pool (null) /
+  // reatribuir. Prioritário sobre `responsavel` texto quando ambos vierem.
+  responsavel_id: z.string().uuid().nullable().optional(),
   observacoes: z.string().nullable().optional(),
   nota: z.string().optional(),
   tags: z.array(z.string()).optional(),

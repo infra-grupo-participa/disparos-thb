@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { getSessao } from "@/lib/auth";
+import { podeVerCardHm } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 import { fichaHmParaXlsx, nomeArquivoFicha } from "@/lib/export/hm-ficha-xlsx";
 
@@ -9,7 +10,12 @@ export const runtime = "nodejs";
 // Lê exatamente a mesma ficha que a tela mostra (lib/services/hm-ficha), então a
 // planilha nunca diverge do drawer.
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  // Mesmo gating do drawer: não exporta a ficha de card de outra equipe.
+  if (!(await podeVerCardHm(sessao, params.id))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
 
   const ficha = await fichaHm(params.id);
   if (!ficha) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });

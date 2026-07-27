@@ -490,10 +490,10 @@ export function HmDrawer({
                     {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
-                {me?.nome && c.responsavel !== me.nome && (
+                {me?.id && c.responsavel !== me.nome && (
                   <button
                     type="button"
-                    onClick={() => patch({ responsavel: me.nome })}
+                    onClick={() => patch({ responsavel_id: me.id })}
                     disabled={salvando}
                     className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline disabled:opacity-50 dark:text-brand-300"
                     title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir este aluno"}

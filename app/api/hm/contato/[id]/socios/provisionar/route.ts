@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
-import { provisionarSociosHm } from "@/lib/services/hm";
+import { provisionarSociosHm, podeVerCardHm } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -13,6 +13,7 @@ export const runtime = "nodejs";
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
 
   const n = await provisionarSociosHm(params.id, sessao.nome || "cs");
   return NextResponse.json({ ok: true, provisionados: n });

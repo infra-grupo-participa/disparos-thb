@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { isAuthed, getSessao } from "@/lib/auth";
+import { getSessao } from "@/lib/auth";
+import { podeVerTudo } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, setResponsavelHmPorId, podeVerCardHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -11,7 +12,13 @@ export const runtime = "nodejs";
 // em lib/services/hm-ficha — o mesmo lugar de onde sai o XLSX exportado, para a
 // planilha e a tela nunca contarem histórias diferentes.
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  // Gating de equipe: uma equipe comum não abre a ficha de um card de outra
+  // equipe (nem do GP). O pool e os próprios cards seguem abertos.
+  if (!(await podeVerCardHm(sessao, params.id))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
 
   const ficha = await fichaHm(params.id);
   if (!ficha) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
@@ -29,8 +36,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!parsed.ok) return parsed.res;
   const b = parsed.data;
 
-  const atual = await queryOne<{ id: string; estagio_chave: string | null; reuniao_em: string | null }>(
-    `select ch.id, est.chave as estagio_chave, ch.reuniao_em
+  // Gating de equipe: só mexe no card quem pode vê-lo (pool, própria equipe, ou
+  // GP/admin). Fecha o buraco de editar/assumir card de outra equipe pela API.
+  if (!(await podeVerCardHm(sessao, compradorId))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
+
+  const atual = await queryOne<{ id: string; estagio_chave: string | null; reuniao_em: string | null; responsavel_id: string | null }>(
+    `select ch.id, est.chave as estagio_chave, ch.reuniao_em, ch.responsavel_id
        from cs.contatos_hm ch left join cs.estagios est on est.id = ch.estagio_id
       where ch.comprador_id = $1`,
     [compradorId],
@@ -130,7 +143,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Snapshot para o "Desfazer edição" (A2): guarda o estado ANTES de aplicar os
   // campos. Só quando há edição de campo — mudança de etapa e agendamento têm
   // desfazer próprio e não entram aqui.
-  if (sets.length || b.responsavel !== undefined) {
+  if (sets.length || b.responsavel !== undefined || b.responsavel_id !== undefined) {
     await query(`select cs.fn_hm_undo_registrar($1, $2, $3)`, [compradorId, resumoEdicao(b), operador]);
   }
 
@@ -138,8 +151,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     await query(`update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now() where id = $1`, vals);
   }
 
-  // Responsável — via serviço (registra a mudança na timeline; permite reatribuir).
-  if (b.responsavel !== undefined) await setResponsavelHm(compradorId, b.responsavel || null, operador);
+  // Responsável por ID (caminho das equipes: "Assumir para mim" / devolver ao
+  // pool / reatribuir). Regra: assumir card do POOL é livre; reatribuir ou
+  // devolver um card que JÁ tem dono só GP/admin (roubar card alheio é gerência).
+  if (b.responsavel_id !== undefined) {
+    const cardTemDono = atual.responsavel_id !== null;
+    const virandoMeu = b.responsavel_id === sessao.id;
+    if (cardTemDono && !virandoMeu && !podeVerTudo(sessao.papel, sessao.equipe_tipo)) {
+      return NextResponse.json({ ok: false, reason: "reatribuicao_restrita" }, { status: 403 });
+    }
+    await setResponsavelHmPorId(compradorId, b.responsavel_id, operador);
+  }
+  // Responsável por NOME — caminho legado do seletor. Mantido por compat; o texto
+  // é reconciliado com um usuário quando o nome casa (senão fica só texto = pool).
+  else if (b.responsavel !== undefined) {
+    await setResponsavelHm(compradorId, b.responsavel || null, operador);
+  }
 
   // Agendar / REAGENDAR. O serviço guarda a marcação anterior e conta quantas
   // vezes o aluno já remarcou — quem remarca três vezes não é "um agendamento",
@@ -236,7 +263,7 @@ function resumoEdicao(b: Record<string, unknown>): string {
   if (b.nao_contatar !== undefined || b.revisar !== undefined) p.push("travas");
   if (b.tags !== undefined) p.push("tags");
   if (b.turma !== undefined) p.push("turma");
-  if (b.responsavel !== undefined) p.push("responsável");
+  if (b.responsavel !== undefined || b.responsavel_id !== undefined) p.push("responsável");
   if (b.reuniao_resultado !== undefined || b.entrevista_resultado !== undefined) p.push("resultado da reunião");
   if (b.reuniao_gravacao_url !== undefined || b.entrevista_gravacao_url !== undefined) p.push("gravação");
   if (b.cancelamento_motivo !== undefined) p.push("motivo do cancelamento");
