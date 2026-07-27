@@ -12,6 +12,7 @@ import { cn } from "@/app/_components/ui";
 // continua na régua de propósito: "Ex aluno Direto ao Ponto" zerado é o aviso
 // de que a migration 0066 ainda não recarimbou os cards.
 export const CANAIS_FIXOS = [
+  "HT29 - 26-07",
   "Live Direto ao Ponto",
   "HT ATM",
   "HT28",
@@ -19,12 +20,20 @@ export const CANAIS_FIXOS = [
   "Ex aluno Direto ao Ponto",
 ] as const;
 
-// O filtro de canal oferece SÓ os eventos fixados (decisão de 14/07): HT26,
-// Imersão POA, Venda direta e públicos saem do seletor — são ruído para a
-// pergunta que o time faz hoje. As tags continuam nos cards (a coluna Origem
-// mostra o fato); voltar a filtrar por elas é reincluir aqui.
-export function gruposCanal(_todos: string[]): { label: string | null; itens: string[] }[] {
-  return [{ label: null, itens: [...CANAIS_FIXOS] }];
+// O filtro de canal oferece TODOS os canais de venda (27/07): os fixos ficam no
+// topo (grupo sem rótulo — o atalho do dia a dia) e o restante que a API devolve
+// — HT26, Imersão POA, públicos como "Aluno THB"/"Lead novo" etc. — cai num grupo
+// "Outros canais". A API (`d.canais`) já exclui Origem/Turma/Aurum, então aqui só
+// chega o que é canal; duplicatas dos fixos são removidas. A régua acima segue
+// mostrando apenas os fixos.
+export function gruposCanal(todos: string[]): { label: string | null; itens: string[] }[] {
+  const fixos = CANAIS_FIXOS as readonly string[];
+  const outros = todos
+    .filter((c) => !fixos.includes(c))
+    .sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const grupos: { label: string | null; itens: string[] }[] = [{ label: null, itens: [...CANAIS_FIXOS] }];
+  if (outros.length > 0) grupos.push({ label: "Outros canais", itens: outros });
+  return grupos;
 }
 
 type Props = {
