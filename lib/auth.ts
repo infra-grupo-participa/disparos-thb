@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { queryOne } from "@/lib/db";
-import { podeDisparar, type Papel } from "@/lib/papeis";
+import { podeDisparar, type Papel, type TipoEquipe } from "@/lib/papeis";
 
 export const SESSION_COOKIE = "cs_session";
 const MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30; // 30 dias
@@ -13,7 +13,13 @@ const MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30; // 30 dias
 //                 (SEM/CNHF). A regra vive em lib/papeis (compartilhada com a UI).
 export type { Papel };
 export { podeDisparar };
-export type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean; telefone: string | null };
+// A equipe entra ao lado do papel (Fase 1 de equipes/visibilidade do HM): o papel
+// diz O QUE a pessoa faz (admin/disparador/operador); a equipe diz de QUEM são os
+// cards que ela enxerga (principal = Grupo Participa vê tudo; comum vê pool + próprios).
+export type Usuario = {
+  id: string; nome: string; email: string; papel: Papel; ativo: boolean; telefone: string | null;
+  equipe_id: string | null; equipe_tipo: TipoEquipe | null; equipe_nome: string | null; equipe_cor: string | null;
+};
 
 function secret(): string {
   return process.env.SESSION_SECRET || "dev-insecure-secret-troque-isto";
@@ -62,7 +68,11 @@ export async function getSessao(): Promise<Usuario | null> {
   const userId = verifyToken(cookies().get(SESSION_COOKIE)?.value);
   if (!userId) return null;
   const u = await queryOne<Usuario>(
-    `select id, nome, email, papel, ativo, telefone from cs.usuarios where id = $1 and ativo = true`,
+    `select u.id, u.nome, u.email, u.papel, u.ativo, u.telefone,
+            u.equipe_id, e.tipo as equipe_tipo, e.nome as equipe_nome, e.cor as equipe_cor
+       from cs.usuarios u
+       left join cs.equipes e on e.id = u.equipe_id
+      where u.id = $1 and u.ativo = true`,
     [userId],
   );
   return u ?? null;
