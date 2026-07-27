@@ -42,6 +42,14 @@ export type LinhaEsteira = {
   estagio_aba: string | null;
   estagio_ordem: number | null;
   responsavel: string | null;
+  responsavel_id: string | null;
+  // ----- equipe dona do card (0140) — a MESMA leitura do board. A view resolve
+  // a origem (dono → equipe do dono; sem dono → equipe do canal roteado); aqui
+  // só se exibe. POOL = responsavel_id e equipe_id ambos nulos.
+  equipe_id: string | null;
+  equipe_nome: string | null;
+  equipe_cor: string | null;
+  equipe_tipo: string | null;
   // ----- quem é (fato — não se digita) -----
   categoria_entrada: string | null;
   plano: string | null;
@@ -214,7 +222,9 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
   const linhas = await query<LinhaEsteira>(
     `select k.comprador_id, k.nome, k.email, k.telefone,
             k.estagio_chave, k.estagio_nome, k.estagio_aba, est.ordem as estagio_ordem,
-            k.responsavel, k.categoria_entrada, k.plano, k.turma, k.turma_origem, k.tags,
+            k.responsavel, k.responsavel_id,
+            k.equipe_id, k.equipe_nome, k.equipe_cor, k.equipe_tipo,
+            k.categoria_entrada, k.plano, k.turma, k.turma_origem, k.tags,
             k.reuniao_em, k.reuniao_resultado, k.reuniao_gravacao_url,
             k.entrevista_em, k.entrevista_resultado, k.entrevista_gravacao_url,
             k.pagamento_meio, k.pagamento_previsto_em, k.acordo, k.oferta_saldo_codigo, k.link_saldo_enviado_em,

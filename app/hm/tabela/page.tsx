@@ -17,6 +17,7 @@ import { DisparoModal } from "@/app/_components/disparo";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
+import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 
 // A visão em tabela da esteira HM — a terceira leitura da mesma esteira (o board
@@ -373,14 +374,14 @@ function lerVistos(): Record<string, string> {
 }
 
 const PRESETS: Record<VisaoId, string[]> = {
-  comercial: ["nome", "telefone", "etapa", "esteira", "dias", "responsavel", "entrada", "acordo", "meio", "previsao", "link", "saldo"],
-  ativacao: ["nome", "etapa", "esteira", "dias", "responsavel", "checklist", "grupo_informes", "pendencia", "entrevista", "na_base", "socios"],
-  agenda: ["nome", "responsavel", "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas", "no_shows"],
+  comercial: ["nome", "telefone", "etapa", "esteira", "dias", "responsavel", "equipe", "entrada", "acordo", "meio", "previsao", "link", "saldo"],
+  ativacao: ["nome", "etapa", "esteira", "dias", "responsavel", "equipe", "checklist", "grupo_informes", "pendencia", "entrevista", "na_base", "socios"],
+  agenda: ["nome", "responsavel", "equipe", "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas", "no_shows"],
   // A visão da Jusy/Isabela: a história financeira em linha — sinal → o que já
   // entrou → parcelas → o que falta → cancelamento (ordem decidida em 14/07).
   financeiro: ["nome", "origem", "sinal_pago_em", "recebido", "parcelas", "saldo", "situacao_hotmart", "ultimo_pagamento", "forma_obs", "cancelado", "hotmart_cancelado", "cancelamento_em"],
   // A auditoria: as colunas do XLSX, na mesma ordem (+ a Turma atual, editável).
-  tudo: ["nome", "telefone", "email", "etapa", "esteira", "dias", "responsavel", "entrada", "turma_origem", "turma",
+  tudo: ["nome", "telefone", "email", "etapa", "esteira", "dias", "responsavel", "equipe", "entrada", "turma_origem", "turma",
     "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas",
     "no_shows", "sinal_pago_em", "sinal_valor", "meio", "previsao", "acordo", "link", "saldo", "credito", "valor_total", "recebido", "parcelas", "ultimo_pagamento", "pagamento_em",
     "apto", "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa", "pendencia", "nao_contatar", "revisar",
@@ -837,6 +838,40 @@ export default function HmTabelaPage() {
           )}
         </div>
       ),
+    },
+    // A equipe dona do card (0140) — o MESMO vocabulário do board: SeloEquipe
+    // resolve cor nula (cinza padrão, o selo não some) e o contraste do texto
+    // (WCAG sobre a cor livre do picker). Pool de verdade (sem equipe E sem
+    // dono) ganha o selo tracejado do board — "livre" é um estado deliberado,
+    // não célula vazia. Com dono mas sem equipe (legado), aí sim "—".
+    equipe: {
+      id: "equipe", label: "Equipe",
+      sortVal: (l) => l.equipe_nome?.toLowerCase() ?? null,
+      render: (l) => {
+        const temEquipe = !!(l.equipe_id || l.equipe_nome);
+        if (temEquipe) {
+          return (
+            <SeloEquipe
+              nome={l.equipe_nome ?? "Equipe"}
+              cor={l.equipe_cor}
+              abreviado={false}
+              title={`Equipe: ${l.equipe_nome ?? "—"}${l.responsavel_id ? "" : " (canal roteado — sem dono ainda)"}`}
+            />
+          );
+        }
+        if (!l.responsavel_id) {
+          return (
+            <span
+              className="inline-flex items-center gap-0.5 rounded border border-dashed border-teal-400 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 dark:border-teal-500/50 dark:text-teal-300"
+              title="Card do pool — sem equipe e sem dono. Abra a ficha e clique em “Atribuir a mim” para assumir."
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+              Pool · livre
+            </span>
+          );
+        }
+        return <span className="text-slate-300 dark:text-slate-600">—</span>;
+      },
     },
     entrada: {
       id: "entrada", label: "Entrada",
