@@ -14,9 +14,11 @@ const VISOES = [
   { id: "tabela", label: "Tabela", rota: "/hm/tabela" },
   { id: "reunioes", label: "Reuniões", rota: "/hm/reunioes" },
   { id: "atividade", label: "Atividade", rota: "/hm/atividade" },
+  // Config de equipes — só aparece para quem vê tudo (GP/admin), via podeConfig.
+  { id: "equipes", label: "Equipes", rota: "/hm/equipes" },
 ] as const;
 
-export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela" | "atividade" | "reunioes"; filtros: FiltrosVisaoHm }) {
+export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tabela" | "atividade" | "reunioes" | "equipes"; filtros: FiltrosVisaoHm; podeConfig?: boolean }) {
   // Filtro multi-valor = parâmetro repetido (?canal=A&canal=B) — o formato que
   // as rotas leem com getAll.
   const params = new URLSearchParams();
@@ -27,7 +29,7 @@ export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela" | "ativ
 
   return (
     <div className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800/80">
-      {VISOES.map((v) => {
+      {VISOES.filter((v) => v.id !== "equipes" || podeConfig).map((v) => {
         const ativa = v.id === atual;
         const cls = cn(
           "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
@@ -42,6 +44,8 @@ export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela" | "ativ
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
           ) : v.id === "reunioes" ? (
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+          ) : v.id === "equipes" ? (
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
           ) : (
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="M7 14l3-3 3 3 5-6" /></svg>
           );

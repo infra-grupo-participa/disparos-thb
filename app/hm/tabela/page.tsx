@@ -388,8 +388,9 @@ const PRESETS: Record<VisaoId, string[]> = {
 
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
-  const { podeDisparar: podeDisparaFn } = useMe();
+  const { podeDisparar: podeDisparaFn, podeVerTudo } = useMe();
   const podeDisparar = podeDisparaFn("HM");
+  const podeConfigEquipes = podeVerTudo();
   const [linhas, setLinhas] = useState<LinhaEsteira[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
@@ -1353,7 +1354,7 @@ export default function HmTabelaPage() {
         <div className="flex items-center gap-2">
           {/* Cadastrar à mão — quem o seed não pegou, ou quem entra por fora. */}
           <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
-          <HmVisao atual="tabela" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} />
+          <HmVisao atual="tabela" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
           {/* O XLSX é o mesmo relatório desta tela — mesmos filtros, mesma função. */}
           <a href={`/api/hm/kanban/export?${paramsFiltro.toString()}`} title="Baixar o relatório da esteira (resumo + uma aba por etapa)">
             <Button variant="secondary" size="sm">Esteira .xlsx</Button>

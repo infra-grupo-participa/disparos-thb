@@ -256,8 +256,9 @@ function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
 }
 
 export default function HmKanbanPage() {
-  const { podeDisparar: podeDisparaFn } = useMe();
+  const { podeDisparar: podeDisparaFn, podeVerTudo } = useMe();
   const podeDisparar = podeDisparaFn("HM");
+  const podeConfigEquipes = podeVerTudo();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [socios, setSocios] = useState<Socio[]>([]);
@@ -561,7 +562,7 @@ export default function HmKanbanPage() {
           {/* Cadastrar à mão — quem o seed não pegou, ou quem entra por fora. */}
           <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
           {/* A outra leitura da mesma esteira — os filtros viajam na URL */}
-          <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} />
+          <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
           {/* Relatório da esteira inteira — sai com os filtros que estão valendo */}
           <a href={`/api/hm/kanban/export?${paramsFiltro.toString()}`} title="Baixar o relatório da esteira (resumo + uma aba por etapa)">
             <Button variant="secondary" size="sm">Esteira .xlsx</Button>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, Spinner, cn } from "@/app/_components/ui";
 import { MarcaPortal } from "@/app/_components/marca";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
+import { useMe } from "@/app/_components/use-me";
 
 // Relatório de reuniões (C1). Vincula as marcações de reunião (Comercial) e
 // entrevista (Ativação) de todos os cards numa lista só: quando, com quem,
@@ -48,6 +49,7 @@ function diaKey(d: Date | null): string {
 type Quando = "proximas" | "passadas" | "todas";
 
 export default function HmReunioesPage() {
+  const { podeVerTudo } = useMe();
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [quando, setQuando] = useState<Quando>("proximas");
@@ -132,7 +134,7 @@ export default function HmReunioesPage() {
             As reuniões e entrevistas em uma lista — com responsável, resultado, remarcações e a gravação.
           </p>
         </div>
-        <HmVisao atual="reunioes" filtros={{}} />
+        <HmVisao atual="reunioes" filtros={{}} podeConfig={podeVerTudo()} />
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">

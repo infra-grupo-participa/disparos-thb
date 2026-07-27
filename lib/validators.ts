@@ -44,6 +44,29 @@ export const UsuarioPatchSchema = z.object({
   ativo: z.boolean().optional(),
 });
 
+// Cor em hex (#rrggbb) — usada por equipes (0140) e pelo catálogo de tags.
+const corHex = z.string().regex(/^#[0-9a-fA-F]{6}$/, "cor em hex (#rrggbb)");
+
+// ----- Equipes (HM, 0140) -----
+export const EquipeCriarSchema = z.object({
+  nome: z.string().trim().min(2),
+  cor: corHex.default("#64748b"),
+});
+export const EquipePatchSchema = z.object({
+  nome: z.string().trim().min(2).optional(),
+  cor: corHex.optional(),
+  ativo: z.boolean().optional(),
+});
+export const EquipeMembroSchema = z.object({
+  usuario_id: z.string().uuid(),
+  acao: z.enum(["vincular", "remover"]).default("vincular"),
+  papel: z.enum(["admin", "disparador", "operador"]).optional(),
+});
+export const EquipeRotaSchema = z.object({
+  canal: z.string().trim().min(1),
+  equipe_id: z.string().uuid().nullable(),
+});
+
 // Troca de senha: admin reseta (só novaSenha) ou o próprio usuário troca
 // (atualSenha + novaSenha — validado na rota).
 export const SenhaSchema = z.object({
@@ -258,9 +281,7 @@ export const HmLoteSchema = z.object({
   removeTag: z.string().trim().min(1).optional(),
 });
 
-// ----- Catálogo de tags do HM (cs.tags, 0067) -----
-const corHex = z.string().regex(/^#[0-9a-fA-F]{6}$/, "cor em hex (#rrggbb)");
-
+// ----- Catálogo de tags do HM (cs.tags, 0067) — corHex definido acima -----
 export const HmTagCriarSchema = z.object({
   nome: z.string().trim().min(2).max(40),
   cor: corHex.nullable().optional(),

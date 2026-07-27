@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { MarcaPortal } from "@/app/_components/marca";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
+import { useMe } from "@/app/_components/use-me";
 
 // Registro de atividade por colaborador (A1). Responde "quem fez o quê" na
 // esteira HM no período — movimentações, notas, disparos e as demais ações
@@ -40,6 +41,7 @@ function isoDia(offset = 0): string {
 }
 
 export default function HmAtividadePage() {
+  const { podeVerTudo } = useMe();
   const [de, setDe] = useState(isoDia(-30));
   const [ate, setAte] = useState(isoDia(0));
   const [linhas, setLinhas] = useState<Colaborador[]>([]);
@@ -90,7 +92,7 @@ export default function HmAtividadePage() {
             O que cada colaborador fez na esteira — movimentações, notas, disparos e as demais ações assinadas.
           </p>
         </div>
-        <HmVisao atual="atividade" filtros={{}} />
+        <HmVisao atual="atividade" filtros={{}} podeConfig={podeVerTudo()} />
       </div>
 
       {/* Período */}
