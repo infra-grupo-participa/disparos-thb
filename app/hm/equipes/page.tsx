@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
+import { Button, Card, EmptyState, Spinner, cn, fieldClass, fieldCompactClass } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
 import { MarcaPortal } from "@/app/_components/marca";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
@@ -135,51 +135,59 @@ export default function HmEquipesPage() {
                       {membrosEq.length} {membrosEq.length === 1 ? "pessoa" : "pessoas"}
                     </span>
                   </div>
-                  {/* Membros desta equipe */}
+                  {/* Membros desta equipe. Layout em 2 linhas por pessoa: identidade
+                      em cima (avatar + nome/email, ocupa a largura), ações embaixo
+                      (cargo + líder + remover) — evita o select cobrir o texto e dá ar. */}
                   <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
                     {membrosEq.map((u) => (
-                      <div key={u.id} className="flex items-center gap-2.5 px-3 py-2">
-                        <Avatar nome={u.nome} className="h-8 w-8 shrink-0 text-xs" />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{u.nome}</span>
-                            {eq.tipo === "comum" && u.lider_equipe && (
-                              <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-px text-[9px] font-bold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" title="Líder desta equipe">
-                                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
-                                líder
-                              </span>
-                            )}
+                      <div key={u.id} className="px-3 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar nome={u.nome} className="h-9 w-9 shrink-0 text-xs" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{u.nome}</span>
+                              {eq.tipo === "comum" && u.lider_equipe && (
+                                <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" title="Líder desta equipe">
+                                  <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
+                                  líder
+                                </span>
+                              )}
+                            </div>
+                            <span className="block truncate text-xs text-slate-400 dark:text-slate-500">{u.email}</span>
                           </div>
-                          <span className="truncate text-xs text-slate-400">{u.email}</span>
+                          {/* Ações à direita, agrupadas e sempre visíveis */}
+                          <div className="flex shrink-0 items-center gap-0.5">
+                            {eq.tipo === "comum" && (
+                              <button
+                                type="button"
+                                onClick={() => membro(eq.id, u.id, "vincular", undefined, !u.lider_equipe)}
+                                title={u.lider_equipe ? "Tirar como líder da equipe" : "Tornar líder desta equipe (distribui cards entre os operadores dela)"}
+                                className={cn("rounded-md p-1.5 transition",
+                                  u.lider_equipe
+                                    ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10"
+                                    : "text-slate-300 hover:bg-slate-100 hover:text-amber-400 dark:text-slate-600 dark:hover:bg-slate-800")}
+                              >
+                                <svg className="h-4 w-4" viewBox="0 0 24 24" fill={u.lider_equipe ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
+                              </button>
+                            )}
+                            <button onClick={() => membro(eq.id, u.id, "remover")} className="rounded-md p-1.5 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-600 dark:hover:bg-rose-500/10" title="Tirar da equipe">
+                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                            </button>
+                          </div>
                         </div>
-                        {/* Cargo */}
-                        <select
-                          value={u.papel}
-                          onChange={(e) => membro(eq.id, u.id, "vincular", e.target.value as Papel)}
-                          className={cn(fieldClass, "h-7 w-auto py-0 text-xs")}
-                          title="Cargo do membro"
-                        >
-                          <option value="operador">Operador</option>
-                          <option value="disparador">Operador de disparos</option>
-                          <option value="admin">Administrador</option>
-                        </select>
-                        {/* Líder: botão-estrela claro (só em equipe comum) */}
-                        {eq.tipo === "comum" && (
-                          <button
-                            type="button"
-                            onClick={() => membro(eq.id, u.id, "vincular", undefined, !u.lider_equipe)}
-                            title={u.lider_equipe ? "Tirar como líder da equipe" : "Tornar líder desta equipe (distribui cards entre os operadores dela)"}
-                            className={cn("shrink-0 rounded-md p-1 transition",
-                              u.lider_equipe
-                                ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10"
-                                : "text-slate-300 hover:bg-slate-100 hover:text-amber-400 dark:text-slate-600 dark:hover:bg-slate-800")}
+                        {/* Cargo: linha própria, alinhada ao texto (depois do avatar) */}
+                        <div className="mt-1.5 pl-[calc(2.25rem+0.625rem)]">
+                          <select
+                            value={u.papel}
+                            onChange={(e) => membro(eq.id, u.id, "vincular", e.target.value as Papel)}
+                            className={cn(fieldCompactClass, "h-7 py-0 text-xs")}
+                            title="Cargo do membro"
                           >
-                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill={u.lider_equipe ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
-                          </button>
-                        )}
-                        <button onClick={() => membro(eq.id, u.id, "remover")} className="shrink-0 rounded-md p-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-600 dark:hover:bg-rose-500/10" title="Tirar da equipe">
-                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                        </button>
+                            <option value="operador">Operador</option>
+                            <option value="disparador">Operador de disparos</option>
+                            <option value="admin">Administrador</option>
+                          </select>
+                        </div>
                       </div>
                     ))}
                     {membrosEq.length === 0 && (
@@ -209,7 +217,8 @@ export default function HmEquipesPage() {
                       <select
                         defaultValue=""
                         onChange={(e) => { if (e.target.value) membro(e.target.value, u.id, "vincular"); }}
-                        className={cn(fieldClass, "h-7 w-auto py-0 text-xs")}
+                        className={cn(fieldCompactClass, "h-8 shrink-0 py-0 text-xs")}
+                        title="Adicionar esta pessoa a uma equipe"
                       >
                         <option value="">Adicionar à…</option>
                         {equipes.map((eq) => <option key={eq.id} value={eq.id}>{eq.nome}</option>)}
