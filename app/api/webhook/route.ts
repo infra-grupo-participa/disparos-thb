@@ -132,6 +132,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, matched: false, registrado: true });
   }
 
+  // 3) Card do HM (overlay isolado, fora de contatos_evento). O telefone vive em
+  // public.compradores; casa pelos últimos 10 dígitos (o webhook normaliza, a base
+  // pode ter formato diferente). registrarRespostaLead detecta o ramo HM sozinho.
+  const contatoHm = await queryOne<{ comprador_id: string }>(
+    `select comprador_id from cs.contatos_hm_kanban
+      where right(regexp_replace(coalesce(telefone,''), '[^0-9]', '', 'g'), 10) = right($1, 10)
+      limit 1`,
+    [tel],
+  );
+  if (contatoHm) {
+    await registrarRespostaLead(contatoHm.comprador_id, desc, null, optOut);
+    await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "registrado_hm_sem_disparo", payload: body });
+    return NextResponse.json({ ok: true, matched: false, registrado: true });
+  }
+
   await logWebhook({ origem, telefoneRaw, telefoneNorm: tel, resultado: "telefone_nao_encontrado", payload: body });
   return NextResponse.json({ ok: true, matched: false, registrado: false });
 }

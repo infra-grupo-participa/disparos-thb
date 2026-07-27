@@ -77,6 +77,10 @@ function Avatar({ nome, size = "md" }: { nome: string; size?: "sm" | "md" }) {
 
 export default function InboxPage() {
   const { evento, nome } = usePortal();
+  // O HM vive num overlay isolado (cs.contatos_hm) e tem rotas de inbox próprias
+  // (/api/hm/inbox*). Os demais portais usam as genéricas. A tela é a MESMA — só o
+  // prefixo dos endpoints de inbox muda. Templates/send já tratam evento por si.
+  const inboxBase = evento === "HM" ? "/api/hm/inbox" : "/api/inbox";
   const [conversas, setConversas] = useState<Conversa[]>([]);
   const [pendentes, setPendentes] = useState(0);
   const [filtro, setFiltro] = useState<"pendente" | "" | "resolvido">("pendente");
@@ -121,11 +125,13 @@ export default function InboxPage() {
 
   const carregarConversas = useCallback(async () => {
     const qs = modoDisparo ? `&disparo=${modoDisparo}` : (filtro ? `&status=${filtro}` : "");
-    const r = await fetch(`/api/inbox?evento=${evento}${qs}`);
+    const r = await fetch(`${inboxBase}?evento=${evento}${qs}`);
     const d = await r.json();
     if (d.ok) { setConversas(d.conversas); setPendentes(d.pendentes ?? 0); }
-  }, [filtro, evento, modoDisparo]);
+  }, [filtro, evento, modoDisparo, inboxBase]);
   const carregarMetricas = useCallback(async () => {
+    // Métricas de atendimento ainda não existem para o HM (overlay próprio) — adiado.
+    if (evento === "HM") { setMetricas(null); return; }
     const r = await fetch(`/api/inbox/metricas?evento=${evento}`);
     const d = await r.json();
     if (d.ok) setMetricas(d);
@@ -149,22 +155,22 @@ export default function InboxPage() {
     setSel(c); setMensagens([]); setAviso(null); setJanela(null); setTplSel(""); setCarregandoMsg(true);
     ultimaMsgRef.current = c.ultima_msg_em; // sincroniza: abrir já traz o thread
     try {
-      const r = await fetch(`/api/inbox/${c.comprador_id}`);
+      const r = await fetch(`${inboxBase}/${c.comprador_id}`);
       const d = await r.json();
       if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); setJanela(d.janela ?? null); }
     } finally { setCarregandoMsg(false); }
-  }, []);
+  }, [inboxBase]);
 
   // Recarrega SÓ as mensagens da conversa aberta, sem limpar a tela nem mostrar
   // spinner — é o refresh silencioso do polling quando o lead responde, para não
   // piscar a conversa a cada ciclo.
   const recarregarThread = useCallback(async (compradorId: string) => {
     try {
-      const r = await fetch(`/api/inbox/${compradorId}`);
+      const r = await fetch(`${inboxBase}/${compradorId}`);
       const d = await r.json();
       if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); setJanela(d.janela ?? null); }
     } catch { /* silencioso: é atualização de fundo */ }
-  }, []);
+  }, [inboxBase]);
 
   // Janela fechada (ou lead nunca respondeu): a única forma de (re)abrir a
   // conversa é um template aprovado. Reusa /api/send (cria contato + envia +
@@ -265,7 +271,7 @@ export default function InboxPage() {
     // Otimista: mostra a mensagem na hora, sem esperar o ida-e-volta à Unnichat.
     setMensagens((m) => [...m, { id: tmpId, de: "cs", tipo: "message", texto: txt, data: new Date().toISOString() }]);
     try {
-      const r = await fetch(`/api/inbox/${sel.comprador_id}`, {
+      const r = await fetch(`${inboxBase}/${sel.comprador_id}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto: txt, atendente: atendente || undefined }),
       });
       const d = await r.json();
@@ -289,7 +295,7 @@ export default function InboxPage() {
   }
 
   async function resolver(c: Conversa, status: "resolvido" | "pendente") {
-    await fetch(`/api/inbox/${c.comprador_id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    await fetch(`${inboxBase}/${c.comprador_id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
     if (sel?.comprador_id === c.comprador_id) setSel({ ...sel, inbox_status: status });
     await carregarConversas();
     await carregarMetricas();
