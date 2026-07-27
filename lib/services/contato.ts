@@ -12,26 +12,38 @@ export type { AtribuicaoErro, AtribuicaoResultado, DestinoAtribuicao } from "@/l
 // Serviço de Contato (CRM): regras de negócio reutilizadas pelas rotas (detalhe,
 // Kanban, lote). Queries type-safe via Drizzle sobre o pool pg existente.
 
-async function contatoIdDe(compradorId: string): Promise<string | null> {
-  const [c] = await getDb().select({ id: contatos.id }).from(contatos).where(eq(contatos.compradorId, compradorId)).limit(1);
+// TODA leitura/escrita em cs.contatos é escopada por (comprador_id, evento):
+// a tabela tem UMA linha por comprador POR EVENTO (0019) — sem o evento, um
+// UPDATE "por comprador" atravessa o isolamento de portal e escreve na linha
+// do HT a partir do portal SEM (e vice-versa). O evento vem da rota, que já o
+// validou no guard({ portal }) — o que se valida é o que se escreve.
+async function contatoIdDe(compradorId: string, evento: string): Promise<string | null> {
+  const [c] = await getDb()
+    .select({ id: contatos.id })
+    .from(contatos)
+    .where(and(eq(contatos.compradorId, compradorId), eq(contatos.evento, evento)))
+    .limit(1);
   return c?.id ?? null;
 }
 
-// Move o contato de etapa (valida etapa ativa) e registra na timeline com os
-// estágios anterior/novo. Retorna false se a etapa não existe/está inativa.
-export async function moverEstagio(compradorId: string, estagioChave: string, autor = "cs"): Promise<boolean> {
+// Move o contato de etapa (valida etapa ativa DO EVENTO) e registra na timeline
+// com os estágios anterior/novo. Retorna false se a etapa não existe/está
+// inativa. Escopado por evento nas DUAS pontas: o estágio (cs.estagios tem
+// chaves por evento) e a linha do contato (uma por evento — sem isto o LIMIT 1
+// podia mover a linha do evento errado, em silêncio).
+export async function moverEstagio(compradorId: string, evento: string, estagioChave: string, autor = "cs"): Promise<boolean> {
   const db = getDb();
   const [novo] = await db
     .select({ id: estagios.id, nome: estagios.nome })
     .from(estagios)
-    .where(and(eq(estagios.chave, estagioChave), eq(estagios.ativo, true)))
+    .where(and(eq(estagios.chave, estagioChave), eq(estagios.ativo, true), eq(estagios.evento, evento)))
     .limit(1);
   if (!novo) return false;
 
   const [c] = await db
     .select({ id: contatos.id, estagioId: contatos.estagioId })
     .from(contatos)
-    .where(eq(contatos.compradorId, compradorId))
+    .where(and(eq(contatos.compradorId, compradorId), eq(contatos.evento, evento)))
     .limit(1);
   if (!c) return false;
 
@@ -47,45 +59,23 @@ export async function moverEstagio(compradorId: string, estagioChave: string, au
   return true;
 }
 
-export async function setTags(compradorId: string, tags: string[]) {
-  await getDb().update(contatos).set({ tags, atualizadoEm: sql`now()` }).where(eq(contatos.compradorId, compradorId));
+export async function setTags(compradorId: string, evento: string, tags: string[]) {
+  await getDb()
+    .update(contatos)
+    .set({ tags, atualizadoEm: sql`now()` })
+    .where(and(eq(contatos.compradorId, compradorId), eq(contatos.evento, evento)));
 }
 
-export async function addTagEmLote(compradorIds: string[], tag: string) {
+export async function addTagEmLote(compradorIds: string[], evento: string, tag: string) {
   await getDb()
     .update(contatos)
     .set({ tags: sql`array_append(${contatos.tags}, ${tag})`, atualizadoEm: sql`now()` })
-    .where(and(inArray(contatos.compradorId, compradorIds), sql`not (${tag} = any(${contatos.tags}))`));
+    .where(and(inArray(contatos.compradorId, compradorIds), eq(contatos.evento, evento), sql`not (${tag} = any(${contatos.tags}))`));
 }
 
-// Atribui (ou reatribui) o responsável de um ou mais contatos e registra a
-// mudança na timeline de cada um — controle de quem passou a responder por quem.
-// Só loga os contatos cujo responsável de fato mudou.
-export async function setResponsavel(compradorIds: string[], responsavel: string | null, autor = "cs") {
-  const db = getDb();
-  const antes = await db
-    .select({ id: contatos.id, compradorId: contatos.compradorId, responsavel: contatos.responsavel })
-    .from(contatos)
-    .where(inArray(contatos.compradorId, compradorIds));
-
-  await db.update(contatos).set({ responsavel, atualizadoEm: sql`now()` }).where(inArray(contatos.compradorId, compradorIds));
-
-  const novo = responsavel?.trim() || null;
-  for (const c of antes) {
-    const anterior = c.responsavel?.trim() || null;
-    if (anterior === novo) continue;
-    await db.insert(interacoes).values({
-      contatoId: c.id,
-      tipo: "sistema",
-      descricao: novo
-        ? anterior
-          ? `Responsável alterado de "${anterior}" para "${novo}"`
-          : `Responsável atribuído: "${novo}"`
-        : `Responsável removido (era "${anterior}")`,
-      autor,
-    });
-  }
-}
+// (O legado `setResponsavel` por NOME foi REMOVIDO: escrevia em TODOS os
+// eventos do comprador — o caminho vivo é setResponsavelPorId/atribuirResponsavel,
+// escopados por evento e pela hierarquia. Não reintroduzir um writer sem evento.)
 
 // ===== Equipes / visibilidade nos portais genéricos (0146) ==================
 // O espelho do que lib/services/hm.ts faz para o HM, sobre cs.contatos. A
@@ -265,13 +255,16 @@ export async function atribuirResponsavel(
   return { ok: true };
 }
 
-export async function setOptOut(compradorId: string, optOut: boolean) {
+// Opt-out é POR EVENTO (a linha de cs.contatos é por portal): marcar/desmarcar
+// no SEM não pode silenciar nem reabilitar disparo no HT — cruzar isso é
+// exatamente o tipo de escrita que viola a decisão do lead em outro portal.
+export async function setOptOut(compradorId: string, evento: string, optOut: boolean) {
   const db = getDb();
   await db
     .update(contatos)
     .set({ optOut, optOutEm: optOut ? sql`now()` : null, atualizadoEm: sql`now()` })
-    .where(eq(contatos.compradorId, compradorId));
-  const contatoId = await contatoIdDe(compradorId);
+    .where(and(eq(contatos.compradorId, compradorId), eq(contatos.evento, evento)));
+  const contatoId = await contatoIdDe(compradorId, evento);
   if (contatoId) {
     await db.insert(interacoes).values({
       contatoId,
@@ -291,6 +284,10 @@ export async function sincronizarTagsEdicao(): Promise<number> {
         set tags = array_append(ct.tags, v.edicao), atualizado_em = now()
        from cs.contatos_ht v
       where v.comprador_id = ct.comprador_id
+        -- Só a linha do HT: a edição (HT27…) vem de cs.contatos_ht — sem este
+        -- filtro a tag da turma vazava para a linha do MESMO comprador em outro
+        -- portal (SEM/CNHF), corrompendo a segmentação de lá.
+        and ct.evento = 'HT'
         and v.edicao is not null and v.edicao <> ''
         and not (v.edicao = any(ct.tags))
       returning ct.id`,

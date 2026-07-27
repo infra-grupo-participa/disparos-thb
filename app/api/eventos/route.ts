@@ -70,6 +70,10 @@ export async function POST(req: Request) {
           set tags = array_append(ct.tags, $2), atualizado_em = now()
          from cs.contatos_ht v
         where v.comprador_id = ct.comprador_id
+          -- Só a linha do HT: o match é via cs.contatos_ht (funil do HT) e a
+          -- linha de cs.contatos é por (comprador, evento) — sem o filtro a tag
+          -- vazava para a linha do mesmo comprador em outro portal (SEM/CNHF).
+          and ct.evento = 'HT'
           and right(regexp_replace(coalesce(v.telefone, ''), '[^0-9]', '', 'g'), 6) = any($1::text[])
           and not ($2 = any(ct.tags))
         returning ct.id`,
@@ -109,10 +113,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, matched: false });
   }
 
-  await addTagEmLote([contato.comprador_id], cfg.tag);
+  // Evento 'HT' fixo: o match acima é via cs.contatos_ht — tag e marco de
+  // timeline pertencem à linha do HT, não às dos outros portais do comprador.
+  await addTagEmLote([contato.comprador_id], "HT", cfg.tag);
   await query(
     `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-     select id, 'sistema', $2, 'make' from cs.contatos where comprador_id = $1`,
+     select id, 'sistema', $2, 'make' from cs.contatos where comprador_id = $1 and evento = 'HT'`,
     [contato.comprador_id, cfg.descricao({ grupo: body.grupo })],
   );
 

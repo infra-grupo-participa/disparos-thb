@@ -142,7 +142,9 @@ export async function PATCH(req: Request) {
   if (!(await podeVerContato(g.sessao, p.data.compradorId, evento))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }
-  const ok = await moverEstagio(p.data.compradorId, p.data.estagioChave, g.sessao.nome || "cs");
+  // O MESMO evento validado no guard acima escopa a escrita: cs.contatos tem
+  // uma linha por (comprador, evento) — sem ele, o move vazava para outro portal.
+  const ok = await moverEstagio(p.data.compradorId, evento, p.data.estagioChave, g.sessao.nome || "cs");
   if (!ok) return NextResponse.json({ ok: false, reason: "estagio_invalido" }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

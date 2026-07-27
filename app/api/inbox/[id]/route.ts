@@ -122,9 +122,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // pode ter vindo de um falso positivo do classificador (o lead escreveu algo
   // curto que pareceu "pare"); nesse caso o operador desfaz na ficha do contato,
   // conscientemente, e volta a conversar.
+  // Escopado por evento: a linha de cs.contatos é por (comprador, evento) e a
+  // intenção aqui é "NESTE portal ele pediu para parar?" — sem o filtro, o
+  // LIMIT implícito do queryOne podia ler a linha de OUTRO portal e deixar sair
+  // mensagem para quem deu opt-out aqui (ou bloquear quem não deu).
   const bloqueado = await queryOne<{ opt_out: boolean }>(
-    `select opt_out from cs.contatos where comprador_id = $1`,
-    [c.comprador_id],
+    `select opt_out from cs.contatos where comprador_id = $1 and evento = $2`,
+    [c.comprador_id, c.evento],
   );
   if (bloqueado?.opt_out) {
     return NextResponse.json(
@@ -147,11 +151,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // Fecha a pendência + grava o atendimento com o FRT (serviço de atendimento).
   const frtMin = await registrarRespostaCS(c.comprador_id, atendente);
 
-  // Registra a resposta na timeline (com o atendente).
+  // Registra a resposta na timeline (com o atendente) — na linha DESTE evento
+  // (sem o filtro, entrava uma nota por portal em que o comprador existe).
   await query(
     `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-     select id, 'nota', $2, $3 from cs.contatos where comprador_id = $1`,
-    [c.comprador_id, `CS respondeu: ${texto.slice(0, 200)}`, atendente || "cs"],
+     select id, 'nota', $2, $3 from cs.contatos where comprador_id = $1 and evento = $4`,
+    [c.comprador_id, `CS respondeu: ${texto.slice(0, 200)}`, atendente || "cs", c.evento],
   );
 
   return NextResponse.json({ ok: true, frt_minutos: frtMin });

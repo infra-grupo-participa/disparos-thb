@@ -1,4 +1,5 @@
 import { query } from "@/lib/db";
+import { HM_ESTAGIOS_CANCELAMENTO } from "@/lib/services/hm";
 
 // A esteira HM inteira, uma linha por aluno, pronta para virar relatório. É a
 // mesma leitura do board — mesmos filtros, mesma ordem das colunas e dos cards —
@@ -205,7 +206,8 @@ function colunaDoSocio(status: SocioEsteira["status"]): string {
 export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
   const lista = (v?: string[] | null) => (v && v.length ? v : null);
   const p = [lista(f.responsavel), lista(f.canal), lista(f.turma), f.estagio || null,
-             f.verTudo ?? false, f.usuarioId ?? null, f.equipeId ?? null];
+             f.verTudo ?? false, f.usuarioId ?? null, f.equipeId ?? null,
+             HM_ESTAGIOS_CANCELAMENTO];
 
   const colunas = await query<ColunaHm>(
     `select e.chave, e.nome, e.cor, e.aba, e.ordem
@@ -280,6 +282,11 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
              or (k.responsavel_id is null and k.equipe_id is null)
              or k.responsavel_id = $6::uuid
              or k.equipe_id = $7::uuid)
+        -- Cancelados (Reclamada/Reembolsado, $8) são acesso SÓ do master, como
+        -- nas rotas unitárias (403 na ficha): quem não vê tudo não recebe a
+        -- LINHA — financeiro, motivo e reembolso não saem em XLSX nem na tabela.
+        -- coalesce: card sem estágio não é cancelado — não pode sumir por null.
+        and ($5::boolean or coalesce(k.estagio_chave, '') <> all($8::text[]))
       order by est.ordem, ch.ordem, k.nome`,
     p,
   );

@@ -48,7 +48,8 @@ export async function POST(req: Request) {
     .map((compradorId) => ({ compradorId, motivo: "sem acesso a este card" }));
   const ids = b.compradorIds.filter((id) => visiveis.has(id));
 
-  if (b.addTag && b.addTag.trim() && ids.length) await addTagEmLote(ids, b.addTag.trim());
+  // Escopado pelo MESMO evento do guard: a tag entra só na linha deste portal.
+  if (b.addTag && b.addTag.trim() && ids.length) await addTagEmLote(ids, evento, b.addTag.trim());
 
   // Responsável em lote — caminho legado por NOME, um a um, pela hierarquia
   // (master: qualquer um; gestor: só a própria equipe; operador: só assume p/ si).

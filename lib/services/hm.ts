@@ -662,7 +662,13 @@ export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): 
   if (!k) return true; // inexistente → deixa o 404 acontecer no fluxo normal
   const ehPool = k.responsavel_id === null && k.equipe_id === null;
   if (ehPool) return true;
-  return escopo.modo === "equipe" ? k.equipe_id === escopo.equipeId : k.responsavel_id === escopo.usuarioId;
+  // `equipe_id !== null` de propósito: gestor sem equipe (equipeId null) não
+  // pode casar com card de equipe nula — "null === null" viraria vazamento.
+  // (O WHERE das listagens já falha fechado: NULL = NULL é unknown em SQL; o
+  // furo era só aqui, em JS. Mesma proteção do podeVerContato em contato.ts.)
+  return escopo.modo === "equipe"
+    ? k.equipe_id !== null && k.equipe_id === escopo.equipeId
+    : k.responsavel_id === escopo.usuarioId;
 }
 
 // Colunas de cancelamento — Reclamada (pedido) e Reembolsado (fato).

@@ -36,6 +36,11 @@ export type RelatorioFinanceiroHm = {
 };
 
 export async function relatorioFinanceiroHm(f: FiltrosHm): Promise<RelatorioFinanceiroHm> {
+  // SEGURANÇA herdada de relatorioHm: com verTudo=false, cards em cancelamento
+  // (Reclamada/Reembolsado) NÃO vêm em `linhas` — e como o razão abaixo sai dos
+  // ids de `linhas`, os pagamentos deles também não. A aba "Cancelamentos" do
+  // XLSX só existe para o master. Nunca consultar cs.hm_pagamentos por fora
+  // desses ids: seria reabrir o vazamento com outra roupa.
   const r = await relatorioHm(f);
   const ids = r.linhas.map((l) => l.comprador_id);
 

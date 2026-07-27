@@ -33,7 +33,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
             v.legado_t_primeiro_contato_h, v.legado_t_ativacao_h,
             ct.tags, ct.opt_out, ct.opt_out_em
        from cs.contatos_evento v
-       left join cs.contatos ct on ct.comprador_id = v.comprador_id
+       -- ct.evento = v.evento: cs.contatos tem uma linha por (comprador, evento);
+       -- sem o filtro, tags/opt_out podiam vir da linha de OUTRO portal.
+       left join cs.contatos ct on ct.comprador_id = v.comprador_id and ct.evento = v.evento
       where v.comprador_id = $1 and v.evento = $2`,
 
     [compradorId, evento],
@@ -106,8 +108,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }
 
+  // TODA escrita abaixo é escopada pelo MESMO `evento` validado no guard: a
+  // linha de cs.contatos é por (comprador, evento) e o PATCH de um portal não
+  // pode escrever na linha de outro (isolamento de portais).
   // mudança de estágio (com log na timeline) — via serviço de contato
-  if (b.estagio_chave) await moverEstagio(compradorId, b.estagio_chave, operador);
+  if (b.estagio_chave) await moverEstagio(compradorId, evento, b.estagio_chave, operador);
 
   // campos de follow-up / observações (atualiza só os enviados)
   await query(
@@ -116,17 +121,18 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
             proxima_acao_nota = coalesce($3, proxima_acao_nota),
             observacoes       = coalesce($4, observacoes),
             atualizado_em     = now()
-      where comprador_id = $1`,
+      where comprador_id = $1 and evento = $5`,
     [
       compradorId,
       b.proxima_acao_em === undefined ? null : (b.proxima_acao_em ?? ""),
       b.proxima_acao_nota ?? null,
       b.observacoes ?? null,
+      evento,
     ],
   );
 
   // tags / responsável / opt-out (atualiza só os campos enviados) — via serviço
-  if (b.tags !== undefined) await setTags(compradorId, b.tags);
+  if (b.tags !== undefined) await setTags(compradorId, evento, b.tags);
   // Responsável pela HIERARQUIA (atribuirResponsavel, 0146) — o análogo do furo 5
   // que o HM fechou: o texto livre por nome contornava toda a regra de equipes.
   //   master → qualquer um; gestor → só membro da própria equipe; operador → só
@@ -141,14 +147,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       return NextResponse.json({ ok: false, reason: r.reason }, { status });
     }
   }
-  if (b.opt_out !== undefined) await setOptOut(compradorId, b.opt_out);
+  if (b.opt_out !== undefined) await setOptOut(compradorId, evento, b.opt_out);
 
-  // nota manual na timeline
+  // nota manual na timeline — na linha DESTE evento (sem o filtro, entrava uma
+  // nota por portal em que o comprador existe).
   if (b.nota && b.nota.trim()) {
     await query(
       `insert into cs.interacoes (contato_id, tipo, descricao, autor)
-       select id, 'nota', $2, $3 from cs.contatos where comprador_id = $1`,
-      [compradorId, b.nota.trim(), operador],
+       select id, 'nota', $2, $3 from cs.contatos where comprador_id = $1 and evento = $4`,
+      [compradorId, b.nota.trim(), operador, evento],
     );
   }
 
