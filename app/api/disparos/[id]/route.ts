@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
+import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+export async function GET(req: Request, { params }: { params: { id: string } }) {
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const disparo = await queryOne(
     `select d.id, d.status, d.fase, d.total_enviados, d.total_respondidos, d.total_contatos_criados,

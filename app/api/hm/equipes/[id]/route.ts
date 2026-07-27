@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeVerTudo } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, EquipePatchSchema } from "@/lib/validators";
 
@@ -10,11 +9,8 @@ export const runtime = "nodejs";
 // tipo (principal é única e definida no seed). Desativar não apaga: a rota do
 // canal e os cards seguem apontando, mas some do seletor.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeVerTudo(sessao.papel, sessao.equipe_tipo)) {
-    return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
-  }
+  const g = await guard({ portal: "HM", nivel: "master" });
+  if (!g.ok) return g.res;
   const p = await parseBody(req, EquipePatchSchema);
   if (!p.ok) return p.res;
 

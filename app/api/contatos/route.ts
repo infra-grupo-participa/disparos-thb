@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -8,9 +10,9 @@ export const runtime = "nodejs";
 // Lê a view curada cs.contatos_ht + tags do CS + lead score (termômetro).
 // Filtros: estagio, edicao, q, com_telefone, com_tag, sem_tag, faixa (frio|morno|quente).
 export async function GET(req: Request) {
-  if (!isAuthed()) {
-    return NextResponse.json({ ok: false, reason: "unauthorized" }, { status: 401 });
-  }
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const { searchParams } = new URL(req.url);
   const estagio = searchParams.get("estagio") || null;
@@ -20,6 +22,10 @@ export async function GET(req: Request) {
   const comTag = searchParams.get("com_tag") || null;
   const semTag = searchParams.get("sem_tag") || null;
   const faixa = searchParams.get("faixa") || null;
+
+  // Recorte de SEGURANÇA (0146): master vê tudo; gestor, o pool + a equipe
+  // dele; operador, o pool + os dele. Aplica-se por cima de todo filtro da tela.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
 
   const contatos = await query(
     `select v.comprador_id, v.nome, v.email, v.telefone, v.edicao, v.edicao_ht, v.edition_number,
@@ -42,9 +48,10 @@ export async function GET(req: Request) {
              or ($7 = 'quente' and coalesce(ls.score, 0) >= 60)
              or ($7 = 'morno'  and coalesce(ls.score, 0) between 30 and 59)
              or ($7 = 'frio'   and coalesce(ls.score, 0) < 30))
+        and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 9, usuario: 10, equipe: 11 })}
       order by v.ultima_compra_ht desc nulls last, v.ultima_resposta_em desc nulls last
       limit 1000`,
-    [estagio, edicao, q, comTelefone, comTag, semTag, faixa, eventoDe(req)],
+    [estagio, edicao, q, comTelefone, comTag, semTag, faixa, eventoDe(req), verTudo, usuarioId, equipeId],
   );
 
   return NextResponse.json({ ok: true, total: contatos.length, contatos });

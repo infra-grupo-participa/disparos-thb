@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
+import { eventoDe } from "@/lib/services/evento";
 import { getContactMessages, getMessageStatus } from "@/lib/unnichat";
 import { getCanal } from "@/lib/services/canais";
 
@@ -16,8 +17,9 @@ const LOTE = 80;
 // POST /api/disparos/[id]/status — sincroniza o status de entrega (sent/delivered/
 // read/failed) dos contatos do disparo consultando a Unnichat. On-demand (a tela
 // chama). Usa o message id quando já temos; senão localiza via /contact/{id}/messages.
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+export async function POST(req: Request, { params }: { params: { id: string } }) {
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const disp = await queryOne<{ unnichat_id: string | null; evento: string }>(
     `select t.unnichat_id, coalesce(d.evento, 'HT') as evento

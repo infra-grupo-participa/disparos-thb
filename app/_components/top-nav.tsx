@@ -9,10 +9,11 @@ import { MarcaPortal } from "./marca";
 import { usePortal } from "./use-portal";
 import { useMe } from "./use-me";
 
-// `soAdmin` esconde o link de quem não é admin; `soGP` esconde de quem não é do
-// Grupo Participa (equipe principal). A rota já barra no servidor — isto é só para
-// não oferecer uma porta que a pessoa não pode abrir.
-type LinkDef = { sub: string; label: string; icon: string; soAdmin?: boolean; soGP?: boolean };
+// Gating por NÍVEL (lib/papeis): `soMaster` esconde o link de quem não é o
+// admin do Grupo Participa; `soGestor` esconde de quem não é gestor nem master.
+// A rota já barra no servidor — isto é só para não oferecer uma porta que a
+// pessoa não pode abrir.
+type LinkDef = { sub: string; label: string; icon: string; soMaster?: boolean; soGestor?: boolean };
 
 // Ícones (heroicons outline, 24x24).
 const LINKS: LinkDef[] = [
@@ -40,13 +41,13 @@ const LINKS_HM: LinkDef[] = [
   { sub: "/inbox", label: "Inbox", icon: iconeDe("/inbox") },
   { sub: "/disparos", label: "Disparos", icon: iconeDe("/disparos") },
   { sub: "/templates", label: "Templates", icon: iconeDe("/templates") },
-  // Config de equipes/níveis de acesso do HM. Só admin (o master do GP). Estava
-  // escondida no sub-nav do Kanban; trazida para o menu principal para o admin
-  // achar de qualquer lugar.
-  { sub: "/equipes", label: "Equipes", soGP: true,
+  // Equipes do HM: o master gere tudo; o GESTOR também entra — só para VER a
+  // própria equipe (é como ele sabe a quem pode distribuir). Operador não vê.
+  { sub: "/equipes", label: "Equipes", soGestor: true,
     icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },
-  // Consulta dos acessos do GPS (habilitado x entrou). Só admin.
-  { sub: "/acessos", label: "Acessos", soAdmin: true,
+  // Consulta dos acessos do GPS (habilitado x entrou). Só o master — um admin
+  // de equipe comum não gere acessos do GP.
+  { sub: "/acessos", label: "Acessos", soMaster: true,
     icon: "M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3ZM9.5 12l1.8 1.8 3.7-3.7" },
 ];
 
@@ -61,14 +62,15 @@ function Icon({ d }: { d: string }) {
 export default function TopNav() {
   const pathname = usePathname();
   const { portal, base, nome, cor } = usePortal();
-  const { me } = useMe();
+  const { nivel } = useMe();
 
   // Sem cabeçalho na tela de seleção de portal e no login.
   if (pathname === "/login" || pathname === "/") return null;
 
-  const ehGP = me?.equipe_tipo === "principal";
+  // Enquanto `nivel` é null (carregando), os links restritos ficam ocultos — a
+  // navegação nasce fechada e abre conforme o direito de cada um.
   const links = (portal === "hm" ? LINKS_HM : LINKS)
-    .filter((l) => (!l.soAdmin || me?.papel === "admin") && (!l.soGP || ehGP));
+    .filter((l) => (!l.soMaster || nivel === "master") && (!l.soGestor || nivel === "master" || nivel === "gestor"));
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/80">

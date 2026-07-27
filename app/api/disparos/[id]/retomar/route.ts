@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSessao, podeDisparar } from "@/lib/auth";
+import { podeDisparar } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { retomarDisparo } from "@/lib/services/disparo";
@@ -14,9 +15,11 @@ const log = logger("disparo-retomar");
 // o disparo pertence ao evento ativo, para não reprocessar campanha de outro
 // portal a partir daqui.
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const evento = eventoDe(req);
+  // Portal do evento resolvido contra a whitelist da conta (0145).
+  const g = await guard({ portal: evento });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!podeDisparar(sessao.papel, evento)) {
     return NextResponse.json({ ok: false, reason: "sem_permissao_disparo" }, { status: 403 });
   }

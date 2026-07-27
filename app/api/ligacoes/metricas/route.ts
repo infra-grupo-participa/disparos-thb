@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -21,13 +23,18 @@ type Linha = {
 };
 
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const evento = eventoDe(req);
   const url = new URL(req.url);
   const desde = url.searchParams.get("desde");
   const ate = url.searchParams.get("ate");
-  const params = [desde, ate, evento];
+  // Recorte por equipe (decisão do Marcio, 27/07): o atendimento herda o escopo
+  // do CONTATO atendido — master vê o portal, gestor a equipe, operador os dele.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
+  const params = [desde, ate, evento, verTudo, usuarioId, equipeId];
 
   const linhas = await query<Linha>(
     `select l.resultado, l.canal, l.direction, l.duracao_seg,
@@ -39,13 +46,16 @@ export async function GET(req: Request) {
        join cs.contatos_evento v on v.comprador_id = l.comprador_id and v.evento = $3
       where l.comprador_id is not null
         and ($1::timestamptz is null or l.criado_em >= $1)
-        and ($2::timestamptz is null or l.criado_em <= $2)`,
+        and ($2::timestamptz is null or l.criado_em <= $2)
+        and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 4, usuario: 5, equipe: 6 })}`,
     params,
   );
 
   // Registros sem contato vinculado (sobretudo chamadas antigas do discador para
   // números que não são de compradores). Não entram nas métricas; a tela só diz
-  // quantos são, para o número não parecer "sumido".
+  // quantos são, para o número não parecer "sumido". NÃO recortável por equipe:
+  // sem comprador_id não há dono nem equipe para amarrar — fica o total geral
+  // (é contagem de lixo do discador, não dado de lead).
   const solto = (await queryOne<{ n: number }>(
     `select count(*)::int as n from cs.ligacoes
       where comprador_id is null

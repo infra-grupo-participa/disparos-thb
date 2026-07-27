@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 
 export const runtime = "nodejs";
 
-// GET /api/hm/acessos — a consulta dos acessos do GPS. SÓ ADMIN.
+// GET /api/hm/acessos — a consulta dos acessos do GPS. SÓ MASTER (admin do
+// GP): "papel === 'admin'" deixava passar admin de equipe comum (Furo 6).
 //
 // Mostra as duas metades que não são a mesma coisa:
 //   • HABILITADO — existe linha na base (o GPS consegue casar a pessoa por documento)
@@ -12,11 +13,8 @@ export const runtime = "nodejs";
 // Criar o acesso não faz a pessoa entrar; o GPS é de adesão. Por isso o admin
 // precisa ver os dois lados lado a lado (e quem está sem CPF, que o GPS nunca acha).
 export async function GET(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (sessao.papel !== "admin") {
-    return NextResponse.json({ ok: false, reason: "só admin consulta os acessos" }, { status: 403 });
-  }
+  const g = await guard({ portal: "HM", nivel: "master" });
+  if (!g.ok) return g.res;
 
   const sp = new URL(req.url).searchParams;
   const q = (sp.get("q") ?? "").trim();

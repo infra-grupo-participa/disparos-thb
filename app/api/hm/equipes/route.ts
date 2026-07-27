@@ -1,21 +1,24 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeVerTudo } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
+import { ehMaster } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, EquipeCriarSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
-// Gestão de equipes do HM — só quem vê tudo (admin ou equipe principal/GP) abre
-// esta área. É a config de quem responde por quais canais e quem enxerga o quê.
+// Gestão de equipes do HM. Escrita (criar/editar/excluir/rotas/composição) é do
+// master; a LEITURA aceita gestor — a tela dá a ele uma visão read-only da
+// PRÓPRIA equipe, e o servidor recorta aqui (a UI filtrar sozinha seria
+// defensivo, não segurança).
 
 // GET /api/hm/equipes — equipes + membros (para a aba de config).
+// Master: todas as equipes + todos os usuários. Gestor: SÓ a equipe dele e os
+// membros dela (gestor sem equipe recebe listas vazias — nada para ver).
 export async function GET() {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeVerTudo(sessao.papel, sessao.equipe_tipo)) {
-    return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
-  }
+  const g = await guard({ portal: "HM", nivel: "gestor" });
+  if (!g.ok) return g.res;
+  const master = ehMaster(g.sessao);
+  const equipeId = master ? null : g.sessao.equipe_id;
 
   const equipes = await query(
     `select e.id, e.nome, e.tipo, e.cor, e.ativo,
@@ -23,12 +26,19 @@ export async function GET() {
        from cs.equipes e
        left join (select equipe_id, count(*) as qtd from cs.usuarios where equipe_id is not null group by equipe_id) m
               on m.equipe_id = e.id
+      where $1::boolean or e.id = $2::uuid
       order by (e.tipo = 'principal') desc, e.nome`,
+    [master, equipeId],
   );
-  // Todos os usuários com a equipe atual — para a tela montar "quem é de quem".
+  // Usuários com a equipe atual — para a tela montar "quem é de quem". Para o
+  // gestor, só os da equipe dele: a lista completa exporia nome/e-mail/papel de
+  // toda a operação a qualquer líder de equipe comum.
   const usuarios = await query(
     `select id, nome, email, papel, ativo, equipe_id, lider_equipe
-       from cs.usuarios order by ativo desc, nome`,
+       from cs.usuarios
+      where $1::boolean or equipe_id = $2::uuid
+      order by ativo desc, nome`,
+    [master, equipeId],
   );
   return NextResponse.json({ ok: true, equipes, usuarios });
 }
@@ -36,11 +46,8 @@ export async function GET() {
 // POST /api/hm/equipes — cria equipe comum (nome + cor). A principal (GP) é única
 // e nasce no seed; não se cria outra principal por aqui.
 export async function POST(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeVerTudo(sessao.papel, sessao.equipe_tipo)) {
-    return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
-  }
+  const g = await guard({ portal: "HM", nivel: "master" });
+  if (!g.ok) return g.res;
   const p = await parseBody(req, EquipeCriarSchema);
   if (!p.ok) return p.res;
 

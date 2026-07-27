@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSessao, podeDisparar } from "@/lib/auth";
+import { podeDisparar } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
+import { sqlEscopo } from "@/lib/services/contato";
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { processarDisparoEmail, getRemetente } from "@/lib/services/email";
@@ -20,8 +23,10 @@ const log = logger("send-email");
 //   'tag'      — legado: aplica a tag e depende de uma automação montada no AC,
 //                que precisa existir e estar ativa (senão o e-mail não sai).
 export async function POST(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!podeDisparar(sessao.papel)) {
     return NextResponse.json({ ok: false, reason: "sem_permissao_disparo" }, { status: 403 });
   }
@@ -73,13 +78,17 @@ export async function POST(req: Request) {
   // Contatos do evento com e-mail válido, sem opt-out e sem hard bounce. O hard
   // bounce é endereço morto: insistir só piora a reputação do domínio, que é o
   // que decide se o e-mail dos outros cai na caixa de entrada ou no spam.
+  // RECORTE de segurança (0146): mesmo predicado do /api/send — ninguém dispara
+  // e-mail para card fora do próprio escopo (pool / carteira / equipe).
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
   const contatos = await query<{ comprador_id: string; email: string; edicao: string | null }>(
     `select v.comprador_id, v.email, v.edicao from cs.contatos_evento v
       where v.evento = $2 and v.comprador_id = any($1::uuid[])
         and v.email is not null and v.email like '%@%'
+        and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
         and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
         and v.comprador_id not in (select comprador_id from cs.email_contato where bounce_hard > 0)`,
-    [compradorIds, evento],
+    [compradorIds, evento, verTudo, usuarioId, equipeId],
   );
 
   const pulados = (await queryOne<{ opt_out: number; bounce: number }>(

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmSocioCriarSchema, HmSocioPatchSchema } from "@/lib/validators";
 import { addNotaHm, provisionarSociosHm, podeVerCardHm } from "@/lib/services/hm";
@@ -22,8 +22,9 @@ async function cardDo(compradorId: string) {
 
 // POST — adiciona um sócio ao card.
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   const p = await parseBody(req, HmSocioCriarSchema);
   if (!p.ok) return p.res;
@@ -45,8 +46,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
 // PATCH — edita o sócio (checklist, contato, Facebook). body: { socioId, ... }
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   const p = await parseBody(req, HmSocioPatchSchema);
   if (!p.ok) return p.res;
@@ -83,8 +85,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 // DELETE ?socioId= — remove o convite. Não apaga o aluno na base: se o sócio já
 // foi provisionado, quem desfaz isso é a base mestre, não o kanban.
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   const socioId = new URL(req.url).searchParams.get("socioId");
   if (!socioId) return NextResponse.json({ ok: false, reason: "socioId ausente" }, { status: 400 });

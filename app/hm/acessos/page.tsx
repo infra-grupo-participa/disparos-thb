@@ -33,8 +33,10 @@ function fmtData(iso: string | null): string {
 }
 
 export default function GpsAcessosPage() {
-  const { me } = useMe();
-  const admin = me?.papel === "admin";
+  // Só o MASTER (admin do Grupo Participa) — um admin de equipe comum não
+  // consulta os acessos do GPS. A rota barra igual no servidor.
+  const { me, ehMaster } = useMe();
+  const admin = ehMaster();
 
   const [acessos, setAcessos] = useState<Acesso[]>([]);
   const [resumo, setResumo] = useState<Resumo | null>(null);
@@ -69,7 +71,7 @@ export default function GpsAcessosPage() {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-8 text-center dark:border-slate-800 dark:bg-slate-900">
         <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Consulta restrita</p>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Só o admin consulta os acessos do GPS.</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Só o administrador do Grupo Participa consulta os acessos do GPS.</p>
       </div>
     );
   }

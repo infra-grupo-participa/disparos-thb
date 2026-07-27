@@ -135,7 +135,7 @@ const EDICAO_COR: Record<string, string> = {
 };
 
 export default function KanbanPage() {
-  const { me, podeDisparar: podeDisparaFn } = useMe();
+  const { me, podeDisparar: podeDisparaFn, podeDistribuir } = useMe();
   const { portal, evento, base, nome: eventoNome, ehHT } = usePortal();
   const podeDisparar = podeDisparaFn(evento);
   const [colunas, setColunas] = useState<Coluna[]>([]);
@@ -434,16 +434,20 @@ export default function KanbanPage() {
             <Button variant="ghost" size="sm" onClick={() => setSelecaoMulti(new Set())}>Limpar</Button>
             <div className="flex-1" />
             <Button variant="secondary" size="sm" onClick={addTagLote}>+ Tag</Button>
-            <select
-              value=""
-              onChange={(e) => { const v = e.target.value; if (v) lote({ responsavel: v === "__nenhum__" ? null : v }); e.target.value = ""; }}
-              className={cn(fieldClass, "w-auto py-1.5 text-xs")}
-              title="Atribuir responsável aos selecionados"
-            >
-              <option value="">Atribuir CS…</option>
-              {opcoesResponsavel.map((r) => <option key={r} value={r}>{r}</option>)}
-              <option value="__nenhum__">— Remover responsável —</option>
-            </select>
+            {/* Atribuir em lote é DISTRIBUIR — só master/gestor. O operador não
+                vê o seletor: ele assume contato sem dono um a um, pela ficha. */}
+            {podeDistribuir() && (
+              <select
+                value=""
+                onChange={(e) => { const v = e.target.value; if (v) lote({ responsavel: v === "__nenhum__" ? null : v }); e.target.value = ""; }}
+                className={cn(fieldClass, "w-auto py-1.5 text-xs")}
+                title="Atribuir responsável aos selecionados"
+              >
+                <option value="">Atribuir CS…</option>
+                {opcoesResponsavel.map((r) => <option key={r} value={r}>{r}</option>)}
+                <option value="__nenhum__">— Remover responsável —</option>
+              </select>
+            )}
             {podeDisparar && (
               <Button variant="primary" onClick={dispararSelecaoMulti}>Disparar para {selecaoMulti.size}</Button>
             )}
@@ -608,7 +612,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
   card: Card; colunas: Coluna[]; responsaveis: string[]; podeDisparar: boolean; onClose: () => void; onMover: (chave: string) => void; onDisparar: () => void; onAtualizar: () => void;
 }) {
   const { base } = usePortal();
-  const { me } = useMe();
+  const { me, podeDistribuir } = useMe();
   const [det, setDet] = useState<Detalhe | null>(null);
   const [tagNova, setTagNova] = useState("");
   const [aba, setAba] = useState<"resumo" | "forms" | "historico">("resumo");
@@ -748,21 +752,39 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Responsável (CS)</label>
-                    <div className="flex items-center gap-2">
-                      {det.contato.responsavel && <Avatar nome={det.contato.responsavel} className="h-8 w-8 text-xs" />}
-                      <select
-                        value={det.contato.responsavel ?? ""}
-                        onChange={(e) => { const v = e.target.value; patch({ responsavel: v || null }); }}
-                        className={fieldClass}
-                      >
-                        <option value="">— Sem responsável —</option>
-                        {det.contato.responsavel && !responsaveis.includes(det.contato.responsavel) && (
-                          <option value={det.contato.responsavel}>{det.contato.responsavel}</option>
+                    {podeDistribuir() ? (
+                      // MASTER/GESTOR: seletor de destino (o backend valida a equipe).
+                      <div className="flex items-center gap-2">
+                        {det.contato.responsavel && <Avatar nome={det.contato.responsavel} className="h-8 w-8 text-xs" />}
+                        <select
+                          value={det.contato.responsavel ?? ""}
+                          onChange={(e) => { const v = e.target.value; patch({ responsavel: v || null }); }}
+                          className={fieldClass}
+                        >
+                          <option value="">— Sem responsável —</option>
+                          {det.contato.responsavel && !responsaveis.includes(det.contato.responsavel) && (
+                            <option value={det.contato.responsavel}>{det.contato.responsavel}</option>
+                          )}
+                          {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                    ) : (
+                      // OPERADOR: sem seletor — lê o dono; contato livre pode assumir.
+                      <div className="flex items-center gap-2 pt-1">
+                        {det.contato.responsavel ? (
+                          <>
+                            <Avatar nome={det.contato.responsavel} className="h-8 w-8 text-xs" />
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{det.contato.responsavel}</span>
+                          </>
+                        ) : (
+                          <span className="inline-flex items-center rounded-lg border border-dashed border-teal-400 px-2.5 py-1.5 text-xs font-medium text-teal-700 dark:border-teal-500/50 dark:text-teal-300">
+                            Sem responsável — livre para assumir
+                          </span>
                         )}
-                        {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </div>
-                    {me?.nome && det.contato.responsavel !== me.nome && (
+                      </div>
+                    )}
+                    {/* Assumir: master/gestor sempre; operador SÓ contato sem dono. */}
+                    {me?.nome && det.contato.responsavel !== me.nome && (podeDistribuir() || !det.contato.responsavel) && (
                       <button
                         type="button"
                         onClick={() => patch({ responsavel: me.nome })}

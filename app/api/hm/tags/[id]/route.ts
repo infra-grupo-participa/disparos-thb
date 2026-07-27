@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeGerirAcesso } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
 import { parseBody, HmTagPatchSchema } from "@/lib/validators";
 import { renomearTagHm, recolorirTagHm, excluirTagHm } from "@/lib/services/hm-tags";
 
@@ -12,9 +11,8 @@ export const runtime = "nodejs";
 // Tags de sistema não se renomeiam nem se excluem — funções do banco gravam
 // esses nomes literais, e um rename viraria órfão na próxima venda.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "só admin do GP altera o catálogo" }, { status: 403 });
+  const g = await guard({ portal: "HM", nivel: "master" });
+  if (!g.ok) return g.res;
   const p = await parseBody(req, HmTagPatchSchema);
   if (!p.ok) return p.res;
 
@@ -30,9 +28,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "só admin do GP altera o catálogo" }, { status: 403 });
+  const g = await guard({ portal: "HM", nivel: "master" });
+  if (!g.ok) return g.res;
   const ok = await excluirTagHm(params.id);
   if (!ok) return NextResponse.json({ ok: false, reason: "não excluível (tag de sistema)" }, { status: 400 });
   return NextResponse.json({ ok: true });

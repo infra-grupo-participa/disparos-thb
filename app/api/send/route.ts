@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSessao, podeDisparar } from "@/lib/auth";
+import { podeDisparar } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
+import { sqlEscopo } from "@/lib/services/contato";
 import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
 import { logger } from "@/lib/log";
@@ -19,9 +22,11 @@ export async function POST(req: Request) {
   // Trava de papel: só admin e disparador podem efetuar disparos. Operador
   // comum opera o Kanban/contatos normalmente, mas não envia. Esta é a fonte
   // da verdade — a UI apenas espelha (esconde os botões).
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const evento = eventoDe(req);
+  // Portal do evento resolvido contra a whitelist da conta (0145).
+  const g = await guard({ portal: evento });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   // Operador (SDR) dispara nos eventos de ativação (SEM/CNHF); nos demais, só
   // admin/disparador. A regra é por evento — ver lib/papeis.
   if (!podeDisparar(sessao.papel, evento)) {
@@ -52,28 +57,40 @@ export async function POST(req: Request) {
   // duas campanhas seguidas — martelem o mesmo número. 0 desativa.
   const dedupHoras = await getConfig<number>("disparo_dedup_horas", 24);
 
+  // RECORTE de segurança (0146): os destinatários passam pelo MESMO predicado de
+  // escopo dos elegíveis — operador/gestor não dispara para card fora do que vê
+  // (pool / a própria carteira / a própria equipe). Vale nos DOIS ramos: o HM
+  // pela view do overlay, os genéricos por cs.contatos_evento. Quem entra na
+  // seleção por fora do escopo simplesmente não recebe (fica de fora do insert).
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
+
   const ehHM = evento === "HM";
   const contatos = ehHM
     ? await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
-        `select comprador_id, telefone, null::text as edicao from cs.contatos_hm_kanban
-          where comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
-            and not coalesce(nao_contatar, false)
-            and comprador_id not in (select comprador_id from cs.contatos where opt_out)
-            and comprador_id not in (
+        `select v.comprador_id, v.telefone, null::text as edicao from cs.contatos_hm_kanban v
+          where v.comprador_id = any($1::uuid[]) and v.telefone is not null and v.telefone <> ''
+            and not coalesce(v.nao_contatar, false)
+            and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
+            and ($3::boolean
+                 or (v.responsavel_id is null and v.equipe_id is null)
+                 or v.responsavel_id = $4::uuid
+                 or v.equipe_id = $5::uuid)
+            and v.comprador_id not in (
               select dc.comprador_id from cs.disparo_contatos dc
                 join cs.disparos d on d.id = dc.disparo_id
                where d.evento = 'HM' and dc.enviado and dc.enviado_em > now() - make_interval(hours => $2))`,
-        [compradorIds, dedupHoras],
+        [compradorIds, dedupHoras, verTudo, usuarioId, equipeId],
       )
     : await query<{ comprador_id: string; telefone: string; edicao: string | null }>(
-        `select comprador_id, telefone, edicao from cs.contatos_evento
-          where evento = $2 and comprador_id = any($1::uuid[]) and telefone is not null and telefone <> ''
-            and comprador_id not in (select comprador_id from cs.contatos where opt_out)
-            and comprador_id not in (
+        `select v.comprador_id, v.telefone, v.edicao from cs.contatos_evento v
+          where v.evento = $2 and v.comprador_id = any($1::uuid[]) and v.telefone is not null and v.telefone <> ''
+            and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
+            and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 4, usuario: 5, equipe: 6 })}
+            and v.comprador_id not in (
               select dc.comprador_id from cs.disparo_contatos dc
                 join cs.disparos d on d.id = dc.disparo_id
                where d.evento = $2 and dc.enviado and dc.enviado_em > now() - make_interval(hours => $3))`,
-        [compradorIds, evento, dedupHoras],
+        [compradorIds, evento, dedupHoras, verTudo, usuarioId, equipeId],
       );
 
   // Quantos ficaram de fora e por quê — o operador precisa saber que 12 dos 50

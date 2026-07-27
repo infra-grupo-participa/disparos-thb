@@ -8,7 +8,7 @@ import { DisparoModal } from "@/app/_components/disparo";
 import { TagChip } from "@/app/_components/tags";
 import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
-import { useMe } from "@/app/_components/use-me";
+import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
 
@@ -17,6 +17,9 @@ type Contato = {
   comprador_id: string; nome: string; email: string | null; telefone: string | null;
   turma: string | null; turma_origem: string | null; plano: string | null; categoria_entrada: string | null;
   estagio_chave: string | null; estagio_nome: string | null; estagio_aba: string | null; responsavel: string | null;
+  // Dono por id + trava do admin (0142) — decidem o que o OPERADOR pode fazer
+  // com a atribuição. Opcionais: a rota pode ainda não devolvê-los (em voo).
+  responsavel_id?: string | null; atribuicao_admin?: boolean;
   reuniao_em: string | null; reuniao_resultado: string | null; reuniao_gravacao_url: string | null;
   entrevista_em: string | null; entrevista_resultado: string | null; entrevista_gravacao_url: string | null;
   pagamento_em: string | null; pagamento_forma: string | null; apto_ativacao: boolean; tags: string[] | null;
@@ -170,7 +173,7 @@ export function HmDrawer({
   compradorId: string; estagios: Estagio[]; responsaveis: string[];
   onClose: () => void; onChanged: () => void;
 }) {
-  const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir } = useMe();
+  const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   const [c, setC] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
@@ -293,7 +296,9 @@ export function HmDrawer({
               "Registre o pagamento do saldo (valor cheio) antes de mover para a Ativação.",
           );
         } else {
-          window.alert("Não foi possível salvar esta alteração. Tente de novo.");
+          // 403 de permissão vem com reason específico — mostra o MOTIVO
+          // (ex.: "Você só pode atribuir para alguém da sua equipe.").
+          window.alert(msgErroPermissao(d?.reason) ?? "Não foi possível salvar esta alteração. Tente de novo.");
         }
         await recarregar();
         return;
@@ -512,20 +517,43 @@ export function HmDrawer({
               </Campo>
 
               <Campo label="Responsável (CS)">
-                <div className="flex items-center gap-2">
-                  {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
-                  {/* Distribuir pelo seletor: admin/GP (a qualquer um) ou líder da
-                      equipe (o backend barra destino fora da equipe dele). Operador
-                      comum vê o dono mas não troca — só assume do pool (botão abaixo). */}
-                  <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass} disabled={salvando || !podeDistribuir()}>
-                    <option value="">— Sem responsável —</option>
-                    {c.responsavel && !responsaveis.includes(c.responsavel) && <option value={c.responsavel}>{c.responsavel}</option>}
-                    {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                {/* Botão assumir: admin/GP e líder de equipe sempre; operador comum
-                    só quando é pool (sem dono) — roubar card alheio é barrado no backend. */}
-                {me?.id && c.responsavel !== me.nome && (podeDistribuir() || !c.responsavel) && (
+                {podeDistribuir() ? (
+                  // MASTER/GESTOR: o seletor distribui. A lista `responsaveis` já
+                  // vem recortada do servidor (master = todos os ativos; gestor =
+                  // só a equipe dele) — e o backend barra destino fora da equipe.
+                  <div className="flex items-center gap-2">
+                    {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
+                    <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass} disabled={salvando}>
+                      <option value="">— Sem responsável —</option>
+                      {c.responsavel && !responsaveis.includes(c.responsavel) && <option value={c.responsavel}>{c.responsavel}</option>}
+                      {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                ) : (
+                  // OPERADOR: não há seletor — só a leitura de quem é o dono (ou
+                  // de que o card está no pool, livre para assumir).
+                  <div className="flex items-center gap-2">
+                    {c.responsavel ? (
+                      <>
+                        <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{c.responsavel}</span>
+                      </>
+                    ) : c.atribuicao_admin ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                        Atribuição travada pelo administrador
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-teal-400 px-2.5 py-1.5 text-xs font-medium text-teal-700 dark:border-teal-500/50 dark:text-teal-300">
+                        No pool — livre para assumir
+                      </span>
+                    )}
+                  </div>
+                )}
+                {/* Assumir: master/gestor sempre; OPERADOR só em card do POOL (sem
+                    dono e sem trava do admin). Card com dono ou travado: o operador
+                    não vê ação nenhuma de atribuição. */}
+                {me?.id && c.responsavel !== me.nome && (podeDistribuir() || (!c.responsavel && !c.atribuicao_admin)) && (
                   <button
                     type="button"
                     onClick={() => patch({ responsavel_id: me.id })}
@@ -1111,9 +1139,10 @@ export function HmDrawer({
                 </div>
               )}
 
-              {/* Edição administrativa — só admin. Identidade corrige a FONTE
-                  (compradores) e espelha na base THB; tudo vai para a timeline. */}
-              {me?.papel === "admin" && (
+              {/* Edição administrativa — só o MASTER (admin do GP). Um admin de
+                  equipe comum não mexe na fonte (compradores/base THB). Identidade
+                  corrige a FONTE e espelha na base; tudo vai para a timeline. */}
+              {ehMaster() && (
                 <AdminEdicao
                   compradorId={c.comprador_id}
                   atual={{

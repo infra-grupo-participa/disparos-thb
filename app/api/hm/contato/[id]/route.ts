@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeVerTudo } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, setResponsavelHm, setResponsavelHmPorId, podeVerCardHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, type DestinoAtribuicao } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -12,8 +11,9 @@ export const runtime = "nodejs";
 // em lib/services/hm-ficha — o mesmo lugar de onde sai o XLSX exportado, para a
 // planilha e a tela nunca contarem histórias diferentes.
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   // Gating de equipe: uma equipe comum não abre a ficha de um card de outra
   // equipe (nem do GP). O pool e os próprios cards seguem abertos.
   if (!(await podeVerCardHm(sessao, params.id))) {
@@ -28,8 +28,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
 // PATCH: atualiza estágio / campos da ficha HM / pagamento do saldo / nota.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   const operador = sessao.nome || "cs";
   const compradorId = params.id;
   const parsed = await parseBody(req, HmContatoPatchSchema);
@@ -151,41 +152,25 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     await query(`update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now() where id = $1`, vals);
   }
 
-  // Responsável por ID (atribuir / assumir / devolver ao pool / reatribuir).
-  // Hierarquia (0142/0143) — o podeVerCardHm no topo já garante que o ator só
-  // mexe em card que ele VÊ (pool, o dele, ou a equipe dele p/ líder):
-  //  - admin/GP: distribui a QUALQUER um; a atribuição dele TRAVA o card (porAdmin).
-  //  - líder de equipe: distribui SÓ entre operadores da PRÓPRIA equipe (o destino
-  //    tem de ser da equipe dele); não trava. Não atribui a GP/outra equipe.
-  //  - operador comum: só ASSUME card do pool (sem dono). Card com dono ou travado
-  //    pelo admin é imutável para ele (403).
-  if (b.responsavel_id !== undefined) {
-    const souAdmin = podeVerTudo(sessao.papel, sessao.equipe_tipo);
-    const souLider = !souAdmin && !!sessao.lider_equipe && sessao.equipe_tipo === "comum";
-
-    if (!souAdmin && !souLider) {
-      // Operador comum: só assume do pool; nada que já tenha dono ou trava.
-      const cardTemDono = atual.responsavel_id !== null;
-      if (cardTemDono || atual.atribuicao_admin) {
-        return NextResponse.json({ ok: false, reason: "atribuicao_travada" }, { status: 403 });
-      }
-    } else if (souLider && b.responsavel_id !== null) {
-      // Líder: o destino tem de ser um usuário da MESMA equipe dele (não GP/outra).
-      const destino = await queryOne<{ equipe_id: string | null }>(
-        `select equipe_id from cs.usuarios where id = $1`,
-        [b.responsavel_id],
-      );
-      if (!destino || destino.equipe_id !== sessao.equipe_id) {
-        return NextResponse.json({ ok: false, reason: "destino_fora_da_equipe" }, { status: 403 });
-      }
+  // Responsável (atribuir / assumir / devolver ao pool / reatribuir) — por ID
+  // (caminho novo) ou por NOME (seletor legado). A hierarquia INTEIRA vive em
+  // atribuirResponsavelHm (lib/services/hm), a mesma do /api/hm/lote:
+  //   master → qualquer destino, e a atribuição TRAVA o card (0142);
+  //   gestor → só membro da própria equipe, sem travar;
+  //   operador → só assume para SI um card do pool / devolve ao pool o que é
+  //   dele (e sem trava). O nome que não casa com usuário nenhum só o master
+  //   grava como texto livre — para os demais era o desvio da hierarquia.
+  // (O podeVerCardHm no topo já garante que o ator só chega a card que ele VÊ.)
+  if (b.responsavel_id !== undefined || b.responsavel !== undefined) {
+    const destino: DestinoAtribuicao =
+      b.responsavel_id !== undefined
+        ? (b.responsavel_id === null ? { tipo: "pool" } : { tipo: "id", id: b.responsavel_id })
+        : ((b.responsavel ?? "").trim() === "" ? { tipo: "pool" } : { tipo: "nome", nome: (b.responsavel as string).trim() });
+    const r = await atribuirResponsavelHm(sessao, compradorId, destino, operador);
+    if (!r.ok) {
+      const status = r.reason === "nao_encontrado" ? 404 : r.reason === "destino_invalido" ? 400 : 403;
+      return NextResponse.json({ ok: false, reason: r.reason }, { status });
     }
-    // Só admin trava (porAdmin); líder distribui sem travar.
-    await setResponsavelHmPorId(compradorId, b.responsavel_id, operador, souAdmin);
-  }
-  // Responsável por NOME — caminho legado do seletor. Mantido por compat; o texto
-  // é reconciliado com um usuário quando o nome casa (senão fica só texto = pool).
-  else if (b.responsavel !== undefined) {
-    await setResponsavelHm(compradorId, b.responsavel || null, operador);
   }
 
   // Agendar / REAGENDAR. O serviço guarda a marcação anterior e conta quantas

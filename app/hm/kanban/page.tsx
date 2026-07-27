@@ -15,7 +15,7 @@ import { DisparoModal } from "@/app/_components/disparo";
 import { DisparoInteligente } from "@/app/_components/disparo-inteligente";
 import { TagChip } from "@/app/_components/tags";
 import { ContatoDoNome } from "@/app/_components/copiavel";
-import { useMe } from "@/app/_components/use-me";
+import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -261,9 +261,10 @@ function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
 }
 
 export default function HmKanbanPage() {
-  const { podeDisparar: podeDisparaFn, podeVerTudo } = useMe();
+  const { nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir } = useMe();
   const podeDisparar = podeDisparaFn("HM");
-  const podeConfigEquipes = podeVerTudo();
+  // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
+  const podeConfigEquipes = podeDistribuir();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [socios, setSocios] = useState<Socio[]>([]);
@@ -438,6 +439,11 @@ export default function HmKanbanPage() {
             `${card.nome} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
               "Registre o pagamento do saldo (valor cheio) na ficha antes de mover para a Ativação.",
           );
+        } else {
+          // 403 de permissão (sem_portal / sem_permissao / atribuicao_travada…):
+          // diz o MOTIVO em vez de o card só voltar sozinho.
+          const msg = msgErroPermissao(d?.reason);
+          if (msg) window.alert(msg);
         }
       }
     } finally {
@@ -572,12 +578,24 @@ export default function HmKanbanPage() {
           <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
           {/* A outra leitura da mesma esteira — os filtros viajam na URL */}
           <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
-          {/* Relatório da esteira inteira — sai com os filtros que estão valendo */}
-          <a href={`/api/hm/kanban/export?${paramsFiltro.toString()}`} title="Baixar o relatório da esteira (resumo + uma aba por etapa)">
+          {/* Relatório da esteira — sai com os filtros que estão valendo. O servidor
+              recorta por equipe: só o master baixa a esteira INTEIRA; para os demais
+              o rótulo não promete o que o arquivo não traz. */}
+          <a
+            href={`/api/hm/kanban/export?${paramsFiltro.toString()}`}
+            title={podeVerTudo()
+              ? "Baixar o relatório da esteira inteira (resumo + uma aba por etapa)"
+              : "Baixar o relatório da SUA visão da esteira (o pool + os cards que você vê), resumo + uma aba por etapa"}
+          >
             <Button variant="secondary" size="sm">Esteira .xlsx</Button>
           </a>
           {/* O dinheiro é outro relatório: quem deve, quanto entrou e os cancelamentos. */}
-          <a href={`/api/hm/financeiro/export?${paramsFiltro.toString()}`} title="Baixar o financeiro (resumo, carteira, a receber, razão de pagamentos e cancelamentos)">
+          <a
+            href={`/api/hm/financeiro/export?${paramsFiltro.toString()}`}
+            title={podeVerTudo()
+              ? "Baixar o financeiro (resumo, carteira, a receber, razão de pagamentos e cancelamentos)"
+              : "Baixar o financeiro da SUA visão da esteira (resumo, carteira, a receber, pagamentos e cancelamentos dos cards que você vê)"}
+          >
             <Button variant="secondary" size="sm">Financeiro .xlsx</Button>
           </a>
           {podeDisparar && cardsFiltrados.length > 0 && (
@@ -755,6 +773,10 @@ export default function HmKanbanPage() {
                           <CardItem
                             card={card}
                             espelho={ehEspelho(card, aba)}
+                            // Para o OPERADOR, o board diz o que é POOL (livre para
+                            // assumir) vs. o que já tem dono — master/gestor não
+                            // precisam do selo (eles distribuem, não assumem).
+                            ehPool={nivel === "operador" && !card.responsavel_id && !card.equipe_id && !card.atribuicao_admin}
                             onDragStart={() => { arrastando.current = card; }}
                             onDragEnd={() => { pararAutoScroll(); arrastando.current = null; setAlvo(null); }}
                             onAbrir={() => setSelecionado(card.comprador_id)}
@@ -1212,9 +1234,9 @@ function MenuItem({ children, onClick, disabled }: { children: React.ReactNode; 
 }
 
 function CardItem({
-  card, espelho, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags,
+  card, espelho, ehPool, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags,
 }: {
-  card: Card; espelho: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
+  card: Card; espelho: boolean; ehPool?: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
   onMenu: (x: number, y: number) => void;
   selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
   coresTags: Record<string, string | null>;
@@ -1274,6 +1296,17 @@ function CardItem({
               title="Selecionar para disparo"
               className="mr-1 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand dark:border-slate-600"
             />
+          )}
+          {/* Selo do pool (só na visão do operador): este card está livre —
+              abra a ficha e clique em "Atribuir a mim". */}
+          {ehPool && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded border border-dashed border-teal-400 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 dark:border-teal-500/50 dark:text-teal-300"
+              title="Card do pool — sem dono. Abra a ficha e clique em “Atribuir a mim” para assumir."
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+              Pool · livre
+            </span>
           )}
           {cat && <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>}
           {/* Falso-verde do crédito pró-rata: avisa em vez de deixar o card mentir. */}

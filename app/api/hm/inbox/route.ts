@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 
@@ -13,13 +13,13 @@ export const runtime = "nodejs";
 // RECORTE POR OPERADOR (segurança no backend): GP/admin veem tudo; operador comum
 // vê só o pool (sem dono) + os cards atribuídos a ele. Mesmo predicado do board.
 export async function GET(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
   const status = sp.get("status") || null; // pendente | resolvido
   const disparoId = sp.get("disparo") || null;
 
-  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
 
   // Última mensagem da conversa (do lead ou do CS), pela timeline do overlay HM.
   const LATERAL_ULTIMA = `

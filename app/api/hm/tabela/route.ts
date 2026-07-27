@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, nivelDe, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { relatorioHm } from "@/lib/services/hm-relatorio";
 
@@ -15,13 +15,13 @@ const RE_TURMA = "^(Origem|Turma|Aurum) ";
 // função do XLSX (relatorioHm): a tabela e a planilha saem da mesma leitura por
 // construção — se contarem histórias diferentes, é bug.
 export async function GET(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
 
-  // Mesmo escopo do board: GP/admin tudo; líder de equipe vê a equipe dele;
-  // operador vê o pool + os dele. Idêntico à rota do kanban por construção.
-  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
+  // Mesmo escopo do board: master tudo; gestor vê a equipe dele; operador vê o
+  // pool + os dele. Idêntico à rota do kanban por construção.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
 
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E.
@@ -35,16 +35,30 @@ export async function GET(req: Request) {
   // As listas dos filtros saem da base inteira (não da fatia filtrada): um
   // seletor que só mostra o que já passou pelo filtro não deixa trocar de filtro.
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já
-  // tem card — senão um operador novo nunca aparece para ser atribuído. A união
-  // preserva responsáveis legados fora de usuarios.
-  const respRows = await query<{ responsavel: string }>(
-    `select responsavel from (
-        select nome as responsavel from cs.usuarios where ativo
-        union
-        select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''
-     ) u
-     order by responsavel`,
-  );
+  // tem card — senão um operador novo nunca aparece para ser atribuído.
+  // RECORTADA por nível (mesma regra do board): master = todos + legados;
+  // gestor = só a própria equipe; operador = só ele. A UI confia nesta lista
+  // para o seletor de atribuição — oferecer destino que o backend recusa é 403
+  // garantido na cara do gestor.
+  const nivel = nivelDe(g.sessao);
+  const respRows =
+    nivel === "master"
+      ? await query<{ responsavel: string }>(
+          `select responsavel from (
+              select nome as responsavel from cs.usuarios where ativo
+              union
+              select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''
+           ) u
+           order by responsavel`,
+        )
+      : nivel === "gestor"
+        ? await query<{ responsavel: string }>(
+            `select nome as responsavel from cs.usuarios where ativo and equipe_id = $1 order by nome`,
+            [g.sessao.equipe_id],
+          )
+        : g.sessao.nome
+          ? [{ responsavel: g.sessao.nome }]
+          : [];
   // `qtd` alimenta a régua de canais fixos — o placar do canal inteiro, sem os
   // filtros da tela (mesma regra da rota do kanban).
   const tagRows = await query<{ tag: string; eh_turma: boolean; qtd: number }>(

@@ -41,7 +41,8 @@ function isoDia(offset = 0): string {
 }
 
 export default function HmAtividadePage() {
-  const { podeVerTudo } = useMe();
+  // podeDistribuir → a aba "Equipes" do alternador aparece para master e gestor.
+  const { podeDistribuir } = useMe();
   const [de, setDe] = useState(isoDia(-30));
   const [ate, setAte] = useState(isoDia(0));
   const [linhas, setLinhas] = useState<Colaborador[]>([]);
@@ -92,7 +93,7 @@ export default function HmAtividadePage() {
             O que cada colaborador fez na esteira — movimentações, notas, disparos e as demais ações assinadas.
           </p>
         </div>
-        <HmVisao atual="atividade" filtros={{}} podeConfig={podeVerTudo()} />
+        <HmVisao atual="atividade" filtros={{}} podeConfig={podeDistribuir()} />
       </div>
 
       {/* Período */}

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { queryOne } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -15,16 +17,21 @@ type Perfil = {
 };
 
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const evento = eventoDe(req);
   const edicao = new URL(req.url).searchParams.get("edicao");
+  // Recorte por equipe (27/07): o retrato é da base que quem olha enxerga.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
 
   const p = (await queryOne<Perfil>(
     `with base as (
        select v.comprador_id
          from cs.contatos_evento v
         where v.evento = $1 and ($2::text is null or v.edicao = $2)
+          and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
      ),
      flags as (
        select
@@ -50,7 +57,7 @@ export async function GET(req: Request) {
        count(*) filter (where teve_acao and not wa and not em and not li)::int as frio,
        count(*) filter (where not teve_acao)::int as sem_acao
      from flags`,
-    [evento, edicao],
+    [evento, edicao, verTudo, usuarioId, equipeId],
   )) ?? {
     total: 0, com_acao: 0, resp_wa: 0, resp_em: 0, resp_li: 0,
     engajado_multi: 0, so_wa: 0, so_em: 0, so_li: 0, frio: 0, sem_acao: 0,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { eventoDe } from "@/lib/services/evento";
 import { sincronizarCampanhasEmail } from "@/lib/services/email";
 import { getCanal } from "@/lib/services/canais";
 import { listarCampanhas } from "@/lib/activecampaign";
@@ -13,8 +14,9 @@ const log = logger("email-sync");
 // valores, só se estão presentes). Confirma, antes de tentar o sync, se as envs
 // chegaram ao runtime. Um canal em cs.canais_disparo (provider activecampaign)
 // também serve como credencial — por isso pode funcionar mesmo sem as envs.
-export async function GET() {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+export async function GET(req: Request) {
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
   const url_configurada = Boolean(process.env.ACTIVECAMPAIGN_API_URL);
   const token_configurado = Boolean(process.env.ACTIVECAMPAIGN_API_TOKEN);
 
@@ -47,7 +49,9 @@ export async function GET() {
 // já roda o padrão periodicamente; aqui um operador pode forçar uma passada e,
 // com ?paginas=N, ampliar o alcance (backfill do histórico). Autenticado.
 export async function POST(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
   const paginasParam = Number(new URL(req.url).searchParams.get("paginas"));
   const paginas = Number.isFinite(paginasParam) && paginasParam > 0 ? Math.min(paginasParam, 20) : undefined;
   try {

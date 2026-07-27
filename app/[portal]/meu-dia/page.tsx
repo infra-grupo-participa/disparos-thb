@@ -6,6 +6,7 @@ import { Button, Card, EmptyState, PageHeader, Spinner, cn } from "@/app/_compon
 import { Kpi } from "@/app/_components/kpi";
 import { Reveal } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
+import { useMe } from "@/app/_components/use-me";
 import { RegistrarAtendimento } from "@/app/_components/ligacao";
 
 // "Meu dia" — a tela do operador. Três perguntas, nesta ordem:
@@ -49,6 +50,7 @@ function quando(iso: string | null): string {
 
 export default function MeuDiaPage() {
   const { evento, base } = usePortal();
+  const { podeVerTudo } = useMe();
   const [d, setD] = useState<Dados | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [alvo, setAlvo] = useState<Item | null>(null);
@@ -116,8 +118,11 @@ export default function MeuDiaPage() {
           <button
             onClick={() => setMeus(false)}
             className={cn("rounded-md px-3 py-1 text-xs font-medium transition", !meus ? "bg-brand text-white dark:bg-brand-500" : "text-slate-500 hover:text-slate-800 dark:text-slate-400")}
+            title={podeVerTudo() ? "Todos os leads deste portal" : "Tudo o que você pode ver neste portal (o servidor recorta por equipe)"}
           >
-            Todos do portal
+            {/* Só o MASTER vê o portal inteiro — para os demais o rótulo não
+                promete "todos": o servidor recorta pela equipe/carteira. */}
+            {podeVerTudo() ? "Todos do portal" : "Tudo que vejo"}
           </button>
         </div>
         <Button variant="secondary" className="h-8 px-3 text-xs" onClick={pegarLeads} disabled={pegando}>

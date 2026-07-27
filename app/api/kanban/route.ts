@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, nivelDe, paramsEscopo } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, KanbanMoverSchema } from "@/lib/validators";
-import { moverEstagio } from "@/lib/services/contato";
+import { moverEstagio, podeVerContato, sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -12,24 +13,34 @@ const MAX_POR_COLUNA = 40; // limita o DOM; o total real vai no header da coluna
 // GET /api/kanban?edicao=HT27 — colunas (estágios do evento ativo) + cards.
 // Filtra tudo pelo evento (HT/Seminário) do contexto (cookie/querystring).
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
   const edicao = sp.get("edicao") || null;
   const responsavel = sp.get("responsavel") || null;
   const tag = sp.get("tag") || null;
   const evento = eventoDe(req);
-  const f = [edicao, responsavel, tag, evento];
+  // Escopo de visibilidade (recorte de SEGURANÇA, 0146): master vê tudo; gestor
+  // vê o pool + os cards da equipe dele; operador vê o pool + os dele. O filtro
+  // por responsável ($2) é conveniência por cima do recorte, nunca o contrário.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
+  const f = [edicao, responsavel, tag, evento, verTudo, usuarioId, equipeId];
+  const escopo = { verTudo: 5, usuario: 6, equipe: 7 };
 
   // Filtros ($1 edição, $2 responsável, $3 tag, $4 evento) em colunas e cards.
+  // A equipe do card deriva do dono (ru.equipe_id) — cs.contatos cru não a tem.
   const colunas = await query(
     `select e.chave, e.nome, e.cor,
             count(ct.id) filter (
               where ($1::text is null or ct.comprador_id in (select comprador_id from cs.contatos_evento where evento = $4 and edicao = $1))
                 and ($2::text is null or ct.responsavel = $2)
                 and ($3::text is null or $3 = any(ct.tags))
+                and ${sqlEscopo({ rid: "ct.responsavel_id", eq: "ru.equipe_id", nome: "ct.responsavel" }, escopo)}
             )::int as total
        from cs.estagios e
        left join cs.contatos ct on ct.estagio_id = e.id and ct.evento = $4
+       left join cs.usuarios ru on ru.id = ct.responsavel_id
       where e.ativo and e.evento = $4
       group by e.id, e.chave, e.nome, e.cor, e.ordem
       order by e.ordem`,
@@ -47,6 +58,7 @@ export async function GET(req: Request) {
           and ($1::text is null or h.edicao = $1)
           and ($2::text is null or ct.responsavel = $2)
           and ($3::text is null or $3 = any(ct.tags))
+          and ${sqlEscopo({ rid: "h.responsavel_id", eq: "h.equipe_id", nome: "h.responsavel" }, escopo)}
      )
      select b.comprador_id, b.nome, b.email, b.telefone, b.edicao, b.estagio_chave, b.tags, b.responsavel, b.opt_out, b.ultima_resposta_em,
             um.descricao as ultima_msg,
@@ -79,10 +91,29 @@ export async function GET(req: Request) {
       order by max(ct.criado_em) desc nulls last`,
     [evento],
   );
-  const respRows = await query<{ responsavel: string }>(
-    `select distinct responsavel from cs.contatos where evento = $1 and responsavel is not null and responsavel <> '' order by responsavel`,
-    [evento],
-  );
+  // Lista de responsáveis RECORTADA por nível: master vê todos (donos atuais +
+  // usuários ativos, p/ atribuir a quem ainda não tem card); gestor só os
+  // membros ativos da própria equipe; operador só a si — o seletor não pode
+  // oferecer um destino que o backend vai recusar (podeAtribuirPara).
+  const nivel = nivelDe(g.sessao);
+  const respRows =
+    nivel === "master"
+      ? await query<{ responsavel: string }>(
+          `select responsavel from (
+              select nome as responsavel from cs.usuarios where ativo
+              union
+              select distinct responsavel from cs.contatos where evento = $1 and responsavel is not null and responsavel <> ''
+           ) u order by responsavel`,
+          [evento],
+        )
+      : nivel === "gestor"
+        ? await query<{ responsavel: string }>(
+            `select nome as responsavel from cs.usuarios where ativo and equipe_id = $1 order by nome`,
+            [g.sessao.equipe_id],
+          )
+        : g.sessao.nome
+          ? [{ responsavel: g.sessao.nome }]
+          : [];
   const tagRows = await query<{ tag: string }>(
     `select distinct unnest(tags) as tag from cs.contatos where evento = $1 and array_length(tags, 1) > 0 order by tag`,
     [evento],
@@ -100,10 +131,18 @@ export async function GET(req: Request) {
 
 // PATCH /api/kanban — move um card de estágio. body: { compradorId, estagioChave }
 export async function PATCH(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const evento = eventoDe(req);
+  const g = await guard({ portal: evento });
+  if (!g.ok) return g.res;
   const p = await parseBody(req, KanbanMoverSchema);
   if (!p.ok) return p.res;
-  const ok = await moverEstagio(p.data.compradorId, p.data.estagioChave);
+  // Gating de equipe: só move card que o ator VÊ (pool / própria equipe / os
+  // dele). Sem isso o recorte do GET é cosmético — bastava forçar o compradorId.
+  if (!(await podeVerContato(g.sessao, p.data.compradorId, evento))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
+  const ok = await moverEstagio(p.data.compradorId, p.data.estagioChave, g.sessao.nome || "cs");
   if (!ok) return NextResponse.json({ ok: false, reason: "estagio_invalido" }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

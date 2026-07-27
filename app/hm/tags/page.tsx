@@ -22,8 +22,10 @@ const PALETA = [
 ];
 
 export default function HmTagsPage() {
-  const { me } = useMe();
-  const admin = me?.papel === "admin";
+  // Gestão do catálogo (renomear/recolorir/excluir propaga a TODOS os cards) é
+  // do MASTER — admin de equipe comum não gere catálogo global. Criar é de todos.
+  const { ehMaster } = useMe();
+  const admin = ehMaster();
   const [tags, setTags] = useState<Tag[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [novoNome, setNovoNome] = useState("");
@@ -123,7 +125,7 @@ export default function HmTagsPage() {
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Tags · Holding Masters</h1>
       </div>
       <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
-        Criar é de todos; renomear, recolorir e excluir propagam para todos os cards — por isso são de admin.
+        Criar é de todos; renomear, recolorir e excluir propagam para todos os cards — por isso são do administrador do Grupo Participa.
       </p>
 
       {/* criar */}

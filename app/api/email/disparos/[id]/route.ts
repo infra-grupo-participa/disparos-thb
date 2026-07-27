@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
+import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 
 // GET /api/email/disparos/[id] — progresso de um disparo de e-mail (para o
 // polling da UI). Espelha GET /api/disparos/[id].
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+export async function GET(req: Request, { params }: { params: { id: string } }) {
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const disparo = await queryOne<{
     status: string; total_contatos: number; total_enviados: number; total_erros: number; evento: string;

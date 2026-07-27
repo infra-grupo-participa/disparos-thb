@@ -28,9 +28,27 @@ export type Atividade = {
   colaboradores: AtividadeColaborador[];
 };
 
-export async function atividadeHm(f: { de?: string | null; ate?: string | null }): Promise<Atividade> {
+// Recorte por NÍVEL (quem pode ver a atividade de quem):
+//   tudo     → master: todos os colaboradores.
+//   equipe   → gestor: só os membros da PRÓPRIA equipe. A trilha é assinada por
+//              NOME (i.autor é texto), então o recorte casa o autor contra os
+//              nomes dos usuários da equipe. Gestor sem equipe (equipeId null)
+//              não casa ninguém — vê lista vazia, nunca "todo mundo".
+//   operador → só a própria linha.
+export type EscopoAtividade =
+  | { modo: "tudo" }
+  | { modo: "equipe"; equipeId: string | null }
+  | { modo: "operador"; nome: string };
+
+export async function atividadeHm(
+  f: { de?: string | null; ate?: string | null },
+  escopo: EscopoAtividade = { modo: "tudo" },
+): Promise<Atividade> {
   const de = f.de || null;
   const ate = f.ate || null;
+  const modo = escopo.modo;
+  const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
+  const nome = escopo.modo === "operador" ? escopo.nome : null;
 
   const colaboradores = await query<AtividadeColaborador>(
     `select
@@ -49,9 +67,17 @@ export async function atividadeHm(f: { de?: string | null; ate?: string | null }
         and i.autor not ilike 'migration%'
         and ($1::timestamptz is null or i.criado_em >= $1)
         and ($2::timestamptz is null or i.criado_em <  $2)
+        -- Recorte por nível: master tudo; gestor só a equipe dele (autor casa por
+        -- nome com um usuário da equipe); operador só a própria linha.
+        and ($4::text = 'tudo'
+             or ($4 = 'equipe' and exists (
+                   select 1 from cs.usuarios u
+                    where u.equipe_id = $5::uuid
+                      and lower(btrim(u.nome)) = lower(btrim(i.autor))))
+             or ($4 = 'operador' and lower(btrim(i.autor)) = lower(btrim($6::text))))
       group by btrim(i.autor)
       order by count(*) desc, btrim(i.autor)`,
-    [de, ate, ATORES_SISTEMA],
+    [de, ate, ATORES_SISTEMA, modo, equipeId, nome],
   );
 
   return { de, ate, colaboradores };

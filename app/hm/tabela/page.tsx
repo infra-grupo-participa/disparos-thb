@@ -14,7 +14,7 @@ import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/h
 import { MultiSelect } from "@/app/_components/multi-select";
 import { ContatoDoNome } from "@/app/_components/copiavel";
 import { DisparoModal } from "@/app/_components/disparo";
-import { useMe } from "@/app/_components/use-me";
+import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 
@@ -388,9 +388,10 @@ const PRESETS: Record<VisaoId, string[]> = {
 
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
-  const { podeDisparar: podeDisparaFn, podeVerTudo } = useMe();
+  const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir } = useMe();
   const podeDisparar = podeDisparaFn("HM");
-  const podeConfigEquipes = podeVerTudo();
+  // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
+  const podeConfigEquipes = podeDistribuir();
   const [linhas, setLinhas] = useState<LinhaEsteira[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
@@ -551,6 +552,11 @@ export default function HmTabelaPage() {
               `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
               "Marque os itens do checklist na própria linha ou na ficha.",
           );
+        } else {
+          // 403 de permissão (destino fora da equipe, atribuição travada…):
+          // mostra o motivo em vez de a célula só voltar sozinha.
+          const msg = msgErroPermissao(d?.reason);
+          if (msg) window.alert(msg);
         }
       }
     } finally {
@@ -761,7 +767,10 @@ export default function HmTabelaPage() {
     responsavel: {
       id: "responsavel", label: "Responsável", edit: true,
       sortVal: (l) => l.responsavel?.toLowerCase() ?? null,
-      render: (l) => (
+      // MASTER/GESTOR: seletor (a lista `responsaveis` já vem recortada do
+      // servidor — gestor só vê a própria equipe). OPERADOR: sem seletor —
+      // leitura do dono, e o botão "Assumir" só em linha do POOL (sem dono).
+      render: (l) => podeDistribuir() ? (
         <div className="flex min-w-[9rem] items-center gap-1.5">
           {l.responsavel && <Avatar nome={l.responsavel} className="h-5 w-5 shrink-0 text-[9px]" />}
           <select
@@ -775,6 +784,28 @@ export default function HmTabelaPage() {
             {l.responsavel && !responsaveis.includes(l.responsavel) && <option value={l.responsavel}>{l.responsavel}</option>}
             {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
+        </div>
+      ) : (
+        <div className="flex min-w-[9rem] items-center gap-1.5">
+          {l.responsavel ? (
+            <>
+              <Avatar nome={l.responsavel} className="h-5 w-5 shrink-0 text-[9px]" />
+              <span className="truncate text-slate-700 dark:text-slate-200">{l.responsavel}</span>
+            </>
+          ) : me?.id ? (
+            <button
+              type="button"
+              disabled={salvando === l.comprador_id}
+              onClick={(e) => { e.stopPropagation(); patch(l.comprador_id, l.nome, { responsavel_id: me.id }); }}
+              className="inline-flex items-center gap-1 rounded-md border border-dashed border-teal-400 px-2 py-0.5 text-[11px] font-medium text-teal-700 transition hover:bg-teal-50 disabled:opacity-50 dark:border-teal-500/50 dark:text-teal-300 dark:hover:bg-teal-500/10"
+              title="Card do pool — clique para assumir para você"
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+              Assumir
+            </button>
+          ) : (
+            <span className="text-slate-400">—</span>
+          )}
         </div>
       ),
     },
@@ -1355,14 +1386,26 @@ export default function HmTabelaPage() {
           {/* Cadastrar à mão — quem o seed não pegou, ou quem entra por fora. */}
           <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
           <HmVisao atual="tabela" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
-          {/* O XLSX é o mesmo relatório desta tela — mesmos filtros, mesma função. */}
-          <a href={`/api/hm/kanban/export?${paramsFiltro.toString()}`} title="Baixar o relatório da esteira (resumo + uma aba por etapa)">
+          {/* O XLSX é o mesmo relatório desta tela — mesmos filtros, mesma função.
+              O servidor recorta por equipe: para quem não é master, o rótulo não
+              promete a esteira inteira. */}
+          <a
+            href={`/api/hm/kanban/export?${paramsFiltro.toString()}`}
+            title={podeVerTudo()
+              ? "Baixar o relatório da esteira inteira (resumo + uma aba por etapa)"
+              : "Baixar o relatório da SUA visão da esteira (o pool + os cards que você vê), resumo + uma aba por etapa"}
+          >
             <Button variant="secondary" size="sm">Esteira .xlsx</Button>
           </a>
           {/* O financeiro em planilha própria: a visão "Financeiro" desta tela cabe
               numa tabela, mas a conciliação não — ela precisa do razão de pagamentos
               e do confronto com a Hotmart. Sai com os mesmos filtros. */}
-          <a href={`/api/hm/financeiro/export?${paramsFiltro.toString()}`} title="Baixar o financeiro (resumo, carteira, a receber, razão de pagamentos e cancelamentos)">
+          <a
+            href={`/api/hm/financeiro/export?${paramsFiltro.toString()}`}
+            title={podeVerTudo()
+              ? "Baixar o financeiro (resumo, carteira, a receber, razão de pagamentos e cancelamentos)"
+              : "Baixar o financeiro da SUA visão da esteira (resumo, carteira, a receber, pagamentos e cancelamentos dos cards que você vê)"}
+          >
             <Button variant={visao === "financeiro" ? "primary" : "secondary"} size="sm">Financeiro .xlsx</Button>
           </a>
         </div>
@@ -1688,22 +1731,27 @@ export default function HmTabelaPage() {
             <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
               {marcados.size} selecionado{marcados.size > 1 ? "s" : ""}
             </span>
-            <select
-              value=""
-              disabled={aplicandoLote}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return;
-                if (v === "__remover") lote({ responsavel: null }, "remover responsável");
-                else lote({ responsavel: v }, `atribuir a ${v}`);
-              }}
-              className={cn(fieldCompactClass, "py-1.5 text-xs")}
-              title="Atribuir responsável (registra na timeline de cada um)"
-            >
-              <option value="">Responsável…</option>
-              {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-              <option value="__remover">— remover responsável —</option>
-            </select>
+            {/* Atribuir em lote é DISTRIBUIR — só master/gestor. A lista já vem
+                recortada do servidor (gestor = só a equipe dele). Operador não
+                vê este seletor: ele só assume card do pool, um a um, na linha. */}
+            {podeDistribuir() && (
+              <select
+                value=""
+                disabled={aplicandoLote}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) return;
+                  if (v === "__remover") lote({ responsavel: null }, "remover responsável");
+                  else lote({ responsavel: v }, `atribuir a ${v}`);
+                }}
+                className={cn(fieldCompactClass, "py-1.5 text-xs")}
+                title="Atribuir responsável (registra na timeline de cada um)"
+              >
+                <option value="">Responsável…</option>
+                {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+                <option value="__remover">— remover responsável —</option>
+              </select>
+            )}
             <select
               value=""
               disabled={aplicandoLote}

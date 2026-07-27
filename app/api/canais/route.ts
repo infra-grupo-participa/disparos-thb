@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeGerirAcesso } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, CanalCriarSchema } from "@/lib/validators";
 import { limparCacheCanais } from "@/lib/services/canais";
@@ -10,9 +9,8 @@ export const runtime = "nodejs";
 // GET /api/canais — lista os canais de disparo (admin). A chave de API nunca é
 // devolvida em claro: só os 4 últimos dígitos, para conferência.
 export async function GET() {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  const g = await guard({ nivel: "master" });
+  if (!g.ok) return g.res;
 
   const canais = await query(
     `select c.id, c.evento_chave, e.nome as evento_nome, c.nome, c.provider,
@@ -29,9 +27,8 @@ export async function GET() {
 // POST /api/canais — cria um canal (admin). Se criado ativo, desativa os demais
 // do mesmo evento/provider (o índice único garante 1 ativo por evento+provider).
 export async function POST(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  const g = await guard({ nivel: "master" });
+  if (!g.ok) return g.res;
 
   const p = await parseBody(req, CanalCriarSchema);
   if (!p.ok) return p.res;

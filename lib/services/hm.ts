@@ -1,6 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
-import { escopoVisibilidade, type Papel, type TipoEquipe } from "@/lib/papeis";
+import { escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
 
 const log = logger("hm");
 
@@ -551,10 +551,106 @@ export async function setResponsavelHmPorId(compradorId: string, responsavelId: 
   await addInteracaoHm(ch.id, "sistema", descricao, autor);
 }
 
-// Gating de visibilidade de um card HM: quem pode ABRIR/EDITAR o card. GP/admin
-// veem tudo; líder de equipe vê o pool + os cards da equipe dele; operador comum
-// vê o pool (sem dono e sem equipe roteada) OU o card atribuído a ELE. Espelha o
-// WHERE das listagens — a lista não mostra, a ficha não abre. Retorna true se pode ver.
+// ----- Atribuição com hierarquia (níveis master/gestor/operador) -------------
+// A regra completa de "quem pode pôr o card na mão de QUEM", aplicada nas DUAS
+// portas que mexem em responsável (PATCH da ficha e POST /api/hm/lote) —
+// inclusive no caminho legado por NOME, que antes contornava a hierarquia toda.
+//
+//   master   → atribui a qualquer um e TRAVA o card (porAdmin, 0142).
+//   gestor   → atribui só a membro da PRÓPRIA equipe, sem travar. Card travado
+//              pelo master é imutável para ele reatribuir (0142: só o master
+//              remaneja) — mas devolver ao pool segue permitido (decisão 27/07).
+//   operador → só ASSUME para si um card do pool; devolve ao pool só o card que
+//              é DELE e que o master não travou.
+export type AtribuicaoErro =
+  | "nao_encontrado"               // card não existe
+  | "destino_invalido"             // id de destino não é usuário ativo
+  | "destino_fora_da_equipe"       // gestor tentando atribuir fora da própria equipe
+  | "atribuicao_travada"           // card com dono/trava — imutável para este nível
+  | "sem_permissao_para_atribuir"; // operador dando o card a outrem / texto livre sem ser master
+export type AtribuicaoResultado = { ok: true } | { ok: false; reason: AtribuicaoErro };
+
+export type DestinoAtribuicao =
+  | { tipo: "pool" }                // devolver ao pool (responsavel null)
+  | { tipo: "id"; id: string }      // caminho novo, por responsavel_id
+  | { tipo: "nome"; nome: string }; // caminho legado, por NOME (seletor antigo)
+
+export async function atribuirResponsavelHm(
+  sessao: Ator,
+  compradorId: string,
+  destino: DestinoAtribuicao,
+  autor = "cs",
+): Promise<AtribuicaoResultado> {
+  const nivel = nivelDe(sessao);
+  const atual = await queryOne<{ responsavel_id: string | null; responsavel: string | null; atribuicao_admin: boolean }>(
+    `select responsavel_id, responsavel, atribuicao_admin from cs.contatos_hm where comprador_id = $1`,
+    [compradorId],
+  );
+  if (!atual) return { ok: false, reason: "nao_encontrado" };
+
+  // Devolver ao pool: só o MASTER passa por cima da trava (0142) — ele é quem a
+  // põe. O gestor devolve ao pool o que a equipe dele segura, mas NÃO um card
+  // travado: senão a trava vira decorativa (devolve ao pool e reatribui logo em
+  // seguida, dois passos para desfazer o que o master decidiu). O operador só
+  // devolve o card que é DELE, e também não fura a trava.
+  if (destino.tipo === "pool") {
+    if (nivel !== "master" && atual.atribuicao_admin) {
+      return { ok: false, reason: "atribuicao_travada" };
+    }
+    if (nivel === "operador" && atual.responsavel_id !== sessao.id) {
+      return { ok: false, reason: "sem_permissao_para_atribuir" };
+    }
+    await setResponsavelHmPorId(compradorId, null, autor, false);
+    // Card legado só com o TEXTO (id já nulo): o clear por id é no-op — limpa o texto.
+    if (atual.responsavel_id === null && atual.responsavel) {
+      await setResponsavelHm(compradorId, null, autor);
+    }
+    return { ok: true };
+  }
+
+  // Resolve o destino para um usuário ATIVO. Pelo nome (legado): se não casar
+  // com usuário nenhum, só o master pode gravar texto livre — para os demais o
+  // nome solto era exatamente o desvio da hierarquia.
+  let user: { id: string; equipe_id: string | null } | null;
+  if (destino.tipo === "id") {
+    user = await queryOne<{ id: string; equipe_id: string | null }>(
+      `select id, equipe_id from cs.usuarios where id = $1 and ativo`,
+      [destino.id],
+    );
+    if (!user) return { ok: false, reason: "destino_invalido" };
+  } else {
+    user = await queryOne<{ id: string; equipe_id: string | null }>(
+      `select id, equipe_id from cs.usuarios
+        where lower(btrim(nome)) = lower(btrim($1)) and ativo
+        limit 1`,
+      [destino.nome],
+    );
+    if (!user) {
+      if (nivel !== "master") return { ok: false, reason: "sem_permissao_para_atribuir" };
+      await setResponsavelHm(compradorId, destino.nome, autor);
+      return { ok: true };
+    }
+  }
+
+  // Hierarquia do DESTINO (lib/papeis) + estado do CARD.
+  if (!podeAtribuirPara(sessao, user)) {
+    return { ok: false, reason: nivel === "gestor" ? "destino_fora_da_equipe" : "sem_permissao_para_atribuir" };
+  }
+  if (nivel !== "master") {
+    if (atual.atribuicao_admin) return { ok: false, reason: "atribuicao_travada" };
+    // Operador: só assume do pool (ou re-assume o próprio, que é no-op).
+    if (nivel === "operador" && atual.responsavel_id !== null && atual.responsavel_id !== sessao.id) {
+      return { ok: false, reason: "atribuicao_travada" };
+    }
+  }
+  await setResponsavelHmPorId(compradorId, user.id, autor, nivel === "master");
+  return { ok: true };
+}
+
+// Gating de visibilidade de um card HM: quem pode ABRIR/EDITAR o card. Master
+// vê tudo; gestor vê o pool + os cards da equipe dele; operador comum vê o pool
+// (sem dono e sem equipe roteada) OU o card atribuído a ELE. Espelha o WHERE
+// das listagens — a lista não mostra, a ficha não abre. Retorna true se pode ver.
 type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null };
 export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): Promise<boolean> {
   const escopo = escopoVisibilidade(sessao);

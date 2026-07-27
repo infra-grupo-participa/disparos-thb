@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { createContact, getContactMessages, sendMessage, type CanalCfg } from "@/lib/unnichat";
 import { getCanal } from "@/lib/services/canais";
 import { normalizePhone } from "@/lib/phone";
 import { parseBody, InboxMsgSchema, InboxStatusSchema } from "@/lib/validators";
 import { registrarRespostaCS, mudarStatus } from "@/lib/services/atendimento";
+import { podeVerContato } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -43,7 +44,14 @@ async function carregarContato(id: string, evento: string): Promise<Contato | nu
 
 // GET — carrega a conversa (mensagens trocadas) do contato com a Unnichat.
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
+  // Gating de equipe (0146): a conversa 1:1 só abre para quem VÊ o contato —
+  // sem isto, o recorte da fila era cosmético (bastava forçar o id aqui).
+  if (!(await podeVerContato(g.sessao, params.id, eventoDe(req)))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
 
   const c = await carregarContato(params.id, eventoDe(req));
   if (!c) return NextResponse.json({ ok: false, reason: "contato não encontrado" }, { status: 404 });
@@ -94,7 +102,13 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
 // POST — envia uma mensagem de texto livre ao contato (dentro da janela de 24h).
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
+  // Mesmo gating do GET: não se responde a uma conversa fora do próprio escopo.
+  if (!(await podeVerContato(g.sessao, params.id, eventoDe(req)))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
 
   const p = await parseBody(req, InboxMsgSchema);
   if (!p.ok) return p.res;
@@ -145,7 +159,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
 // PATCH — muda o status da conversa sem enviar (resolver / reabrir).
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
+  // Mesmo gating do GET: resolver/reabrir é agir sobre a conversa.
+  if (!(await podeVerContato(g.sessao, params.id, eventoDe(req)))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
   const p = await parseBody(req, InboxStatusSchema);
   if (!p.ok) return p.res;
   await mudarStatus(params.id, p.data.status);

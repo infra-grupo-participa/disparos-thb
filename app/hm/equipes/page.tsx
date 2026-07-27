@@ -8,9 +8,12 @@ import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { useMe } from "@/app/_components/use-me";
 import { Avatar } from "@/app/_components/avatar";
 
-// Config de equipes do HM (0140) — só para quem vê tudo (GP/admin). Aqui o ADM
-// geral define quem é de qual equipe, o cargo (operador normal x de disparos), a
-// cor/nome da equipe e quais canais de aquisição caem direto para cada equipe.
+// Equipes do HM (0140), em DOIS modos pelos níveis (lib/papeis):
+//   • MASTER (admin do GP): gere tudo — membros, cargos, líderes, cores, rotas
+//     de canal e criação de equipe.
+//   • GESTOR (admin/líder de equipe comum): só VÊ a própria equipe — é como ele
+//     sabe a quem pode distribuir. Nada de edição: composição é do master.
+//   • Operador não entra (a rota e o menu já escondem).
 
 type Papel = "admin" | "disparador" | "operador";
 type Equipe = { id: string; nome: string; tipo: "principal" | "comum"; cor: string; ativo: boolean; membros: number };
@@ -25,7 +28,7 @@ const LABEL_PAPEL: Record<Papel, string> = {
 
 
 export default function HmEquipesPage() {
-  const { me, podeVerTudo } = useMe();
+  const { me, ehMaster, podeDistribuir } = useMe();
   const [equipes, setEquipes] = useState<Equipe[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [rotas, setRotas] = useState<Rota[]>([]);
@@ -36,19 +39,25 @@ export default function HmEquipesPage() {
   const [rotaCanal, setRotaCanal] = useState("");
   const [rotaEquipe, setRotaEquipe] = useState("");
 
-  const podeConfig = me ? podeVerTudo() : null;
+  // Ver = master OU gestor (null enquanto carrega). Editar = SÓ master.
+  const podeVer = me ? podeDistribuir() : null;
+  const podeEditar = ehMaster();
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const [re, rr] = await Promise.all([fetch("/api/hm/equipes"), fetch("/api/hm/equipes/rotas")]);
+      const re = await fetch("/api/hm/equipes");
       const de = await re.json();
       if (de.ok) { setEquipes(de.equipes); setUsuarios(de.usuarios); }
-      const dr = await rr.json();
-      if (dr.ok) { setRotas(dr.rotas); setCanais(dr.canais); }
+      // Rotas canal → equipe são config global: só o master consulta/edita.
+      if (podeEditar) {
+        const rr = await fetch("/api/hm/equipes/rotas");
+        const dr = await rr.json();
+        if (dr.ok) { setRotas(dr.rotas); setCanais(dr.canais); }
+      }
     } finally { setCarregando(false); }
-  }, []);
-  useEffect(() => { if (podeConfig) carregar(); else if (podeConfig === false) setCarregando(false); }, [podeConfig, carregar]);
+  }, [podeEditar]);
+  useEffect(() => { if (podeVer) carregar(); else if (podeVer === false) setCarregando(false); }, [podeVer, carregar]);
 
   async function criarEquipe() {
     const nome = novoNome.trim();
@@ -81,13 +90,16 @@ export default function HmEquipesPage() {
     await carregar();
   }
 
-  if (podeConfig === false) {
+  if (podeVer === false) {
     return (
       <PageFade>
-        <EmptyState title="Acesso restrito" description="Só o Grupo Participa (ou um administrador) gerencia as equipes." />
+        <EmptyState title="Acesso restrito" description="Só gestores de equipe e administradores do Grupo Participa veem as equipes." />
       </PageFade>
     );
   }
+
+  // O gestor só enxerga a PRÓPRIA equipe (defensivo — o servidor já recorta).
+  const equipesVisiveis = podeEditar ? equipes : equipes.filter((eq) => eq.id === me?.equipe_id);
 
   return (
     <PageFade>
@@ -95,10 +107,14 @@ export default function HmEquipesPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <MarcaPortal portal="hm" altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Equipes · Holding Masters</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+              {podeEditar ? "Equipes · Holding Masters" : "Minha equipe · Holding Masters"}
+            </h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            Quem é de cada equipe, o cargo de cada um e quais canais caem direto para cada equipe.
+            {podeEditar
+              ? "Quem é de cada equipe, o cargo de cada um e quais canais caem direto para cada equipe."
+              : "Quem faz parte da sua equipe — são as pessoas para quem você pode distribuir cards. A composição é gerida pelo Grupo Participa."}
           </p>
         </div>
         <HmVisao atual="equipes" filtros={{}} podeConfig />
@@ -107,28 +123,37 @@ export default function HmEquipesPage() {
       {carregando ? (
         <div className="flex justify-center py-16"><Spinner /></div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className={podeEditar ? "grid gap-4 lg:grid-cols-2" : "mx-auto max-w-2xl"}>
           {/* Equipes + membros */}
           <Card className="p-4">
-            <h2 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">Equipes e membros</h2>
+            <h2 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              {podeEditar ? "Equipes e membros" : "Membros da equipe"}
+            </h2>
+            {!podeEditar && equipesVisiveis.length === 0 && (
+              <p className="py-6 text-center text-sm text-slate-400">Você ainda não está vinculado a uma equipe — fale com o Grupo Participa.</p>
+            )}
             <div className="space-y-4">
-              {equipes.map((eq) => {
+              {equipesVisiveis.map((eq) => {
                 const membrosEq = usuarios.filter((u) => u.equipe_id === eq.id);
                 return (
                 <div key={eq.id} className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
                   {/* Cabeçalho da equipe: faixa na cor da equipe + nome + contagem */}
                   <div className="flex items-center gap-2 border-l-4 bg-slate-50 px-3 py-2 dark:bg-slate-800/40" style={{ borderLeftColor: eq.cor }}>
-                    <input
-                      type="color"
-                      value={eq.cor}
-                      onChange={(e) => patchEquipe(eq.id, { cor: e.target.value })}
-                      title="Cor da equipe (borda/selo do card no board)"
-                      className="h-5 w-5 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600"
-                    />
+                    {podeEditar ? (
+                      <input
+                        type="color"
+                        value={eq.cor}
+                        onChange={(e) => patchEquipe(eq.id, { cor: e.target.value })}
+                        title="Cor da equipe (borda/selo do card no board)"
+                        className="h-5 w-5 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600"
+                      />
+                    ) : (
+                      <span className="h-4 w-4 shrink-0 rounded" style={{ backgroundColor: eq.cor }} title="Cor da equipe (borda/selo do card no board)" />
+                    )}
                     <span className="font-semibold text-slate-800 dark:text-slate-100">{eq.nome}</span>
                     {eq.tipo === "principal" && (
-                      <span className="rounded bg-indigo-100 px-1.5 py-px text-[10px] font-semibold uppercase text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" title="Vê todos os cards de todas as equipes">
-                        principal · vê tudo
+                      <span className="rounded bg-indigo-100 px-1.5 py-px text-[10px] font-semibold uppercase text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" title="Equipe do Grupo Participa — o administrador dela (master) vê e gere tudo">
+                        principal · GP
                       </span>
                     )}
                     <span className="ml-auto rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-500 shadow-sm dark:bg-slate-900 dark:text-slate-400">
@@ -155,38 +180,44 @@ export default function HmEquipesPage() {
                             </div>
                             <span className="block truncate text-xs text-slate-400 dark:text-slate-500">{u.email}</span>
                           </div>
-                          {/* Ações à direita, agrupadas e sempre visíveis */}
-                          <div className="flex shrink-0 items-center gap-0.5">
-                            {eq.tipo === "comum" && (
-                              <button
-                                type="button"
-                                onClick={() => membro(eq.id, u.id, "vincular", undefined, !u.lider_equipe)}
-                                title={u.lider_equipe ? "Tirar como líder da equipe" : "Tornar líder desta equipe (distribui cards entre os operadores dela)"}
-                                className={cn("rounded-md p-1.5 transition",
-                                  u.lider_equipe
-                                    ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10"
-                                    : "text-slate-300 hover:bg-slate-100 hover:text-amber-400 dark:text-slate-600 dark:hover:bg-slate-800")}
-                              >
-                                <svg className="h-4 w-4" viewBox="0 0 24 24" fill={u.lider_equipe ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
+                          {/* Ações à direita — SÓ o master mexe na composição */}
+                          {podeEditar && (
+                            <div className="flex shrink-0 items-center gap-0.5">
+                              {eq.tipo === "comum" && (
+                                <button
+                                  type="button"
+                                  onClick={() => membro(eq.id, u.id, "vincular", undefined, !u.lider_equipe)}
+                                  title={u.lider_equipe ? "Tirar como líder da equipe" : "Tornar líder desta equipe (distribui cards entre os operadores dela)"}
+                                  className={cn("rounded-md p-1.5 transition",
+                                    u.lider_equipe
+                                      ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10"
+                                      : "text-slate-300 hover:bg-slate-100 hover:text-amber-400 dark:text-slate-600 dark:hover:bg-slate-800")}
+                                >
+                                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill={u.lider_equipe ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
+                                </button>
+                              )}
+                              <button onClick={() => membro(eq.id, u.id, "remover")} className="rounded-md p-1.5 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-600 dark:hover:bg-rose-500/10" title="Tirar da equipe">
+                                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                               </button>
-                            )}
-                            <button onClick={() => membro(eq.id, u.id, "remover")} className="rounded-md p-1.5 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-600 dark:hover:bg-rose-500/10" title="Tirar da equipe">
-                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                            </button>
-                          </div>
+                            </div>
+                          )}
                         </div>
-                        {/* Cargo: linha própria, alinhada ao texto (depois do avatar) */}
+                        {/* Cargo: o master troca; o gestor só lê */}
                         <div className="mt-1.5 pl-[calc(2.25rem+0.625rem)]">
-                          <select
-                            value={u.papel}
-                            onChange={(e) => membro(eq.id, u.id, "vincular", e.target.value as Papel)}
-                            className={cn(fieldCompactClass, "h-7 py-0 text-xs")}
-                            title="Cargo do membro"
-                          >
-                            <option value="operador">Operador</option>
-                            <option value="disparador">Operador de disparos</option>
-                            <option value="admin">Administrador</option>
-                          </select>
+                          {podeEditar ? (
+                            <select
+                              value={u.papel}
+                              onChange={(e) => membro(eq.id, u.id, "vincular", e.target.value as Papel)}
+                              className={cn(fieldCompactClass, "h-7 py-0 text-xs")}
+                              title="Cargo do membro"
+                            >
+                              <option value="operador">Operador</option>
+                              <option value="disparador">Operador de disparos</option>
+                              <option value="admin">Administrador</option>
+                            </select>
+                          ) : (
+                            <span className="text-xs text-slate-500 dark:text-slate-400">{LABEL_PAPEL[u.papel]}</span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -199,8 +230,8 @@ export default function HmEquipesPage() {
               })}
             </div>
 
-            {/* Sem equipe → atribuir (destaque para o admin distribuir) */}
-            {usuarios.some((u) => u.ativo && !u.equipe_id) && (
+            {/* Sem equipe → atribuir (só o master compõe equipe) */}
+            {podeEditar && usuarios.some((u) => u.ativo && !u.equipe_id) && (
               <div className="mt-4 rounded-xl border border-dashed border-amber-300 bg-amber-50/40 p-3 dark:border-amber-500/30 dark:bg-amber-500/5">
                 <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
                   <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>
@@ -229,15 +260,18 @@ export default function HmEquipesPage() {
               </div>
             )}
 
-            {/* Criar equipe comum */}
-            <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
-              <input type="color" value={novaCor} onChange={(e) => setNovaCor(e.target.value)} className="h-8 w-8 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600" title="Cor da nova equipe" />
-              <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Nome da nova equipe" className={cn(fieldClass, "flex-1")} />
-              <Button onClick={criarEquipe} disabled={novoNome.trim().length < 2}>Criar equipe</Button>
-            </div>
+            {/* Criar equipe comum — só o master */}
+            {podeEditar && (
+              <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+                <input type="color" value={novaCor} onChange={(e) => setNovaCor(e.target.value)} className="h-8 w-8 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600" title="Cor da nova equipe" />
+                <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Nome da nova equipe" className={cn(fieldClass, "flex-1")} />
+                <Button onClick={criarEquipe} disabled={novoNome.trim().length < 2}>Criar equipe</Button>
+              </div>
+            )}
           </Card>
 
-          {/* Rotas canal → equipe */}
+          {/* Rotas canal → equipe — config global, só o master */}
+          {podeEditar && (
           <Card className="p-4">
             <h2 className="mb-1 text-sm font-semibold text-slate-700 dark:text-slate-200">Roteamento de canais</h2>
             <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
@@ -273,6 +307,7 @@ export default function HmEquipesPage() {
               </Button>
             </div>
           </Card>
+          )}
         </div>
       )}
     </PageFade>

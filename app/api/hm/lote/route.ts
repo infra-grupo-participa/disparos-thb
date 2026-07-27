@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { parseBody, HmLoteSchema } from "@/lib/validators";
-import { addTagHm, moverEstagioHm, removeTagHm, setResponsavelHm, podeVerCardHm } from "@/lib/services/hm";
+import { addTagHm, moverEstagioHm, removeTagHm, atribuirResponsavelHm, podeVerCardHm, type DestinoAtribuicao } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -21,8 +21,9 @@ type Falha = { compradorId: string; nome: string; motivo: string; faltando?: str
 // um lote que corrompe a base em escala. A resposta diz quem passou e quem não
 // (`falhas`, com o `faltando` do checklist), para a tela mostrar nominalmente.
 export async function POST(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   const operador = sessao.nome || "cs";
   const p = await parseBody(req, HmLoteSchema);
   if (!p.ok) return p.res;
@@ -74,8 +75,24 @@ export async function POST(req: Request) {
       continue;
     }
     try {
+      // Responsável em lote — caminho legado por NOME. MESMA regra do PATCH da
+      // ficha (atribuirResponsavelHm): resolve o nome para um usuário ativo e
+      // aplica a hierarquia; nome sem usuário só o master grava (texto livre).
+      // A recusa é nominal (falhas), card a card — não derruba o lote inteiro.
       if (b.responsavel !== undefined) {
-        await setResponsavelHm(compradorId, b.responsavel || null, operador);
+        const destino: DestinoAtribuicao = (b.responsavel ?? "").trim() === ""
+          ? { tipo: "pool" }
+          : { tipo: "nome", nome: (b.responsavel as string).trim() };
+        const r = await atribuirResponsavelHm(sessao, compradorId, destino, operador);
+        if (!r.ok) {
+          const motivo =
+            r.reason === "destino_fora_da_equipe" ? "destino fora da sua equipe"
+            : r.reason === "atribuicao_travada" ? "atribuição travada pelo admin"
+            : r.reason === "sem_permissao_para_atribuir" ? "sem permissão para atribuir"
+            : "contato não encontrado";
+          falhas.push({ compradorId, nome, motivo });
+          continue;
+        }
       }
       // Tags: o serviço recusa as gerenciadas (turma/origem) — a falha volta
       // nominal, como tudo aqui. Quem já tem/não tem a tag conta como aplicado

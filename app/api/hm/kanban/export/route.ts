@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { relatorioHm } from "@/lib/services/hm-relatorio";
 import { relatorioHmParaXlsx, nomeArquivoRelatorio } from "@/lib/export/hm-esteira-xlsx";
@@ -12,10 +11,10 @@ export const runtime = "nodejs";
 // Os filtros são os mesmos do board; o RECORTE de equipe também (a planilha só
 // traz o que a pessoa vê — GP/admin tudo, operador o pool+os dele, líder a equipe).
 export async function GET(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
-  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
 
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E (igual ao board).

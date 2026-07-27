@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 import { metaAssunto, extrairPalavrasChave } from "@/lib/classificar";
 
@@ -30,22 +32,29 @@ type MsgRow = {
 };
 
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const edicao = new URL(req.url).searchParams.get("edicao") || null;
   const evento = eventoDe(req);
-  const f = [edicao, evento];
+  // Recorte por equipe (decisão do Marcio, 27/07): a leitura analítica segue o
+  // escopo de quem olha — master, o portal; gestor, a equipe; operador, os dele.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
+  const ESCOPO_H = sqlEscopo({ rid: "h.responsavel_id", eq: "h.equipe_id", nome: "h.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 });
+  const f = [edicao, evento, verTudo, usuarioId, equipeId];
 
   // 1) Onboarding (≤30d) x Ongoing (>30d) — base com data de compra (HT). No
   // Seminário não há compra, então estes números ficam naturalmente zerados.
   const ciclo = await queryOne<{ onboarding: number; ongoing: number; total: number }>(
     `select
-        count(*) filter (where ultima_compra_ht >= now() - interval '30 days')::int as onboarding,
-        count(*) filter (where ultima_compra_ht <  now() - interval '30 days')::int as ongoing,
+        count(*) filter (where h.ultima_compra_ht >= now() - interval '30 days')::int as onboarding,
+        count(*) filter (where h.ultima_compra_ht <  now() - interval '30 days')::int as ongoing,
         count(*)::int as total
-       from cs.contatos_evento
-      where evento = $2 and ultima_compra_ht is not null
-        and ($1::text is null or edicao = $1)`,
+       from cs.contatos_evento h
+      where h.evento = $2 and h.ultima_compra_ht is not null
+        and ($1::text is null or h.edicao = $1)
+        and ${ESCOPO_H}`,
     f,
   );
 
@@ -63,16 +72,23 @@ export async function GET(req: Request) {
        left join cs.formularios fm on fm.comprador_id = h.comprador_id and fm.tipo = 'matricula'
        left join cs.formularios ff on ff.comprador_id = h.comprador_id and ff.tipo = 'ficha_hm'
        left join cs.lead_scores ls on ls.comprador_id = h.comprador_id
-      where h.evento = $2 and ($1::text is null or h.edicao = $1)`,
+      where h.evento = $2 and ($1::text is null or h.edicao = $1)
+        and ${ESCOPO_H}`,
     f,
   );
 
-  // 2) Funil — distribuição atual por estágio.
+  // 2) Funil — distribuição atual por estágio. O recorte entra no COUNT (filter),
+  // não no WHERE: filtrar ali derrubaria do funil a etapa cujos cards são todos
+  // de outra equipe — a coluna tem que aparecer zerada, não sumir.
   const funil = await query<{ chave: string; nome: string; cor: string | null; qtd: number }>(
-    `select e.chave, e.nome, e.cor, count(ct.id)::int as qtd
+    `select e.chave, e.nome, e.cor,
+            count(ct.id) filter (
+              where ${sqlEscopo({ rid: "ct.responsavel_id", eq: "ru.equipe_id", nome: "ct.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
+            )::int as qtd
        from cs.estagios e
        left join cs.contatos ct on ct.estagio_id = e.id and ct.evento = $2
         and ($1::text is null or ct.comprador_id in (select comprador_id from cs.contatos_evento where evento = $2 and edicao = $1))
+       left join cs.usuarios ru on ru.id = ct.responsavel_id
       where e.ativo and e.evento = $2
       group by e.id, e.chave, e.nome, e.cor, e.ordem
       order by e.ordem`,
@@ -87,7 +103,8 @@ export async function GET(req: Request) {
         and exists (
               select 1 from cs.contatos_evento h
                where h.comprador_id = m.comprador_id and h.evento = $2
-                 and ($1::text is null or h.edicao = $1))`,
+                 and ($1::text is null or h.edicao = $1)
+                 and ${ESCOPO_H})`,
     f,
   );
 
@@ -149,7 +166,10 @@ export async function GET(req: Request) {
   // devolvemos a melhor hora isolada e o total por hora para o gráfico).
   const melhorHora = horas.reduce((best, q, h) => (q > horas[best] ? h : best), 0);
 
-  // Meta do sync para o usuário saber a frescura dos dados.
+  // Meta do sync para o usuário saber a frescura dos dados. NÃO recortável por
+  // equipe de propósito: é métrica de INFRAESTRUTURA (quando a sincronização da
+  // Unnichat rodou e quantos telefones do portal ela ainda não cobriu) — não
+  // expõe lead nenhum, e recortá-la mentiria sobre a frescura real da base.
   const sync = await queryOne<{ ultima: string | null; contatos: number; pendentes: number }>(
     `select max(ultima_sincronizacao) as ultima,
             count(*) filter (where ultima_sincronizacao is not null)::int as contatos,

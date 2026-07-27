@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeVerTudo } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
 import { query } from "@/lib/db";
 import { parseBody, EquipeRotaSchema } from "@/lib/validators";
 
@@ -13,11 +12,8 @@ export const runtime = "nodejs";
 // GET /api/hm/equipes/rotas — o mapa atual + os canais que existem nos cards
 // (para o ADM escolher o que rotear).
 export async function GET() {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeVerTudo(sessao.papel, sessao.equipe_tipo)) {
-    return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
-  }
+  const g = await guard({ portal: "HM", nivel: "master" });
+  if (!g.ok) return g.res;
   const rotas = await query(
     `select ec.canal, ec.equipe_id, e.nome as equipe_nome, e.cor as equipe_cor
        from cs.equipe_canais ec join cs.equipes e on e.id = ec.equipe_id
@@ -35,11 +31,8 @@ export async function GET() {
 // PUT /api/hm/equipes/rotas — define (upsert) ou remove (equipe_id null) a rota
 // de um canal.
 export async function PUT(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeVerTudo(sessao.papel, sessao.equipe_tipo)) {
-    return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
-  }
+  const g = await guard({ portal: "HM", nivel: "master" });
+  if (!g.ok) return g.res;
   const p = await parseBody(req, EquipeRotaSchema);
   if (!p.ok) return p.res;
   const { canal, equipe_id } = p.data;

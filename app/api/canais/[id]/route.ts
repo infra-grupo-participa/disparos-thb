@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeGerirAcesso } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, CanalPatchSchema } from "@/lib/validators";
 import { limparCacheCanais } from "@/lib/services/canais";
@@ -10,9 +9,8 @@ export const runtime = "nodejs";
 // PATCH /api/canais/[id] — edita um canal (admin): troca a chave/número/nome ou
 // ativa/desativa. Ao ativar, desativa os demais do mesmo evento/provider.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  const g = await guard({ nivel: "master" });
+  if (!g.ok) return g.res;
 
   const p = await parseBody(req, CanalPatchSchema);
   if (!p.ok) return p.res;

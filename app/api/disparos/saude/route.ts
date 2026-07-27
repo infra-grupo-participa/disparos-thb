@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { getConfig } from "@/lib/services/config";
 import { eventoDe } from "@/lib/services/evento";
@@ -39,7 +39,9 @@ type CodigoRow = { code: number; qtd: number; ultima: string | null };
 // (dados de envio) com os sinais REAIS de qualidade da Meta (status de entrega +
 // códigos de erro sincronizados) para um veredito claro de quando PARAR.
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   // Saúde anti-ban por evento: cada portal tem seu número/canal, então o
   // volume/ritmo/qualidade é avaliado isoladamente (HT não contamina Seminário).

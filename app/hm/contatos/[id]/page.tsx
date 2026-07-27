@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial, Avatar } from "@/app/_components/avatar";
+import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 
 // Checkout Hotmart do saldo do HM (R$ 14.700 de 15.000) — oferta 2vibw97m.
 // No próprio checkout o cliente escolhe à vista ou parcelado.
@@ -15,6 +16,9 @@ type Contato = {
   turma: string | null; plano: string | null; categoria_entrada: string | null;
   estagio_chave: string | null; estagio_nome: string | null; estagio_aba: string | null;
   responsavel: string | null;
+  // Dono por id + trava do admin (0142) — gating do operador. Opcionais: a rota
+  // pode ainda não devolvê-los (em voo).
+  responsavel_id?: string | null; atribuicao_admin?: boolean;
   reuniao_em: string | null; reuniao_resultado: string | null;
   entrevista_em: string | null; entrevista_resultado: string | null;
   pagamento_forma: string | null; pagamento_parcelas: number | null; pagamento_em: string | null;
@@ -55,6 +59,7 @@ const TL_ICONE: Record<string, { path: string; wrap: string }> = {
 
 export default function HmFichaPage({ params }: { params: { id: string } }) {
   const compradorId = params.id;
+  const { me, podeDistribuir } = useMe();
   const [c, setC] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
   const [formularios, setFormularios] = useState<Formulario[]>([]);
@@ -100,7 +105,14 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   async function patch(payload: Record<string, unknown>) {
     setSalvando(true);
     try {
-      await fetch(`/api/hm/contato/${compradorId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const r = await fetch(`/api/hm/contato/${compradorId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!r.ok) {
+        // 403 de permissão vem com reason específico — a ficha diz o MOTIVO
+        // em vez de recarregar em silêncio com o valor antigo.
+        const d = await r.json().catch(() => ({}));
+        const msg = msgErroPermissao(d?.reason);
+        if (msg) window.alert(msg);
+      }
       await recarregar();
     } finally {
       setSalvando(false);
@@ -171,14 +183,47 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                 </select>
               </Campo>
               <Campo label="Responsável (CS)">
-                <div className="flex items-center gap-2">
-                  {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
-                  <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass}>
-                    <option value="">— Sem responsável —</option>
-                    {c.responsavel && !responsaveis.includes(c.responsavel) && <option value={c.responsavel}>{c.responsavel}</option>}
-                    {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
+                {podeDistribuir() ? (
+                  // MASTER/GESTOR distribuem pelo seletor (o backend barra destino
+                  // fora da equipe do gestor e devolve o motivo).
+                  <div className="flex items-center gap-2">
+                    {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
+                    <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass}>
+                      <option value="">— Sem responsável —</option>
+                      {c.responsavel && !responsaveis.includes(c.responsavel) && <option value={c.responsavel}>{c.responsavel}</option>}
+                      {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                ) : (
+                  // OPERADOR: sem seletor — lê o dono; card do POOL (sem dono e sem
+                  // trava do admin) ganha o botão de assumir para si.
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {c.responsavel ? (
+                      <>
+                        <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{c.responsavel}</span>
+                      </>
+                    ) : c.atribuicao_admin ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                        Atribuição travada pelo administrador
+                      </span>
+                    ) : me?.id ? (
+                      <button
+                        type="button"
+                        disabled={salvando}
+                        onClick={() => patch({ responsavel_id: me.id })}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-teal-400 px-2.5 py-1.5 text-xs font-medium text-teal-700 transition hover:bg-teal-50 disabled:opacity-50 dark:border-teal-500/50 dark:text-teal-300 dark:hover:bg-teal-500/10"
+                        title="Card do pool — clique para assumir para você"
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+                        No pool — atribuir a mim
+                      </button>
+                    ) : (
+                      <span className="text-sm text-slate-400">— Sem responsável —</span>
+                    )}
+                  </div>
+                )}
               </Campo>
               {c.categoria_entrada && (
                 <Campo label="Entrada">

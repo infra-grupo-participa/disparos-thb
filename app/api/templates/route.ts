@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isAuthed, getSessao, podeDisparar } from "@/lib/auth";
+import { podeDisparar } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { eventoDe } from "@/lib/services/evento";
 import { montarVeredito } from "@/lib/services/ac-automacoes";
@@ -17,7 +18,9 @@ type LinhaTemplate = {
 };
 
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
   // ?canal=email lista só os templates de e-mail; sem o filtro, mantém o
   // comportamento legado (todos do evento — na prática, os de WhatsApp).
   const canal = new URL(req.url).searchParams.get("canal");
@@ -78,8 +81,10 @@ export async function POST(req: Request) {
   // Cadastrar template é ato de disparo: quem escreve a mensagem que sai no
   // número da empresa é quem pode disparar. Antes, qualquer operador logado
   // criava template.
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!podeDisparar(sessao.papel)) {
     return NextResponse.json({ ok: false, reason: "sem_permissao_disparo" }, { status: 403 });
   }
@@ -165,7 +170,9 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
   const b = await req.json().catch(() => ({}));
   const { id, ativo } = b as Record<string, unknown>;
 

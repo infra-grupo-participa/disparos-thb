@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -15,9 +16,11 @@ export const runtime = "nodejs";
 // Sempre exclui quem não tem telefone e quem deu opt-out. Ordena os mais frios /
 // nunca-abordados primeiro, para o operador atacar a fila do topo.
 export async function GET(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const evento = eventoDe(req);
+  // Portal do evento resolvido contra a whitelist da conta (0145).
+  const g = await guard({ portal: evento });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   const sp = new URL(req.url).searchParams;
   const modo = (sp.get("modo") || "ambos") as "novos" | "frios" | "ambos";
   const dias = Math.min(Math.max(Number(sp.get("dias") || 7), 1), 90);
@@ -67,6 +70,10 @@ export async function GET(req: Request) {
       [limite, dias, verTudo, usuarioId, equipeId],
     );
   } else {
+    // Genéricos (0146): MESMO recorte de segurança do ramo HM, agora que a view
+    // cs.contatos_evento expõe responsavel_id/equipe_id — cada um só recebe
+    // sugestão de card que vê (pool de verdade / os dele / a equipe dele).
+    const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
     contatos = await query<Elegivel>(
       `with ult as (
          select dc.comprador_id, max(dc.enviado_em) as ultimo
@@ -84,10 +91,11 @@ export async function GET(req: Request) {
         where v.evento = $1
           and v.telefone is not null and v.telefone <> ''
           and not coalesce(ct.opt_out, false)
+          and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 4, usuario: 5, equipe: 6 })}
           and (${filtroModo})
         order by (u.ultimo is null) desc, u.ultimo asc nulls first, v.nome
         limit $3`,
-      [evento, dias, limite],
+      [evento, dias, limite, verTudo, usuarioId, equipeId],
     );
   }
 

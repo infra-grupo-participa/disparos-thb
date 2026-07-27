@@ -22,23 +22,29 @@ export type FichaHm = {
 
 // Retorna null quando o comprador não tem card HM.
 export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
+  // `responsavel_id` (+ equipe, da view 0140) e `atribuicao_admin` (0142, só na
+  // tabela — a view do kanban não a expõe) entram na ficha porque o front
+  // decide com eles entre "Assumir", leitura e o cadeado da trava do admin.
   const contato = await queryOne<ContatoHmFicha>(
-    `select comprador_id, nome, email, telefone, turma, turma_origem, plano, categoria_entrada,
-            estagio_chave, estagio_nome, estagio_aba, responsavel,
-            reuniao_em, reuniao_resultado, reuniao_gravacao_url,
-            entrevista_em, entrevista_resultado, entrevista_gravacao_url,
-            pagamento_forma, pagamento_parcelas, pagamento_em, apto_ativacao,
-            pagamento_meio, pagamento_previsto_em, acordo, oferta_saldo_codigo, link_saldo_enviado_em,
-            nao_contatar, nao_contatar_motivo, revisar, revisar_motivo,
-            ativ_searchie, ativ_comunidade, ativ_grupo, ativ_pesquisa, grupo_informes, pendencia,
-            cancelamento_em, cancelamento_motivo, link_facebook,
-            cancelamento_efetivado_em, cancelamento_origem,
-            hotmart_cancelado_em, hotmart_cancelamento_evento, hotmart_cancelamento_transacao,
-            hotmart_status, hotmart_status_em, canal_aquisicao,
-            rev_searchie, rev_comunidade, rev_grupo, rev_pesquisa,
-            acessos_revogados_em, acessos_revogados_por, acessos_a_remover, aluno_id,
-            tags, observacoes, criado_em
-       from cs.contatos_hm_kanban where comprador_id = $1`,
+    `select k.comprador_id, k.nome, k.email, k.telefone, k.turma, k.turma_origem, k.plano, k.categoria_entrada,
+            k.estagio_chave, k.estagio_nome, k.estagio_aba, k.responsavel,
+            k.responsavel_id, k.equipe_id, k.equipe_nome, k.equipe_cor, ch.atribuicao_admin,
+            k.reuniao_em, k.reuniao_resultado, k.reuniao_gravacao_url,
+            k.entrevista_em, k.entrevista_resultado, k.entrevista_gravacao_url,
+            k.pagamento_forma, k.pagamento_parcelas, k.pagamento_em, k.apto_ativacao,
+            k.pagamento_meio, k.pagamento_previsto_em, k.acordo, k.oferta_saldo_codigo, k.link_saldo_enviado_em,
+            k.nao_contatar, k.nao_contatar_motivo, k.revisar, k.revisar_motivo,
+            k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa, k.grupo_informes, k.pendencia,
+            k.cancelamento_em, k.cancelamento_motivo, k.link_facebook,
+            k.cancelamento_efetivado_em, k.cancelamento_origem,
+            k.hotmart_cancelado_em, k.hotmart_cancelamento_evento, k.hotmart_cancelamento_transacao,
+            k.hotmart_status, k.hotmart_status_em, k.canal_aquisicao,
+            k.rev_searchie, k.rev_comunidade, k.rev_grupo, k.rev_pesquisa,
+            k.acessos_revogados_em, k.acessos_revogados_por, k.acessos_a_remover, k.aluno_id,
+            k.tags, k.observacoes, k.criado_em
+       from cs.contatos_hm_kanban k
+       join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
+      where k.comprador_id = $1`,
     [compradorId],
   );
   if (!contato) return null;

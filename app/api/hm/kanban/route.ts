@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, nivelDe, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
 import { moverEstagioHm, podeVerCardHm } from "@/lib/services/hm";
@@ -21,15 +21,16 @@ const RE_TURMA = "^(Origem|Turma|Aurum) ";
 // Os totais das colunas NÃO vêm daqui: um card pago aparece em duas colunas
 // (espelho do pagamento no Comercial), e só a tela sabe dessa regra.
 export async function GET(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   const sp = new URL(req.url).searchParams;
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E.
   const lista = (nome: string) => { const v = sp.getAll(nome); return v.length ? v : null; };
-  // Escopo de visibilidade (recorte de SEGURANÇA): GP/admin veem tudo; líder de
-  // equipe vê o pool + todos os cards da equipe dele; operador comum vê o pool +
-  // só os cards atribuídos a ele. O filtro por responsável (abaixo) é conveniência.
+  // Escopo de visibilidade (recorte de SEGURANÇA): master vê tudo; gestor vê o
+  // pool + todos os cards da equipe dele; operador comum vê o pool + só os
+  // cards atribuídos a ele. O filtro por responsável (abaixo) é conveniência.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
   const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId];
 
@@ -112,16 +113,30 @@ export async function GET(req: Request) {
 
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já
   // tem card. Assim um operador novo aparece no seletor de responsável antes da
-  // primeira atribuição — senão ninguém consegue atribuir a ele. A união preserva
-  // responsáveis legados que porventura não estejam mais em usuarios.
-  const respRows = await query<{ responsavel: string }>(
-    `select responsavel from (
-        select nome as responsavel from cs.usuarios where ativo
-        union
-        select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''
-     ) u
-     order by responsavel`,
-  );
+  // primeira atribuição — senão ninguém consegue atribuir a ele.
+  // Lista RECORTADA por nível: master vê todos (+ responsáveis legados fora de
+  // usuarios); gestor só os membros ativos da PRÓPRIA equipe; operador só a si.
+  // O seletor não pode oferecer um destino que atribuirResponsavelHm vai
+  // recusar — era o gestor vendo nomes de outras equipes e colhendo 403.
+  const nivel = nivelDe(sessao);
+  const respRows =
+    nivel === "master"
+      ? await query<{ responsavel: string }>(
+          `select responsavel from (
+              select nome as responsavel from cs.usuarios where ativo
+              union
+              select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''
+           ) u
+           order by responsavel`,
+        )
+      : nivel === "gestor"
+        ? await query<{ responsavel: string }>(
+            `select nome as responsavel from cs.usuarios where ativo and equipe_id = $1 order by nome`,
+            [sessao.equipe_id],
+          )
+        : sessao.nome
+          ? [{ responsavel: sessao.nome }]
+          : [];
   // `qtd` alimenta a régua de canais fixos: o placar do canal INTEIRO, sem os
   // filtros da tela — o número é "quantas vendas o evento fez", não "quantas
   // estou vendo agora".
@@ -150,8 +165,9 @@ export async function GET(req: Request) {
 // abaixo dele (null = fim da coluna, ausente = topo). Arrastar só na vertical é
 // um PATCH com o mesmo estagioChave: o serviço reordena e não mexe na timeline.
 export async function PATCH(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   const p = await parseBody(req, HmMoverSchema);
   if (!p.ok) return p.res;
   const { compradorId, estagioChave, antesDe } = p.data;

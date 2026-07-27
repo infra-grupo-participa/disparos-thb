@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -12,10 +14,15 @@ export const runtime = "nodejs";
 type Par = { c1: string; c2: string; alunos: number; convertidos: number };
 
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const evento = eventoDe(req);
   const convertido = new URL(req.url).searchParams.get("convertido") || "ativado";
+  // Recorte por equipe (decisão do Marcio, 27/07): a matriz é da base que quem
+  // olha enxerga — o join final com contatos_evento é onde o escopo amarra.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
 
   const pares = await query<Par>(
     `with toques as (
@@ -36,8 +43,9 @@ export async function GET(req: Request) {
             count(*) filter (where v.estagio_chave = $2)::int as convertidos
        from par p
        join cs.contatos_evento v on v.comprador_id = p.comprador_id and v.evento = $1
+      where ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
       group by p.c1, p.c2`,
-    [evento, convertido],
+    [evento, convertido, verTudo, usuarioId, equipeId],
   );
 
   const totais = pares.reduce(

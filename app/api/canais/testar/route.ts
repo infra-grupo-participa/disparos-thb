@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeGerirAcesso } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
 import { queryOne } from "@/lib/db";
 import { validarCredencial } from "@/lib/unnichat";
 import { listarTags } from "@/lib/activecampaign";
@@ -12,9 +11,8 @@ export const runtime = "nodejs";
 // { api_key, base_url?, provider? } (testa a chave digitada antes de salvar).
 // WhatsApp: busca read-only na Unnichat. E-mail: lista 1 tag no AC.
 export async function POST(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  const g = await guard({ nivel: "master" });
+  if (!g.ok) return g.res;
 
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   let apiKey = b.api_key ? String(b.api_key) : null;

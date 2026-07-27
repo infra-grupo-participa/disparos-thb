@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query } from "@/lib/db";
 import { eventoDe } from "@/lib/services/evento";
 
@@ -9,7 +9,9 @@ export const runtime = "nodejs";
 // É o "log" que o operador abre para conferir o que enviou e, se algo travou,
 // retomar de onde parou (botão na tela, sem depender do cron nem de nós).
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
   const evento = eventoDe(req);
 
   const disparos = await query(

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { queryOne } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -15,14 +17,21 @@ export const runtime = "nodejs";
 //     Sem edição selecionada, ligações mostram o total geral (produtividade do
 //     comercial não depende de o número estar na base).
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const evento = eventoDe(req);
   const url = new URL(req.url);
   const desde = url.searchParams.get("desde");
   const ate = url.searchParams.get("ate");
   const edicao = url.searchParams.get("edicao");
-  const p = [evento, desde, ate, edicao];
+  // Recorte por equipe (decisão do Marcio, 27/07): master vê o portal; gestor,
+  // a equipe; operador, os dele. Vale onde a métrica amarra num CONTATO
+  // (WhatsApp por dc.comprador_id, atendimentos por l.comprador_id).
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
+  const ESCOPO_V = sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 5, usuario: 6, equipe: 7 });
+  const p = [evento, desde, ate, edicao, verTudo, usuarioId, equipeId];
 
   const whatsapp = (await queryOne<{ enviados: number; respondidos: number }>(
     `select
@@ -30,12 +39,17 @@ export async function GET(req: Request) {
        count(*) filter (where dc.respondeu)::int as respondidos
      from cs.disparo_contatos dc
      join cs.disparos d on d.id = dc.disparo_id and d.evento = $1
+     join cs.contatos_evento v on v.comprador_id = dc.comprador_id and v.evento = $1
      where ($2::timestamptz is null or d.iniciado_em >= $2)
        and ($3::timestamptz is null or d.iniciado_em <= $3)
-       and ($4::text is null or d.edicao_ht = $4)`,
+       and ($4::text is null or d.edicao_ht = $4)
+       and ${ESCOPO_V}`,
     p,
   )) ?? { enviados: 0, respondidos: 0 };
 
+  // E-mail: NÃO recortável por equipe — cs.campanhas_email é agregado POR
+  // CAMPANHA vindo do ActiveCampaign, sem vínculo campanha→contato para amarrar
+  // num dono/equipe. Fica global de propósito (métrica do canal, não do lead).
   const email = (await queryOne<{ enviados: number; aberturas: number }>(
     `select
        coalesce(sum(enviados), 0)::int as enviados,
@@ -45,7 +59,7 @@ export async function GET(req: Request) {
        and ($2::timestamptz is null or enviada_em >= $2)
        and ($3::timestamptz is null or enviada_em <= $3)
        and ($4::text is null or nome ilike '%' || $4 || '%')`,
-    p,
+    [evento, desde, ate, edicao],
   )) ?? { enviados: 0, aberturas: 0 };
 
   // Atendimentos (ligação, WhatsApp, presencial) com compradores DESTE evento.
@@ -63,7 +77,8 @@ export async function GET(req: Request) {
      join cs.contatos_evento v on v.comprador_id = l.comprador_id and v.evento = $1
      where ($2::timestamptz is null or l.criado_em >= $2)
        and ($3::timestamptz is null or l.criado_em <= $3)
-       and ($4::text is null or v.edicao = $4)`,
+       and ($4::text is null or v.edicao = $4)
+       and ${ESCOPO_V}`,
     p,
   )) ?? { total: 0, feitas: 0, atendidas: 0 };
 

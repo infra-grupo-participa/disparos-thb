@@ -1,20 +1,16 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeGerirAcesso } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
 import { query } from "@/lib/db";
 import { parseBody, UsuarioPortaisSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
 // PATCH /api/usuarios/[id]/portais — define a whitelist de portais de uma conta
-// (0145). Só o admin do Grupo Participa gere isso (podeGerirAcesso = admin + GP).
+// (0145). Só o MASTER (admin do Grupo Participa) gere isso.
 // Recebe a lista COMPLETA e substitui (delete + insert) — simples e idempotente.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) {
-    return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
-  }
+  const g = await guard({ nivel: "master" });
+  if (!g.ok) return g.res;
   const p = await parseBody(req, UsuarioPortaisSchema);
   if (!p.ok) return p.res;
 

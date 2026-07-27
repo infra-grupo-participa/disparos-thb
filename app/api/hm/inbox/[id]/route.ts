@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { createContact, getContactMessages, sendMessage, type CanalCfg } from "@/lib/unnichat";
 import { getCanal } from "@/lib/services/canais";
@@ -43,8 +43,9 @@ async function carregarContatoHm(id: string): Promise<ContatoHm | null> {
 
 // GET — carrega a conversa (mensagens trocadas) do contato com a Unnichat.
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }
@@ -92,8 +93,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
 // POST — envia texto livre ao contato (dentro da janela de 24h).
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }
@@ -145,8 +147,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
 // PATCH — muda o status da conversa sem enviar (resolver / reabrir).
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }

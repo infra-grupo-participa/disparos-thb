@@ -1,21 +1,23 @@
 import { NextResponse } from "next/server";
-import { getSessao, hashSenha, verifySenha } from "@/lib/auth";
-import { podeGerirAcesso } from "@/lib/papeis";
+import { hashSenha, verifySenha } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { ehMaster } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, SenhaSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
 // PATCH /api/usuarios/[id]/senha — redefinição de senha.
-//  • Admin do GP redefine a senha de qualquer usuário (sem exigir a atual).
+//  • MASTER redefine a senha de qualquer usuário (sem exigir a atual).
 //  • O próprio usuário troca a sua, informando a senha atual.
-//  Um admin de equipe COMUM (Kelly) NÃO redefine senha de terceiros.
+//  Um admin/gestor de equipe COMUM NÃO redefine senha de terceiros.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard();
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
 
   const ehDono = params.id === sessao.id;
-  const ehAdmin = podeGerirAcesso(sessao.papel, sessao.equipe_tipo);
+  const ehAdmin = ehMaster(sessao);
   if (!ehDono && !ehAdmin) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
 
   const p = await parseBody(req, SenhaSchema);

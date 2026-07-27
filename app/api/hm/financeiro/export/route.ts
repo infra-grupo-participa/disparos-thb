@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { relatorioFinanceiroHm } from "@/lib/services/hm-financeiro";
 import { financeiroHmParaXlsx, nomeArquivoFinanceiro } from "@/lib/export/hm-financeiro-xlsx";
 
@@ -13,14 +13,19 @@ export const runtime = "nodejs";
 // filtros valiam — uma planilha filtrada que não se declara filtrada é uma
 // armadilha para quem a abrir depois.
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
+  // A planilha sai RECORTADA pelo escopo de quem exporta (mesmo predicado do
+  // board): um export sem recorte era a carteira inteira vazando com outra roupa.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
 
   const relatorio = await relatorioFinanceiroHm({
     responsavel: sp.getAll("responsavel"),
     canal: sp.getAll("canal"),
     turma: sp.getAll("turma"),
     estagio: sp.get("estagio"),
+    verTudo, equipeId, usuarioId,
   });
 
   const agora = new Date();

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { sincronizarRespostasInboxOnDemand } from "@/lib/services/inbox-sync";
 import { eventoDe } from "@/lib/services/evento";
 
@@ -16,7 +16,9 @@ export const maxDuration = 60;
 const ATIVACAO = new Set(["SEM", "CNHF", "HM"]);
 
 export async function POST(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
   const evento = eventoDe(req);
   if (!ATIVACAO.has(evento)) return NextResponse.json({ ok: true, executou: false, novas: 0 });
 

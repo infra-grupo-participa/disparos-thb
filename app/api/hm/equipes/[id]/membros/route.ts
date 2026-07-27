@@ -1,21 +1,45 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
-import { podeVerTudo } from "@/lib/papeis";
+import { guard } from "@/lib/guard";
+import { nivelDe } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, EquipeMembroSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
+// GET /api/hm/equipes/[id]/membros — lista os membros ATIVOS de uma equipe.
+// É o que alimenta o seletor de atribuição do gestor: ele precisa saber para
+// quem pode distribuir. Master lista qualquer equipe; gestor SÓ a própria
+// (outra equipe é 403 — a composição alheia não é da conta dele); operador
+// não lista ninguém (ele só assume para si, não precisa de seletor).
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
+
+  const nivel = nivelDe(sessao);
+  const podeListar = nivel === "master" || (nivel === "gestor" && sessao.equipe_id === params.id);
+  if (!podeListar) {
+    return NextResponse.json({ ok: false, reason: "sem_permissao" }, { status: 403 });
+  }
+
+  const membros = await query(
+    `select id, nome, papel, lider_equipe
+       from cs.usuarios
+      where equipe_id = $1 and ativo
+      order by nome`,
+    [params.id],
+  );
+  return NextResponse.json({ ok: true, membros });
+}
+
 // PATCH /api/hm/equipes/[id]/membros — move um usuário PARA esta equipe (ou tira
 // dele, se equipe_id do path for tratado como remoção via acao='remover') e,
 // opcionalmente, define o cargo (papel) do membro. É o "definir quem é cada tipo
-// de operador" do ADM: operador (normal) x disparador (operador de disparos).
+// de operador". SÓ MASTER altera composição de equipe — gestor lista (GET), mas
+// não mexe: mudar a composição muda quem VÊ o quê, e isso é gestão de acesso.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeVerTudo(sessao.papel, sessao.equipe_tipo)) {
-    return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
-  }
+  const g = await guard({ portal: "HM", nivel: "master" });
+  if (!g.ok) return g.res;
   const p = await parseBody(req, EquipeMembroSchema);
   if (!p.ok) return p.res;
   const { usuario_id, acao, papel, lider_equipe } = p.data;

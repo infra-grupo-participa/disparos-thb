@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -19,11 +20,15 @@ const PRECISA: Record<string, string[]> = {
 };
 
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
   const q = (sp.get("q") ?? "").trim();
   const tipo = sp.get("tipo") === "entrevista" ? "entrevista" : "reuniao";
   const precisa = PRECISA[tipo];
+  // Escopo padrão do board: só sugere quem o ator VÊ (pool / a equipe dele /
+  // os dele). Sem isso, a busca por nome vazava a carteira das outras equipes.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
 
   // `precisa` no topo (a fila do dia), depois o resto por nome. Sem busca, só a fila.
   const rows = await query(
@@ -31,11 +36,15 @@ export async function GET(req: Request) {
             (estagio_chave = any($2)) as precisa,
             ${tipo === "reuniao" ? "reuniao_em" : "entrevista_em"} as ja_em
        from cs.contatos_hm_kanban
-      where ($1 = '' and estagio_chave = any($2))
-         or ($1 <> '' and (nome ilike '%' || $1 || '%' or telefone ilike '%' || $1 || '%'))
+      where (($1 = '' and estagio_chave = any($2))
+         or ($1 <> '' and (nome ilike '%' || $1 || '%' or telefone ilike '%' || $1 || '%')))
+        and ($3::boolean
+             or (responsavel_id is null and equipe_id is null)
+             or responsavel_id = $4::uuid
+             or equipe_id = $5::uuid)
       order by (estagio_chave = any($2)) desc, nome
       limit 25`,
-    [q, precisa],
+    [q, precisa, verTudo, usuarioId, equipeId],
   );
 
   return NextResponse.json({ ok: true, candidatos: rows });

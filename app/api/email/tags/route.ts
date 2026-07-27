@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { eventoDe } from "@/lib/services/evento";
 import { getCanal } from "@/lib/services/canais";
 import { listarTags } from "@/lib/activecampaign";
 import { query } from "@/lib/db";
@@ -14,7 +15,9 @@ export const runtime = "nodejs";
 // Falha graciosa: retorna ok:false (200) se o AC não responder, para a tela cair
 // no fallback "digitar o ID manualmente".
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
   const busca = new URL(req.url).searchParams.get("busca") || undefined;
   try {
     const canal = await getCanal("HT", "activecampaign");

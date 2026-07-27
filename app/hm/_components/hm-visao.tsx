@@ -14,7 +14,8 @@ const VISOES = [
   { id: "tabela", label: "Tabela", rota: "/hm/tabela" },
   { id: "reunioes", label: "Reuniões", rota: "/hm/reunioes" },
   { id: "atividade", label: "Atividade", rota: "/hm/atividade" },
-  // Config de equipes — só aparece para quem vê tudo (GP/admin), via podeConfig.
+  // Equipes — aparece para master e gestor (via podeConfig = podeDistribuir()):
+  // o master gere; o gestor só VÊ a própria equipe. Operador não tem a aba.
   { id: "equipes", label: "Equipes", rota: "/hm/equipes" },
 ] as const;
 

@@ -1,24 +1,31 @@
 import { NextResponse } from "next/server";
-import { isAuthed, getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, ContatoPatchSchema } from "@/lib/validators";
 import { eventoDe } from "@/lib/services/evento";
-import { moverEstagio, setTags, setResponsavel, setOptOut } from "@/lib/services/contato";
+import { moverEstagio, setTags, setOptOut, podeVerContato, atribuirResponsavel, type DestinoAtribuicao } from "@/lib/services/contato";
 
 export const runtime = "nodejs";
 
 // GET: detalhe do contato HT + estado de CS + timeline.
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
   const compradorId = params.id;
   // Filtra pelo evento do portal atual: uma pessoa pode existir em mais de um
   // evento (HT+SEM…) na view; sem o filtro, a linha vinha arbitrária e podia
   // abrir o contato de OUTRO portal (isolamento de portais, 27/07).
   const evento = eventoDe(req);
+  // Gating de equipe (0146): a lista não mostra, a ficha não abre — sem isto o
+  // recorte da listagem era cosmético (bastava forçar o comprador_id aqui).
+  if (!(await podeVerContato(g.sessao, compradorId, evento))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
 
   const contato = await queryOne(
     `select v.comprador_id, v.nome, v.email, v.telefone, v.edicao, v.ultima_compra_ht,
-            v.estagio_chave, v.estagio_nome, v.responsavel, v.proxima_acao_em,
+            v.estagio_chave, v.estagio_nome, v.responsavel,
+            v.responsavel_id, v.equipe_id, v.equipe_nome, v.proxima_acao_em,
             v.proxima_acao_nota, v.ultima_resposta_em, v.ultimo_contato_em, v.observacoes,
             v.edicao_ht, v.legado_ativado, v.legado_sla_h, v.legado_ativacao_em,
             v.legado_no_grupo, v.legado_pesquisa, v.legado_ja_ht, v.legado_qtd_ht,
@@ -82,13 +89,22 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
 // PATCH: atualiza estágio / próxima ação / observações; opcionalmente adiciona uma nota.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const evento = eventoDe(req);
+  const g = await guard({ portal: evento });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   const operador = sessao.nome || "cs";
   const compradorId = params.id;
   const parsed = await parseBody(req, ContatoPatchSchema);
   if (!parsed.ok) return parsed.res;
   const b = parsed.data;
+
+  // Gating de equipe (0146): só mexe no contato quem pode vê-lo (pool / própria
+  // equipe / os dele). O análogo do podeVerCardHm do PATCH da ficha HM.
+  if (!(await podeVerContato(sessao, compradorId, evento))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
 
   // mudança de estágio (com log na timeline) — via serviço de contato
   if (b.estagio_chave) await moverEstagio(compradorId, b.estagio_chave, operador);
@@ -111,7 +127,20 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   // tags / responsável / opt-out (atualiza só os campos enviados) — via serviço
   if (b.tags !== undefined) await setTags(compradorId, b.tags);
-  if (b.responsavel !== undefined) await setResponsavel([compradorId], b.responsavel || null, operador);
+  // Responsável pela HIERARQUIA (atribuirResponsavel, 0146) — o análogo do furo 5
+  // que o HM fechou: o texto livre por nome contornava toda a regra de equipes.
+  //   master → qualquer um; gestor → só membro da própria equipe; operador → só
+  //   assume p/ si do pool / devolve o que é dele. Mesmos reasons do HM.
+  if (b.responsavel !== undefined) {
+    const destino: DestinoAtribuicao = (b.responsavel ?? "").trim() === ""
+      ? { tipo: "pool" }
+      : { tipo: "nome", nome: (b.responsavel as string).trim() };
+    const r = await atribuirResponsavel(sessao, compradorId, destino, evento, operador);
+    if (!r.ok) {
+      const status = r.reason === "nao_encontrado" ? 404 : r.reason === "destino_invalido" ? 400 : 403;
+      return NextResponse.json({ ok: false, reason: r.reason }, { status });
+    }
+  }
   if (b.opt_out !== undefined) await setOptOut(compradorId, b.opt_out);
 
   // nota manual na timeline

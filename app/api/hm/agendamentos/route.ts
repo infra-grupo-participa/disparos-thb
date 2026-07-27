@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 
@@ -9,8 +9,9 @@ export const runtime = "nodejs";
 // marcadas, com data/hora, aluno, responsável e resultado. RECORTE por equipe:
 // cada um só vê os agendamentos dos cards que enxerga (pool / própria equipe / GP).
 export async function GET(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   const sp = new URL(req.url).searchParams;
   const tipo = sp.get("tipo"); // 'reuniao' | 'entrevista' | null (ambos)
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));

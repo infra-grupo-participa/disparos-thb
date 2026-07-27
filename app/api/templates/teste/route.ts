@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSessao, podeDisparar } from "@/lib/auth";
+import { podeDisparar } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { eventoDe } from "@/lib/services/evento";
 import { getCanal } from "@/lib/services/canais";
@@ -14,9 +15,11 @@ export const runtime = "nodejs";
 // (fica guardado para os próximos testes). Não passa pelo guarda de volume: é uma
 // única mensagem para si mesmo, um ensaio.
 export async function POST(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const evento = eventoDe(req);
+  // Portal do evento resolvido contra a whitelist da conta (0145).
+  const g = await guard({ portal: evento });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!podeDisparar(sessao.papel, evento)) {
     return NextResponse.json({ ok: false, reason: "sem_permissao_disparo" }, { status: 403 });
   }

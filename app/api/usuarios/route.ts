@@ -1,35 +1,41 @@
 import { NextResponse } from "next/server";
-import { getSessao, hashSenha } from "@/lib/auth";
-import { podeGerirAcesso } from "@/lib/papeis";
+import { hashSenha } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { ehMaster } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, UsuarioCriarSchema } from "@/lib/validators";
 
 export const runtime = "nodejs";
 
-// GET /api/usuarios — lista usuários (sem hash). Qualquer sessão válida pode
-// listar: a lista alimenta os seletores de responsável no Kanban/contatos.
+// GET /api/usuarios — lista usuários. Qualquer sessão válida pode listar o
+// MÍNIMO (id + nome dos ativos): a lista alimenta os seletores de responsável no
+// Kanban/contatos. O payload COMPLETO (e-mail, papel, portais, inativos) só sai
+// para o master — é dado de gestão de conta, não de seletor.
 export async function GET() {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard();
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
+
+  if (!ehMaster(sessao)) {
+    const usuarios = await query(
+      `select u.id, u.nome, u.ativo from cs.usuarios u where u.ativo order by u.nome`,
+    );
+    return NextResponse.json({ ok: true, usuarios, sou_admin: false, pode_gerir_acesso: false });
+  }
 
   const usuarios = await query(
     `select u.id, u.nome, u.email, u.papel, u.ativo, u.criado_em,
             coalesce((select array_agg(up.portal) from cs.usuario_portais up where up.usuario_id = u.id), '{}') as portais
        from cs.usuarios u order by u.ativo desc, u.nome`,
   );
-  // podeGerirAcesso (admin + GP) controla a edição de portais na UI.
-  return NextResponse.json({
-    ok: true, usuarios,
-    sou_admin: sessao.papel === "admin",
-    pode_gerir_acesso: podeGerirAcesso(sessao.papel, sessao.equipe_tipo),
-  });
+  // pode_gerir_acesso (= master) controla a edição de portais na UI.
+  return NextResponse.json({ ok: true, usuarios, sou_admin: true, pode_gerir_acesso: true });
 }
 
-// POST /api/usuarios — cria um usuário. Só admin do Grupo Participa (podeGerirAcesso).
+// POST /api/usuarios — cria um usuário. Só o master (admin do Grupo Participa).
 export async function POST(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  const g = await guard({ nivel: "master" });
+  if (!g.ok) return g.res;
 
   const p = await parseBody(req, UsuarioCriarSchema);
   if (!p.ok) return p.res;

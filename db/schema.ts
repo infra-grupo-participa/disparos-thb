@@ -23,6 +23,8 @@ export const contatos = cs.table("contatos", {
   compradorId: uuid("comprador_id").notNull(),
   estagioId: smallint("estagio_id"),
   responsavel: text("responsavel"),
+  // 0146: dono por id (o texto acima é DERIVADO dele por trigger — id vence).
+  responsavelId: uuid("responsavel_id"),
   observacoes: text("observacoes"),
   proximaAcaoEm: timestamp("proxima_acao_em", { withTimezone: true }),
   proximaAcaoNota: text("proxima_acao_nota"),

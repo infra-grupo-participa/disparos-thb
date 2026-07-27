@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -22,7 +24,9 @@ type FunilEtapa = { chave: string; nome: string; ordem: number; cor: string | nu
 type RitmoDia = { dia: string; canal: string; qtd: number };
 
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const { searchParams } = new URL(req.url);
   const desde = searchParams.get("desde") || null;
@@ -30,6 +34,12 @@ export async function GET(req: Request) {
   const edicao = searchParams.get("edicao") || null;
   const alvo = searchParams.get("alvo") || "ativado"; // North Star
   const evento = eventoDe(req);
+  // Recorte por equipe (decisão do Marcio, 27/07): dashboards seguem a mesma
+  // regra — master vê o portal inteiro; gestor, os números da equipe dele;
+  // operador, os dele. O recorte entra na CTE `pessoas`, então funil, KPIs,
+  // cobertura e ritmo saem todos da MESMA base recortada.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
+  const ESCOPO_V = sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 });
 
   // CTE compartilhada: uma linha por pessoa da edição, com a ORDEM do estágio
   // (nulo → estágio inicial). Repetida nas queries de funil e KPIs.
@@ -44,7 +54,9 @@ export async function GET(req: Request) {
         from cs.contatos_evento v
         left join cs.estagios e on e.id = v.estagio_id and e.evento = $1
        where v.evento = $1 and ($2::text is null or v.edicao = $2)
+         and ${ESCOPO_V}
     )`;
+  const fEscopo = [verTudo, usuarioId, equipeId];
 
   // --- Funil cumulativo por estágio ---------------------------------------
   const funil = await query<FunilEtapa>(
@@ -54,7 +66,7 @@ export async function GET(req: Request) {
        from cs.estagios e
       where e.evento = $1 and e.ativo
       order by e.ordem`,
-    [evento, edicao],
+    [evento, edicao, ...fEscopo],
   );
 
   // --- KPIs de topo --------------------------------------------------------
@@ -68,10 +80,10 @@ export async function GET(req: Request) {
         (select count(*) from pessoas)::int as leads,
         (select count(*) from pessoas where ultima_resposta_em is not null)::int as engajados,
         (select count(*) from pessoas
-          where ordem >= coalesce((select ordem from cs.estagios where evento = $1 and chave = $3), 1e9)
+          where ordem >= coalesce((select ordem from cs.estagios where evento = $1 and chave = $6), 1e9)
         )::int as ativados,
         (select round(avg(legado_t_ativacao_h)) from pessoas where legado_t_ativacao_h is not null)::int as tempo_ativacao_h`,
-    [evento, edicao, alvo],
+    [evento, edicao, ...fEscopo, alvo],
   );
 
   // Cobertura: quantos leads receberam ao menos uma ação (qualquer canal).
@@ -79,12 +91,13 @@ export async function GET(req: Request) {
     `select count(distinct v.comprador_id)::int as tocados
        from cs.contatos_evento v
       where v.evento = $1 and ($2::text is null or v.edicao = $2)
+        and ${ESCOPO_V}
         and exists (
           select 1 from cs.interacoes i
             join cs.contatos c on c.id = i.contato_id
            where c.comprador_id = v.comprador_id and c.evento = $1
         )`,
-    [evento, edicao],
+    [evento, edicao, ...fEscopo],
   );
 
   // --- Ritmo: ações por dia por canal (respeita o período) ----------------
@@ -96,11 +109,12 @@ export async function GET(req: Request) {
        join cs.contatos c on c.id = i.contato_id and c.evento = $1
        join cs.contatos_evento v on v.comprador_id = c.comprador_id and v.evento = $1
       where ($2::text is null or v.edicao = $2)
-        and ($3::timestamptz is null or i.criado_em >= $3)
-        and ($4::timestamptz is null or i.criado_em <= $4)
+        and ${ESCOPO_V}
+        and ($6::timestamptz is null or i.criado_em >= $6)
+        and ($7::timestamptz is null or i.criado_em <= $7)
       group by 1, 2
       order by 1`,
-    [evento, edicao, desde, ate],
+    [evento, edicao, ...fEscopo, desde, ate],
   );
 
   const leads = base?.leads ?? 0;

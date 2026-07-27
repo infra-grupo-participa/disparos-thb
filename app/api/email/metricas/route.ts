@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -34,13 +36,20 @@ type CampanhaRow = {
 };
 
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
+  const g = await guard({ portal: eventoDe(req) });
+  if (!g.ok) return g.res;
 
   const evento = eventoDe(req);
   const url = new URL(req.url);
   const desde = url.searchParams.get("desde");
   const ate = url.searchParams.get("ate");
 
+  // KPIs e listagem de campanhas: NÃO recortáveis por equipe — cs.campanhas_
+  // email é agregado POR CAMPANHA vindo do ActiveCampaign (enviados/aberturas
+  // somados lá), sem vínculo campanha→contato para amarrar num dono/equipe.
+  // Ficam globais de propósito (saúde do canal). O bloco `nossos`, abaixo, esse
+  // sim é por contato e segue o recorte.
   // Janela de datas (enviada_em). Parametrizado; null = sem limite.
   const filtros = `evento = $1
     and ($2::timestamptz is null or enviada_em >= $2)
@@ -76,8 +85,9 @@ export async function GET(req: Request) {
 
   // Engajamento "dos nossos": cruza o engajamento de e-mail (cs.email_contato,
   // sincronizado do AC por pessoa) com os contatos DESTE evento. Reflete as
-  // pessoas reais do sistema, não a base inteira do AC. O evento vem do nosso
-  // contato (cs.contatos_evento) — a mesma noção de filtro do disparo.
+  // pessoas reais do sistema, não a base inteira do AC. Por CONTATO — logo
+  // segue o recorte por equipe (decisão do Marcio, 27/07).
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
   const nossos = (await queryOne<{
     contatos: number; no_ac: number; receberam: number; abriram: number; clicaram: number; com_bounce: number;
   }>(
@@ -87,6 +97,7 @@ export async function GET(req: Request) {
          from cs.contatos_evento v
          left join cs.email_contato ec on ec.comprador_id = v.comprador_id
         where v.evento = $1 and v.email is not null and v.email like '%@%'
+          and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}
         order by v.comprador_id
      )
      select
@@ -97,7 +108,7 @@ export async function GET(req: Request) {
        count(*) filter (where clicou_em is not null)::int as clicaram,
        count(*) filter (where bounce_hard > 0)::int as com_bounce
      from base`,
-    [evento],
+    [evento, verTudo, usuarioId, equipeId],
   )) ?? { contatos: 0, no_ac: 0, receberam: 0, abriram: 0, clicaram: 0, com_bounce: 0 };
 
   return NextResponse.json({ ok: true, kpis, campanhas, nossos });

@@ -49,7 +49,8 @@ function diaKey(d: Date | null): string {
 type Quando = "proximas" | "passadas" | "todas";
 
 export default function HmReunioesPage() {
-  const { podeVerTudo } = useMe();
+  // podeDistribuir → a aba "Equipes" do alternador aparece para master e gestor.
+  const { podeDistribuir } = useMe();
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [quando, setQuando] = useState<Quando>("proximas");
@@ -134,7 +135,7 @@ export default function HmReunioesPage() {
             As reuniões e entrevistas em uma lista — com responsável, resultado, remarcações e a gravação.
           </p>
         </div>
-        <HmVisao atual="reunioes" filtros={{}} podeConfig={podeVerTudo()} />
+        <HmVisao atual="reunioes" filtros={{}} podeConfig={podeDistribuir()} />
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">

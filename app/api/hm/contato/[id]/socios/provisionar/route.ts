@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
 import { provisionarSociosHm, podeVerCardHm } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
@@ -11,8 +11,9 @@ export const runtime = "nodejs";
 // o titular quitar). Idempotente e blindada: se o titular ainda não é aluno,
 // devolve 0 e nada acontece. [id] = comprador_id do TITULAR.
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
+  const g = await guard({ portal: "HM" });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
 
   const n = await provisionarSociosHm(params.id, sessao.nome || "cs");

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSessao } from "@/lib/auth";
+import { guard } from "@/lib/guard";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/contato";
 import { placarDoDia } from "@/lib/services/ligacao";
 import { eventoDe } from "@/lib/services/evento";
 
@@ -29,14 +31,24 @@ type Fila = {
 };
 
 export async function GET(req: Request) {
-  const sessao = await getSessao();
-  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const evento = eventoDe(req);
+  // Portal do evento resolvido contra a whitelist da conta (0145).
+  const g = await guard({ portal: evento });
+  if (!g.ok) return g.res;
+  const sessao = g.sessao;
   const operador = sessao.nome || "cs";
   // "Meus" filtra as filas pelos leads sob responsabilidade do operador logado —
   // com vários SDRs, cada um vê a própria carteira e não colide no mesmo lead.
-  // Sem o filtro (Todos), mostra a fila do portal inteiro (comportamento antigo).
+  // Agora por responsavel_id (0146), não pelo nome-texto: apelido/typo no texto
+  // não esvazia mais a fila de ninguém.
   const meus = new URL(req.url).searchParams.get("meus") === "1";
+  // Sem "meus": a fila do que a pessoa VÊ — master, o portal inteiro; gestor, o
+  // pool + a equipe dele; operador, o pool + os dele (recorte de segurança 0146).
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
+  const ESCOPO = (p: { meus: number; eu: number; verTudo: number; usuario: number; equipe: number }) =>
+    `(($${p.meus}::bool and c.responsavel_id = $${p.eu}::uuid)
+      or (not $${p.meus}::bool and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, p)}))`;
+  const f = [evento, LIMITE, meus, sessao.id, verTudo, usuarioId, equipeId];
 
   // 1) Retornos que ele agendou e já venceram (ou vencem hoje).
   const retornos = await query<Fila>(
@@ -49,10 +61,10 @@ export async function GET(req: Request) {
         and c.proxima_acao_em < (date_trunc('day', now() at time zone 'America/Sao_Paulo') + interval '1 day') at time zone 'America/Sao_Paulo'
         and not c.opt_out
         and v.telefone is not null and v.telefone <> ''
-        and (not $3::bool or c.responsavel = $4)
+        and ${ESCOPO({ meus: 3, eu: 4, verTudo: 5, usuario: 6, equipe: 7 })}
       order by c.proxima_acao_em asc
       limit $2`,
-    [evento, LIMITE, meus, operador],
+    f,
   );
 
   // 2) Quem escreveu e está esperando resposta.
@@ -65,10 +77,10 @@ export async function GET(req: Request) {
       where c.inbox_status = 'pendente'
         and c.aguardando_desde is not null
         and not c.opt_out
-        and (not $3::bool or c.responsavel = $4)
+        and ${ESCOPO({ meus: 3, eu: 4, verTudo: 5, usuario: 6, equipe: 7 })}
       order by c.aguardando_desde asc
       limit $2`,
-    [evento, LIMITE, meus, operador],
+    f,
   );
 
   // 3) Quem está no funil e ninguém toca há dias. Exclui os já listados acima
@@ -85,10 +97,10 @@ export async function GET(req: Request) {
         and (c.ultimo_contato_em is null or c.ultimo_contato_em < now() - make_interval(days => $3))
         and c.proxima_acao_em is null
         and c.inbox_status is distinct from 'pendente'
-        and (not $4::bool or c.responsavel = $5)
+        and ${ESCOPO({ meus: 4, eu: 5, verTudo: 6, usuario: 7, equipe: 8 })}
       order by c.ultimo_contato_em asc nulls first
       limit $2`,
-    [evento, LIMITE, DIAS_SEM_TOQUE, meus, operador],
+    [evento, LIMITE, DIAS_SEM_TOQUE, meus, sessao.id, verTudo, usuarioId, equipeId],
   );
 
   const placar = await placarDoDia(operador);
