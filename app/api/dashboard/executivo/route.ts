@@ -100,6 +100,86 @@ export async function GET(req: Request) {
     [evento, edicao, ...fEscopo],
   );
 
+  // --- Grupo do WhatsApp + pesquisa (indicadores HT30) ---------------------
+  // Fontes NATIVAS (valem para turma nova):
+  //   · No grupo  = tag 'No grupo' em cs.contatos, aplicada pelo webhook
+  //     POST /api/eventos (evento `entrou_grupo`, automação do Make). O
+  //     legado_no_grupo cobre só as turmas importadas da planilha (HT21–27) e
+  //     entra por coalesce para não zerar o histórico ao filtrar edição antiga.
+  //   · Pesquisa  = cs.formularios tipo 'matricula' (qualificação do HT via
+  //     Respondi→Make, evento `respondeu_matricula`) ou 'pesquisa' (SEM/CNHF,
+  //     0134). legado_pesquisa idem (planilha).
+  // Se a automação do Make NÃO estiver apontada para o grupo/formulário da
+  // turma nova, estes números ficam em zero — o dado nasce lá, não aqui.
+  // LIMITAÇÃO (recompradores): tag e formulário são POR PESSOA, sem edição —
+  // um recomprador que entrou no grupo do HT27 ainda carrega a tag e conta
+  // aqui mesmo filtrando HT30 (mesma semântica do /api/comportamento, para as
+  // duas telas não divergirem). O SLA de ativação abaixo NÃO tem esse problema
+  // (descarta marco anterior à compra da edição).
+  const grp = await queryOne<{ no_grupo: number; pesquisas: number }>(
+    `select
+        count(*) filter (where coalesce(ct.tags, '{}'::text[]) && array['No grupo']
+                            or coalesce(v.legado_no_grupo, false))::int as no_grupo,
+        count(*) filter (where coalesce(v.legado_pesquisa, false) or exists (
+          select 1 from cs.formularios f
+           where f.comprador_id = v.comprador_id and f.tipo in ('matricula','pesquisa')))::int as pesquisas
+       from cs.contatos_evento v
+       left join cs.contatos ct on ct.comprador_id = v.comprador_id and ct.evento = v.evento
+      where v.evento = $1 and ($2::text is null or v.edicao = $2)
+        and ${ESCOPO_V}`,
+    [evento, edicao, ...fEscopo],
+  );
+
+  // --- SLAs (nativos, em horas) --------------------------------------------
+  // Definição dos marcos (decisão desta rota — o número só significa algo com
+  // isto escrito):
+  //   · SLA de PRIMEIRO CONTATO: começa em v.ultima_compra_ht (data de
+  //     aprovação da compra = momento em que o lead "bate no CRM": o webhook
+  //     da Hotmart cria comprador/compra na hora) e termina em
+  //     ct.primeiro_contato_em (primeiro toque da equipe: disparo WhatsApp/
+  //     e-mail ou resposta no inbox — preenchido nativamente pelos serviços).
+  //   · SLA de ATIVAÇÃO: começa na MESMA compra e termina na ENTRADA NO GRUPO
+  //     do WhatsApp — o marco é a interação de sistema "Entrou no grupo do
+  //     WhatsApp…" que POST /api/eventos grava na timeline (min por contato).
+  //     Acoplamento deliberado com o texto da descrição daquela rota.
+  // Recompradores: o card de cs.contatos é um só por pessoa — contato/entrada
+  // ANTERIORES à compra desta edição são descartados (marco < compra), senão o
+  // histórico de HT27 apareceria como SLA negativo no HT30.
+  // Não mistura legado_t_*: o histórico da planilha já sai em tempo_ativacao_h.
+  const sla = await queryOne<{
+    pc_media_h: number | null; pc_mediana_h: number | null; pc_n: number;
+    at_media_h: number | null; at_mediana_h: number | null; at_n: number;
+  }>(
+    `with grupo as (
+        select c.comprador_id, min(i.criado_em) as entrou_em
+          from cs.interacoes i
+          join cs.contatos c on c.id = i.contato_id and c.evento = $1
+         where i.tipo = 'sistema' and i.descricao like 'Entrou no grupo do WhatsApp%'
+         group by c.comprador_id
+     ),
+     base as (
+        select
+          case when v.primeiro_contato_em >= v.ultima_compra_ht
+               then extract(epoch from (v.primeiro_contato_em - v.ultima_compra_ht)) / 3600.0 end as pc_h,
+          case when g.entrou_em >= v.ultima_compra_ht
+               then extract(epoch from (g.entrou_em - v.ultima_compra_ht)) / 3600.0 end as at_h
+          from cs.contatos_evento v
+          left join grupo g on g.comprador_id = v.comprador_id
+         where v.evento = $1 and v.ultima_compra_ht is not null
+           and ($2::text is null or v.edicao = $2)
+           and ${ESCOPO_V}
+     )
+     select
+        round(avg(pc_h)::numeric, 1)::float8 as pc_media_h,
+        round((percentile_cont(0.5) within group (order by pc_h))::numeric, 1)::float8 as pc_mediana_h,
+        count(pc_h)::int as pc_n,
+        round(avg(at_h)::numeric, 1)::float8 as at_media_h,
+        round((percentile_cont(0.5) within group (order by at_h))::numeric, 1)::float8 as at_mediana_h,
+        count(at_h)::int as at_n
+       from base`,
+    [evento, edicao, ...fEscopo],
+  );
+
   // --- Ritmo: ações por dia por canal (respeita o período) ----------------
   const ritmo = await query<RitmoDia>(
     `select to_char(i.criado_em, 'YYYY-MM-DD') as dia,
@@ -121,6 +201,8 @@ export async function GET(req: Request) {
   const ativados = base?.ativados ?? 0;
   const engajados = base?.engajados ?? 0;
   const tocados = cob?.tocados ?? 0;
+  const noGrupo = grp?.no_grupo ?? 0;
+  const pesquisas = grp?.pesquisas ?? 0;
   const pct = (n: number) => (leads > 0 ? Math.round((n / leads) * 100) : 0);
 
   // --- Alertas derivados (acionáveis) -------------------------------------
@@ -164,6 +246,25 @@ export async function GET(req: Request) {
       tocados,
       cobertura: pct(tocados),
       tempo_ativacao_h: base?.tempo_ativacao_h ?? null,
+      // HT30 (fontes nativas — ver comentários das queries acima):
+      no_grupo: noGrupo,
+      taxa_no_grupo: pct(noGrupo),
+      respostas_pesquisa: pesquisas,
+      taxa_pesquisa: pct(pesquisas),
+    },
+    // SLAs em horas (média/mediana/n = pessoas com o marco medido). null =
+    // nenhum caso medido ainda — o front deve mostrar "—", nunca 0.
+    sla: {
+      primeiro_contato: {
+        media_h: sla?.pc_media_h ?? null,
+        mediana_h: sla?.pc_mediana_h ?? null,
+        n: sla?.pc_n ?? 0,
+      },
+      ativacao: {
+        media_h: sla?.at_media_h ?? null,
+        mediana_h: sla?.at_mediana_h ?? null,
+        n: sla?.at_n ?? 0,
+      },
     },
     funil,
     ritmo,

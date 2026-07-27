@@ -82,3 +82,65 @@ export async function atividadeHm(
 
   return { de, ate, colaboradores };
 }
+
+// ===== Atividade nos portais genéricos (HT/SEM/CNHF) ========================
+// O espelho de atividadeHm sobre a timeline dos GENÉRICOS: cs.interacoes
+// assinada em contato_id → cs.contatos, filtrada pelo EVENTO do portal (a
+// linha de cs.contatos é por evento — sem o filtro a atividade do CNHF vazaria
+// para o painel do HT). Mesmo recorte por nível (EscopoAtividade) e mesma
+// lista de exclusão de atores automáticos.
+// Bucket extra `ligacoes`: nos genéricos o atendimento por telefone/WhatsApp
+// manual entra como tipo 'ligacao' (lib/services/ligacao.ts) — no HM isso não
+// existe e cai em `outras`.
+export type AtividadeEventoColaborador = AtividadeColaborador & { ligacoes: number };
+
+export type AtividadeEvento = {
+  de: string | null;
+  ate: string | null;
+  colaboradores: AtividadeEventoColaborador[];
+};
+
+export async function atividadeEvento(
+  evento: string,
+  f: { de?: string | null; ate?: string | null },
+  escopo: EscopoAtividade = { modo: "tudo" },
+): Promise<AtividadeEvento> {
+  const de = f.de || null;
+  const ate = f.ate || null;
+  const modo = escopo.modo;
+  const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
+  const nome = escopo.modo === "operador" ? escopo.nome : null;
+
+  const colaboradores = await query<AtividadeEventoColaborador>(
+    `select
+        btrim(i.autor)                                                    as colaborador,
+        count(*)::int                                                     as total,
+        count(*) filter (where i.tipo = 'mudanca_estagio')::int           as movimentacoes,
+        count(*) filter (where i.tipo = 'nota')::int                      as notas,
+        count(*) filter (where i.tipo = 'disparo')::int                   as disparos,
+        count(*) filter (where i.tipo = 'ligacao')::int                   as ligacoes,
+        count(*) filter (where i.tipo not in ('mudanca_estagio','nota','disparo','ligacao'))::int as outras,
+        count(distinct i.contato_id)::int                                 as cards,
+        max(i.criado_em)                                                  as ultima
+       from cs.interacoes i
+       join cs.contatos c on c.id = i.contato_id and c.evento = $7  -- só o portal
+      where i.autor is not null
+        and btrim(lower(i.autor)) <> all($3::text[])
+        and i.autor not ilike 'migration%'
+        and ($1::timestamptz is null or i.criado_em >= $1)
+        and ($2::timestamptz is null or i.criado_em <  $2)
+        -- Recorte por nível: master tudo; gestor só a equipe dele (autor casa
+        -- por nome com um usuário da equipe); operador só a própria linha.
+        and ($4::text = 'tudo'
+             or ($4 = 'equipe' and exists (
+                   select 1 from cs.usuarios u
+                    where u.equipe_id = $5::uuid
+                      and lower(btrim(u.nome)) = lower(btrim(i.autor))))
+             or ($4 = 'operador' and lower(btrim(i.autor)) = lower(btrim($6::text))))
+      group by btrim(i.autor)
+      order by count(*) desc, btrim(i.autor)`,
+    [de, ate, ATORES_SISTEMA, modo, equipeId, nome, evento],
+  );
+
+  return { de, ate, colaboradores };
+}

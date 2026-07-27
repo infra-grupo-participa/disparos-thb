@@ -51,6 +51,15 @@ const LINKS_HM: LinkDef[] = [
     icon: "M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3ZM9.5 12l1.8 1.8 3.7-3.7" },
 ];
 
+// Botão do "?" da ajuda: mesmo tratamento dos links do menu, mas compacto.
+function cnAjuda(ativo: boolean): string {
+  return `flex h-8 w-8 items-center justify-center rounded-lg transition ${
+    ativo
+      ? "bg-brand text-white shadow-card dark:bg-brand-500"
+      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+  }`;
+}
+
 function Icon({ d }: { d: string }) {
   return (
     <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -113,6 +122,19 @@ export default function TopNav() {
         </nav>
 
         <BuscaGlobal />
+        {/* Central de Ajuda — sempre visível, em qualquer portal e nível. */}
+        <Link
+          href={`${base}/ajuda`}
+          title="Central de Ajuda"
+          aria-label="Central de Ajuda"
+          className={cnAjuda(pathname.startsWith(`${base}/ajuda`))}
+        >
+          <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9.1 9a3 3 0 0 1 5.83 1c0 2-3 2.4-3 4" />
+            <path d="M12 17.5h.01" />
+          </svg>
+        </Link>
         <ThemeToggle />
         <UserMenu />
       </div>
