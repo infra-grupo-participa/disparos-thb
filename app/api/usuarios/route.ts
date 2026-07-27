@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessao, hashSenha } from "@/lib/auth";
+import { podeGerirAcesso } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, UsuarioCriarSchema } from "@/lib/validators";
 
@@ -12,10 +13,16 @@ export async function GET() {
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
 
   const usuarios = await query(
-    `select id, nome, email, papel, ativo, criado_em
-       from cs.usuarios order by ativo desc, nome`,
+    `select u.id, u.nome, u.email, u.papel, u.ativo, u.criado_em,
+            coalesce((select array_agg(up.portal) from cs.usuario_portais up where up.usuario_id = u.id), '{}') as portais
+       from cs.usuarios u order by u.ativo desc, u.nome`,
   );
-  return NextResponse.json({ ok: true, usuarios, sou_admin: sessao.papel === "admin" });
+  // podeGerirAcesso (admin + GP) controla a edição de portais na UI.
+  return NextResponse.json({
+    ok: true, usuarios,
+    sou_admin: sessao.papel === "admin",
+    pode_gerir_acesso: podeGerirAcesso(sessao.papel, sessao.equipe_tipo),
+  });
 }
 
 // POST /api/usuarios — cria um usuário (somente admin).

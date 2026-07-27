@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   podeDisparar as regraPodeDisparar,
   podeVerTudo as regraPodeVerTudo,
+  podeGerirAcesso as regraPodeGerirAcesso,
   ehEquipePrincipal,
   type Papel,
   type TipoEquipe,
@@ -16,6 +17,8 @@ export type Me = {
   equipe_id: string | null; equipe_tipo: TipoEquipe | null; equipe_nome: string | null; equipe_cor: string | null;
   // Líder/ADM da própria equipe (0143): distribui dentro da equipe dele.
   lider_equipe: boolean;
+  // Portais que a conta pode acessar (0145).
+  portais: string[];
 };
 
 // Usuário logado para gating de UI. `podeDisparar(evento)` espelha a regra do
@@ -35,5 +38,9 @@ export function useMe() {
   // líder da própria equipe (só entre os operadores dela). Operador comum não.
   const ehLider = !!me?.lider_equipe && me?.equipe_tipo === "comum";
   const podeDistribuir = () => podeVerTudo() || ehLider;
-  return { me, podeDisparar, podeVerTudo, podeDistribuir };
+  // Acesso por portal (0145): só quem gere (admin do GP) enxerga a config; um
+  // portal só é acessível se estiver na whitelist da conta.
+  const podeGerirAcesso = () => regraPodeGerirAcesso(me?.papel, me?.equipe_tipo);
+  const podeAcessarPortal = (evento?: string | null) => !!evento && !!me?.portais?.includes(evento);
+  return { me, podeDisparar, podeVerTudo, podeDistribuir, podeGerirAcesso, podeAcessarPortal };
 }

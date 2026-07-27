@@ -6,11 +6,21 @@ import { Button, Card, EmptyState, PageHeader, Spinner, cn, fieldClass } from "@
 import { PageFade } from "@/app/_components/anim";
 
 type Papel = "admin" | "disparador" | "operador";
-type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean; criado_em: string };
+type Portal = "HT" | "SEM" | "CNHF" | "HM";
+type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean; criado_em: string; portais: Portal[] };
+
+// Rótulos dos portais para o admin marcar o acesso de cada conta.
+const PORTAIS: { id: Portal; label: string }[] = [
+  { id: "HT", label: "Holding Total" },
+  { id: "SEM", label: "Seminário" },
+  { id: "CNHF", label: "Curso" },
+  { id: "HM", label: "Holding Masters" },
+];
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [souAdmin, setSouAdmin] = useState<boolean | null>(null);
+  const [podeGerirAcesso, setPodeGerirAcesso] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [novo, setNovo] = useState(false);
   const [resetar, setResetar] = useState<Usuario | null>(null);
@@ -20,7 +30,7 @@ export default function UsuariosPage() {
     try {
       const r = await fetch("/api/usuarios");
       const d = await r.json();
-      if (d.ok) { setUsuarios(d.usuarios); setSouAdmin(d.sou_admin); }
+      if (d.ok) { setUsuarios(d.usuarios); setSouAdmin(d.sou_admin); setPodeGerirAcesso(!!d.pode_gerir_acesso); }
       else setSouAdmin(false);
     } finally { setCarregando(false); }
   }, []);
@@ -31,6 +41,15 @@ export default function UsuariosPage() {
     const d = await r.json();
     if (!d.ok) { alert(traduzErro(d.reason)); return; }
     await carregar();
+  }
+
+  // Salva a whitelist de portais de uma conta (só admin do GP). Toggle otimista.
+  async function toggglePortal(u: Usuario, portal: Portal) {
+    const novos = u.portais.includes(portal) ? u.portais.filter((p) => p !== portal) : [...u.portais, portal];
+    setUsuarios((lista) => lista.map((x) => (x.id === u.id ? { ...x, portais: novos } : x)));
+    const r = await fetch(`/api/usuarios/${u.id}/portais`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ portais: novos }) });
+    const d = await r.json();
+    if (!d.ok) { alert("Não foi possível salvar os portais."); await carregar(); }
   }
 
   if (souAdmin === false) {
@@ -59,6 +78,7 @@ export default function UsuariosPage() {
                 <tr>
                   <th className="px-4 py-2.5 font-semibold">Usuário</th>
                   <th className="px-4 py-2.5 font-semibold">Nível</th>
+                  {podeGerirAcesso && <th className="px-4 py-2.5 font-semibold">Portais</th>}
                   <th className="px-4 py-2.5 font-semibold">Status</th>
                   <th className="px-4 py-2.5 font-semibold text-right">Ações</th>
                 </tr>
@@ -86,6 +106,30 @@ export default function UsuariosPage() {
                         <option value="admin">Administrador</option>
                       </select>
                     </td>
+                    {podeGerirAcesso && (
+                      <td className="px-4 py-3">
+                        {/* Whitelist de portais da conta — clique para liberar/bloquear. */}
+                        <div className="flex flex-wrap gap-1">
+                          {PORTAIS.map((p) => {
+                            const on = u.portais.includes(p.id);
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => toggglePortal(u, p.id)}
+                                title={`${on ? "Bloquear" : "Liberar"} ${p.label} para ${u.nome}`}
+                                className={cn("rounded-md px-2 py-0.5 text-[11px] font-medium transition",
+                                  on
+                                    ? "bg-brand/10 text-brand ring-1 ring-brand/30 dark:bg-brand-400/15 dark:text-brand-300"
+                                    : "bg-slate-100 text-slate-400 hover:text-slate-600 dark:bg-slate-800 dark:text-slate-500 dark:hover:text-slate-300")}
+                              >
+                                {p.id}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
                         u.ativo ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400")}>

@@ -1,25 +1,43 @@
 import Link from "next/link";
 import { MarcaCasa, MarcaPortal } from "@/app/_components/marca";
 import { PORTAIS, type PortalId } from "@/lib/marcas";
+import { getSessao } from "@/lib/auth";
+import { podeAcessarPortal } from "@/lib/papeis";
 
 // Tela inicial (pós-login): escolha do portal. Cada um é um espaço próprio —
 // HT, Seminário e HM têm telas e dados isolados. Daqui se entra em /ht/*,
 // /seminario/* ou /hm/*; a troca também fica no cabeçalho, dentro do sistema.
-// A identidade de cada portal (nome, cor, logo) vem de lib/marcas — a mesma que
-// o cabeçalho usa, para o card e o topo nunca discordarem.
+// A identidade de cada portal (nome, cor, logo) vem de lib/marcas.
+// Controle de acesso (0145): só os portais liberados para a conta aparecem aqui.
 const ORDEM: PortalId[] = ["ht", "seminario", "hm", "curso"];
+const EVENTO_DO_SLUG: Record<PortalId, string> = { ht: "HT", seminario: "SEM", hm: "HM", curso: "CNHF" };
 
-export default function SelecaoPortal() {
+export default async function SelecaoPortal({ searchParams }: { searchParams: { sem_acesso?: string } }) {
+  const sessao = await getSessao();
+  const portais = sessao?.portais ?? [];
+  const visiveis = ORDEM.filter((id) => podeAcessarPortal(portais, EVENTO_DO_SLUG[id]));
+  const semAcesso = searchParams.sem_acesso;
+
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-3xl flex-col items-center justify-center px-4 py-10">
       <div className="mb-8 flex flex-col items-center text-center">
         <MarcaCasa altura="h-11" className="mb-3" />
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Escolha o portal</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Cada evento tem o seu espaço, com telas e contatos próprios.</p>
+        {semAcesso && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+            Você não tem acesso a esse portal. Fale com um administrador do Grupo Participa.
+          </p>
+        )}
       </div>
 
+      {visiveis.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-slate-300 px-6 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+          Nenhum portal liberado para a sua conta ainda.<br />Peça a um administrador do Grupo Participa para liberar seu acesso.
+        </p>
+      ) : (
       <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
-        {ORDEM.map((id) => {
+        {visiveis.map((id) => {
           const p = PORTAIS[id];
           return (
             <Link
@@ -43,6 +61,7 @@ export default function SelecaoPortal() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

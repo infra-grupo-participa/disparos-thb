@@ -21,6 +21,8 @@ export type Usuario = {
   equipe_id: string | null; equipe_tipo: TipoEquipe | null; equipe_nome: string | null; equipe_cor: string | null;
   // Líder/ADM da própria equipe (0143): distribui dentro da equipe dele.
   lider_equipe: boolean;
+  // Portais que esta conta pode acessar (0145). Vazio = nenhum (conta restrita).
+  portais: string[];
 };
 
 function secret(): string {
@@ -71,7 +73,8 @@ export async function getSessao(): Promise<Usuario | null> {
   if (!userId) return null;
   const u = await queryOne<Usuario>(
     `select u.id, u.nome, u.email, u.papel, u.ativo, u.telefone, u.lider_equipe,
-            u.equipe_id, e.tipo as equipe_tipo, e.nome as equipe_nome, e.cor as equipe_cor
+            u.equipe_id, e.tipo as equipe_tipo, e.nome as equipe_nome, e.cor as equipe_cor,
+            coalesce((select array_agg(up.portal) from cs.usuario_portais up where up.usuario_id = u.id), '{}') as portais
        from cs.usuarios u
        left join cs.equipes e on e.id = u.equipe_id
       where u.id = $1 and u.ativo = true`,

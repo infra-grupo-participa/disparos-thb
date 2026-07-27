@@ -36,6 +36,19 @@ export function podeVerTudo(_papel: Papel | null | undefined, tipoEquipe?: TipoE
   return ehEquipePrincipal(tipoEquipe);
 }
 
+// ===== Acesso por portal (0145) ============================================
+// Cada conta tem uma whitelist de portais (HT/SEM/CNHF/HM). Quem não tem o portal
+// na lista não entra nem vê. Gerido pelos admins do Grupo Participa.
+export function podeAcessarPortal(portais: string[] | null | undefined, portalEvento: string): boolean {
+  return !!portais && portais.includes(portalEvento);
+}
+
+// Quem pode GERIR os acessos (portais por conta): admin E do Grupo Participa (GP).
+// Reconcilia os dois eixos de autoridade — papel admin não basta se não for do GP.
+export function podeGerirAcesso(papel: Papel | null | undefined, tipoEquipe?: TipoEquipe | null): boolean {
+  return papel === "admin" && ehEquipePrincipal(tipoEquipe);
+}
+
 // Líder/ADM da própria equipe (0143): distribui e enxerga dentro da equipe dele,
 // mas NÃO vê o GP nem outra equipe. É admin escopado — abaixo do admin global.
 export function ehLiderEquipe(u: { lider_equipe?: boolean | null; equipe_tipo?: TipoEquipe | null }): boolean {
