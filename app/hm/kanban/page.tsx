@@ -31,6 +31,13 @@ type Card = {
   estagio_nome: string | null;
   estagio_aba: string | null;
   responsavel: string | null;
+  // Equipes (0140): dono por id + a equipe do card (do dono OU do canal roteado).
+  // equipe_id null e responsavel_id null = pool (visível a todos).
+  responsavel_id: string | null;
+  equipe_id: string | null;
+  equipe_nome: string | null;
+  equipe_cor: string | null;
+  equipe_tipo: "principal" | "comum" | null;
   tags: string[];
   apto_ativacao: boolean;
   reuniao_em: string | null;
@@ -142,6 +149,16 @@ function tempoTom(iso: string | null): string {
   if (dias >= 7) return "text-rose-500 dark:text-rose-400";
   if (dias >= 3) return "text-amber-500 dark:text-amber-400";
   return "text-slate-400 dark:text-slate-500";
+}
+// Rótulo curto da equipe no selo do card: "Grupo Participa (Pro Max)" → "GP";
+// "Equipe 2" → "EQ2"; nomes livres → as 2 primeiras iniciais. Curto de propósito
+// (o card é apertado); o nome inteiro fica no title.
+function seloEquipe(nome: string): string {
+  const n = nome.toLowerCase();
+  if (n.includes("participa") || n.includes("pro max")) return "GP";
+  const mEq = nome.match(/equipe\s*(\d+)/i);
+  if (mEq) return `EQ${mEq[1]}`;
+  return nome.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || nome.slice(0, 3).toUpperCase();
 }
 // Categoria de entrada → rótulo curto no card.
 function catLabel(cat: string | null): { txt: string; cls: string } | null {
@@ -1194,6 +1211,9 @@ function CardItem({
       onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}
       onKeyDown={(e) => { if (e.key === "Enter") onAbrir(); }}
       title="Clique para abrir · botão direito para mover ou desfazer"
+      // Faixa lateral na cor da equipe dona (0140). Card do pool (sem equipe) não
+      // recebe faixa — fica neutro, sinalizando "livre para assumir".
+      style={card.equipe_cor ? { borderLeftColor: card.equipe_cor, borderLeftWidth: 3 } : undefined}
       className={cn(
         "group relative block cursor-pointer rounded-lg border p-2.5 shadow-card transition hover:border-brand/30 hover:shadow-soft active:cursor-grabbing",
         // Saldo quitado: um verde sutil, só o suficiente para diferenciar de longe
@@ -1292,6 +1312,16 @@ function CardItem({
             <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
             {card.entrou_estagio_em ? `${relativo(card.entrou_estagio_em)} na etapa` : "—"}
           </span>
+          {/* Selo da equipe dona (0140) — na cor da equipe. Pool não mostra selo. */}
+          {card.equipe_nome && card.equipe_cor && (
+            <span
+              className="inline-flex shrink-0 items-center rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-white"
+              style={{ backgroundColor: card.equipe_cor }}
+              title={`Equipe: ${card.equipe_nome}${card.responsavel_id ? "" : " (canal roteado — sem dono ainda)"}`}
+            >
+              {seloEquipe(card.equipe_nome)}
+            </span>
+          )}
         </div>
         {wa && (
           <a
