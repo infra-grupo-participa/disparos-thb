@@ -27,13 +27,13 @@ export function ehEquipePrincipal(tipo?: TipoEquipe | null): boolean {
   return tipo === "principal";
 }
 
-// Vê TODOS os cards de todas as equipes = SÓ a equipe principal (Grupo Participa).
-// Decisão do Marcio (27/07): o papel `admin` sozinho NÃO basta mais para ver tudo —
-// um admin de equipe COMUM (ex.: Kelly na Equipe 2) não pode enxergar os cards do GP.
-// Cada equipe tem os seus cards; só o GP tem visão global. (O papel `admin` segue
-// valendo para o que é gestão de conta, mas a VISIBILIDADE de cards é por equipe.)
-export function podeVerTudo(_papel: Papel | null | undefined, tipoEquipe?: TipoEquipe | null): boolean {
-  return ehEquipePrincipal(tipoEquipe);
+// Vê TODOS os cards de todas as equipes = SÓ o papel `admin`.
+// Decisão do Marcio (27/07, revisada): visão global é do ADMIN, não da equipe.
+// Antes "estar no GP" dava visão total — mas isso fazia um OPERADOR do GP (ex.:
+// Jusy) ver os cards de outras equipes (Kelly). Agora: só o admin vê tudo; operador
+// do GP vê só o dele + pool, como qualquer operador; o gestor (líder) vê a equipe dele.
+export function podeVerTudo(papel: Papel | null | undefined, _tipoEquipe?: TipoEquipe | null): boolean {
+  return papel === "admin";
 }
 
 // ===== Acesso por portal (0145) ============================================
@@ -49,19 +49,19 @@ export function podeGerirAcesso(papel: Papel | null | undefined, tipoEquipe?: Ti
   return papel === "admin" && ehEquipePrincipal(tipoEquipe);
 }
 
-// Líder/ADM da própria equipe (0143): distribui e enxerga dentro da equipe dele,
-// mas NÃO vê o GP nem outra equipe. É admin escopado — abaixo do admin global.
+// Gestor = líder da própria equipe (0143): enxerga e distribui dentro da equipe
+// dele (o dele + os dos operadores da mesma equipe), mas NÃO vê outras equipes.
+// Vale para qualquer equipe (comum ou GP) — só o admin tem visão global agora.
 export function ehLiderEquipe(u: { lider_equipe?: boolean | null; equipe_tipo?: TipoEquipe | null }): boolean {
-  // Só faz sentido em equipe comum: um "líder" na equipe principal já é master.
-  return !!u.lider_equipe && u.equipe_tipo === "comum";
+  return !!u.lider_equipe && !!u.equipe_tipo; // é líder e está numa equipe
 }
 
 // Escopo de visibilidade para o WHERE das queries do board/tabela/inbox do HM.
-//   tudo     → GP/admin (sem recorte): vê tudo, e o que está com cada operador.
-//   equipe   → líder da equipe: vê o POOL + TODOS os cards da equipe dele (de
-//              qualquer operador da equipe) — para poder distribuir e acompanhar.
-//   operador → comum: vê SÓ o POOL (sem dono) + os cards atribuídos a ELE. Não vê
-//              os dos colegas. Cada um enxerga o que é dele + o que está livre.
+//   tudo     → ADMIN (sem recorte): vê tudo, e o que está com cada operador.
+//   equipe   → gestor/líder da equipe: vê o POOL + TODOS os cards da equipe dele
+//              (de qualquer operador da equipe) — para distribuir e acompanhar.
+//   operador → o resto (incl. operador do GP como a Jusy): vê SÓ o POOL (sem dono)
+//              + os cards atribuídos a ELE (ou que ele pescou). Não vê os dos colegas.
 export type EscopoVisibilidade =
   | { modo: "tudo" }
   | { modo: "equipe"; equipeId: string | null }

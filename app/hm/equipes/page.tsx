@@ -25,7 +25,7 @@ const LABEL_PAPEL: Record<Papel, string> = {
 
 
 export default function HmEquipesPage() {
-  const { me, podeVerTudo } = useMe();
+  const { me, podeGerirAcesso } = useMe();
   const [equipes, setEquipes] = useState<Equipe[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [rotas, setRotas] = useState<Rota[]>([]);
@@ -36,7 +36,7 @@ export default function HmEquipesPage() {
   const [rotaCanal, setRotaCanal] = useState("");
   const [rotaEquipe, setRotaEquipe] = useState("");
 
-  const podeConfig = me ? podeVerTudo() : null;
+  const podeConfig = me ? podeGerirAcesso() : null;
 
   const carregar = useCallback(async () => {
     setCarregando(true);

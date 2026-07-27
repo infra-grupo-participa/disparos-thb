@@ -388,9 +388,9 @@ const PRESETS: Record<VisaoId, string[]> = {
 
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
-  const { podeDisparar: podeDisparaFn, podeVerTudo } = useMe();
+  const { podeDisparar: podeDisparaFn, podeGerirAcesso } = useMe();
   const podeDisparar = podeDisparaFn("HM");
-  const podeConfigEquipes = podeVerTudo();
+  const podeConfigEquipes = podeGerirAcesso();
   const [linhas, setLinhas] = useState<LinhaEsteira[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);

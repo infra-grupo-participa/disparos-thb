@@ -261,9 +261,9 @@ function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
 }
 
 export default function HmKanbanPage() {
-  const { podeDisparar: podeDisparaFn, podeVerTudo } = useMe();
+  const { podeDisparar: podeDisparaFn, podeGerirAcesso } = useMe();
   const podeDisparar = podeDisparaFn("HM");
-  const podeConfigEquipes = podeVerTudo();
+  const podeConfigEquipes = podeGerirAcesso();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [socios, setSocios] = useState<Socio[]>([]);

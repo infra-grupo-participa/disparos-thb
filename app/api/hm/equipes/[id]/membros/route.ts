@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
-import { podeVerTudo } from "@/lib/papeis";
+import { podeGerirAcesso } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, EquipeMembroSchema } from "@/lib/validators";
 
@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (!podeVerTudo(sessao.papel, sessao.equipe_tipo)) {
+  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) {
     return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
   }
   const p = await parseBody(req, EquipeMembroSchema);
