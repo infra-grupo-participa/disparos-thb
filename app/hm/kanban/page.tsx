@@ -12,6 +12,7 @@ import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { MultiSelect } from "@/app/_components/multi-select";
 import { DisparoModal } from "@/app/_components/disparo";
+import { DisparoInteligente } from "@/app/_components/disparo-inteligente";
 import { TagChip } from "@/app/_components/tags";
 import { ContatoDoNome } from "@/app/_components/copiavel";
 import { useMe } from "@/app/_components/use-me";
@@ -285,6 +286,10 @@ export default function HmKanbanPage() {
   const [addSocio, setAddSocio] = useState<{ compradorId: string; nome: string } | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [dispararLote, setDispararLote] = useState(false);
+  // Disparo inteligente: a seleção vem pronta da API /elegiveis (novos/frios) já
+  // recortada por equipe no backend, em vez dos cards marcados à mão.
+  const [showInteligente, setShowInteligente] = useState(false);
+  const [dispararSelecao, setDispararSelecao] = useState<{ comprador_id: string; nome: string; telefone: string; edicao?: string | null }[] | null>(null);
   // Card a caminho da coluna de cancelamento, esperando a resposta: pediu ou cancelou?
   const [cancelando, setCancelando] = useState<{ card: Card; antesDe: string | null } | null>(null);
   const [menu, setMenu] = useState<{ card: Card; x: number; y: number } | null>(null);
@@ -586,6 +591,11 @@ export default function HmKanbanPage() {
                 : `Selecionar todos (${cardsFiltrados.length})`}
             </Button>
           )}
+          {podeDisparar && (
+            <Button variant="secondary" size="sm" onClick={() => setShowInteligente(true)} title="Montar a lista sozinho: quem nunca recebeu ou está sem contato há dias (só da sua visão)">
+              Disparo inteligente
+            </Button>
+          )}
         </div>
       </div>
 
@@ -841,6 +851,21 @@ export default function HmKanbanPage() {
             .filter((c) => marcados.has(c.comprador_id))
             .map((c) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone ?? "", edicao: null }))}
           onClose={() => { setDispararLote(false); setMarcados(new Set()); carregar(); }}
+        />
+      )}
+
+      {/* Disparo inteligente: monta a lista pela API /elegiveis (recortada por
+          equipe no backend) e abre o mesmo DisparoModal com ela. */}
+      {showInteligente && (
+        <DisparoInteligente
+          onClose={() => setShowInteligente(false)}
+          onDisparar={(sel) => { setShowInteligente(false); if (sel.length) setDispararSelecao(sel); }}
+        />
+      )}
+      {dispararSelecao && (
+        <DisparoModal
+          selecao={dispararSelecao}
+          onClose={() => { setDispararSelecao(null); carregar(); }}
         />
       )}
 

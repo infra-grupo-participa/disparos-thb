@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { getSessao } from "@/lib/auth";
+import { escopoVisibilidade } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { eventoDe } from "@/lib/services/evento";
 
@@ -14,7 +15,8 @@ export const runtime = "nodejs";
 // Sempre exclui quem não tem telefone e quem deu opt-out. Ordena os mais frios /
 // nunca-abordados primeiro, para o operador atacar a fila do topo.
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const evento = eventoDe(req);
   const sp = new URL(req.url).searchParams;
   const modo = (sp.get("modo") || "ambos") as "novos" | "frios" | "ambos";
@@ -27,31 +29,68 @@ export async function GET(req: Request) {
     : modo === "frios" ? "u.ultimo is not null and u.ultimo < now() - make_interval(days => $2)"
     : "u.ultimo is null or u.ultimo < now() - make_interval(days => $2)";
 
-  const contatos = await query<{
+  type Elegivel = {
     comprador_id: string; nome: string; telefone: string; edicao: string | null;
     ultimo_disparo_em: string | null; motivo: string;
-  }>(
-    `with ult as (
-       select dc.comprador_id, max(dc.enviado_em) as ultimo
-         from cs.disparo_contatos dc
-         join cs.disparos d on d.id = dc.disparo_id
-        where d.evento = $1 and dc.enviado
-        group by dc.comprador_id
-     )
-     select v.comprador_id, v.nome, v.telefone, v.edicao,
-            u.ultimo as ultimo_disparo_em,
-            case when u.ultimo is null then 'nunca' else 'frio' end as motivo
-       from cs.contatos_evento v
-       join cs.contatos ct on ct.comprador_id = v.comprador_id and ct.evento = v.evento
-       left join ult u on u.comprador_id = v.comprador_id
-      where v.evento = $1
-        and v.telefone is not null and v.telefone <> ''
-        and not coalesce(ct.opt_out, false)
-        and (${filtroModo})
-      order by (u.ultimo is null) desc, u.ultimo asc nulls first, v.nome
-      limit $3`,
-    [evento, dias, limite],
-  );
+  };
+
+  let contatos: Elegivel[];
+  if (evento === "HM") {
+    // Ramo HM: destinatários do overlay (cs.contatos_hm_kanban, análogo ao /api/send),
+    // respeitando nao_contatar + opt_out. O RECORTE DE EQUIPE é de segurança: um
+    // operador comum só recebe sugestões de cards que ele vê (pool + própria equipe);
+    // GP/admin veem tudo. Predicado idêntico ao do board/tabela.
+    const escopo = escopoVisibilidade(sessao);
+    const verTudo = escopo.modo === "tudo";
+    const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
+    contatos = await query<Elegivel>(
+      `with ult as (
+         select dc.comprador_id, max(dc.enviado_em) as ultimo
+           from cs.disparo_contatos dc
+           join cs.disparos d on d.id = dc.disparo_id
+          where d.evento = 'HM' and dc.enviado
+          group by dc.comprador_id
+       )
+       select v.comprador_id, v.nome, v.telefone, null::text as edicao,
+              u.ultimo as ultimo_disparo_em,
+              case when u.ultimo is null then 'nunca' else 'frio' end as motivo
+         from cs.contatos_hm_kanban v
+         left join ult u on u.comprador_id = v.comprador_id
+        where v.telefone is not null and v.telefone <> ''
+          and not coalesce(v.nao_contatar, false)
+          and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
+          and ($3::boolean
+               or (v.responsavel_id is null and v.equipe_id is null)
+               or v.equipe_id = $4::uuid)
+          and (${filtroModo})
+        order by (u.ultimo is null) desc, u.ultimo asc nulls first, v.nome
+        limit $1`,
+      [limite, dias, verTudo, equipeId],
+    );
+  } else {
+    contatos = await query<Elegivel>(
+      `with ult as (
+         select dc.comprador_id, max(dc.enviado_em) as ultimo
+           from cs.disparo_contatos dc
+           join cs.disparos d on d.id = dc.disparo_id
+          where d.evento = $1 and dc.enviado
+          group by dc.comprador_id
+       )
+       select v.comprador_id, v.nome, v.telefone, v.edicao,
+              u.ultimo as ultimo_disparo_em,
+              case when u.ultimo is null then 'nunca' else 'frio' end as motivo
+         from cs.contatos_evento v
+         join cs.contatos ct on ct.comprador_id = v.comprador_id and ct.evento = v.evento
+         left join ult u on u.comprador_id = v.comprador_id
+        where v.evento = $1
+          and v.telefone is not null and v.telefone <> ''
+          and not coalesce(ct.opt_out, false)
+          and (${filtroModo})
+        order by (u.ultimo is null) desc, u.ultimo asc nulls first, v.nome
+        limit $3`,
+      [evento, dias, limite],
+    );
+  }
 
   const nunca = contatos.filter((c) => c.motivo === "nunca").length;
   return NextResponse.json({
