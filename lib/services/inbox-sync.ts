@@ -30,6 +30,46 @@ export async function registrarRespostaLead(
   disparoId: string | null,
   optOut: boolean,
 ): Promise<void> {
+  // HM vive no overlay isolado (cs.contatos_hm), com a timeline em
+  // cs.interacoes.contato_hm_id. Se o comprador é um card HM, segue o ramo HM;
+  // senão, o caminho genérico (cs.contatos/contato_id) — intacto, é o do SEM.
+  const ehHm = await queryOne<{ id: string }>(
+    `select id from cs.contatos_hm where comprador_id = $1`,
+    [compradorId],
+  );
+  if (ehHm) {
+    // NÃO avança estágio: o HM tem esteira própria (o avanço comprou→onboarding é
+    // dos portais genéricos). Só abre a pendência do inbox e carimba a resposta.
+    await query(
+      `update cs.contatos_hm
+          set ultima_resposta_em = now(),
+              inbox_status = 'pendente',
+              aguardando_desde = coalesce(aguardando_desde, now()),
+              atualizado_em = now()
+        where comprador_id = $1`,
+      [compradorId],
+    );
+    await query(
+      `insert into cs.interacoes (contato_hm_id, tipo, descricao, disparo_id, autor)
+       select id, 'resposta', $2, $3, 'lead' from cs.contatos_hm where comprador_id = $1`,
+      [compradorId, descricao, disparoId],
+    );
+    if (optOut) {
+      await query(
+        `update cs.contatos_hm set opt_out = true, opt_out_em = coalesce(opt_out_em, now()),
+                inbox_status = 'resolvido', aguardando_desde = null, atualizado_em = now()
+          where comprador_id = $1`,
+        [compradorId],
+      );
+      await query(
+        `insert into cs.interacoes (contato_hm_id, tipo, descricao, autor)
+         select id, 'sistema', 'Pediu para parar de receber (opt-out)', 'sistema' from cs.contatos_hm where comprador_id = $1`,
+        [compradorId],
+      );
+    }
+    return;
+  }
+
   await query(
     `update cs.contatos
         set ultima_resposta_em = now(),
