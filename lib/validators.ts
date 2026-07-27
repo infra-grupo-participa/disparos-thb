@@ -61,6 +61,8 @@ export const EquipeMembroSchema = z.object({
   usuario_id: z.string().uuid(),
   acao: z.enum(["vincular", "remover"]).default("vincular"),
   papel: z.enum(["admin", "disparador", "operador"]).optional(),
+  // Líder/ADM da própria equipe (0143): distribui dentro da equipe.
+  lider_equipe: z.boolean().optional(),
 });
 export const EquipeRotaSchema = z.object({
   canal: z.string().trim().min(1),

@@ -19,6 +19,8 @@ export { podeDisparar };
 export type Usuario = {
   id: string; nome: string; email: string; papel: Papel; ativo: boolean; telefone: string | null;
   equipe_id: string | null; equipe_tipo: TipoEquipe | null; equipe_nome: string | null; equipe_cor: string | null;
+  // Líder/ADM da própria equipe (0143): distribui dentro da equipe dele.
+  lider_equipe: boolean;
 };
 
 function secret(): string {
@@ -68,7 +70,7 @@ export async function getSessao(): Promise<Usuario | null> {
   const userId = verifyToken(cookies().get(SESSION_COOKIE)?.value);
   if (!userId) return null;
   const u = await queryOne<Usuario>(
-    `select u.id, u.nome, u.email, u.papel, u.ativo, u.telefone,
+    `select u.id, u.nome, u.email, u.papel, u.ativo, u.telefone, u.lider_equipe,
             u.equipe_id, e.tipo as equipe_tipo, e.nome as equipe_nome, e.cor as equipe_cor
        from cs.usuarios u
        left join cs.equipes e on e.id = u.equipe_id

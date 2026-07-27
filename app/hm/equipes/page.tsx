@@ -13,7 +13,7 @@ import { useMe } from "@/app/_components/use-me";
 
 type Papel = "admin" | "disparador" | "operador";
 type Equipe = { id: string; nome: string; tipo: "principal" | "comum"; cor: string; ativo: boolean; membros: number };
-type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean; equipe_id: string | null };
+type Usuario = { id: string; nome: string; email: string; papel: Papel; ativo: boolean; equipe_id: string | null; lider_equipe: boolean };
 type Rota = { canal: string; equipe_id: string; equipe_nome: string; equipe_cor: string };
 
 const LABEL_PAPEL: Record<Papel, string> = {
@@ -65,8 +65,8 @@ export default function HmEquipesPage() {
     await carregar();
   }
 
-  async function membro(id: string, usuario_id: string, acao: "vincular" | "remover", papel?: Papel) {
-    const r = await fetch(`/api/hm/equipes/${id}/membros`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usuario_id, acao, papel }) });
+  async function membro(id: string, usuario_id: string, acao: "vincular" | "remover", papel?: Papel, lider_equipe?: boolean) {
+    const r = await fetch(`/api/hm/equipes/${id}/membros`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ usuario_id, acao, papel, lider_equipe }) });
     const d = await r.json();
     if (!d.ok) { alert("Não foi possível atualizar o membro."); return; }
     await carregar();
@@ -143,6 +143,19 @@ export default function HmEquipesPage() {
                           <option value="disparador">Operador de disparos</option>
                           <option value="admin">Administrador</option>
                         </select>
+                        {/* Líder da equipe (só faz sentido em equipe comum): distribui
+                            cards entre os operadores desta equipe. */}
+                        {eq.tipo === "comum" && (
+                          <label className="flex shrink-0 items-center gap-1 text-xs text-slate-500 dark:text-slate-400" title="Líder desta equipe: distribui cards entre os operadores dela">
+                            <input
+                              type="checkbox"
+                              checked={u.lider_equipe}
+                              onChange={(e) => membro(eq.id, u.id, "vincular", undefined, e.target.checked)}
+                              className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand/30 dark:border-slate-600 dark:bg-slate-800"
+                            />
+                            líder
+                          </label>
+                        )}
                         <button onClick={() => membro(eq.id, u.id, "remover")} className="text-xs text-slate-400 hover:text-rose-500" title="Tirar da equipe">remover</button>
                       </div>
                     ))}

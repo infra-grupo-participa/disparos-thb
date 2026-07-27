@@ -10,5 +10,6 @@ export async function GET() {
   return NextResponse.json({ ok: true, usuario: {
     id: u.id, nome: u.nome, email: u.email, papel: u.papel, telefone: u.telefone,
     equipe_id: u.equipe_id, equipe_tipo: u.equipe_tipo, equipe_nome: u.equipe_nome, equipe_cor: u.equipe_cor,
+    lider_equipe: u.lider_equipe,
   } });
 }

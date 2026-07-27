@@ -14,6 +14,8 @@ export { ehEquipePrincipal };
 export type Me = {
   id: string; nome: string; email: string; papel: Papel;
   equipe_id: string | null; equipe_tipo: TipoEquipe | null; equipe_nome: string | null; equipe_cor: string | null;
+  // Líder/ADM da própria equipe (0143): distribui dentro da equipe dele.
+  lider_equipe: boolean;
 };
 
 // Usuário logado para gating de UI. `podeDisparar(evento)` espelha a regra do
@@ -29,5 +31,9 @@ export function useMe() {
   }, []);
   const podeDisparar = (evento?: string | null) => regraPodeDisparar(me?.papel, evento);
   const podeVerTudo = () => regraPodeVerTudo(me?.papel, me?.equipe_tipo);
-  return { me, podeDisparar, podeVerTudo };
+  // Pode DISTRIBUIR (reatribuir cards a outra pessoa): admin/GP (a qualquer um) ou
+  // líder da própria equipe (só entre os operadores dela). Operador comum não.
+  const ehLider = !!me?.lider_equipe && me?.equipe_tipo === "comum";
+  const podeDistribuir = () => podeVerTudo() || ehLider;
+  return { me, podeDisparar, podeVerTudo, podeDistribuir };
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
-import { escopoVisibilidade } from "@/lib/papeis";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -19,9 +19,7 @@ export async function GET(req: Request) {
   const status = sp.get("status") || null; // pendente | resolvido
   const disparoId = sp.get("disparo") || null;
 
-  const escopo = escopoVisibilidade(sessao);
-  const verTudo = escopo.modo === "tudo";
-  const usuarioId = escopo.modo === "operador" ? escopo.usuarioId : null;
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
 
   // Última mensagem da conversa (do lead ou do CS), pela timeline do overlay HM.
   const LATERAL_ULTIMA = `
@@ -41,7 +39,7 @@ export async function GET(req: Request) {
 
   const conversas = disparoId
     ? // Modo "disparo": quem recebeu aquele disparo (para o link "Ver conversas").
-      // $1=disparoId, $2=verTudo, $3=usuarioId.
+      // $1=disparoId, $2=verTudo, $3=usuarioId, $4=equipeId.
       await query(
         `select ${COLS}
            from cs.disparo_contatos dc
@@ -51,12 +49,13 @@ export async function GET(req: Request) {
           where dc.disparo_id = $1 and dc.enviado
             and ($2::boolean
                  or (k.responsavel_id is null and k.equipe_id is null)
-                 or k.responsavel_id = $3::uuid)
+                 or k.responsavel_id = $3::uuid
+                 or k.equipe_id = $4::uuid)
           order by dc.enviado_em desc nulls last
           limit 500`,
-        [disparoId, verTudo, usuarioId],
+        [disparoId, verTudo, usuarioId, equipeId],
       )
-    : // Fila normal. $1=status, $2=verTudo, $3=usuarioId.
+    : // Fila normal. $1=status, $2=verTudo, $3=usuarioId, $4=equipeId.
       await query(
         `select ${COLS}
            from cs.contatos_hm_kanban k
@@ -66,14 +65,15 @@ export async function GET(req: Request) {
             and ($1::text is null or ch.inbox_status = $1)
             and ($2::boolean
                  or (k.responsavel_id is null and k.equipe_id is null)
-                 or k.responsavel_id = $3::uuid)
+                 or k.responsavel_id = $3::uuid
+                 or k.equipe_id = $4::uuid)
           order by (ch.inbox_status = 'pendente') desc,
                    coalesce(ch.aguardando_desde, ch.ultima_resposta_em, ch.atualizado_em) desc
           limit 200`,
-        [status, verTudo, usuarioId],
+        [status, verTudo, usuarioId, equipeId],
       );
 
-  // Contador de pendentes — também recortado por operador. $1=verTudo, $2=usuarioId.
+  // Contador de pendentes — mesmo recorte. $1=verTudo, $2=usuarioId, $3=equipeId.
   const resumo = await queryOne<{ pendentes: number }>(
     `select count(*)::int as pendentes
        from cs.contatos_hm_kanban k
@@ -81,8 +81,9 @@ export async function GET(req: Request) {
       where ch.inbox_status = 'pendente'
         and ($1::boolean
              or (k.responsavel_id is null and k.equipe_id is null)
-             or k.responsavel_id = $2::uuid)`,
-    [verTudo, usuarioId],
+             or k.responsavel_id = $2::uuid
+             or k.equipe_id = $3::uuid)`,
+    [verTudo, usuarioId, equipeId],
   );
 
   return NextResponse.json({ ok: true, conversas, pendentes: resumo?.pendentes ?? 0 });

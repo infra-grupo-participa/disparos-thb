@@ -27,7 +27,7 @@ export async function GET() {
   );
   // Todos os usuários com a equipe atual — para a tela montar "quem é de quem".
   const usuarios = await query(
-    `select id, nome, email, papel, ativo, equipe_id
+    `select id, nome, email, papel, ativo, equipe_id, lider_equipe
        from cs.usuarios order by ativo desc, nome`,
   );
   return NextResponse.json({ ok: true, equipes, usuarios });

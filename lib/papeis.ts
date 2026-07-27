@@ -32,14 +32,22 @@ export function podeVerTudo(papel: Papel | null | undefined, tipoEquipe?: TipoEq
   return papel === "admin" || ehEquipePrincipal(tipoEquipe);
 }
 
+// Líder/ADM da própria equipe (0143): distribui e enxerga dentro da equipe dele,
+// mas NÃO vê o GP nem outra equipe. É admin escopado — abaixo do admin global.
+export function ehLiderEquipe(u: { lider_equipe?: boolean | null; equipe_tipo?: TipoEquipe | null }): boolean {
+  // Só faz sentido em equipe comum: um "líder" na equipe principal já é master.
+  return !!u.lider_equipe && u.equipe_tipo === "comum";
+}
+
 // Escopo de visibilidade para o WHERE das queries do board/tabela/inbox do HM.
-//   tudo     → GP/admin (sem recorte): vê tudo.
-//   operador → comum: vê SÓ os cards atribuídos a ELE (responsavel_id = usuarioId)
-//              + o POOL (sem dono, para poder assumir). NÃO vê os cards dos colegas
-//              da mesma equipe — a decisão do Marcio (27/07) apertou de "equipe"
-//              para "por operador": cada um enxerga só o que é dele + o que está livre.
+//   tudo     → GP/admin (sem recorte): vê tudo, e o que está com cada operador.
+//   equipe   → líder da equipe: vê o POOL + TODOS os cards da equipe dele (de
+//              qualquer operador da equipe) — para poder distribuir e acompanhar.
+//   operador → comum: vê SÓ o POOL (sem dono) + os cards atribuídos a ELE. Não vê
+//              os dos colegas. Cada um enxerga o que é dele + o que está livre.
 export type EscopoVisibilidade =
   | { modo: "tudo" }
+  | { modo: "equipe"; equipeId: string | null }
   | { modo: "operador"; usuarioId: string };
 
 export function escopoVisibilidade(u: {
@@ -47,6 +55,23 @@ export function escopoVisibilidade(u: {
   papel: Papel | null | undefined;
   equipe_id: string | null;
   equipe_tipo: TipoEquipe | null;
+  lider_equipe?: boolean | null;
 }): EscopoVisibilidade {
-  return podeVerTudo(u.papel, u.equipe_tipo) ? { modo: "tudo" } : { modo: "operador", usuarioId: u.id };
+  if (podeVerTudo(u.papel, u.equipe_tipo)) return { modo: "tudo" };
+  if (ehLiderEquipe(u)) return { modo: "equipe", equipeId: u.equipe_id };
+  return { modo: "operador", usuarioId: u.id };
+}
+
+// Achata o escopo em 3 parâmetros para o WHERE das queries — só um de
+// equipeId/usuarioId é não-nulo. Predicado padrão (aplicado em kanban/tabela/
+// inbox/elegíveis):
+//   (verTudo OR (responsavel_id is null and equipe_id is null)  -- pool
+//            OR equipe_id = equipeId                            -- líder: a equipe
+//            OR responsavel_id = usuarioId)                     -- operador: os dele
+export function paramsEscopo(e: EscopoVisibilidade): { verTudo: boolean; equipeId: string | null; usuarioId: string | null } {
+  return {
+    verTudo: e.modo === "tudo",
+    equipeId: e.modo === "equipe" ? e.equipeId : null,
+    usuarioId: e.modo === "operador" ? e.usuarioId : null,
+  };
 }

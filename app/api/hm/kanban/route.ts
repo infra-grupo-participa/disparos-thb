@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
-import { escopoVisibilidade } from "@/lib/papeis";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
 import { moverEstagioHm } from "@/lib/services/hm";
@@ -27,13 +27,11 @@ export async function GET(req: Request) {
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E.
   const lista = (nome: string) => { const v = sp.getAll(nome); return v.length ? v : null; };
-  // Escopo de visibilidade: GP/admin veem tudo; operador comum vê SÓ os cards
-  // atribuídos a ele + o pool (sem dono, para poder assumir). Recorte de SEGURANÇA
-  // — o filtro por responsável (abaixo) é só conveniência.
-  const escopo = escopoVisibilidade(sessao);
-  const verTudo = escopo.modo === "tudo";
-  const usuarioId = escopo.modo === "operador" ? escopo.usuarioId : null;
-  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId];
+  // Escopo de visibilidade (recorte de SEGURANÇA): GP/admin veem tudo; líder de
+  // equipe vê o pool + todos os cards da equipe dele; operador comum vê o pool +
+  // só os cards atribuídos a ele. O filtro por responsável (abaixo) é conveniência.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
+  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId];
 
   const colunas = await query(
     `select e.chave, e.nome, e.cor, e.aba
@@ -77,11 +75,12 @@ export async function GET(req: Request) {
       where ($1::text[] is null or k.responsavel = any($1))
         and ($2::text[] is null or k.tags && $2)
         and ($3::text[] is null or k.tags && $3)
-        -- Escopo por operador: vejo tudo (GP/admin) OU é pool (sem dono e sem
-        -- equipe roteada) OU o card é MEU (responsavel_id = eu).
+        -- Escopo: vejo tudo (GP/admin) OU é pool OU o card é MEU (operador) OU
+        -- o card é da minha equipe (líder de equipe). $6 nulo p/ operador, $5 nulo p/ líder.
         and ($4::boolean
              or (k.responsavel_id is null and k.equipe_id is null)
-             or k.responsavel_id = $5::uuid)
+             or k.responsavel_id = $5::uuid
+             or k.equipe_id = $6::uuid)
       order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
   );
@@ -105,9 +104,10 @@ export async function GET(req: Request) {
               select 1 from cs.contatos_hm_kanban tk
                where tk.comprador_id = s.titular_comprador_id
                  and ((tk.responsavel_id is null and tk.equipe_id is null)
-                      or tk.responsavel_id = $2::uuid))
+                      or tk.responsavel_id = $2::uuid
+                      or tk.equipe_id = $3::uuid))
       order by s.titular_nome, s.nome`,
-    [verTudo, usuarioId],
+    [verTudo, usuarioId, equipeId],
   );
 
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já

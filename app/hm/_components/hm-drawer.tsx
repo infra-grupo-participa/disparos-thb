@@ -140,7 +140,7 @@ export function HmDrawer({
   compradorId: string; estagios: Estagio[]; responsaveis: string[];
   onClose: () => void; onChanged: () => void;
 }) {
-  const { me, podeDisparar: podeDisparaFn, podeVerTudo } = useMe();
+  const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   const [c, setC] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
@@ -484,17 +484,18 @@ export function HmDrawer({
               <Campo label="Responsável (CS)">
                 <div className="flex items-center gap-2">
                   {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
-                  {/* Reatribuir pelo seletor é gerência: só admin/GP (0142). O operador
-                      comum vê o dono mas não troca — só assume card do pool (botão abaixo). */}
-                  <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass} disabled={salvando || !podeVerTudo()}>
+                  {/* Distribuir pelo seletor: admin/GP (a qualquer um) ou líder da
+                      equipe (o backend barra destino fora da equipe dele). Operador
+                      comum vê o dono mas não troca — só assume do pool (botão abaixo). */}
+                  <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass} disabled={salvando || !podeDistribuir()}>
                     <option value="">— Sem responsável —</option>
                     {c.responsavel && !responsaveis.includes(c.responsavel) && <option value={c.responsavel}>{c.responsavel}</option>}
                     {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
-                {/* Botão assumir: admin/GP sempre; operador comum só quando é pool
-                    (sem dono) — reatribuir/roubar card alheio é bloqueado no backend. */}
-                {me?.id && c.responsavel !== me.nome && (podeVerTudo() || !c.responsavel) && (
+                {/* Botão assumir: admin/GP e líder de equipe sempre; operador comum
+                    só quando é pool (sem dono) — roubar card alheio é barrado no backend. */}
+                {me?.id && c.responsavel !== me.nome && (podeDistribuir() || !c.responsavel) && (
                   <button
                     type="button"
                     onClick={() => patch({ responsavel_id: me.id })}

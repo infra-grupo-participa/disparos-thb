@@ -151,19 +151,35 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     await query(`update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now() where id = $1`, vals);
   }
 
-  // Responsável por ID (equipes: "Assumir para mim" / devolver ao pool / reatribuir).
-  // Regras (0142):
-  //  - admin/GP faz tudo, e a atribuição que ele faz TRAVA o card (porAdmin=true).
-  //  - operador comum só assume card do POOL (sem dono). Card com dono OU travado
-  //    pelo admin é imutável para ele — nem o próprio, nem o de outro (403).
+  // Responsável por ID (atribuir / assumir / devolver ao pool / reatribuir).
+  // Hierarquia (0142/0143) — o podeVerCardHm no topo já garante que o ator só
+  // mexe em card que ele VÊ (pool, o dele, ou a equipe dele p/ líder):
+  //  - admin/GP: distribui a QUALQUER um; a atribuição dele TRAVA o card (porAdmin).
+  //  - líder de equipe: distribui SÓ entre operadores da PRÓPRIA equipe (o destino
+  //    tem de ser da equipe dele); não trava. Não atribui a GP/outra equipe.
+  //  - operador comum: só ASSUME card do pool (sem dono). Card com dono ou travado
+  //    pelo admin é imutável para ele (403).
   if (b.responsavel_id !== undefined) {
     const souAdmin = podeVerTudo(sessao.papel, sessao.equipe_tipo);
-    if (!souAdmin) {
+    const souLider = !souAdmin && !!sessao.lider_equipe && sessao.equipe_tipo === "comum";
+
+    if (!souAdmin && !souLider) {
+      // Operador comum: só assume do pool; nada que já tenha dono ou trava.
       const cardTemDono = atual.responsavel_id !== null;
       if (cardTemDono || atual.atribuicao_admin) {
         return NextResponse.json({ ok: false, reason: "atribuicao_travada" }, { status: 403 });
       }
+    } else if (souLider && b.responsavel_id !== null) {
+      // Líder: o destino tem de ser um usuário da MESMA equipe dele (não GP/outra).
+      const destino = await queryOne<{ equipe_id: string | null }>(
+        `select equipe_id from cs.usuarios where id = $1`,
+        [b.responsavel_id],
+      );
+      if (!destino || destino.equipe_id !== sessao.equipe_id) {
+        return NextResponse.json({ ok: false, reason: "destino_fora_da_equipe" }, { status: 403 });
+      }
     }
+    // Só admin trava (porAdmin); líder distribui sem travar.
     await setResponsavelHmPorId(compradorId, b.responsavel_id, operador, souAdmin);
   }
   // Responsável por NOME — caminho legado do seletor. Mantido por compat; o texto

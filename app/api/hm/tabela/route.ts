@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
-import { escopoVisibilidade } from "@/lib/papeis";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { relatorioHm } from "@/lib/services/hm-relatorio";
 
@@ -19,9 +19,9 @@ export async function GET(req: Request) {
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const sp = new URL(req.url).searchParams;
 
-  // Mesmo escopo do board: GP/admin veem tudo; operador comum vê o pool + os
-  // cards atribuídos a ele. Idêntico à rota do kanban por construção.
-  const escopo = escopoVisibilidade(sessao);
+  // Mesmo escopo do board: GP/admin tudo; líder de equipe vê a equipe dele;
+  // operador vê o pool + os dele. Idêntico à rota do kanban por construção.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
 
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E.
@@ -29,8 +29,7 @@ export async function GET(req: Request) {
     responsavel: sp.getAll("responsavel"),
     canal: sp.getAll("canal"),
     turma: sp.getAll("turma"),
-    verTudo: escopo.modo === "tudo",
-    usuarioId: escopo.modo === "operador" ? escopo.usuarioId : null,
+    verTudo, equipeId, usuarioId,
   });
 
   // As listas dos filtros saem da base inteira (não da fatia filtrada): um

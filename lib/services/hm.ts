@@ -552,10 +552,10 @@ export async function setResponsavelHmPorId(compradorId: string, responsavelId: 
 }
 
 // Gating de visibilidade de um card HM: quem pode ABRIR/EDITAR o card. GP/admin
-// veem tudo; operador comum vê o pool (sem dono e sem equipe roteada) OU o card
-// atribuído a ELE. Espelha o WHERE das listagens — a lista não mostra, a ficha
-// não abre. Retorna true se pode ver.
-type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null };
+// veem tudo; líder de equipe vê o pool + os cards da equipe dele; operador comum
+// vê o pool (sem dono e sem equipe roteada) OU o card atribuído a ELE. Espelha o
+// WHERE das listagens — a lista não mostra, a ficha não abre. Retorna true se pode ver.
+type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null };
 export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): Promise<boolean> {
   const escopo = escopoVisibilidade(sessao);
   if (escopo.modo === "tudo") return true;
@@ -565,7 +565,8 @@ export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): 
   );
   if (!k) return true; // inexistente → deixa o 404 acontecer no fluxo normal
   const ehPool = k.responsavel_id === null && k.equipe_id === null;
-  return ehPool || k.responsavel_id === escopo.usuarioId;
+  if (ehPool) return true;
+  return escopo.modo === "equipe" ? k.equipe_id === escopo.equipeId : k.responsavel_id === escopo.usuarioId;
 }
 
 // Leva os sócios convidados para a base mestre — mesma turma e mesma validade do
