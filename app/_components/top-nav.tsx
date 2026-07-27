@@ -39,6 +39,11 @@ const LINKS_HM: LinkDef[] = [
   { sub: "/inbox", label: "Inbox", icon: iconeDe("/inbox") },
   { sub: "/disparos", label: "Disparos", icon: iconeDe("/disparos") },
   { sub: "/templates", label: "Templates", icon: iconeDe("/templates") },
+  // Config de equipes/níveis de acesso do HM. Só admin (o master do GP). Estava
+  // escondida no sub-nav do Kanban; trazida para o menu principal para o admin
+  // achar de qualquer lugar.
+  { sub: "/equipes", label: "Equipes", soAdmin: true,
+    icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },
   // Consulta dos acessos do GPS (habilitado x entrou). Só admin.
   { sub: "/acessos", label: "Acessos", soAdmin: true,
     icon: "M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3ZM9.5 12l1.8 1.8 3.7-3.7" },

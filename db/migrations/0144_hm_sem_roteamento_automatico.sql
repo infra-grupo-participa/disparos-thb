@@ -1,0 +1,15 @@
+-- =====================================================================
+-- 0144_hm_sem_roteamento_automatico
+--
+-- Desfaz o roteamento automático canal->equipe (decisão do Marcio, 27/07).
+-- A 0140 semeou 'HT29 - 26-07' -> Equipe 2, o que fazia TODO comprador da live
+-- cair automaticamente na Equipe 2 — sem ninguém escolher, e com a Equipe 2
+-- ainda sem operadores. O Marcio quer o oposto: cards de compra caem ABERTOS
+-- (no pool) e a associação a equipe/pessoa é MANUAL.
+--
+-- Remove a(s) rota(s) existente(s). A tabela cs.equipe_canais continua existindo
+-- (dá para rotear manualmente pela aba de config se um dia quiserem), mas nasce
+-- vazia. Idempotente.
+-- Ver [[HM - Feature de equipes e niveis de acesso]].
+-- =====================================================================
+delete from cs.equipe_canais;
