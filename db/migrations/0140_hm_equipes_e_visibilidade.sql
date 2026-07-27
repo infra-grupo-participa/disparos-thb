@@ -66,10 +66,14 @@ insert into cs.equipes (nome, tipo, cor)
   select 'Equipe 2', 'comum', '#0d9488'                        -- teal
   where not exists (select 1 from cs.equipes where nome = 'Equipe 2');
 
--- Rota HARDCODED de seed: HT29 - 26-07 -> Equipe 2 (o resto editável na UI).
-insert into cs.equipe_canais (canal, equipe_id)
-  select 'HT29 - 26-07', e.id from cs.equipes e where e.nome = 'Equipe 2'
-on conflict (canal) do nothing;
+-- Rota HARDCODED de seed HT29 -> Equipe 2 REMOVIDA (decisão do Marcio 27/07): o
+-- roteamento automático fazia todo comprador da live cair na Equipe 2 sozinho e
+-- SUMIR da visão das outras equipes. Cards de compra caem no POOL (abertos),
+-- associação a equipe/pessoa é MANUAL. Ver migration 0144 (que também limpa
+-- cs.equipe_canais). NÃO reintroduzir este seed.
+-- insert into cs.equipe_canais (canal, equipe_id)
+--   select 'HT29 - 26-07', e.id from cs.equipes e where e.nome = 'Equipe 2'
+-- on conflict (canal) do nothing;
 
 -- 6) Backfill responsavel(texto) -> responsavel_id (casa por nome) ------------
 --    Legado sem match em usuarios fica com id null MAS mantém o texto (a view

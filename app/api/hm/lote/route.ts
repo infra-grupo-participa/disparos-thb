@@ -3,7 +3,7 @@ import { getSessao } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { parseBody, HmLoteSchema } from "@/lib/validators";
-import { addTagHm, moverEstagioHm, removeTagHm, setResponsavelHm } from "@/lib/services/hm";
+import { addTagHm, moverEstagioHm, removeTagHm, setResponsavelHm, podeVerCardHm } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -65,6 +65,12 @@ export async function POST(req: Request) {
     const nome = nomes.get(compradorId);
     if (!nome) {
       falhas.push({ compradorId, nome: compradorId, motivo: "contato não encontrado" });
+      continue;
+    }
+    // Gating de equipe por item: o ator só aplica em card que ele vê (pool /
+    // própria equipe / GP). Cards de outra equipe são pulados (não bloqueia o lote).
+    if (!(await podeVerCardHm(sessao, compradorId))) {
+      falhas.push({ compradorId, nome, motivo: "sem acesso a este card" });
       continue;
     }
     try {

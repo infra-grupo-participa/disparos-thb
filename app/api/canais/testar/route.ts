@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
+import { podeGerirAcesso } from "@/lib/papeis";
 import { queryOne } from "@/lib/db";
 import { validarCredencial } from "@/lib/unnichat";
 import { listarTags } from "@/lib/activecampaign";
@@ -13,7 +14,7 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (sessao.papel !== "admin") return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
 
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   let apiKey = b.api_key ? String(b.api_key) : null;

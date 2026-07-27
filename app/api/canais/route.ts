@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
+import { podeGerirAcesso } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, CanalCriarSchema } from "@/lib/validators";
 import { limparCacheCanais } from "@/lib/services/canais";
@@ -11,7 +12,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (sessao.papel !== "admin") return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
 
   const canais = await query(
     `select c.id, c.evento_chave, e.nome as evento_nome, c.nome, c.provider,
@@ -30,7 +31,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (sessao.papel !== "admin") return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
 
   const p = await parseBody(req, CanalCriarSchema);
   if (!p.ok) return p.res;

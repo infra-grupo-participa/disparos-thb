@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
+import { podeGerirAcesso } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, CanalPatchSchema } from "@/lib/validators";
 import { limparCacheCanais } from "@/lib/services/canais";
@@ -11,7 +12,7 @@ export const runtime = "nodejs";
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (sessao.papel !== "admin") return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
 
   const p = await parseBody(req, CanalPatchSchema);
   if (!p.ok) return p.res;

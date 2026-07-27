@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/app/_components/avatar";
 import { Button, Spinner, cn, fieldClass } from "@/app/_components/ui";
+import { podeGerirAcesso } from "@/lib/papeis";
 
-type Me = { id: string; nome: string; email: string; papel: "admin" | "disparador" | "operador" };
+type Me = { id: string; nome: string; email: string; papel: "admin" | "disparador" | "operador"; equipe_tipo: "principal" | "comum" | null };
 
 const PAPEL_LABEL: Record<Me["papel"], string> = {
   admin: "Administrador",
@@ -71,13 +72,13 @@ export default function UserMenu() {
               {PAPEL_LABEL[me.papel]}
             </span>
           </div>
-          {me.papel === "admin" && (
+          {podeGerirAcesso(me.papel, me.equipe_tipo) && (
             <Link href="/usuarios" onClick={() => setAberto(false)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
               <svg className="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
               Gerenciar usuários
             </Link>
           )}
-          {me.papel === "admin" && (
+          {podeGerirAcesso(me.papel, me.equipe_tipo) && (
             <Link href="/canais" onClick={() => setAberto(false)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
               <svg className="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V5a2 2 0 0 1 2-2h2M4 17v2a2 2 0 0 0 2 2h2M16 3h2a2 2 0 0 1 2 2v2M16 21h2a2 2 0 0 0 2-2v-2" /><path d="m9 12 2 2 4-4" /></svg>
               Canais de disparo

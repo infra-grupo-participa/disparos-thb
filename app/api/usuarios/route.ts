@@ -25,11 +25,11 @@ export async function GET() {
   });
 }
 
-// POST /api/usuarios — cria um usuário (somente admin).
+// POST /api/usuarios — cria um usuário. Só admin do Grupo Participa (podeGerirAcesso).
 export async function POST(req: Request) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (sessao.papel !== "admin") return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
+  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "forbidden" }, { status: 403 });
 
   const p = await parseBody(req, UsuarioCriarSchema);
   if (!p.ok) return p.res;

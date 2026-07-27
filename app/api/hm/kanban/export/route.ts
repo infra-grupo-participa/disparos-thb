@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { getSessao } from "@/lib/auth";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { relatorioHm } from "@/lib/services/hm-relatorio";
 import { relatorioHmParaXlsx, nomeArquivoRelatorio } from "@/lib/export/hm-esteira-xlsx";
 
@@ -8,11 +9,13 @@ export const runtime = "nodejs";
 // GET /api/hm/kanban/export — relatório da esteira em XLSX.
 //   sem `estagio`  → geral: resumo + todos os alunos + uma aba por coluna
 //   com `estagio`  → só aquela coluna (resumo daquela etapa + a lista)
-// Os filtros são os mesmos do board (responsavel, canal, turma): o relatório sai
-// do que a pessoa está vendo, e o cabeçalho da planilha diz quais filtros valiam.
+// Os filtros são os mesmos do board; o RECORTE de equipe também (a planilha só
+// traz o que a pessoa vê — GP/admin tudo, operador o pool+os dele, líder a equipe).
 export async function GET(req: Request) {
-  if (!isAuthed()) return NextResponse.json({ ok: false }, { status: 401 });
+  const sessao = await getSessao();
+  if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
   const sp = new URL(req.url).searchParams;
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
 
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E (igual ao board).
@@ -21,6 +24,7 @@ export async function GET(req: Request) {
     canal: sp.getAll("canal"),
     turma: sp.getAll("turma"),
     estagio: sp.get("estagio"),
+    verTudo, equipeId, usuarioId,
   });
 
   const agora = new Date();

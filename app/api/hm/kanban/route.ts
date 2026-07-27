@@ -3,7 +3,7 @@ import { getSessao } from "@/lib/auth";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
-import { moverEstagioHm } from "@/lib/services/hm";
+import { moverEstagioHm, podeVerCardHm } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -155,6 +155,11 @@ export async function PATCH(req: Request) {
   const p = await parseBody(req, HmMoverSchema);
   if (!p.ok) return p.res;
   const { compradorId, estagioChave, antesDe } = p.data;
+  // Gating de equipe: só move card que o ator VÊ (pool / própria equipe / GP).
+  // Sem isso, um líder de equipe comum forçaria o compradorId de um card alheio.
+  if (!(await podeVerCardHm(sessao, compradorId))) {
+    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  }
   const posicao = antesDe === undefined ? undefined : { antesDe };
   const r = await moverEstagioHm(compradorId, estagioChave, sessao.nome || "cs", posicao);
   // `faltando` são os itens do checklist que barraram a entrada em "Ativação

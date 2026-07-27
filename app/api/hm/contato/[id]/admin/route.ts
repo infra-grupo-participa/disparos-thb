@@ -1,20 +1,24 @@
 import { NextResponse } from "next/server";
 import { getSessao } from "@/lib/auth";
+import { podeGerirAcesso } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmAdminEditSchema } from "@/lib/validators";
+import { podeVerCardHm } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
-// PATCH /api/hm/contato/[id]/admin — a edição plena, só para admin.
+// PATCH /api/hm/contato/[id]/admin — a edição plena, só para admin do GP.
 // Identidade (nome/e-mail/telefone) corrige a FONTE (public.compradores) e
 // espelha na base THB via cs.fn_hm_admin_editar (o role da aplicação não
 // escreve nessas tabelas — a função definer é a porta). Financeiro refaz o
 // saldo; datas e turma de origem ajustam histórico errado. TUDO fica na
-// timeline: a maleabilidade não pode custar a auditoria.
+// timeline: a maleabilidade não pode custar a auditoria. Um admin de equipe
+// comum NÃO edita dados de aluno — é do admin do Grupo Participa, e só em card visível.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const sessao = await getSessao();
   if (!sessao) return NextResponse.json({ ok: false }, { status: 401 });
-  if (sessao.papel !== "admin") return NextResponse.json({ ok: false, reason: "só admin edita dados do aluno" }, { status: 403 });
+  if (!podeGerirAcesso(sessao.papel, sessao.equipe_tipo)) return NextResponse.json({ ok: false, reason: "só admin do GP edita dados do aluno" }, { status: 403 });
+  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   const p = await parseBody(req, HmAdminEditSchema);
   if (!p.ok) return p.res;
   const b = p.data;

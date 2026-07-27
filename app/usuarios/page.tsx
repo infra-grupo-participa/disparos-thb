@@ -52,10 +52,12 @@ export default function UsuariosPage() {
     if (!d.ok) { alert("Não foi possível salvar os portais."); await carregar(); }
   }
 
-  if (souAdmin === false) {
+  // Só o admin do Grupo Participa gere contas. Um admin de equipe comum (Kelly)
+  // não gerencia usuários — cada equipe é independente.
+  if (souAdmin !== null && !podeGerirAcesso) {
     return (
       <PageFade>
-        <EmptyState title="Acesso restrito" description="Apenas administradores podem gerenciar usuários." />
+        <EmptyState title="Acesso restrito" description="Apenas administradores do Grupo Participa gerenciam usuários." />
       </PageFade>
     );
   }
