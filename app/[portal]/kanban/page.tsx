@@ -135,7 +135,7 @@ const EDICAO_COR: Record<string, string> = {
 };
 
 export default function KanbanPage() {
-  const { me, podeDisparar: podeDisparaFn, podeDistribuir } = useMe();
+  const { me, nivel, podeDisparar: podeDisparaFn, podeDistribuir } = useMe();
   const { portal, evento, base, nome: eventoNome, ehHT } = usePortal();
   const podeDisparar = podeDisparaFn(evento);
   const [colunas, setColunas] = useState<Coluna[]>([]);
@@ -377,6 +377,13 @@ export default function KanbanPage() {
                       <CardItem
                         key={card.comprador_id}
                         card={card}
+                        // Mesmo conceito do board HM: para o OPERADOR, o selo
+                        // diz o que é POOL (livre para assumir) vs. o que tem
+                        // dono — master/gestor distribuem, não assumem, então
+                        // para eles seria ruído. Aqui o dono é o texto
+                        // `responsavel` (o payload genérico não expõe ids);
+                        // para o operador, card visível sem texto = pool.
+                        ehPool={nivel === "operador" && !card.responsavel}
                         selecionado={selecaoMulti.has(card.comprador_id)}
                         modoSelecao={selecaoMulti.size > 0}
                         onDragStart={() => { arrastando.current = card; }}
@@ -493,8 +500,8 @@ function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: (
   );
 }
 
-function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onToggleSel, onMenu }: {
-  card: Card; selecionado: boolean; modoSelecao: boolean;
+function CardItem({ card, ehPool, selecionado, modoSelecao, onDragStart, onClick, onToggleSel, onMenu }: {
+  card: Card; ehPool?: boolean; selecionado: boolean; modoSelecao: boolean;
   onDragStart: () => void; onClick: () => void; onToggleSel: () => void; onMenu: (x: number, y: number) => void;
 }) {
   const { base } = usePortal();
@@ -535,6 +542,17 @@ function CardItem({ card, selecionado, modoSelecao, onDragStart, onClick, onTogg
             <span className="inline-flex items-center gap-0.5 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:bg-rose-500/15 dark:text-rose-300" title="Opt-out: não recebe disparos">
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><path d="m5 5 14 14" /></svg>
               opt-out
+            </span>
+          )}
+          {/* Selo do pool (só na visão do operador) — mesmo visual do board HM:
+              este card está livre; abra os detalhes e clique em "Atribuir a mim". */}
+          {ehPool && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded border border-dashed border-teal-400 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 dark:border-teal-500/50 dark:text-teal-300"
+              title="Card do pool — sem dono. Abra a ficha e clique em “Atribuir a mim” para assumir."
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+              Pool · livre
             </span>
           )}
           <TagsIcon tags={card.tags} />

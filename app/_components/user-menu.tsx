@@ -4,15 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/app/_components/avatar";
-import { Button, Spinner, cn, fieldClass } from "@/app/_components/ui";
-import { useMe, type Papel } from "@/app/_components/use-me";
+import { Button, Spinner, fieldClass } from "@/app/_components/ui";
+import { SeloNivel } from "@/app/_components/selo-nivel";
+import { useMe } from "@/app/_components/use-me";
 import { usePortal } from "@/app/_components/use-portal";
-
-const PAPEL_LABEL: Record<Papel, string> = {
-  admin: "Administrador",
-  disparador: "Operador de disparos",
-  operador: "Operador",
-};
 
 export default function UserMenu() {
   const router = useRouter();
@@ -64,12 +59,11 @@ export default function UserMenu() {
           <div className="border-b border-slate-100 px-3 py-2.5 dark:border-slate-800">
             <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{me.nome}</p>
             <p className="truncate text-xs text-slate-500 dark:text-slate-400">{me.email}</p>
-            <span className={cn("mt-1.5 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-              me.papel === "admin" ? "bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300"
-              : me.papel === "disparador" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
-              : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}>
-              {PAPEL_LABEL[me.papel]}
-            </span>
+            {/* NÍVEL efetivo (papel × equipe), não o papel cru: um admin de
+                equipe comum lia "Administrador" e não entendia por que não via
+                tudo — quem rege a visibilidade é o nível. O SeloNivel deriva
+                via lib/papeis e explica o alcance no title. */}
+            <SeloNivel usuario={me} className="mt-1.5" />
           </div>
           {podeGerirAcesso() && (
             <Link href="/usuarios" onClick={() => setAberto(false)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">

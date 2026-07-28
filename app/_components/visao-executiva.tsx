@@ -10,11 +10,18 @@ type Kpis = {
   leads: number; ativados: number; taxa_ativacao: number;
   engajados: number; taxa_engajamento: number;
   tocados: number; cobertura: number; tempo_ativacao_h: number | null;
+  // HT30: grupo do WhatsApp + pesquisa. Taxas em % sobre leads (inteiro).
+  no_grupo: number; taxa_no_grupo: number;
+  respostas_pesquisa: number; taxa_pesquisa: number;
 };
+// SLA em HORAS. media_h/mediana_h `null` = NENHUM caso medido (≠ zero!) — a UI
+// mostra "—". `n` é a amostra: média de 3 casos não é média, então ele aparece.
+type SlaMedida = { media_h: number | null; mediana_h: number | null; n: number };
+type Sla = { primeiro_contato: SlaMedida; ativacao: SlaMedida };
 type Etapa = { chave: string; nome: string; ordem: number; cor: string | null; qtd: number };
 type RitmoDia = { dia: string; canal: string; qtd: number };
 type Alerta = { tom: "alerta" | "sugestao"; titulo: string; descricao: string };
-type Dados = { alvo: string; kpis: Kpis; funil: Etapa[]; ritmo: RitmoDia[]; alertas: Alerta[] };
+type Dados = { alvo: string; kpis: Kpis; sla?: Sla; funil: Etapa[]; ritmo: RitmoDia[]; alertas: Alerta[] };
 
 const fmt = (n: number) => n.toLocaleString("pt-BR");
 
@@ -60,19 +67,54 @@ export function VisaoExecutiva({ desde, ate, edicao }: { desde?: string; ate?: s
   if (!d) return null;
 
   const { kpis } = d;
-  const tempo = kpis.tempo_ativacao_h;
-  const tempoLabel = tempo == null ? "—" : tempo >= 48 ? `${Math.round(tempo / 24)} d` : `${tempo} h`;
+  // Honestidade do zero: "No grupo" e "Pesquisa" dependem de automações externas
+  // (Make) apontadas para a edição. 0 com vendas na base é zero legítimo do lado
+  // do sistema — e possivelmente mentiroso do lado do negócio. Marca em vez de
+  // deixar o zero mudo virar decisão errada.
+  const zeroSuspeito = (v: number) => v === 0 && kpis.leads > 0;
+  const AVISO_AUTOMACAO =
+    "Zero com ingressos vendidos na edição pode significar que a automação (Make) que registra este dado ainda não está apontada para esta edição — e não que ninguém agiu. Confirme a automação antes de ler este número como resultado.";
 
   return (
     <Reveal className="space-y-6">
-      {/* KPIs de topo — Ativados é o North Star, em destaque. */}
+      {/* Os 5 indicadores da tarefa HT30, com os nomes que o Arthur usou.
+          (Ativados segue em destaque como meta no funil, logo abaixo.) */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <KpiExec titulo="Leads no evento" valorNum={kpis.leads} sub="total de vendas da edição" />
-        <KpiExec titulo="Ativados" valorNum={kpis.ativados} sub={`${kpis.taxa_ativacao}% das vendas`} barra={kpis.taxa_ativacao} estrela />
-        <KpiExec titulo="Engajaram" valorNum={kpis.taxa_engajamento} sufixo="%" sub={`${fmt(kpis.engajados)} responderam`} barra={kpis.taxa_engajamento} />
-        <KpiExec titulo="Cobertura" valorNum={kpis.cobertura} sufixo="%" sub={`${fmt(kpis.tocados)} de ${fmt(kpis.leads)} tocados`} barra={kpis.cobertura} alerta={kpis.cobertura < 60} />
-        <KpiExec titulo="Tempo p/ ativar" valor={tempoLabel} sub={tempo == null ? "sem histórico" : "média"} />
+        <KpiExec titulo="Ingressos vendidos" valorNum={kpis.leads} sub="compras aprovadas na edição" />
+        <KpiExec titulo="Contatos realizados" valorNum={kpis.tocados} sub={`${kpis.cobertura}% dos ingressos tocados`} barra={kpis.cobertura} alerta={kpis.cobertura < 60} />
+        <KpiExec titulo="Compradores que engajaram" valorNum={kpis.engajados} sub={`${kpis.taxa_engajamento}% dos ingressos responderam`} barra={kpis.taxa_engajamento} />
+        <KpiExec
+          titulo="No grupo do WhatsApp"
+          valorNum={kpis.no_grupo}
+          sub={`${kpis.taxa_no_grupo}% dos ingressos`}
+          barra={kpis.taxa_no_grupo}
+          aviso={zeroSuspeito(kpis.no_grupo) ? AVISO_AUTOMACAO : undefined}
+        />
+        <KpiExec
+          titulo="Respostas da pesquisa"
+          valorNum={kpis.respostas_pesquisa}
+          sub={`${kpis.taxa_pesquisa}% dos ingressos`}
+          barra={kpis.taxa_pesquisa}
+          aviso={zeroSuspeito(kpis.respostas_pesquisa) ? AVISO_AUTOMACAO : undefined}
+        />
       </div>
+
+      {/* SLAs — quanto tempo levamos. O marco de cada um fica escrito na tela:
+          sem ele o número não significa nada para quem olha. */}
+      {d.sla && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <SlaCard
+            titulo="SLA · Primeiro contato"
+            marco="da compra aprovada até o primeiro contato registrado"
+            m={d.sla.primeiro_contato}
+          />
+          <SlaCard
+            titulo="SLA · Ativação"
+            marco="da compra aprovada até entrar no grupo do WhatsApp"
+            m={d.sla.ativacao}
+          />
+        </div>
+      )}
 
       {/* Funil de ativação — o coração da tela. */}
       <Card className="js-reveal p-5">
@@ -107,11 +149,19 @@ export function VisaoExecutiva({ desde, ate, edicao }: { desde?: string; ate?: s
   );
 }
 
-function KpiExec({ titulo, valor, valorNum, sufixo, sub, barra, estrela, alerta }: {
+function KpiExec({ titulo, valor, valorNum, sufixo, sub, barra, estrela, alerta, aviso }: {
   titulo: string; valor?: string; valorNum?: number; sufixo?: string; sub?: string; barra?: number; estrela?: boolean; alerta?: boolean;
+  // Zero suspeito (dado que depende de automação externa): borda tracejada âmbar
+  // + explicação no lugar do sub. `alerta` (rose) segue sendo "performance ruim";
+  // âmbar aqui é "dado possivelmente incompleto" — são coisas diferentes.
+  aviso?: string;
 }) {
   return (
-    <Card className={cn("js-reveal p-4", estrela && "border-brand/30 bg-gradient-to-br from-brand/5 to-white dark:border-brand-400/30 dark:from-brand-400/10 dark:to-slate-900")}>
+    <Card className={cn(
+      "js-reveal p-4",
+      estrela && "border-brand/30 bg-gradient-to-br from-brand/5 to-white dark:border-brand-400/30 dark:from-brand-400/10 dark:to-slate-900",
+      aviso && "border-dashed border-amber-300 dark:border-amber-500/40",
+    )}>
       <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
         {estrela && (
           <svg className="h-3.5 w-3.5 text-brand dark:text-brand-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -120,15 +170,81 @@ function KpiExec({ titulo, valor, valorNum, sufixo, sub, barra, estrela, alerta 
         )}
         {titulo}
       </div>
-      <div className={cn("mt-2 text-2xl font-semibold tabular-nums", alerta ? "text-rose-600 dark:text-rose-300" : estrela ? "text-brand dark:text-brand-300" : "text-slate-900 dark:text-white")}>
+      <div
+        className={cn("mt-2 text-2xl font-semibold tabular-nums", alerta ? "text-rose-600 dark:text-rose-300" : aviso ? "text-amber-600 dark:text-amber-400" : estrela ? "text-brand dark:text-brand-300" : "text-slate-900 dark:text-white")}
+        title={aviso}
+      >
         {valorNum != null ? <AnimNum value={valorNum} suffix={sufixo ?? ""} /> : valor}
       </div>
-      {barra != null && (
+      {barra != null && !aviso && (
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
           <div className={cn("js-bar h-full rounded-full", alerta ? "bg-rose-500" : estrela ? "bg-brand dark:bg-brand-400" : "bg-slate-400 dark:bg-slate-500")} style={{ width: `${Math.max(2, Math.min(100, barra))}%` }} />
         </div>
       )}
-      {sub && <div className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
+      {aviso ? (
+        <div className="mt-1.5 flex items-start gap-1.5 text-[11px] font-medium leading-snug text-amber-700 dark:text-amber-400" title={aviso}>
+          <svg className="mt-px h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+            <path d="M12 9v4M12 17h.01" />
+          </svg>
+          <span>Pode ser automação não configurada — não leia como zero de atividade.</span>
+        </div>
+      ) : (
+        sub && <div className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">{sub}</div>
+      )}
+    </Card>
+  );
+}
+
+// Horas legíveis: até 2 dias em horas; acima disso em dias. `null` = nenhum
+// caso medido → "—" SEMPRE (zero e "não medido" são coisas diferentes).
+function fmtHoras(h: number | null): string {
+  if (h == null) return "—";
+  if (h >= 48) return `${(h / 24).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias`;
+  return `${h.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`;
+}
+
+function SlaCard({ titulo, marco, m }: { titulo: string; marco: string; m: SlaMedida }) {
+  const semCasos = m.n === 0;
+  const amostraPequena = m.n > 0 && m.n < 5;
+  return (
+    <Card className="js-reveal p-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{titulo}</div>
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums",
+            semCasos || amostraPequena
+              ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+              : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+          )}
+          title="Tamanho da amostra: quantos contatos entraram nesta medição."
+        >
+          n = {m.n}
+        </span>
+      </div>
+      <div className="mt-2 flex items-end gap-6">
+        <div>
+          <div className="text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{fmtHoras(m.media_h)}</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">média</div>
+        </div>
+        <div>
+          <div className="text-lg font-semibold tabular-nums text-slate-700 dark:text-slate-200">{fmtHoras(m.mediana_h)}</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">mediana</div>
+        </div>
+      </div>
+      {/* O marco explícito — sem ele o número não diz nada. */}
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Mede {marco}.</p>
+      {semCasos && (
+        <p className="mt-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+          Nenhum caso medido ainda — “—” não é zero, é ausência de medição.
+        </p>
+      )}
+      {amostraPequena && (
+        <p className="mt-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+          Amostra pequena ({m.n} {m.n === 1 ? "caso" : "casos"}) — leia com cautela.
+        </p>
+      )}
     </Card>
   );
 }
