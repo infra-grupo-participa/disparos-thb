@@ -104,6 +104,7 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
   // app não lê public.compras / hm_product_catalog (RLS sem grant).
   const financeiro = await queryOne(
     `select ch.valor_total, ch.valor_pago, ch.aluno_id, ch.categoria_entrada,
+            ch.saldo_a_pagar_manual, ch.saldo_a_pagar_manual_por, ch.saldo_a_pagar_manual_em,
             s.sugestao_valor_total, s.hotmart_bruto
        from cs.contatos_hm ch,
             lateral cs.fn_hm_sugestao_financeira(ch.comprador_id) s

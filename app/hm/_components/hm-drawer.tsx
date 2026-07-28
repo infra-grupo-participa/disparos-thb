@@ -73,6 +73,8 @@ type Agendamento = {
 type Financeiro = {
   valor_total: string | null; valor_pago: string | null; aluno_id: string | null;
   categoria_entrada: string | null; sugestao_valor_total: string | null; hotmart_bruto: string | null;
+  // Saldo a pagar informado pelo Victor (0151) — vence o pró-rata quando preenchido.
+  saldo_a_pagar_manual: string | null; saldo_a_pagar_manual_por: string | null; saldo_a_pagar_manual_em: string | null;
 };
 type Prorata = {
   dias_usados: number; dias_restantes: number; valor_dia: string | null;
@@ -200,6 +202,7 @@ export function HmDrawer({
   const [links, setLinks] = useState<LinkSaldo[]>([]);
   const [acordo, setAcordo] = useState("");
   const [previsao, setPrevisao] = useState("");
+  const [saldoManual, setSaldoManual] = useState("");
   const [pendencia, setPendencia] = useState("");
   const [grupo, setGrupo] = useState("");
   const [copiado, setCopiado] = useState(false);
@@ -242,6 +245,7 @@ export function HmDrawer({
       if (rascunhoIniciado.current !== compradorId) {
         setAcordo(d.contato.acordo ?? "");
         setPrevisao(d.contato.pagamento_previsto_em?.slice(0, 10) ?? "");
+        setSaldoManual(d.financeiro?.saldo_a_pagar_manual != null ? String(num(d.financeiro.saldo_a_pagar_manual)) : "");
         setPendencia(d.contato.pendencia ?? "");
         setGrupo(d.contato.grupo_informes ?? "");
         rascunhoIniciado.current = compradorId;
@@ -676,6 +680,14 @@ export function HmDrawer({
                   <p className="mb-2 rounded bg-emerald-50 px-2 py-1.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                     Saldo quitado{c.pagamento_em ? ` em ${fmt(c.pagamento_em)}` : ""}.
                   </p>
+                ) : fin?.saldo_a_pagar_manual != null ? (
+                  // O Victor informou o valor — vence o pró-rata calculado (0151).
+                  <p className="mb-2 rounded bg-indigo-50 px-2 py-1.5 text-[11px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">
+                    Saldo a pagar: <strong>{brl(num(fin.saldo_a_pagar_manual))}</strong>
+                    <span className="ml-1 font-normal text-indigo-500 dark:text-indigo-300/80">
+                      (informado{fin.saldo_a_pagar_manual_por ? ` por ${fin.saldo_a_pagar_manual_por}` : ""}{fin.saldo_a_pagar_manual_em ? ` em ${fmt(fin.saldo_a_pagar_manual_em)}` : ""})
+                    </span>
+                  </p>
                 ) : prorata?.saldo_a_pagar ? (
                   <p className="mb-2 rounded bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
                     Crédito pró-rata: <strong>{brl(num(prorata.credito))}</strong> ({prorata.dias_restantes} dias não usados)
@@ -687,6 +699,34 @@ export function HmDrawer({
                   </p>
                 ) : (
                   <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">Saldo cheio: {brl(14700)}</p>
+                )}
+
+                {/* Saldo a pagar informado pelo Victor (0151): valor digitado que
+                    vira a verdade do card. Vazio = usa o pró-rata calculado acima. */}
+                {!jaPagou && (
+                  <label className="mb-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Saldo a pagar (informado pelo Victor)
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <span className="text-xs text-slate-400">R$</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0"
+                        placeholder="ex.: 14700"
+                        value={saldoManual}
+                        disabled={somenteLeitura}
+                        onChange={(e) => setSaldoManual(e.target.value)}
+                        onBlur={() => {
+                          const v = saldoManual.trim();
+                          const atual = fin?.saldo_a_pagar_manual != null ? String(num(fin.saldo_a_pagar_manual)) : "";
+                          if (v === atual) return;
+                          patch({ saldo_a_pagar_manual: v === "" ? null : Number(v) });
+                        }}
+                        className={cn(fieldClass, "flex-1")}
+                      />
+                    </div>
+                  </label>
                 )}
 
                 <div className="grid grid-cols-2 gap-2">

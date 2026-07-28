@@ -229,6 +229,8 @@ export const HmContatoPatchSchema = z.object({
   acordo: z.string().nullable().optional(),                  // o combinado, em texto
   oferta_saldo_codigo: z.string().nullable().optional(),     // link de saldo escolhido
   link_saldo_enviado: z.boolean().optional(),                // marca/desmarca o envio (carimba a hora)
+  // Saldo a pagar informado pelo Victor (0151). null limpa e volta ao pró-rata.
+  saldo_a_pagar_manual: z.number().nonnegative().nullable().optional(),
   // ----- travas operacionais -----
   nao_contatar: z.boolean().optional(),
   nao_contatar_motivo: z.string().nullable().optional(),

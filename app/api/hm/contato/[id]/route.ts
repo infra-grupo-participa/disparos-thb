@@ -118,6 +118,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.link_saldo_enviado !== undefined) {
     sets.push(`link_saldo_enviado_em = ${b.link_saldo_enviado ? "now()" : "null"}`);
   }
+  // Saldo a pagar informado pelo Victor (0151): grava valor + quem/quando; null
+  // limpa os três e o card volta a mostrar o pró-rata calculado.
+  if (b.saldo_a_pagar_manual !== undefined) {
+    if (b.saldo_a_pagar_manual === null) {
+      sets.push(`saldo_a_pagar_manual = null`, `saldo_a_pagar_manual_por = null`, `saldo_a_pagar_manual_em = null`);
+    } else {
+      add("saldo_a_pagar_manual", b.saldo_a_pagar_manual);
+      add("saldo_a_pagar_manual_por", operador);
+      sets.push(`saldo_a_pagar_manual_em = now()`);
+    }
+  }
 
   // Travas operacionais — o operador precisa VER isso antes de ligar.
   if (b.nao_contatar !== undefined) add("nao_contatar", b.nao_contatar);
