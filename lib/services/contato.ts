@@ -2,8 +2,8 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/lib/drizzle";
 import { query, queryOne } from "@/lib/db";
 import { contatos, estagios, interacoes } from "@/db/schema";
-import { escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator } from "@/lib/papeis";
-import { podeVerPorEscopo } from "@/lib/services/visibilidade";
+import { ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator } from "@/lib/papeis";
+import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 import type { AtribuicaoResultado, DestinoAtribuicao } from "@/lib/services/hm";
 
 // O contrato de atribuição é UM só, HM e genéricos — mesmos reasons, mesma
@@ -93,23 +93,43 @@ export async function addTagEmLote(compradorIds: string[], evento: string, tag: 
 // O predicado (SQL e JS) vive em lib/services/visibilidade.ts, compartilhado
 // com o HM: duas respostas para "quem vê este card?" era o bug.
 
-// Quem pode ABRIR/EDITAR o contato deste evento — o análogo de podeVerCardHm.
-// Chamado em TODA rota que age sobre um contato específico (ficha, inbox 1:1,
-// mover no kanban, registrar atendimento): sem isto o recorte da listagem é
-// cosmético — bastaria forçar o comprador_id na rota unitária.
-export async function podeVerContato(sessao: Ator, compradorId: string, evento: string): Promise<boolean> {
-  const escopo = escopoVisibilidade(sessao);
-  if (escopo.modo === "tudo") return true;
-  const c = await queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null }>(
+// ===== Leitura ≠ ação (28/07): DOIS gates, um por pergunta ==================
+// podeVerContato  → LEITURA: quem pode ABRIR o contato (ficha, conversa 1:1,
+//                   histórico de ligações). Espelha o WHERE das listagens
+//                   (escopoVisibilidade): master tudo; gestor E OPERADOR o
+//                   pool + a equipe inteira.
+// podeAgirContato → ESCRITA: quem pode EDITAR/mover/atribuir/responder/registrar
+//                   (escopoAcao): operador SÓ no pool e nos cards DELE — card
+//                   de colega abre em leitura e recusa escrita com 403
+//                   'card_de_outro_operador'. O análogo exato do par do HM
+//                   (podeVerCardHm/podeAgirCardHm). NÃO reunificar as duas.
+async function contatoEscopo(compradorId: string, evento: string) {
+  return queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null }>(
     `select v.responsavel_id, v.equipe_id, v.responsavel
        from cs.contatos_evento v
       where v.comprador_id = $1 and v.evento = $2`,
     [compradorId, evento],
   );
+}
+
+export async function podeVerContato(sessao: Ator, compradorId: string, evento: string): Promise<boolean> {
+  const escopo = escopoVisibilidade(sessao);
+  if (escopo.modo === "tudo") return true;
+  const c = await contatoEscopo(compradorId, evento);
   if (!c) return true; // inexistente → deixa o 404 acontecer no fluxo normal
   // O MESMO predicado do sqlEscopo das listagens (visibilidade.ts) — a lista
   // não mostra, a ficha não abre, pela mesma regra e pelo mesmo código.
   return podeVerPorEscopo(escopo, c);
+}
+
+// Gate de AÇÃO das rotas de escrita (PATCH da ficha, mover no kanban, lote,
+// inbox POST/PATCH, registrar atendimento). As rotas respondem 403 com o
+// próprio veredicto como reason ('card_de_outro_operador' | 'sem_acesso').
+export async function podeAgirContato(sessao: Ator, compradorId: string, evento: string): Promise<VeredictoAcao> {
+  if (ehMaster(sessao)) return "ok";
+  const c = await contatoEscopo(compradorId, evento);
+  if (!c) return "ok"; // inexistente → deixa o 404 acontecer no fluxo normal
+  return veredictoAcao(sessao, c);
 }
 
 // Atribui por ID (o caminho das equipes): grava responsavel_id — o texto deriva
@@ -191,19 +211,25 @@ export async function atribuirResponsavel(
 
   // Resolve o destino para um usuário ATIVO. Nome que não casa: só o master
   // grava texto livre — para os demais o nome solto era o desvio da hierarquia.
-  let user: { id: string; equipe_id: string | null } | null;
+  // `tem_portal` sai na mesma query: atribuir um card do HT a quem não tem 'HT'
+  // na whitelist (0145) faria o card sumir da vista do destino no instante
+  // seguinte — recusado para TODOS os níveis (28/07: equipes são globais, o
+  // isolamento é do portal). O portal checado é o EVENTO do card.
+  type DestinoUser = { id: string; equipe_id: string | null; tem_portal: boolean };
+  const SEL_DESTINO = `select u.id, u.equipe_id,
+      exists (select 1 from cs.usuario_portais up where up.usuario_id = u.id and up.portal = $2) as tem_portal
+    from cs.usuarios u`;
+  let user: DestinoUser | null;
   if (destino.tipo === "id") {
-    user = await queryOne<{ id: string; equipe_id: string | null }>(
-      `select id, equipe_id from cs.usuarios where id = $1 and ativo`,
-      [destino.id],
+    user = await queryOne<DestinoUser>(
+      `${SEL_DESTINO} where u.id = $1 and u.ativo`,
+      [destino.id, evento],
     );
     if (!user) return { ok: false, reason: "destino_invalido" };
   } else {
-    user = await queryOne<{ id: string; equipe_id: string | null }>(
-      `select id, equipe_id from cs.usuarios
-        where lower(btrim(nome)) = lower(btrim($1)) and ativo
-        limit 1`,
-      [destino.nome],
+    user = await queryOne<DestinoUser>(
+      `${SEL_DESTINO} where lower(btrim(u.nome)) = lower(btrim($1)) and u.ativo limit 1`,
+      [destino.nome, evento],
     );
     if (!user) {
       if (nivel !== "master") return { ok: false, reason: "sem_permissao_para_atribuir" };
@@ -228,6 +254,10 @@ export async function atribuirResponsavel(
       return { ok: true };
     }
   }
+
+  // Portal antes da hierarquia: sem o portal do card na whitelist não há
+  // destino válido — nem para o master (libere o portal da conta antes).
+  if (!user.tem_portal) return { ok: false, reason: "destino_sem_portal" };
 
   // Hierarquia do DESTINO (lib/papeis) + estado do card.
   if (!podeAtribuirPara(sessao, user)) {

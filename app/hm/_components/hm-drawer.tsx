@@ -177,7 +177,7 @@ export function HmDrawer({
   compradorId: string; estagios: Estagio[]; responsaveis: string[];
   onClose: () => void; onChanged: () => void;
 }) {
-  const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster } = useMe();
+  const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   const [c, setC] = useState<Contato | null>(null);
   // O GET pode ser RECUSADO (403 cancelamento_so_admin_gp num link colado, sessão
@@ -263,6 +263,7 @@ export function HmDrawer({
   // Adiciona/remove tag pelo MESMO caminho do lote (serviço + timeline). Criar
   // é digitar um nome novo no picker — o serviço registra no catálogo sozinho.
   async function mexerTag(payload: { addTag?: string; removeTag?: string }) {
+    if (cardDeColega) { window.alert(msgErroPermissao("card_de_outro_operador")); return; }
     setSalvando(true);
     try {
       await fetch("/api/hm/lote", {
@@ -288,6 +289,11 @@ export function HmDrawer({
   // Recusa não é mudança: o board não é avisado (onChanged), mas a ficha
   // recarrega para que o seletor volte ao que de fato está gravado.
   async function patch(payload: Record<string, unknown>) {
+    // Card de colega: TODA escrita da ficha desemboca aqui — barrar no ponto
+    // único (como a tabela faz com o cancelado) evita depender de cada input
+    // desabilitar a si mesmo. O backend recusa igual (403); aqui o motivo
+    // aparece na hora.
+    if (cardDeColega) { window.alert(msgErroPermissao("card_de_outro_operador")); return; }
     setSalvando(true);
     try {
       const r = await fetch(`/api/hm/contato/${compradorId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -295,7 +301,7 @@ export function HmDrawer({
         const d = await r.json().catch(() => ({}));
         if (d?.reason === "checklist_incompleto") {
           window.alert(
-            `${c?.nome ?? "Este aluno"} ainda não pode entrar em "Ativação Realizada".\n\n` +
+            `${c?.nome ?? "Este lead"} ainda não pode entrar em "Ativação Realizada".\n\n` +
               `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
               "Marque os itens do checklist de ativação aqui na ficha.",
           );
@@ -304,7 +310,7 @@ export function HmDrawer({
             ? ` Faltam ${d.faltam.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} do saldo.`
             : "";
           window.alert(
-            `${c?.nome ?? "Este aluno"} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
+            `${c?.nome ?? "Este lead"} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
               "Registre o pagamento do saldo (valor cheio) antes de mover para a Ativação.",
           );
         } else {
@@ -338,6 +344,7 @@ export function HmDrawer({
   // Sócios: rota própria porque o sócio é um registro (com checklist), não um
   // campo do card. Se o titular já é aluno, gravar um sócio o leva junto para a base.
   async function socioReq(method: "POST" | "PATCH" | "DELETE", body?: Record<string, unknown>, socioId?: string) {
+    if (cardDeColega) { window.alert(msgErroPermissao("card_de_outro_operador")); return; }
     setSalvando(true);
     try {
       const url = `/api/hm/contato/${compradorId}/socios${socioId ? `?socioId=${socioId}` : ""}`;
@@ -361,6 +368,15 @@ export function HmDrawer({
   // Trava dos cancelados (27/07): card em Reclamada/Reembolsado é read-only para
   // quem não é MASTER. O backend barra; aqui a UI avisa e desabilita.
   const travadoCancelado = (c?.estagio_chave === "hm_cancelamento" || c?.estagio_chave === "hm_reembolsado") && !ehMaster();
+  // Card de COLEGA (28/07): o operador VÊ os cards da equipe, mas só AGE no que
+  // é dele ou no pool — a ficha do colega abre em leitura, e a API recusa
+  // escrita com 403 `card_de_outro_operador`. A regra é o escopoAcao de
+  // lib/papeis (via useMe.ehCardDeColega), a MESMA do backend.
+  const cardDeColega = ehCardDeColega(c);
+  // O MESMO padrão do card cancelado: um único flag de leitura desliga toda
+  // escrita da ficha (campos, etapa, sócios, pagamento) — timeline e histórico
+  // continuam abertos, que é o ponto de ver o card do colega.
+  const somenteLeitura = travadoCancelado || cardDeColega;
   const feitos = c ? ITENS_CHECKLIST.filter((i) => !!c[i.campo]).length : 0;
   const revogados = c ? ITENS_REVOGACAO.filter((i) => !!c[i.campo]).length : 0;
 
@@ -407,7 +423,7 @@ export function HmDrawer({
                     são do sistema) e "+ Tag" busca/cria/atribui na hora. */}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1">
                   {(c.tags ?? []).map((t) =>
-                    ehGerenciada(t) ? (
+                    ehGerenciada(t) || somenteLeitura ? (
                       <TagChip key={t} tag={t} mini cor={coresTags[t]} />
                     ) : (
                       <span key={t} className="group/tag relative inline-flex">
@@ -424,7 +440,7 @@ export function HmDrawer({
                       </span>
                     ),
                   )}
-                  <TagPicker opcoes={catalogoTags} jaTem={c.tags ?? []} disabled={salvando} onEscolher={(nome) => mexerTag({ addTag: nome })} />
+                  {!somenteLeitura && <TagPicker opcoes={catalogoTags} jaTem={c.tags ?? []} disabled={salvando} onEscolher={(nome) => mexerTag({ addTag: nome })} />}
                 </div>
               </div>
               <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200">
@@ -480,7 +496,7 @@ export function HmDrawer({
                     <button
                       type="button"
                       onClick={() => patch({ desfazer_edicao: true })}
-                      disabled={salvando}
+                      disabled={salvando || somenteLeitura}
                       className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50 dark:text-amber-200 dark:hover:bg-amber-500/15"
                       title="Recuperar a versão mais recente"
                     >
@@ -500,7 +516,7 @@ export function HmDrawer({
                           <button
                             type="button"
                             onClick={() => patch({ restaurar_versao: v.id })}
-                            disabled={salvando}
+                            disabled={salvando || somenteLeitura}
                             className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-amber-800 transition hover:bg-amber-200/70 disabled:opacity-50 dark:text-amber-200 dark:hover:bg-amber-500/20"
                             title="Restaurar o card para esta versão"
                           >
@@ -519,11 +535,21 @@ export function HmDrawer({
                 </div>
               )}
 
+              {/* Card de colega: contexto, não erro — slate, sem tom de alerta.
+                  O mesmo padrão do aviso do cancelado acima (um banner + a ficha
+                  em leitura), sem inventar um terceiro jeito. */}
+              {cardDeColega && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                  <strong className="text-slate-700 dark:text-slate-200">Card de {c.responsavel ?? "outro operador"}.</strong>{" "}
+                  Você pode ver a ficha, a timeline e o histórico, mas não alterar — só quem pode agir é o dono ou o gestor.
+                </div>
+              )}
+
               <Campo label="Etapa">
-                <select value={c.estagio_chave ?? ""} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass} disabled={salvando || travadoCancelado}>
+                <select value={c.estagio_chave ?? ""} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass} disabled={salvando || somenteLeitura}>
                   {estagios.map((s) => <option key={s.chave} value={s.chave}>{s.aba === "ativacao" ? "Ativação · " : "Comercial · "}{s.nome}</option>)}
                 </select>
-                {temHistorico && (
+                {temHistorico && !somenteLeitura && (
                   <button
                     type="button"
                     onClick={reverter}
@@ -543,6 +569,7 @@ export function HmDrawer({
                 <div className="flex items-center gap-2">
                   <input
                     defaultValue={c.turma ?? ""}
+                    disabled={somenteLeitura}
                     onBlur={(e) => { if (e.target.value.trim() && e.target.value !== (c.turma ?? "")) patch({ turma: e.target.value.trim() }); }}
                     placeholder="T39"
                     className={fieldClass}
@@ -555,7 +582,7 @@ export function HmDrawer({
                 </div>
               </Campo>
 
-              <Campo label="Responsável (CS)">
+              <Campo label="Operador">
                 {podeDistribuir() ? (
                   // MASTER/GESTOR: o seletor distribui. A lista `responsaveis` já
                   // vem recortada do servidor (master = todos os ativos; gestor =
@@ -563,7 +590,7 @@ export function HmDrawer({
                   <div className="flex items-center gap-2">
                     {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
                     <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass} disabled={salvando}>
-                      <option value="">— Sem responsável —</option>
+                      <option value="">— Sem operador —</option>
                       {c.responsavel && !responsaveis.includes(c.responsavel) && <option value={c.responsavel}>{c.responsavel}</option>}
                       {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
@@ -598,7 +625,7 @@ export function HmDrawer({
                     onClick={() => patch({ responsavel_id: me.id })}
                     disabled={salvando}
                     className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline disabled:opacity-50 dark:text-brand-300"
-                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir este aluno"}
+                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir este lead"}
                   >
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
                     {c.responsavel ? "Assumir para mim" : "Atribuir a mim"}
@@ -615,7 +642,7 @@ export function HmDrawer({
                 motivo={motivoAgenda}
                 onMotivo={setMotivoAgenda}
                 historico={agendamentos}
-                salvando={salvando}
+                salvando={salvando || somenteLeitura}
                 onSalvar={(quando, motivo) => patch({ reuniao_em: quando, agendamento_motivo: motivo })}
                 onFechar={(status) => patch({ agendamento_tipo: "reuniao", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
               >
@@ -623,14 +650,14 @@ export function HmDrawer({
                   value={c.reuniao_resultado ?? ""}
                   onChange={(e) => patch({ reuniao_resultado: e.target.value || null })}
                   className={cn(fieldClass, "mt-1.5")}
-                  disabled={salvando}
+                  disabled={salvando || somenteLeitura}
                 >
                   <option value="">— Status da reunião —</option>
                   {RESULTADOS.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
                 <LinkGravacao
                   atual={c.reuniao_gravacao_url}
-                  disabled={salvando}
+                  disabled={salvando || somenteLeitura}
                   onSalvar={(v) => patch({ reuniao_gravacao_url: v })}
                 />
               </BlocoAgendamento>
@@ -669,7 +696,7 @@ export function HmDrawer({
                       value={c.pagamento_meio ?? ""}
                       onChange={(e) => patch({ pagamento_meio: e.target.value || null })}
                       className={fieldClass}
-                      disabled={salvando}
+                      disabled={salvando || somenteLeitura}
                     >
                       <option value="">— a combinar —</option>
                       {MEIOS.map((m) => <option key={m.v} value={m.v}>{m.label}</option>)}
@@ -680,6 +707,7 @@ export function HmDrawer({
                     <input
                       type="date"
                       value={previsao}
+                      disabled={somenteLeitura}
                       onChange={(e) => setPrevisao(e.target.value)}
                       onBlur={() => patch({ pagamento_previsto_em: previsao || null })}
                       className={fieldClass}
@@ -691,6 +719,7 @@ export function HmDrawer({
                   O combinado
                   <textarea
                     value={acordo}
+                    disabled={somenteLeitura}
                     onChange={(e) => setAcordo(e.target.value)}
                     onBlur={() => patch({ acordo: acordo || null })}
                     rows={2}
@@ -702,7 +731,7 @@ export function HmDrawer({
                 {/* Link de saldo: o sistema escolhe pelo valor (cada saldo tem sua
                     própria oferta na Hotmart) — antes isso era procurado à mão.
                     Some depois de quitado: não há mais o que cobrar. */}
-                {!jaPagou && links.length > 0 && (
+                {!jaPagou && !somenteLeitura && links.length > 0 && (
                   <div className="mt-2">
                     <p className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">Link do saldo (sugerido pelo valor)</p>
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -748,13 +777,13 @@ export function HmDrawer({
                 motivo={motivoAgenda}
                 onMotivo={setMotivoAgenda}
                 historico={agendamentos}
-                salvando={salvando}
+                salvando={salvando || somenteLeitura}
                 onSalvar={(quando, motivo) => patch({ entrevista_em: quando, agendamento_motivo: motivo })}
                 onFechar={(status) => patch({ agendamento_tipo: "entrevista", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
               >
                 <LinkGravacao
                   atual={c.entrevista_gravacao_url}
-                  disabled={salvando}
+                  disabled={salvando || somenteLeitura}
                   onSalvar={(v) => patch({ entrevista_gravacao_url: v })}
                 />
               </BlocoAgendamento>
@@ -782,7 +811,7 @@ export function HmDrawer({
                       <input
                         type="checkbox"
                         checked={!!c[item.campo]}
-                        disabled={salvando}
+                        disabled={salvando || somenteLeitura}
                         onChange={(e) => patch({ [item.campo]: e.target.checked })}
                         className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand dark:border-slate-600"
                       />
@@ -795,6 +824,7 @@ export function HmDrawer({
                   Qual grupo de informes
                   <input
                     value={grupo}
+                    disabled={somenteLeitura}
                     onChange={(e) => setGrupo(e.target.value)}
                     onBlur={() => patch({ grupo_informes: grupo || null })}
                     placeholder="THB #27"
@@ -806,6 +836,7 @@ export function HmDrawer({
                   O que está pendente para conclusão
                   <textarea
                     value={pendencia}
+                    disabled={somenteLeitura}
                     onChange={(e) => setPendencia(e.target.value)}
                     onBlur={() => patch({ pendencia: pendencia || null })}
                     rows={2}
@@ -817,6 +848,7 @@ export function HmDrawer({
                   Link do Facebook
                   <input
                     defaultValue={c.link_facebook ?? ""}
+                    disabled={somenteLeitura}
                     onBlur={(e) => { if (e.target.value !== (c.link_facebook ?? "")) patch({ link_facebook: e.target.value || null }); }}
                     placeholder="https://facebook.com/groups/…"
                     className={fieldClass}
@@ -876,6 +908,7 @@ export function HmDrawer({
                     Motivo
                     <textarea
                       defaultValue={c.cancelamento_motivo ?? ""}
+                      disabled={somenteLeitura}
                       onBlur={(e) => { if (e.target.value !== (c.cancelamento_motivo ?? "")) patch({ cancelamento_motivo: e.target.value || null }); }}
                       rows={2}
                       placeholder="Por que saiu?"
@@ -892,7 +925,7 @@ export function HmDrawer({
                           "e abre o checklist de remoção dos acessos.\n\nFaça isto só quando o reembolso tiver saído de fato.",
                         )) patch({ confirmar_cancelamento: true });
                       }}
-                      disabled={salvando}
+                      disabled={salvando || somenteLeitura}
                       className="mt-2 w-full rounded-lg border border-rose-300 px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
                     >
                       Confirmar cancelamento (o reembolso saiu)
@@ -921,7 +954,7 @@ export function HmDrawer({
                               <input
                                 type="checkbox"
                                 checked={!!c[item.campo]}
-                                disabled={salvando}
+                                disabled={salvando || somenteLeitura}
                                 onChange={(e) => patch({ [item.campo]: e.target.checked })}
                                 className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600"
                               />
@@ -949,7 +982,7 @@ export function HmDrawer({
                             "O aluno volta a valer na base. O pedido de cancelamento continua registrado no histórico.",
                           )) patch({ desfazer_cancelamento: true });
                         }}
-                        disabled={salvando}
+                        disabled={salvando || somenteLeitura}
                         className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                       >
                         Desfazer cancelamento
@@ -984,7 +1017,7 @@ export function HmDrawer({
                         )}
                         <button
                           type="button"
-                          disabled={salvando}
+                          disabled={salvando || somenteLeitura}
                           onClick={() => { if (window.confirm(`Remover o sócio ${s.nome} deste card?`)) socioReq("DELETE", undefined, s.id); }}
                           className="rounded p-1 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10"
                           title="Remover sócio"
@@ -1004,7 +1037,7 @@ export function HmDrawer({
                           <input
                             type="checkbox"
                             checked={s[campo]}
-                            disabled={salvando}
+                            disabled={salvando || somenteLeitura}
                             onChange={(e) => socioReq("PATCH", { socioId: s.id, [campo]: e.target.checked })}
                             className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand dark:border-slate-600"
                           />
@@ -1015,6 +1048,7 @@ export function HmDrawer({
 
                     <input
                       defaultValue={s.link_facebook ?? ""}
+                      disabled={somenteLeitura}
                       onBlur={(e) => { if (e.target.value !== (s.link_facebook ?? "")) socioReq("PATCH", { socioId: s.id, link_facebook: e.target.value || null }); }}
                       placeholder="Link do Facebook do sócio"
                       className={cn(fieldClass, "mt-1.5 text-[11px]")}
@@ -1022,6 +1056,8 @@ export function HmDrawer({
                   </div>
                 ))}
 
+                {/* Convidar sócio é escrita — some no modo leitura. */}
+                {!somenteLeitura && (<>
                 <div className="grid grid-cols-3 gap-1.5">
                   <input
                     value={novoSocio.nome}
@@ -1058,9 +1094,10 @@ export function HmDrawer({
                 >
                   Adicionar sócio
                 </Button>
+                </>)}
               </div>
 
-              {!jaPagou && (
+              {!jaPagou && !somenteLeitura && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Saldo — R$ 14.700</p>
                   {confirmarPagto ? (
@@ -1148,8 +1185,8 @@ export function HmDrawer({
 
               <Campo label="Nota rápida">
                 <div className="flex items-end gap-2">
-                  <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} className={fieldClass} placeholder="Anotar na timeline…" />
-                  <Button variant="secondary" size="sm" disabled={!nota.trim() || salvando} onClick={() => { patch({ nota }); setNota(""); }}>Anotar</Button>
+                  <textarea value={nota} disabled={somenteLeitura} onChange={(e) => setNota(e.target.value)} rows={2} className={fieldClass} placeholder="Anotar na timeline…" />
+                  <Button variant="secondary" size="sm" disabled={!nota.trim() || salvando || somenteLeitura} onClick={() => { patch({ nota }); setNota(""); }}>Anotar</Button>
                 </div>
               </Campo>
 
@@ -1202,7 +1239,8 @@ export function HmDrawer({
               <a href={`/api/hm/contato/${c.comprador_id}/export`} className="min-w-[7rem] flex-1" title="Baixar a ficha completa em Excel">
                 <Button variant="secondary" className="w-full">Baixar .xlsx</Button>
               </a>
-              {podeDisparar && c.telefone && (
+              {/* Disparar é AGIR no lead do colega — some no modo leitura. */}
+              {podeDisparar && c.telefone && !somenteLeitura && (
                 <Button variant="secondary" className="min-w-[7rem] flex-1" onClick={() => setDisparar(true)}>Disparar</Button>
               )}
               {c.telefone && (
@@ -1297,7 +1335,8 @@ function BlocoAgendamento({
   return (
     <Campo label={`${rotulo} (data e hora)`}>
       <div className="flex items-center gap-2">
-        <input type="datetime-local" value={valor} onChange={(e) => onValor(e.target.value)} className={fieldClass} />
+        {/* `salvando` também carrega o modo leitura (card cancelado/de colega). */}
+        <input type="datetime-local" value={valor} onChange={(e) => onValor(e.target.value)} className={fieldClass} disabled={salvando} />
         <Button
           variant={marcado && mudou ? "primary" : "secondary"}
           size="sm"

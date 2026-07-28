@@ -12,19 +12,19 @@ export const runtime = "nodejs";
 // /api/hm/atividade, para o gestor ver as ações de cada operador. Datas
 // opcionais; `ate` é exclusivo (o cliente manda o dia seguinte ao último que
 // quer incluir).
-// RECORTE por nível (mesma regra do HM): master vê todos os colaboradores;
-// gestor só os membros da própria equipe; operador só a si mesmo —
-// produtividade alheia é dado de gestão.
+// RECORTE de LEITURA (28/07, leitura ≠ ação — mesma regra do HM): master vê
+// todos os colaboradores; quem tem equipe — gestor OU operador — vê os colegas
+// da própria equipe (a tela de Atividade mostra o trabalho do time); quem NÃO
+// tem equipe vê só a própria linha (equipe nula jamais casa com "todo mundo").
 export async function GET(req: Request) {
   // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
   const evento = eventoDe(req);
   const g = await guard({ portal: evento });
   if (!g.ok) return g.res;
 
-  const nivel = nivelDe(g.sessao);
   const escopo: EscopoAtividade =
-    nivel === "master" ? { modo: "tudo" }
-    : nivel === "gestor" ? { modo: "equipe", equipeId: g.sessao.equipe_id }
+    nivelDe(g.sessao) === "master" ? { modo: "tudo" }
+    : g.sessao.equipe_id ? { modo: "equipe", equipeId: g.sessao.equipe_id }
     : { modo: "operador", nome: g.sessao.nome || "" };
 
   // Validação de período compartilhada (lib/validators): 400 data_invalida em

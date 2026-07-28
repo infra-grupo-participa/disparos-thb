@@ -3,7 +3,7 @@ import { guard } from "@/lib/guard";
 import { query } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { parseBody, HmLoteSchema } from "@/lib/validators";
-import { addTagHm, moverEstagioHm, removeTagHm, atribuirResponsavelHm, podeVerCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
+import { addTagHm, moverEstagioHm, removeTagHm, atribuirResponsavelHm, podeAgirCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
 import { ehMaster } from "@/lib/papeis";
 
 export const runtime = "nodejs";
@@ -72,10 +72,12 @@ export async function POST(req: Request) {
       falhas.push({ compradorId, nome: compradorId, motivo: "contato não encontrado" });
       continue;
     }
-    // Gating de equipe por item: o ator só aplica em card que ele vê (pool /
-    // própria equipe / GP). Cards de outra equipe são pulados (não bloqueia o lote).
-    if (!(await podeVerCardHm(sessao, compradorId))) {
-      falhas.push({ compradorId, nome, motivo: "sem acesso a este card" });
+    // Gate de AÇÃO por item (28/07, leitura ≠ ação): o lote é ESCRITA — operador
+    // só aplica no pool e nos cards DELE; o card do colega (que ele VÊ no board)
+    // e o de outra equipe são pulados nominalmente (não bloqueiam o lote).
+    const acao = await podeAgirCardHm(sessao, compradorId);
+    if (acao !== "ok") {
+      falhas.push({ compradorId, nome, motivo: acao === "card_de_outro_operador" ? "card de outro operador" : "sem acesso a este card" });
       continue;
     }
     // Trava dos cancelados: card em Reclamada/Reembolsado (ou indo p/ lá) só master.
@@ -96,6 +98,7 @@ export async function POST(req: Request) {
         if (!r.ok) {
           const motivo =
             r.reason === "destino_fora_da_equipe" ? "destino fora da sua equipe"
+            : r.reason === "destino_sem_portal" ? "destino sem acesso ao portal HM"
             : r.reason === "atribuicao_travada" ? "atribuição travada pelo admin"
             : r.reason === "sem_permissao_para_atribuir" ? "sem permissão para atribuir"
             : "contato não encontrado";

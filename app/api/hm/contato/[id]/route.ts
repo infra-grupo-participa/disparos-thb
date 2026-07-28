@@ -3,7 +3,7 @@ import { guard } from "@/lib/guard";
 import { ehMaster } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
+import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, podeAgirCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -45,10 +45,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!parsed.ok) return parsed.res;
   const b = parsed.data;
 
-  // Gating de equipe: só mexe no card quem pode vê-lo (pool, própria equipe, ou
-  // GP/admin). Fecha o buraco de editar/assumir card de outra equipe pela API.
-  if (!(await podeVerCardHm(sessao, compradorId))) {
-    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): editar é ESCRITA — operador só no
+  // pool e nos cards DELE. Card de colega da equipe ABRE (GET, escopo de
+  // leitura) mas recusa escrita: 403 'card_de_outro_operador' (o front traduz).
+  const acao = await podeAgirCardHm(sessao, compradorId);
+  if (acao !== "ok") {
+    return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
 
   const atual = await queryOne<{ id: string; estagio_chave: string | null; reuniao_em: string | null; responsavel_id: string | null; atribuicao_admin: boolean }>(
@@ -181,7 +183,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   //   operador → só assume para SI um card do pool / devolve ao pool o que é
   //   dele (e sem trava). O nome que não casa com usuário nenhum só o master
   //   grava como texto livre — para os demais era o desvio da hierarquia.
-  // (O podeVerCardHm no topo já garante que o ator só chega a card que ele VÊ.)
+  // (O podeAgirCardHm no topo já garante que o ator só chega a card em que AGE.)
   if (b.responsavel_id !== undefined || b.responsavel !== undefined) {
     const destino: DestinoAtribuicao =
       b.responsavel_id !== undefined

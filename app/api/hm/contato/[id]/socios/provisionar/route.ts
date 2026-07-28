@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
-import { provisionarSociosHm, podeVerCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
+import { provisionarSociosHm, podeAgirCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,10 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
-  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): provisionar na base THB é efeito de
+  // escrita — card de colega recusa com 403 'card_de_outro_operador'.
+  const acao = await podeAgirCardHm(sessao, params.id);
+  if (acao !== "ok") return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   // Card cancelado: só o master abre/mexe — provisionar sócio de reembolsado na
   // base THB é exatamente o tipo de efeito colateral que a trava existe pra impedir.
   if (await cancelamentoBloqueado(sessao, params.id)) return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { podeDisparar } from "@/lib/auth";
 import { guard } from "@/lib/guard";
-import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
+import { escopoAcao, paramsEscopo } from "@/lib/papeis";
 import { sqlEscopo } from "@/lib/services/visibilidade";
 import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
@@ -57,12 +57,13 @@ export async function POST(req: Request) {
   // duas campanhas seguidas — martelem o mesmo número. 0 desativa.
   const dedupHoras = await getConfig<number>("disparo_dedup_horas", 24);
 
-  // RECORTE de segurança (0146): os destinatários passam pelo MESMO predicado de
-  // escopo dos elegíveis — operador/gestor não dispara para card fora do que vê
-  // (pool / a própria carteira / a própria equipe). Vale nos DOIS ramos: o HM
-  // pela view do overlay, os genéricos por cs.contatos_evento. Quem entra na
-  // seleção por fora do escopo simplesmente não recebe (fica de fora do insert).
-  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
+  // RECORTE de segurança: enviar mensagem é AÇÃO (28/07, leitura ≠ ação) — os
+  // destinatários passam pelo escopo de AÇÃO, não pelo de leitura: o operador
+  // VÊ os cards da equipe nos elegíveis, mas só dispara para o pool e para a
+  // própria carteira. Vale nos DOIS ramos: o HM pela view do overlay, os
+  // genéricos por cs.contatos_evento. Quem entra na seleção por fora do escopo
+  // simplesmente não recebe (fica de fora do insert).
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoAcao(sessao));
 
   const ehHM = evento === "HM";
   const contatos = ehHM

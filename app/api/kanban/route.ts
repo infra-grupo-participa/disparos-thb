@@ -4,7 +4,7 @@ import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, KanbanMoverSchema } from "@/lib/validators";
 import { listaResponsaveis, sqlEscopo } from "@/lib/services/visibilidade";
-import { moverEstagio, podeVerContato } from "@/lib/services/contato";
+import { moverEstagio, podeAgirContato } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -96,7 +96,7 @@ export async function GET(req: Request) {
   // listaResponsaveis, visibilidade.ts — a mesma do board HM): master = todos +
   // legados do evento; gestor = a própria equipe; operador = só ele — o seletor
   // não pode oferecer um destino que o backend vai recusar (podeAtribuirPara).
-  const responsaveis = await listaResponsaveis(g.sessao, {
+  const responsaveis = await listaResponsaveis(g.sessao, evento, {
     sql: `select distinct responsavel from cs.contatos where evento = $1 and responsavel is not null and responsavel <> ''`,
     params: [evento],
   });
@@ -123,10 +123,12 @@ export async function PATCH(req: Request) {
   if (!g.ok) return g.res;
   const p = await parseBody(req, KanbanMoverSchema);
   if (!p.ok) return p.res;
-  // Gating de equipe: só move card que o ator VÊ (pool / própria equipe / os
-  // dele). Sem isso o recorte do GET é cosmético — bastava forçar o compradorId.
-  if (!(await podeVerContato(g.sessao, p.data.compradorId, evento))) {
-    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): mover é ESCRITA — operador só no pool
+  // e nos cards DELE. O card do colega aparece no board (escopo de leitura),
+  // mas o arrasto recusa com 403 'card_de_outro_operador' (o front traduz).
+  const acao = await podeAgirContato(g.sessao, p.data.compradorId, evento);
+  if (acao !== "ok") {
+    return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
   // O MESMO evento validado no guard acima escopa a escrita: cs.contatos tem
   // uma linha por (comprador, evento) — sem ele, o move vazava para outro portal.

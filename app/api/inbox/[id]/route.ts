@@ -6,7 +6,7 @@ import { getCanal } from "@/lib/services/canais";
 import { normalizePhone } from "@/lib/phone";
 import { parseBody, InboxMsgSchema, InboxStatusSchema } from "@/lib/validators";
 import { registrarRespostaCS, mudarStatus } from "@/lib/services/atendimento";
-import { podeVerContato } from "@/lib/services/contato";
+import { podeVerContato, podeAgirContato } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -141,9 +141,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
   const g = await guard({ portal: eventoDe(req) });
   if (!g.ok) return g.res;
-  // Mesmo gating do GET: não se responde a uma conversa fora do próprio escopo.
-  if (!(await podeVerContato(g.sessao, params.id, eventoDe(req)))) {
-    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): responder é ESCRITA — a conversa do
+  // card de um colega ABRE (GET, escopo de leitura), mas não se responde por
+  // ela: 403 'card_de_outro_operador' (o front traduz).
+  const acao = await podeAgirContato(g.sessao, params.id, eventoDe(req));
+  if (acao !== "ok") {
+    return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
 
   const p = await parseBody(req, InboxMsgSchema);
@@ -208,9 +211,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
   const g = await guard({ portal: eventoDe(req) });
   if (!g.ok) return g.res;
-  // Mesmo gating do GET: resolver/reabrir é agir sobre a conversa.
-  if (!(await podeVerContato(g.sessao, params.id, eventoDe(req)))) {
-    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07): resolver/reabrir muda o estado da conversa — escrita.
+  const acao = await podeAgirContato(g.sessao, params.id, eventoDe(req));
+  if (acao !== "ok") {
+    return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
   const p = await parseBody(req, InboxStatusSchema);
   if (!p.ok) return p.res;

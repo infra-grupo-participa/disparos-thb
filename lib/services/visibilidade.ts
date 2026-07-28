@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { nivelDe, type Ator, type EscopoVisibilidade } from "@/lib/papeis";
+import { escopoAcao, escopoVisibilidade, nivelDe, type Ator, type EscopoVisibilidade } from "@/lib/papeis";
 
 // ===== A REGRA de visibilidade por escopo — num lugar só =====================
 // HM (cs.contatos_hm / view cs.contatos_hm_kanban) e portais genéricos
@@ -63,41 +63,71 @@ export function ehCardLivre(c: CardVisibilidade): boolean {
 export function podeVerPorEscopo(escopo: EscopoVisibilidade, c: CardVisibilidade): boolean {
   if (escopo.modo === "tudo") return true;
   if (ehCardLivre(c)) return true;
-  // `equipe_id !== null` de propósito: gestor sem equipe (equipeId null) não
+  // `equipe_id !== null` de propósito: ator sem equipe (equipeId null) não
   // pode casar com card de equipe nula — "null === null" viraria vazamento.
+  // O ramo `responsavel_id === usuarioId` cobre o card do PRÓPRIO usuário
+  // quando ele não tem equipe (equipe derivada do dono é nula nesses cards).
   return escopo.modo === "equipe"
-    ? c.equipe_id !== null && c.equipe_id === escopo.equipeId
+    ? (c.equipe_id !== null && c.equipe_id === escopo.equipeId) || c.responsavel_id === escopo.usuarioId
     : c.responsavel_id === escopo.usuarioId;
 }
 
-// Lista de responsáveis para os seletores de atribuição, RECORTADA por nível —
-// a MESMA regra nas três telas que a montam (board HM, tabela HM, kanban
-// genérico): master vê todos os usuários ativos + os donos legados por texto
-// (o `legados.sql` de cada módulo, coluna `responsavel`); gestor só os membros
-// ativos da PRÓPRIA equipe (equipe_id null → lista vazia, nunca "todos");
-// operador só a si. O seletor não pode oferecer um destino que
-// atribuirResponsavel(Hm) vai recusar.
+// ===== Leitura ≠ ação (28/07) ===============================================
+// Veredicto de uma ESCRITA sobre um card já carregado, cruzando os dois
+// escopos de lib/papeis:
+//   ok                      → dentro do escopo de AÇÃO (pode escrever);
+//   card_de_outro_operador  → ENXERGA (escopo de leitura: card da equipe dele)
+//                             mas não pode agir — é o card de um colega. 403;
+//                             o front traduz o reason.
+//   sem_acesso              → nem leitura (outra equipe / texto órfão). 403.
+// Usado por podeAgirCardHm (hm.ts) e podeAgirContato (contato.ts) — as DUAS
+// perguntas saem do MESMO card carregado, uma query só.
+export type VeredictoAcao = "ok" | "card_de_outro_operador" | "sem_acesso";
+
+export function veredictoAcao(sessao: Ator, c: CardVisibilidade): VeredictoAcao {
+  if (podeVerPorEscopo(escopoAcao(sessao), c)) return "ok";
+  return podeVerPorEscopo(escopoVisibilidade(sessao), c) ? "card_de_outro_operador" : "sem_acesso";
+}
+
+// Lista de responsáveis para os seletores de atribuição, RECORTADA por nível
+// E por PORTAL — a MESMA regra nas três telas que a montam (board HM, tabela
+// HM, kanban genérico): master vê os usuários ativos COM o portal na whitelist
+// (cs.usuario_portais, 0145) + os donos legados por texto (o `legados.sql` de
+// cada módulo, coluna `responsavel`); gestor só os membros ativos da PRÓPRIA
+// equipe que TÊM o portal (equipe_id null → lista vazia, nunca "todos");
+// operador só a si (o guard já garantiu que ele tem o portal). O seletor não
+// pode oferecer um destino que atribuirResponsavel(Hm) vai recusar
+// (destino_fora_da_equipe / destino_sem_portal) — oferecer quem o backend
+// recusa é fazer o operador descobrir o limite errando.
 export async function listaResponsaveis(
   sessao: Ator & { nome?: string | null },
+  portal: string,
   legados: { sql: string; params?: unknown[] },
 ): Promise<string[]> {
   const nivel = nivelDe(sessao);
+  const TEM_PORTAL = (alias: string, p: number) =>
+    `exists (select 1 from cs.usuario_portais up where up.usuario_id = ${alias}.id and up.portal = $${p})`;
   if (nivel === "master") {
+    // Placeholders dos legados vêm ANTES ($1..$n); o portal entra por último —
+    // assim o SQL de cada módulo não precisa saber em que posição ele caiu.
+    const params = [...(legados.params ?? []), portal];
     const rows = await query<{ responsavel: string }>(
       `select responsavel from (
-          select nome as responsavel from cs.usuarios where ativo
+          select nome as responsavel from cs.usuarios u where u.ativo and ${TEM_PORTAL("u", params.length)}
           union
           ${legados.sql}
        ) u
        order by responsavel`,
-      legados.params ?? [],
+      params,
     );
     return rows.map((r) => r.responsavel);
   }
   if (nivel === "gestor") {
     const rows = await query<{ responsavel: string }>(
-      `select nome as responsavel from cs.usuarios where ativo and equipe_id = $1 order by nome`,
-      [sessao.equipe_id],
+      `select nome as responsavel from cs.usuarios u
+        where u.ativo and u.equipe_id = $1 and ${TEM_PORTAL("u", 2)}
+        order by nome`,
+      [sessao.equipe_id, portal],
     );
     return rows.map((r) => r.responsavel);
   }

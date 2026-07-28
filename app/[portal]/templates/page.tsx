@@ -509,7 +509,7 @@ export default function TemplatesPage() {
               <>
                 <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
                   Escreva o e-mail aqui. Ao disparar, o sistema cria a mensagem no ActiveCampaign e
-                  lança a campanha para os contatos que você selecionar — <strong>sem depender de automação</strong>.
+                  lança a campanha para os leads que você selecionar — <strong>sem depender de automação</strong>.
                   Use <code className="rounded bg-sky-100 px-1 dark:bg-sky-500/20">%FIRSTNAME%</code> onde entra o primeiro nome.
                 </div>
 
@@ -535,7 +535,7 @@ export default function TemplatesPage() {
                 </div>
 
                 <div>
-                  <span className="block text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Como o contato verá</span>
+                  <span className="block text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Como o lead verá</span>
                   <div className="mt-1.5 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
                     {form.assunto.trim() || form.corpo_html.trim() ? (
                       <>
@@ -564,7 +564,7 @@ export default function TemplatesPage() {
               <>
                 {/* Modo legado: o e-mail vive numa automação do AC. */}
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                  Neste modo o sistema apenas <strong>marca o contato com a tag</strong> escolhida. Quem envia o e-mail é a
+                  Neste modo o sistema apenas <strong>marca o lead com a tag</strong> escolhida. Quem envia o e-mail é a
                   <strong> automação</strong> ligada a essa tag no ActiveCampaign — ela precisa existir e estar ativa,
                   senão nada sai.
                 </div>
@@ -648,7 +648,7 @@ export default function TemplatesPage() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Nº de variáveis no corpo</label>
                   <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                    0 = texto fixo. 1 = a primeira variável recebe o primeiro nome do contato.
+                    0 = texto fixo. 1 = a primeira variável recebe o primeiro nome do lead.
                   </p>
                   <input
                     type="number"
@@ -675,7 +675,7 @@ export default function TemplatesPage() {
                 </div>
 
                 <div>
-                  <span className="block text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Como o contato verá</span>
+                  <span className="block text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">Como o lead verá</span>
                   <div className="mt-1.5 rounded-lg p-3" style={{ backgroundColor: "#ECE5DD" }}>
                     {form.preview.trim() ? (
                       <div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-lg rounded-tr-sm px-3 py-2 text-sm text-slate-800 shadow-sm" style={{ backgroundColor: "#DCF8C6" }}>
@@ -745,7 +745,7 @@ export default function TemplatesPage() {
           <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-pop dark:border-slate-800 dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Testar no seu WhatsApp</h3>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Enviamos <strong className="text-slate-700 dark:text-slate-200">{testeAlvo.nome}</strong> para o seu número, para você ver como o contato vai receber — antes de disparar para os leads.
+              Enviamos <strong className="text-slate-700 dark:text-slate-200">{testeAlvo.nome}</strong> para o seu número, para você ver como o lead vai receber — antes de disparar para todos.
             </p>
             {testeAlvo.preview && (
               <div className="mt-3 rounded-lg p-2.5" style={{ backgroundColor: "#ECE5DD" }}>

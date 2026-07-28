@@ -10,6 +10,7 @@ import {
   podeGerirAcesso as regraPodeGerirAcesso,
   podeDistribuir as regraPodeDistribuir,
   podeAtribuirPara as regraPodeAtribuirPara,
+  escopoAcao as regraEscopoAcao,
   type Papel,
   type TipoEquipe,
   type Nivel,
@@ -58,7 +59,16 @@ export function useMe() {
   const podeDisparar = (evento?: string | null) => regraPodeDisparar(me?.papel, evento);
   // Acesso por portal (0145): um portal só é acessível se estiver na whitelist da conta.
   const podeAcessarPortal = (evento?: string | null) => !!evento && regraPodeAcessarPortal(me?.portais, evento);
-  return { me, nivel, ehMaster, podeVerTudo, podeGerirAcesso, podeDistribuir, podeAtribuirPara, podeDisparar, podeAcessarPortal };
+  // Card de OUTRO operador? (leitura ≠ ação, 28/07.) A regra é o escopoAcao de
+  // lib/papeis — o MESMO que o backend usa: operador age só no pool e nos cards
+  // dele; master/gestor agem em tudo que veem. Card assim abre em LEITURA e a
+  // API recusa escrita com 403 `card_de_outro_operador`. Sessão carregando ou
+  // card sem dono → false (não é "de colega"; o backend segue protegendo).
+  const ehCardDeColega = (card: { responsavel_id?: string | null } | null | undefined) => {
+    if (!me || !card?.responsavel_id) return false;
+    return regraEscopoAcao(me).modo === "operador" && card.responsavel_id !== me.id;
+  };
+  return { me, nivel, ehMaster, podeVerTudo, podeGerirAcesso, podeDistribuir, podeAtribuirPara, podeDisparar, podeAcessarPortal, ehCardDeColega };
 }
 
 // ===== Tradução dos erros de permissão das rotas (403) ======================
@@ -76,6 +86,10 @@ export function msgErroPermissao(reason?: string | null): string | null {
       return "A atribuição deste card foi travada pelo administrador — só o Grupo Participa pode alterá-la.";
     case "cancelamento_so_admin_gp":
       return "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.";
+    case "card_de_outro_operador":
+      // Novo modelo (28/07): o operador VÊ os cards da equipe, mas só AGE no que
+      // é dele ou está no pool. A ficha do colega abre em leitura.
+      return "Este card é de outro operador da sua equipe — você pode ver a ficha e o histórico, mas não alterar. Fale com seu gestor para redistribuir.";
     case "unauthorized":
       return "Sua sessão expirou — entre de novo.";
     default:

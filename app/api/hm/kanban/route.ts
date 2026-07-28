@@ -4,7 +4,7 @@ import { ehMaster, escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
 import { listaResponsaveis, sqlEscopo } from "@/lib/services/visibilidade";
-import { moverEstagioHm, podeVerCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO } from "@/lib/services/hm";
+import { moverEstagioHm, podeAgirCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -112,7 +112,7 @@ export async function GET(req: Request) {
   // visibilidade.ts): master = todos + legados; gestor = a própria equipe;
   // operador = só ele. O seletor não pode oferecer destino que
   // atribuirResponsavelHm vai recusar.
-  const responsaveis = await listaResponsaveis(sessao, {
+  const responsaveis = await listaResponsaveis(sessao, "HM", {
     sql: `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''`,
   });
   // `qtd` alimenta a régua de canais fixos: o placar do canal INTEIRO, sem os
@@ -149,10 +149,12 @@ export async function PATCH(req: Request) {
   const p = await parseBody(req, HmMoverSchema);
   if (!p.ok) return p.res;
   const { compradorId, estagioChave, antesDe } = p.data;
-  // Gating de equipe: só move card que o ator VÊ (pool / própria equipe / GP).
-  // Sem isso, um líder de equipe comum forçaria o compradorId de um card alheio.
-  if (!(await podeVerCardHm(sessao, compradorId))) {
-    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): mover é ESCRITA — operador só no pool
+  // e nos cards DELE. O card do colega aparece no board (escopo de leitura),
+  // mas o arrasto recusa com 403 'card_de_outro_operador' (o front traduz).
+  const acao = await podeAgirCardHm(sessao, compradorId);
+  if (acao !== "ok") {
+    return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
   // Trava dos cancelados (27/07): mexer num card já em Reclamada/Reembolsado, ou
   // MOVER um card PARA essas colunas, é só do MASTER (admin do GP). Demais: 403.

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmSocioCriarSchema, HmSocioPatchSchema } from "@/lib/validators";
-import { addNotaHm, provisionarSociosHm, podeVerCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
+import { addNotaHm, provisionarSociosHm, podeAgirCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
-  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): mexer nos sócios é ESCRITA no card —
+  // card de colega recusa com 403 'card_de_outro_operador' (o front traduz).
+  const acao = await podeAgirCardHm(sessao, params.id);
+  if (acao !== "ok") return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   // Card cancelado: quem não é master não abre a ficha — logo também não mexe
   // nos sócios dela (era um furo da trava de escrita dos cancelados).
   if (await cancelamentoBloqueado(sessao, params.id)) return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
@@ -52,7 +55,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
-  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): mexer nos sócios é ESCRITA no card —
+  // card de colega recusa com 403 'card_de_outro_operador' (o front traduz).
+  const acao = await podeAgirCardHm(sessao, params.id);
+  if (acao !== "ok") return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   if (await cancelamentoBloqueado(sessao, params.id)) return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   const p = await parseBody(req, HmSocioPatchSchema);
   if (!p.ok) return p.res;
@@ -92,7 +98,10 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
-  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): mexer nos sócios é ESCRITA no card —
+  // card de colega recusa com 403 'card_de_outro_operador' (o front traduz).
+  const acao = await podeAgirCardHm(sessao, params.id);
+  if (acao !== "ok") return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   if (await cancelamentoBloqueado(sessao, params.id)) return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   const socioId = new URL(req.url).searchParams.get("socioId");
   if (!socioId) return NextResponse.json({ ok: false, reason: "socioId ausente" }, { status: 400 });

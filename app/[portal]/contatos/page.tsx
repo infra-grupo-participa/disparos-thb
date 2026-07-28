@@ -154,12 +154,12 @@ export default function ContatosPage() {
   const descricao = carregando ? (
     <span className="inline-flex items-center gap-2">
       <Spinner className="h-3.5 w-3.5" />
-      Carregando contatos…
+      Carregando leads…
     </span>
   ) : (
     <>
       <span className="font-medium text-slate-700 dark:text-slate-200">{contatos.length}</span>{" "}
-      {contatos.length === 1 ? "contato" : "contatos"}
+      {contatos.length === 1 ? "lead" : "leads"}
       {selecionados.size > 0 && (
         <>
           {" · "}
@@ -172,7 +172,7 @@ export default function ContatosPage() {
   return (
     <PageFade className="pb-24">
       <PageHeader
-        title={ehHT ? "Contatos HT" : `Contatos · ${eventoNome}`}
+        title={ehHT ? "Leads HT" : `Leads · ${eventoNome}`}
         description={descricao}
         actions={
           podeDisparar ? (
@@ -265,7 +265,7 @@ export default function ContatosPage() {
       {carregando && contatos.length === 0 ? (
         <Card className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-slate-400 dark:text-slate-500">
           <Spinner className="h-7 w-7" />
-          <span className="text-sm">Carregando contatos…</span>
+          <span className="text-sm">Carregando leads…</span>
         </Card>
       ) : contatos.length === 0 && temFiltro ? (
         <EmptyState
@@ -276,7 +276,7 @@ export default function ContatosPage() {
               <path d="m8 8 6 6M14 8l-6 6" />
             </svg>
           }
-          title="Nenhum contato com esses filtros"
+          title="Nenhum lead com esses filtros"
           description="Tente ampliar a busca ou remover algum filtro."
           action={
             <Button variant="secondary" size="sm" onClick={limparFiltros}>
@@ -294,8 +294,8 @@ export default function ContatosPage() {
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
           }
-          title="Nenhum contato cadastrado ainda"
-          description="Os contatos aparecem aqui assim que houver compradores no sistema."
+          title="Nenhum lead cadastrado ainda"
+          description="Os leads aparecem aqui assim que houver compradores no sistema."
         />
       ) : (
         <Card className="overflow-hidden">
@@ -315,7 +315,9 @@ export default function ContatosPage() {
                 <th className="px-4 py-3">Edição</th>
                 <th className="px-4 py-3">Estágio</th>
                 <th className="px-4 py-3">Tags</th>
-                <th className="px-4 py-3">Lead</th>
+                {/* O termômetro (score 0-100) — "Lead" aqui viraria ambíguo
+                    agora que a tela inteira é de leads. */}
+                <th className="px-4 py-3">Termômetro</th>
                 <th className="px-4 py-3">Última compra</th>
               </tr>
             </thead>
@@ -383,7 +385,7 @@ export default function ContatosPage() {
           <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
             <span className="text-sm text-slate-700 dark:text-slate-200">
               <span className="font-semibold text-slate-900 dark:text-slate-100">{selecionados.size}</span>{" "}
-              {selecionados.size === 1 ? "contato selecionado" : "contatos selecionados"}
+              {selecionados.size === 1 ? "lead selecionado" : "leads selecionados"}
             </span>
             <Button variant="ghost" size="sm" onClick={limparSelecao}>
               Limpar seleção

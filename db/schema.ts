@@ -1,4 +1,4 @@
-import { pgSchema, uuid, text, integer, smallint, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgSchema, uuid, text, integer, smallint, boolean, timestamp, date, numeric } from "drizzle-orm/pg-core";
 
 // Schema tipado do `cs` (espelha as migrations db/migrations/*.sql). Usado pelo
 // Drizzle como query builder type-safe sobre o pool pg existente. As migrations
@@ -38,6 +38,14 @@ export const contatos = cs.table("contatos", {
   aguardandoDesde: timestamp("aguardando_desde", { withTimezone: true }),
   evento: text("evento").notNull(),
   atualizadoEm: timestamp("atualizado_em", { withTimezone: true }).notNull().defaultNow(),
+  // 0149: acordo e crédito (nomenclatura espelhada do HM/0056). NÃO usar em
+  // select() cheio antes de a 0149 estar aplicada — as rotas leem/escrevem
+  // esses campos por SQL cru com try/catch (degrade pré-migration).
+  acordo: text("acordo"),
+  pagamentoPrevistoEm: date("pagamento_previsto_em"),
+  creditoOferta: text("credito_oferta"),
+  creditoCompraEm: date("credito_compra_em"),
+  creditoValorPago: numeric("credito_valor_pago"),
 });
 
 export const interacoes = cs.table("interacoes", {

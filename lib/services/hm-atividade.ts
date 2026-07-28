@@ -28,13 +28,14 @@ export type Atividade = {
   colaboradores: AtividadeColaborador[];
 };
 
-// Recorte por NÍVEL (quem pode ver a atividade de quem):
+// Recorte de LEITURA (quem pode ver a atividade de quem — 28/07: leitura por
+// equipe vale para gestor E operador; ver o trabalho do time não é agir nele):
 //   tudo     → master: todos os colaboradores.
-//   equipe   → gestor: só os membros da PRÓPRIA equipe. A trilha é assinada por
-//              NOME (i.autor é texto), então o recorte casa o autor contra os
-//              nomes dos usuários da equipe. Gestor sem equipe (equipeId null)
-//              não casa ninguém — vê lista vazia, nunca "todo mundo".
-//   operador → só a própria linha.
+//   equipe   → quem TEM equipe (gestor ou operador): os membros da PRÓPRIA
+//              equipe. A trilha é assinada por NOME (i.autor é texto), então o
+//              recorte casa o autor contra os nomes dos usuários da equipe.
+//              equipeId null não casa ninguém — lista vazia, nunca "todo mundo".
+//   operador → sem equipe: só a própria linha.
 export type EscopoAtividade =
   | { modo: "tudo" }
   | { modo: "equipe"; equipeId: string | null }

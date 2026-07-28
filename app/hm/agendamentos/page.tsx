@@ -91,7 +91,7 @@ function gcalLink(ev: Agendamento): string | null {
   const z = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   const titulo = `${ev.tipo === "reuniao" ? "Reunião" : "Entrevista"} HM · ${ev.nome}`;
   const detalhes = [
-    ev.responsavel ? `Responsável: ${ev.responsavel}` : "",
+    ev.responsavel ? `Operador: ${ev.responsavel}` : "",
     ev.telefone ? `Telefone: ${ev.telefone}` : "",
     ev.estagio_nome ? `Etapa: ${ev.estagio_nome}` : "",
     ev.acordo ? `Acordo: ${ev.acordo}` : "",
@@ -712,7 +712,7 @@ function ModalEvento({ ev, onClose }: { ev: Agendamento; onClose: () => void }) 
 
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
             <Info rotulo="Etapa" valor={ev.estagio_nome} />
-            <Info rotulo="Responsável" valor={ev.responsavel} />
+            <Info rotulo="Operador" valor={ev.responsavel} />
             <Info rotulo="Status" valor={ev.resultado} />
             <Info rotulo="Turma" valor={ev.turma_origem ? `${ev.turma ?? "—"} (veio da ${ev.turma_origem})` : ev.turma} />
           </dl>

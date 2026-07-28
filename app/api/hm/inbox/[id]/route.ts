@@ -5,7 +5,7 @@ import { createContact, getContactMessages, sendMessage, type CanalCfg } from "@
 import { getCanal } from "@/lib/services/canais";
 import { normalizePhone } from "@/lib/phone";
 import { parseBody, InboxMsgSchema, InboxStatusSchema } from "@/lib/validators";
-import { podeVerCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
+import { podeVerCardHm, podeAgirCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -134,8 +134,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
-  if (!(await podeVerCardHm(sessao, params.id))) {
-    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): responder é ESCRITA — a conversa do
+  // card de um colega ABRE (GET), mas não se responde por ela (403 traduzido).
+  const acao = await podeAgirCardHm(sessao, params.id);
+  if (acao !== "ok") {
+    return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
   // Cancelado: não abre, logo também não manda mensagem (WhatsApp pra aluno
   // reembolsado é ação do master, não da equipe).
@@ -193,8 +196,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
-  if (!(await podeVerCardHm(sessao, params.id))) {
-    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07): resolver/reabrir muda o estado da conversa — escrita.
+  const acao = await podeAgirCardHm(sessao, params.id);
+  if (acao !== "ok") {
+    return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
   // Cancelado: mudar status da conversa é escrita no card — só master.
   if (await cancelamentoBloqueado(sessao, params.id)) {

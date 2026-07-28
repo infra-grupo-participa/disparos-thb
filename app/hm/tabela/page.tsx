@@ -263,7 +263,7 @@ const LENTES: Lente[] = [
     test: (l) => !!l.hotmart_cancelado_em && !l.cancelamento_efetivado_em,
   },
   {
-    id: "sem_responsavel", grupo: "Higiene", label: "Sem responsável",
+    id: "sem_responsavel", grupo: "Higiene", label: "Sem operador",
     test: (l) => !l.responsavel,
   },
   {
@@ -390,12 +390,17 @@ const PRESETS: Record<VisaoId, string[]> = {
 
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
-  const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster } = useMe();
+  const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   // Linha em Reclamada/Reembolsado é SÓ do master (o backend devolve 403 no GET
   // da ficha e no PATCH) — para os demais a linha fica visível, mas não abre nem
   // edita. Enquanto a sessão carrega, nasce bloqueada (na dúvida, fecha).
   const linhaBloqueada = (l: LinhaEsteira) => ehEstagioCancelamento(l.estagio_chave) && !ehMaster();
+  // Linha de COLEGA (28/07): o operador VÊ os cards da equipe, mas só AGE no que
+  // é dele ou está no pool — a ficha abre em leitura (o drawer cuida) e as
+  // células/lote não escrevem (a API recusa com 403 `card_de_outro_operador`).
+  // A regra é o escopoAcao de lib/papeis (via useMe.ehCardDeColega).
+  const linhaColega = (l: LinhaEsteira) => ehCardDeColega(l);
   // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
   const podeConfigEquipes = podeDistribuir();
   const [linhas, setLinhas] = useState<LinhaEsteira[]>([]);
@@ -554,6 +559,11 @@ export default function HmTabelaPage() {
       window.alert(msgErroPermissao("cancelamento_so_admin_gp"));
       return;
     }
+    // Linha de colega: mesma barreira no ponto único — o motivo aparece na hora.
+    if (linha && ehCardDeColega(linha)) {
+      window.alert(msgErroPermissao("card_de_outro_operador"));
+      return;
+    }
     setSalvando(compradorId);
     try {
       const r = await fetch(`/api/hm/contato/${compradorId}`, {
@@ -582,7 +592,7 @@ export default function HmTabelaPage() {
       setSalvando(null);
       await carregar(true);
     }
-  }, [carregar, linhas, ehMaster]);
+  }, [carregar, linhas, ehMaster, ehCardDeColega]);
 
   // Os mesmos avisos do board ao cruzar de esteira: entrar na Ativação é dizer
   // "pagou" (provisiona o aluno na base THB); voltar ao Comercial desfaz a marca.
@@ -672,7 +682,7 @@ export default function HmTabelaPage() {
       const semPagto = dos.filter((l) => !l.apto_ativacao).length;
       if (semPagto > 0) {
         const ok = window.confirm(
-          `Mover ${dos.length} aluno(s) para "${destino.nome}" os coloca na esteira de Ativação.\n\n` +
+          `Mover ${dos.length} lead(s) para "${destino.nome}" os coloca na esteira de Ativação.\n\n` +
             `${semPagto} deles ainda não têm pagamento confirmado — o movimento marca o saldo como pago e cria o aluno na base THB. Continuar?`,
         );
         if (!ok) return;
@@ -724,6 +734,13 @@ export default function HmTabelaPage() {
               {linhaBloqueada(l) && (
                 <span className="shrink-0 text-rose-500 dark:text-rose-400" title={TITLE_CARD_CANCELADO}>
                   <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                </span>
+              )}
+              {/* Olho discreto: linha de COLEGA — abre em leitura (contexto, não
+                  bloqueio); a coluna Operador já diz de quem é. */}
+              {linhaColega(l) && (
+                <span className="shrink-0 text-slate-400 dark:text-slate-500" title={`Card de ${l.responsavel ?? "outro operador"} — abre em leitura; quem age é o dono ou o gestor`}>
+                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
                 </span>
               )}
               {/* O ponto verde é o "não lido": some quando alguém abre a ficha. */}
@@ -795,7 +812,7 @@ export default function HmTabelaPage() {
       render: (l) => <span className={cn("tabular-nums font-medium", diasTom(l.dias_na_etapa))}>{l.dias_na_etapa ?? "—"}</span>,
     },
     responsavel: {
-      id: "responsavel", label: "Responsável", edit: true,
+      id: "responsavel", label: "Operador", edit: true,
       sortVal: (l) => l.responsavel?.toLowerCase() ?? null,
       // MASTER/GESTOR: seletor (a lista `responsaveis` já vem recortada do
       // servidor — gestor só vê a própria equipe). OPERADOR: sem seletor —
@@ -1430,9 +1447,10 @@ export default function HmTabelaPage() {
   const diasArr = visiveis.map((l) => l.dias_na_etapa).filter((x): x is number => x !== null && x !== undefined);
   const mediaDias = diasArr.length ? Math.round(diasArr.reduce((a, b) => a + b, 0) / diasArr.length) : 0;
 
-  // Linha cancelada (não-master) fica fora da seleção em massa: o lote inteiro
-  // falharia nela (403) e a seleção é um caminho indireto de mexer no card.
-  const selecionaveis = visiveis.filter((l) => !linhaBloqueada(l));
+  // Linha cancelada (não-master) e linha de COLEGA ficam fora da seleção em
+  // massa: o lote inteiro falharia nelas (403) e a seleção é um caminho
+  // indireto de mexer num card em que a pessoa não pode agir.
+  const selecionaveis = visiveis.filter((l) => !linhaBloqueada(l) && !linhaColega(l));
   const todosMarcados = selecionaveis.length > 0 && selecionaveis.every((l) => marcados.has(l.comprador_id));
   const gruposLente = Array.from(new Set(LENTES.map((le) => le.grupo)));
 
@@ -1446,7 +1464,7 @@ export default function HmTabelaPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {linhas.length} aluno(s) — a esteira em linhas: ordene, filtre, edite na célula e aja em lote.
+            {linhas.length} lead(s) — a esteira em linhas: ordene, filtre, edite na célula e aja em lote.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1501,11 +1519,11 @@ export default function HmTabelaPage() {
 
         <div className="relative w-52 min-w-[9rem]">
           <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar aluno…" className={cn(fieldClass, "pl-8")} />
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar lead…" className={cn(fieldClass, "pl-8")} />
         </div>
 
         {responsaveis.length > 0 && (
-          <MultiSelect rotulo="Responsável" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
+          <MultiSelect rotulo="Operador" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
         )}
         {canais.length > 0 && (
           <MultiSelect rotulo="Canal" grupos={gruposCanal(canais)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
@@ -1688,18 +1706,23 @@ export default function HmTabelaPage() {
                   {visiveis.length === 0 ? (
                     <tr>
                       <td colSpan={colunas.length + 2} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500">
-                        {lente ? "Ninguém nesta lente — contagem zero também é informação." : "Nenhum aluno com esses filtros."}
+                        {lente ? "Ninguém nesta lente — contagem zero também é informação." : "Nenhum lead com esses filtros."}
                       </td>
                     </tr>
                   ) : (
                     visiveis.map((l) => {
                       const bloq = linhaBloqueada(l);
+                      const colega = linhaColega(l);
                       const recompra = !!origemRecompra(l.tags);
                       return (
                       <tr
                         key={l.comprador_id}
                         onClick={() => abrirFicha(l.comprador_id)}
-                        title={bloq ? TITLE_CARD_CANCELADO : "Clique para abrir a ficha"}
+                        title={bloq
+                          ? TITLE_CARD_CANCELADO
+                          : colega
+                            ? `Card de ${l.responsavel ?? "outro operador"} — clique para abrir em leitura`
+                            : "Clique para abrir a ficha"}
                         // O `bg-*` explícito em TODA linha não é decoração: as células
                         // fixas usam `bg-inherit`, e sem um fundo sólido no <tr> o texto
                         // rolado por baixo apareceria através delas.
@@ -1731,8 +1754,12 @@ export default function HmTabelaPage() {
                           <input
                             type="checkbox"
                             checked={marcados.has(l.comprador_id)}
-                            disabled={bloq}
-                            title={bloq ? TITLE_CARD_CANCELADO : undefined}
+                            disabled={bloq || colega}
+                            title={bloq
+                              ? TITLE_CARD_CANCELADO
+                              : colega
+                                ? `Card de ${l.responsavel ?? "outro operador"} — lote não age em card de colega`
+                                : undefined}
                             onChange={() => setMarcados((prev) => {
                               const next = new Set(prev);
                               if (next.has(l.comprador_id)) next.delete(l.comprador_id); else next.add(l.comprador_id);
@@ -1786,7 +1813,7 @@ export default function HmTabelaPage() {
             {/* O rodapé onde o dinheiro aparece somado — recalculado a cada
                 filtro/lente/busca, sempre sobre o que está na tela. */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
-              <span className="font-semibold text-slate-800 dark:text-slate-100">{visiveis.length} aluno(s)</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-100">{visiveis.length} lead(s)</span>
               <span>
                 · saldo a receber <strong className="tabular-nums text-slate-800 dark:text-slate-100">{brl(totSaldo)}</strong>
                 {/* O sufixo só aparece quando a soma é incompleta — no caso normal
@@ -1805,7 +1832,7 @@ export default function HmTabelaPage() {
                   </span>
                 )}
               </span>
-              <span>· {semResp} sem responsável</span>
+              <span>· {semResp} sem operador</span>
               <span>· {comLink} com link enviado</span>
               <span>· média de {mediaDias} dia(s) parado(s)</span>
               {salvando && <span className="inline-flex items-center gap-1 text-brand dark:text-brand-300"><Spinner className="h-3 w-3" /> salvando…</span>}
@@ -1832,15 +1859,15 @@ export default function HmTabelaPage() {
                 onChange={(e) => {
                   const v = e.target.value;
                   if (!v) return;
-                  if (v === "__remover") lote({ responsavel: null }, "remover responsável");
+                  if (v === "__remover") lote({ responsavel: null }, "remover operador");
                   else lote({ responsavel: v }, `atribuir a ${v}`);
                 }}
                 className={cn(fieldCompactClass, "py-1.5 text-xs")}
-                title="Atribuir responsável (registra na timeline de cada um)"
+                title="Atribuir operador (registra na timeline de cada um)"
               >
-                <option value="">Responsável…</option>
+                <option value="">Operador…</option>
                 {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-                <option value="__remover">— remover responsável —</option>
+                <option value="__remover">— remover operador —</option>
               </select>
             )}
             <select

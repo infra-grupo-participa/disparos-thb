@@ -23,7 +23,7 @@ export default async function SelecaoPortal({ searchParams }: { searchParams: { 
       <div className="mb-8 flex flex-col items-center text-center">
         <MarcaCasa altura="h-11" className="mb-3" />
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Escolha o portal</h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Cada evento tem o seu espaço, com telas e contatos próprios.</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Cada evento tem o seu espaço, com telas e leads próprios.</p>
         {semAcesso && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
             Você não tem acesso a esse portal. Fale com um administrador do Grupo Participa.

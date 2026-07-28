@@ -38,7 +38,7 @@ export async function GET(req: Request) {
   // RECORTADA por nível (regra única em listaResponsaveis, visibilidade.ts —
   // a mesma do board): master = todos + legados; gestor = a própria equipe;
   // operador = só ele. A UI confia nesta lista para o seletor de atribuição.
-  const responsaveis = await listaResponsaveis(g.sessao, {
+  const responsaveis = await listaResponsaveis(g.sessao, "HM", {
     sql: `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''`,
   });
   // `qtd` alimenta a régua de canais fixos — o placar do canal inteiro, sem os

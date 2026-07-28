@@ -9,14 +9,24 @@ import { CardLigacoes } from "@/app/_components/ligacao";
 import { Copiavel } from "@/app/_components/copiavel";
 import { Reveal, AnimNum } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
+import { useMe, msgErroPermissao } from "@/app/_components/use-me";
+import { toast } from "@/app/_components/toast";
 
 type Estagio = { chave: string; nome: string; cor: string | null };
 type Contato = {
   comprador_id: string; nome: string; email: string; telefone: string | null;
   edicao: string | null; ultima_compra_ht: string | null;
   estagio_chave: string | null; estagio_nome: string | null;
+  // Dono do lead (a rota já devolve) — decide o modo leitura da ficha de colega.
+  responsavel?: string | null; responsavel_id?: string | null;
   proxima_acao_em: string | null; proxima_acao_nota: string | null;
   observacoes: string | null; ultima_resposta_em: string | null;
+  // ----- acordo e crédito (0149; contrato no PATCH /api/contato/[id]) -----
+  // Opcionais DE PROPÓSITO (leitura tolerante): a rota devolve os 5 campos
+  // dentro de `contato` (null enquanto a migration 0149 não estiver aplicada);
+  // num payload antigo sem as chaves, o bloco nem renderiza.
+  acordo?: string | null; pagamento_previsto_em?: string | null;
+  credito_oferta?: string | null; credito_compra_em?: string | null; credito_valor_pago?: number | string | null;
   edicao_ht: string | null;
   legado_ativado: boolean | null;
   legado_sla_h: number | null;
@@ -154,6 +164,7 @@ function FormularioCard({ f }: { f: Formulario }) {
 export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   const id = params.id;
   const { evento, base } = usePortal();
+  const { ehCardDeColega } = useMe();
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [contato, setContato] = useState<Contato | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
@@ -165,6 +176,9 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   const [obs, setObs] = useState("");
   const [proxData, setProxData] = useState("");
   const [proxNota, setProxNota] = useState("");
+  // Rascunhos do acordo (salvam no blur, como no HM).
+  const [previsao, setPrevisao] = useState("");
+  const [acordo, setAcordo] = useState("");
 
   const carregar = useCallback(async () => {
     const r = await fetch(`/api/contato/${id}?evento=${evento}`);
@@ -179,6 +193,8 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
       setObs(d.contato.observacoes || "");
       setProxNota(d.contato.proxima_acao_nota || "");
       setProxData(d.contato.proxima_acao_em ? d.contato.proxima_acao_em.slice(0, 16) : "");
+      setPrevisao(d.contato.pagamento_previsto_em ? String(d.contato.pagamento_previsto_em).slice(0, 10) : "");
+      setAcordo(d.contato.acordo ?? "");
     }
   }, [id, evento]);
 
@@ -187,7 +203,14 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
     carregar();
   }, [carregar, evento]);
 
+  // Ficha de lead de COLEGA (28/07): o operador VÊ (timeline, formulários,
+  // atendimentos), mas não altera — a API recusa com 403 `card_de_outro_operador`.
+  // A regra é o escopoAcao de lib/papeis (via useMe.ehCardDeColega).
+  const somenteLeitura = ehCardDeColega(contato);
+
   async function patch(payload: Record<string, unknown>) {
+    // Toda escrita da ficha passa por aqui — barrar no ponto único.
+    if (somenteLeitura) { toast(msgErroPermissao("card_de_outro_operador")!, "erro"); return; }
     await fetch(`/api/contato/${id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
@@ -205,8 +228,16 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   return (
     <div className="pb-12">
       <Link href={`${base}/contatos`} className="text-sm text-slate-500 transition-colors hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
-        ← Contatos
+        ← Leads
       </Link>
+
+      {/* Ficha de colega: contexto, não erro — o mesmo aviso slate do HM. */}
+      {somenteLeitura && (
+        <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+          <strong className="text-slate-700 dark:text-slate-200">Lead de {contato.responsavel ?? "outro operador"}.</strong>{" "}
+          Você pode ver a ficha, a timeline e os atendimentos, mas não alterar — só quem pode agir é o dono ou o gestor.
+        </div>
+      )}
 
       {/* Painel 360° — identidade, termômetro, sinais e ações num relance */}
       <Reveal>
@@ -301,8 +332,8 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
 
         {/* Painel de CS */}
         <div className="space-y-5">
-          {/* Ligações */}
-          <CardLigacoes compradorId={id} telefone={contato.telefone} onRegistrado={carregar} />
+          {/* Ligações — em ficha de colega a lista fica (é leitura); registrar some. */}
+          <CardLigacoes compradorId={id} telefone={contato.telefone} onRegistrado={carregar} somenteLeitura={somenteLeitura} />
 
           {/* E-mail (ActiveCampaign) — engajamento desta pessoa */}
           <Card className="p-4">
@@ -343,6 +374,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
             <SectionTitle>Estágio</SectionTitle>
             <select
               value={contato.estagio_chave || ""}
+              disabled={somenteLeitura}
               onChange={(e) => patch({ estagio_chave: e.target.value })}
               className={fieldClass}
             >
@@ -355,35 +387,125 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
             )}
           </Card>
 
+          {/* ACORDO DO CLIENTE (0149) — o espelho do bloco "Acordo do saldo" do
+              HM (hm-drawer): mesmos rótulos, mesmo salvar-no-blur. Contrato no
+              comentário do PATCH /api/contato/[id]. Leitura TOLERANTE: payload
+              sem as chaves (deploy antigo) = o bloco nem aparece. Sem pró-rata
+              aqui — isso é regra do HM; o crédito não se consome com o tempo. */}
+          {(contato.acordo !== undefined || contato.pagamento_previsto_em !== undefined) && (
+            <Card className="p-4">
+              <SectionTitle>Acordo do cliente</SectionTitle>
+              <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                O combinado
+                <textarea
+                  value={acordo}
+                  disabled={somenteLeitura}
+                  onChange={(e) => setAcordo(e.target.value)}
+                  onBlur={() => { if (acordo !== (contato.acordo ?? "")) patch({ acordo: acordo || null }); }}
+                  rows={2}
+                  placeholder="12x no boleto, primeira parcela dia 15…"
+                  className={fieldClass}
+                />
+              </label>
+              <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                Previsão de pagamento
+                <input
+                  type="date"
+                  value={previsao}
+                  disabled={somenteLeitura}
+                  onChange={(e) => setPrevisao(e.target.value)}
+                  onBlur={() => { if (previsao !== (contato.pagamento_previsto_em ? String(contato.pagamento_previsto_em).slice(0, 10) : "")) patch({ pagamento_previsto_em: previsao || null }); }}
+                  className={fieldClass}
+                />
+              </label>
+
+              {/* Crédito: de onde vem o saldo a descontar na oferta. */}
+              {contato.credito_valor_pago !== undefined && (
+                <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    Crédito para descontar na oferta
+                  </p>
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    De onde vem (oferta/compra anterior)
+                    <input
+                      key={contato.credito_oferta ?? ""}
+                      defaultValue={contato.credito_oferta ?? ""}
+                      disabled={somenteLeitura}
+                      onBlur={(e) => { const v = e.target.value.trim(); if (v !== (contato.credito_oferta ?? "")) patch({ credito_oferta: v || null }); }}
+                      placeholder="Ex.: Renovação 2026"
+                      className={fieldClass}
+                    />
+                  </label>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                      Compra em
+                      <input
+                        type="date"
+                        key={contato.credito_compra_em ?? ""}
+                        defaultValue={contato.credito_compra_em ? String(contato.credito_compra_em).slice(0, 10) : ""}
+                        disabled={somenteLeitura}
+                        onBlur={(e) => { const v = e.target.value; if (v !== (contato.credito_compra_em ? String(contato.credito_compra_em).slice(0, 10) : "")) patch({ credito_compra_em: v || null }); }}
+                        className={fieldClass}
+                      />
+                    </label>
+                    <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                      Valor pago (R$)
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        key={String(contato.credito_valor_pago ?? "")}
+                        defaultValue={contato.credito_valor_pago != null ? String(Number(contato.credito_valor_pago)) : ""}
+                        disabled={somenteLeitura}
+                        onBlur={(e) => {
+                          const atual = contato.credito_valor_pago != null ? String(Number(contato.credito_valor_pago)) : "";
+                          if (e.target.value !== atual) patch({ credito_valor_pago: e.target.value === "" ? null : Number(e.target.value) });
+                        }}
+                        className={fieldClass}
+                      />
+                    </label>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                    O valor pago é o saldo a descontar na oferta — aqui ele não se consome com o tempo (pró-rata é regra do HM).
+                  </p>
+                </div>
+              )}
+            </Card>
+          )}
+
           {/* Próxima ação */}
           <Card className="p-4">
             <SectionTitle>Próxima ação (follow-up)</SectionTitle>
             <input
               type="datetime-local"
               value={proxData}
+              disabled={somenteLeitura}
               onChange={(e) => setProxData(e.target.value)}
               className={fieldClass}
             />
             <input
               placeholder="O que fazer…"
               value={proxNota}
+              disabled={somenteLeitura}
               onChange={(e) => setProxNota(e.target.value)}
               className={cn(fieldClass, "mt-2")}
             />
             <Button
               variant="primary"
               className="mt-3 w-full"
+              disabled={somenteLeitura}
               onClick={() => patch({ proxima_acao_em: proxData, proxima_acao_nota: proxNota })}
             >
               Salvar follow-up
             </Button>
           </Card>
 
-          {/* Observações */}
+          {/* Anotações internas do lead */}
           <Card className="p-4">
-            <SectionTitle>Observações</SectionTitle>
+            <SectionTitle>Anotações</SectionTitle>
             <textarea
               value={obs}
+              disabled={somenteLeitura}
               onChange={(e) => setObs(e.target.value)}
               rows={3}
               className={fieldClass}
@@ -391,9 +513,10 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
             <Button
               variant="secondary"
               className="mt-3 w-full"
+              disabled={somenteLeitura}
               onClick={() => patch({ observacoes: obs })}
             >
-              Salvar observações
+              Salvar anotações
             </Button>
           </Card>
 
@@ -402,6 +525,7 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
             <SectionTitle>Adicionar nota à timeline</SectionTitle>
             <input
               value={nota}
+              disabled={somenteLeitura}
               onChange={(e) => setNota(e.target.value)}
               placeholder="Ex: ligou pedindo nota fiscal"
               className={fieldClass}
@@ -410,15 +534,15 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
               variant="secondary"
               className="mt-3 w-full"
               onClick={async () => { await patch({ nota }); setNota(""); }}
-              disabled={!nota.trim()}
+              disabled={!nota.trim() || somenteLeitura}
             >
               Adicionar nota
             </Button>
           </Card>
 
-          {/* Histórico CS (planilha) */}
+          {/* Histórico da planilha (legado) */}
           <Card className="p-4">
-            <SectionTitle>Histórico CS (planilha)</SectionTitle>
+            <SectionTitle>Histórico da planilha (legado)</SectionTitle>
             <div className="space-y-0">
               <LegadoLinha rotulo="Ativado" valor={fmtBool(contato.legado_ativado)} />
               <LegadoLinha rotulo="SLA (h)" valor={contato.legado_sla_h != null ? fmtNum(contato.legado_sla_h) : null} />

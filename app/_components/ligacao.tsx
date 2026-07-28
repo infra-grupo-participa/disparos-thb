@@ -115,8 +115,11 @@ const PhoneIcon = ({ className }: { className?: string }) => (
 );
 
 // ---- Histórico + botão, na ficha do contato --------------------------------
-export function CardLigacoes({ compradorId, telefone, onRegistrado }: {
+export function CardLigacoes({ compradorId, telefone, onRegistrado, somenteLeitura }: {
   compradorId: string; telefone: string | null; onRegistrado?: () => void;
+  // Ficha de lead de OUTRO operador (28/07): a lista de atendimentos é leitura
+  // (o ponto é ver as ações dos colegas); registrar é agir — o botão some.
+  somenteLeitura?: boolean;
 }) {
   const [itens, setItens] = useState<Atendimento[]>([]);
   const [aberto, setAberto] = useState(false);
@@ -132,9 +135,11 @@ export function CardLigacoes({ compradorId, telefone, onRegistrado }: {
     <Card className="p-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Atendimentos</h2>
-        <Button variant="primary" className="h-8 gap-1.5 px-3 text-xs" onClick={() => setAberto(true)} disabled={!telefone}>
-          <PhoneIcon className="h-3.5 w-3.5" /> Registrar
-        </Button>
+        {!somenteLeitura && (
+          <Button variant="primary" className="h-8 gap-1.5 px-3 text-xs" onClick={() => setAberto(true)} disabled={!telefone}>
+            <PhoneIcon className="h-3.5 w-3.5" /> Registrar
+          </Button>
+        )}
       </div>
       {!telefone && <p className="mt-2 text-xs text-rose-500 dark:text-rose-400">Sem telefone cadastrado.</p>}
 

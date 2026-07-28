@@ -132,7 +132,7 @@ export default function HmReunioesPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Reuniões · Holding Masters</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            As reuniões e entrevistas em uma lista — com responsável, resultado, remarcações e a gravação.
+            As reuniões e entrevistas em uma lista — com operador, resultado, remarcações e a gravação.
           </p>
         </div>
         <HmVisao atual="reunioes" filtros={{}} podeConfig={podeDistribuir()} />
@@ -173,8 +173,8 @@ export default function HmReunioesPage() {
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:text-slate-500">
                   <th className="px-4 py-2.5 font-medium">Quando</th>
                   <th className="px-3 py-2.5 font-medium">Tipo</th>
-                  <th className="px-3 py-2.5 font-medium">Aluno</th>
-                  <th className="px-3 py-2.5 font-medium">Responsável</th>
+                  <th className="px-3 py-2.5 font-medium">Lead</th>
+                  <th className="px-3 py-2.5 font-medium">Operador</th>
                   <th className="px-3 py-2.5 font-medium">Resultado</th>
                   <th className="px-3 py-2.5 text-center font-medium" title="Quantas vezes remarcou">Remarc.</th>
                   <th className="px-4 py-2.5 text-right font-medium">Gravação</th>

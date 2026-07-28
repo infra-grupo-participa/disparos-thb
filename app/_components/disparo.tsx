@@ -301,7 +301,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
               >
                 {criandoContatos ? "1" : "✓"}
               </span>
-              Contatos · {resumo.criados}/{resumo.total}
+              Leads · {resumo.criados}/{resumo.total}
             </span>
             <span className="text-slate-300 dark:text-slate-600" aria-hidden>→</span>
             <span
@@ -336,7 +336,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
         </Card>
 
         <div className="mt-6 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Contatos</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Leads</span>
           {!criandoContatos && (
             <Button variant="secondary" size="sm" onClick={sincronizarStatus} disabled={sincronizando}>
               {sincronizando && <Spinner className="h-3.5 w-3.5" />}
@@ -406,11 +406,11 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
     return (
       <div className={wrap}>
         <EmptyState
-          title="Nenhum contato selecionado"
-          description="Vá em Contatos, selecione os destinatários e clique em “Disparar” para começar."
+          title="Nenhum lead selecionado"
+          description="Vá em Leads, selecione os destinatários e clique em “Disparar” para começar."
           action={
             <Link href={`${base}/contatos`}>
-              <Button variant="primary">Ir para Contatos</Button>
+              <Button variant="primary">Ir para Leads</Button>
             </Link>
           }
         />

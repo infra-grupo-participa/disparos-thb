@@ -60,7 +60,7 @@ const TL_ICONE: Record<string, { path: string; wrap: string }> = {
 
 export default function HmFichaPage({ params }: { params: { id: string } }) {
   const compradorId = params.id;
-  const { me, podeDistribuir } = useMe();
+  const { me, podeDistribuir, ehCardDeColega } = useMe();
   const [c, setC] = useState<Contato | null>(null);
   // 403 no GET (ex.: link direto para um card cancelado — só o master acessa):
   // guarda o MOTIVO para a tela não mentir "aluno não encontrado".
@@ -108,7 +108,15 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
     fetch("/api/usuarios").then((r) => r.json()).then((d) => { if (d.ok) setResponsaveis(d.usuarios.filter((u: { ativo: boolean }) => u.ativo).map((u: { nome: string }) => u.nome)); }).catch(() => {});
   }, []);
 
+  // Ficha de COLEGA (28/07): abre em LEITURA — o operador vê timeline,
+  // formulários e histórico, mas não altera (a API recusa com 403
+  // `card_de_outro_operador`). A regra é o escopoAcao de lib/papeis (via
+  // useMe.ehCardDeColega), a MESMA do backend.
+  const somenteLeitura = ehCardDeColega(c);
+
   async function patch(payload: Record<string, unknown>) {
+    // Toda escrita da ficha passa por aqui — barrar no ponto único.
+    if (somenteLeitura) { window.alert(msgErroPermissao("card_de_outro_operador")); return; }
     setSalvando(true);
     try {
       const r = await fetch(`/api/hm/contato/${compradorId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -139,7 +147,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
       </div>
     );
   }
-  if (!c) return <div className="py-24 text-center text-slate-500">Aluno não encontrado. <Link href="/hm/kanban" className="text-brand underline">Voltar à esteira</Link></div>;
+  if (!c) return <div className="py-24 text-center text-slate-500">Lead não encontrado. <Link href="/hm/kanban" className="text-brand underline">Voltar à esteira</Link></div>;
 
   const tags = c.tags ?? [];
   // A marca de pago é apto_ativacao; pagamento_em é o histórico (fica mesmo quando
@@ -192,25 +200,32 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
 
       {aba === "resumo" && (
         <div className="space-y-5">
-          {/* Plano contratado + etapa + responsável */}
+          {/* Ficha de colega: contexto, não erro — o mesmo aviso slate do drawer. */}
+          {somenteLeitura && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+              <strong className="text-slate-700 dark:text-slate-200">Card de {c.responsavel ?? "outro operador"}.</strong>{" "}
+              Você pode ver a ficha, a timeline e o histórico, mas não alterar — só quem pode agir é o dono ou o gestor.
+            </div>
+          )}
+          {/* Plano contratado + etapa + operador */}
           <Secao titulo="Contratação">
             <div className="grid gap-4 sm:grid-cols-2">
               <Campo label="Plano contratado (oferta)">
-                <input defaultValue={c.plano ?? ""} onBlur={(e) => e.target.value !== (c.plano ?? "") && patch({ plano: e.target.value })} className={fieldClass} placeholder="Ex.: HM 15k" />
+                <input defaultValue={c.plano ?? ""} disabled={somenteLeitura} onBlur={(e) => e.target.value !== (c.plano ?? "") && patch({ plano: e.target.value })} className={fieldClass} placeholder="Ex.: HM 15k" />
               </Campo>
               <Campo label="Etapa da jornada">
-                <select value={c.estagio_chave ?? ""} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass}>
+                <select value={c.estagio_chave ?? ""} disabled={somenteLeitura} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass}>
                   {estagios.map((s) => <option key={s.chave} value={s.chave}>{s.aba === "ativacao" ? "Ativação · " : "Comercial · "}{s.nome}</option>)}
                 </select>
               </Campo>
-              <Campo label="Responsável (CS)">
+              <Campo label="Operador">
                 {podeDistribuir() ? (
                   // MASTER/GESTOR distribuem pelo seletor (o backend barra destino
                   // fora da equipe do gestor e devolve o motivo).
                   <div className="flex items-center gap-2">
                     {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
                     <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass}>
-                      <option value="">— Sem responsável —</option>
+                      <option value="">— Sem operador —</option>
                       {c.responsavel && !responsaveis.includes(c.responsavel) && <option value={c.responsavel}>{c.responsavel}</option>}
                       {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
@@ -241,7 +256,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                         No pool — atribuir a mim
                       </button>
                     ) : (
-                      <span className="text-sm text-slate-400">— Sem responsável —</span>
+                      <span className="text-sm text-slate-400">— Sem operador —</span>
                     )}
                   </div>
                 )}
@@ -261,6 +276,9 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
                 Pagamento registrado {c.pagamento_forma === "parcelado" ? `(parcelado${c.pagamento_parcelas ? ` em ${c.pagamento_parcelas}x` : ""})` : "(à vista)"} em {fmt(c.pagamento_em)}
               </div>
+            ) : somenteLeitura ? (
+              // Ficha de colega: registrar pagamento é agir — o formulário some.
+              <p className="text-sm text-slate-400 dark:text-slate-500">Saldo em aberto — o registro do pagamento é do dono do card ou do gestor.</p>
             ) : (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-end gap-3">
@@ -316,12 +334,12 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
             <div className="grid gap-4 sm:grid-cols-2">
               <Campo label="Data e hora">
                 <div className="flex items-center gap-2">
-                  <input type="datetime-local" value={reuniaoLocal} onChange={(e) => setReuniaoLocal(e.target.value)} className={fieldClass} />
-                  <Button variant="secondary" size="sm" disabled={salvando} onClick={() => patch({ reuniao_em: fromLocalInput(reuniaoLocal) })}>Salvar</Button>
+                  <input type="datetime-local" value={reuniaoLocal} disabled={somenteLeitura} onChange={(e) => setReuniaoLocal(e.target.value)} className={fieldClass} />
+                  <Button variant="secondary" size="sm" disabled={salvando || somenteLeitura} onClick={() => patch({ reuniao_em: fromLocalInput(reuniaoLocal) })}>Salvar</Button>
                 </div>
               </Campo>
               <Campo label="Resultado">
-                <input defaultValue={c.reuniao_resultado ?? ""} onBlur={(e) => e.target.value !== (c.reuniao_resultado ?? "") && patch({ reuniao_resultado: e.target.value })} className={fieldClass} placeholder="Ex.: interessado, remarcar…" />
+                <input defaultValue={c.reuniao_resultado ?? ""} disabled={somenteLeitura} onBlur={(e) => e.target.value !== (c.reuniao_resultado ?? "") && patch({ reuniao_resultado: e.target.value })} className={fieldClass} placeholder="Ex.: interessado, remarcar…" />
               </Campo>
             </div>
           </Secao>
@@ -331,12 +349,12 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
             <div className="grid gap-4 sm:grid-cols-2">
               <Campo label="Data e hora">
                 <div className="flex items-center gap-2">
-                  <input type="datetime-local" value={entrevistaLocal} onChange={(e) => setEntrevistaLocal(e.target.value)} className={fieldClass} />
-                  <Button variant="secondary" size="sm" disabled={salvando} onClick={() => patch({ entrevista_em: fromLocalInput(entrevistaLocal) })}>Salvar</Button>
+                  <input type="datetime-local" value={entrevistaLocal} disabled={somenteLeitura} onChange={(e) => setEntrevistaLocal(e.target.value)} className={fieldClass} />
+                  <Button variant="secondary" size="sm" disabled={salvando || somenteLeitura} onClick={() => patch({ entrevista_em: fromLocalInput(entrevistaLocal) })}>Salvar</Button>
                 </div>
               </Campo>
               <Campo label="Resultado">
-                <input defaultValue={c.entrevista_resultado ?? ""} onBlur={(e) => e.target.value !== (c.entrevista_resultado ?? "") && patch({ entrevista_resultado: e.target.value })} className={fieldClass} placeholder="Ex.: aprovado, pendências…" />
+                <input defaultValue={c.entrevista_resultado ?? ""} disabled={somenteLeitura} onBlur={(e) => e.target.value !== (c.entrevista_resultado ?? "") && patch({ entrevista_resultado: e.target.value })} className={fieldClass} placeholder="Ex.: aprovado, pendências…" />
               </Campo>
             </div>
           </Secao>
@@ -348,10 +366,11 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                 {tags.map((t) => (
                   <span key={t} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                     {t}
-                    <button onClick={() => patch({ tags: tags.filter((x) => x !== t) })} className="opacity-60 hover:opacity-100">×</button>
+                    {!somenteLeitura && <button onClick={() => patch({ tags: tags.filter((x) => x !== t) })} className="opacity-60 hover:opacity-100">×</button>}
                   </span>
                 ))}
                 <input
+                  disabled={somenteLeitura}
                   placeholder="+ tag"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -362,10 +381,10 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                   className="w-20 rounded-full border border-dashed border-slate-300 bg-transparent px-2 py-0.5 text-xs outline-none placeholder:text-slate-400 focus:border-brand dark:border-slate-600 dark:text-slate-200"
                 />
               </div>
-              <textarea defaultValue={c.observacoes ?? ""} onBlur={(e) => e.target.value !== (c.observacoes ?? "") && patch({ observacoes: e.target.value })} rows={2} className={fieldClass} placeholder="Observações internas…" />
+              <textarea defaultValue={c.observacoes ?? ""} disabled={somenteLeitura} onBlur={(e) => e.target.value !== (c.observacoes ?? "") && patch({ observacoes: e.target.value })} rows={2} className={fieldClass} placeholder="Anotações internas…" />
               <div className="flex items-end gap-2">
-                <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} className={fieldClass} placeholder="Adicionar nota à timeline…" />
-                <Button variant="secondary" disabled={!nota.trim() || salvando} onClick={() => { patch({ nota }); setNota(""); }}>Anotar</Button>
+                <textarea value={nota} disabled={somenteLeitura} onChange={(e) => setNota(e.target.value)} rows={2} className={fieldClass} placeholder="Adicionar nota à timeline…" />
+                <Button variant="secondary" disabled={!nota.trim() || salvando || somenteLeitura} onClick={() => { patch({ nota }); setNota(""); }}>Anotar</Button>
               </div>
             </div>
           </Secao>
@@ -374,7 +393,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
 
       {aba === "forms" && (
         formularios.length === 0 ? (
-          <p className="py-4 text-sm text-slate-400 dark:text-slate-500">Nenhum formulário respondido (Respondi) por este aluno ainda.</p>
+          <p className="py-4 text-sm text-slate-400 dark:text-slate-500">Nenhum formulário respondido (Respondi) por este lead ainda.</p>
         ) : (
           <div className="space-y-4">
             {formularios.map((f, i) => {

@@ -86,19 +86,26 @@ const MSG = {
   destino_fora_da_equipe: "Você só pode atribuir para alguém da sua equipe.",
   atribuicao_travada: "A atribuição deste card foi travada pelo administrador — só o Grupo Participa pode alterá-la.",
   cancelamento_so_admin_gp: "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.",
+  card_de_outro_operador: "Este card é de outro operador da sua equipe — você pode ver a ficha e o histórico, mas não alterar. Fale com seu gestor para redistribuir.",
   unauthorized: "Sua sessão expirou — entre de novo.",
 };
 
 const PERGUNTAS: Pergunta[] = [
   {
-    q: "Não estou vendo o card de um colega. O sistema sumiu com ele?",
-    busca: "nao vejo card colega sumiu desapareceu visibilidade fulano",
+    q: "O card do colega abre, mas está tudo travado. É defeito?",
+    busca: "card colega leitura travado nao edita outro operador visibilidade fulano com",
     a: (
       <>
         <P>
-          Não sumiu — é o desenho do sistema. Como <B>operador</B>, você enxerga o <B>pool</B> (cards sem dono)
-          e os <B>seus</B> cards. O card do colega existe, mas está na carteira dele; quem acompanha a equipe
-          inteira é o gestor. Se você precisa trabalhar aquele contato, fale com seu gestor para ele redistribuir.
+          Não é defeito — é o desenho. Como <B>operador</B>, você enxerga o pool <B>e todos os cards da sua
+          equipe</B>, inclusive os dos colegas: dá para abrir a ficha, ler a timeline e acompanhar o que cada um
+          fez. Mas <B>agir</B> (mover etapa, editar campos, disparar) só no que é <B>seu</B> ou está no{" "}
+          <B>pool</B>. Se você tentar mesmo assim, verá:
+        </P>
+        <Msg>{MSG.card_de_outro_operador}</Msg>
+        <P>
+          O card do colega vem marcado com o nome do dono (ex.: “com Ana”). Se aquele lead precisa passar para
+          você, é o gestor quem redistribui.
         </P>
       </>
     ),
@@ -118,14 +125,14 @@ const PERGUNTAS: Pergunta[] = [
     ),
   },
   {
-    q: "O card está com uma trava e não consigo mudar o responsável.",
+    q: "O card está com uma trava e não consigo mudar o operador.",
     busca: "trava travado cadeado ambar atribuicao travada admin",
     a: (
       <>
         <Msg>{MSG.atribuicao_travada}</Msg>
         <P>
           Quando o administrador do Grupo Participa atribui um card, ele pode <B>travar</B> essa atribuição
-          (a ficha mostra um aviso âmbar com cadeado). A partir daí, nem gestor troca o responsável — a
+          (a ficha mostra um aviso âmbar com cadeado). A partir daí, nem gestor troca o operador — a
           alteração é só com o administrador do GP.
         </P>
       </>
@@ -231,7 +238,7 @@ const PERGUNTAS: Pergunta[] = [
       <>
         <P>
           O botão puxa para você os leads <B>sem dono</B> (do pool). Se aparecer “Nenhum lead sem dono
-          disponível agora”, é porque o pool do portal está vazio — todos os leads já têm responsável.
+          disponível agora”, é porque o pool do portal está vazio — todos os leads já têm dono.
           Fale com seu gestor se a sua carteira está vazia.
         </P>
       </>
@@ -244,7 +251,7 @@ const PERGUNTAS: Pergunta[] = [
 const NIVEL_LABEL: Record<string, { rotulo: string; resumo: string }> = {
   master: { rotulo: "Administrador do Grupo Participa", resumo: "você vê todos os cards, de todas as equipes, e pode atribuir para qualquer pessoa." },
   gestor: { rotulo: "Gestor de equipe", resumo: "você vê o pool + todos os cards da sua equipe, e distribui entre as pessoas dela." },
-  operador: { rotulo: "Operador", resumo: "você vê o pool (cards livres) + os cards atribuídos a você." },
+  operador: { rotulo: "Operador", resumo: "você vê o pool + os cards da sua equipe; age no que é seu ou está livre (o card do colega abre em leitura)." },
 };
 
 const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -270,8 +277,8 @@ export default function CentralAjuda() {
           </P>
           <ul className="mt-3 space-y-1.5">
             <Li><B>Trocar de portal:</B> clique no botão com a bolinha colorida, ao lado da logo no topo. Ele leva à tela de seleção. Você só entra nos portais liberados para a sua conta.</Li>
-            <Li><B>Menu principal:</B> Meu dia, Jornada (o Kanban), Contatos, Inbox, Disparos, Dashboard e Templates. No HM o menu é outro: Jornada, Agendamentos, Inbox, Disparos e Templates (Equipes e Acessos aparecem só para gestor/administrador).</Li>
-            <Li><B>Buscar um contato:</B> use a busca no topo (ou <Kbd>Ctrl</Kbd> + <Kbd>K</Kbd>). Digite nome, e-mail ou telefone e abra a ficha direto.</Li>
+            <Li><B>Menu principal:</B> Meu dia, Jornada (o Kanban), Leads, Inbox, Disparos, Dashboard, Atividade e Templates. No HM o menu é outro: Jornada, Agendamentos, Inbox, Disparos e Templates (Equipes e Acessos aparecem só para gestor/administrador).</Li>
+            <Li><B>Buscar um lead:</B> use a busca no topo (ou <Kbd>Ctrl</Kbd> + <Kbd>K</Kbd>). Digite nome, e-mail ou telefone e abra a ficha direto.</Li>
             <Li><B>Sua conta:</B> clique no seu nome no canto direito para trocar a senha ou sair.</Li>
           </ul>
         </>
@@ -305,8 +312,8 @@ export default function CentralAjuda() {
               <tbody className="divide-y divide-slate-100 text-slate-600 dark:divide-slate-800 dark:text-slate-300">
                 <tr>
                   <td className="py-2.5 pr-3 font-semibold text-slate-800 dark:text-slate-100">Operador</td>
-                  <td className="py-2.5 pr-3">O pool (cards livres) + os cards dele</td>
-                  <td className="py-2.5">Só assume para si um card do pool</td>
+                  <td className="py-2.5 pr-3">O pool + todos os cards da equipe dele (os dos colegas, em leitura)</td>
+                  <td className="py-2.5">Só assume para si um card do pool; age só no que é dele</td>
                 </tr>
                 <tr>
                   <td className="py-2.5 pr-3 font-semibold text-slate-800 dark:text-slate-100">Gestor</td>
@@ -324,10 +331,11 @@ export default function CentralAjuda() {
           <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50/60 p-3 dark:border-teal-500/25 dark:bg-teal-500/10">
             <p className="text-sm font-semibold text-teal-800 dark:text-teal-200">A regra do pool</p>
             <p className="mt-1 text-sm leading-relaxed text-teal-800/90 dark:text-teal-100/80">
-              Card <B>sem responsável e sem equipe</B> está no <B>pool</B>: todo mundo o vê, e qualquer
+              Card <B>sem operador e sem equipe</B> está no <B>pool</B>: todo mundo o vê, e qualquer
               operador pode assumi-lo. Assim que alguém vira o dono, o card passa a pertencer àquela pessoa
-              (e à equipe dela) — e <B>some da visão dos operadores das outras carteiras</B>. É por isso que
-              “não estou vendo o card de fulano” quase nunca é defeito: o card ganhou dono.
+              (e à equipe dela): os <B>colegas da mesma equipe continuam vendo</B> — em leitura, com o nome
+              do dono no card — e as <B>outras equipes deixam de ver</B>. Quem age no card é só o dono
+              (ou o gestor, redistribuindo).
             </p>
           </div>
           {ehHM && (
@@ -347,7 +355,7 @@ export default function CentralAjuda() {
         <>
           <P>
             O Kanban é a esteira do portal: cada <B>coluna é uma etapa</B> da jornada e cada <B>card é um
-            contato</B>. Seu trabalho é fazer o card andar para a direita.
+            lead</B>. Seu trabalho é fazer o card andar para a direita.
           </P>
           <ul className="mt-3 space-y-1.5">
             <Li><B>Mover de etapa:</B> arraste o card até a coluna de destino e solte. A mudança grava na hora e fica registrada no histórico do contato.</Li>
@@ -355,8 +363,8 @@ export default function CentralAjuda() {
             <Li><B>Botão direito no card:</B> menu rápido — selecionar, selecionar a coluna inteira, disparar, abrir detalhes.{ehHM ? " No HM o menu também move o card para qualquer etapa (das duas esteiras), desfaz o último movimento e adiciona sócio." : ""}</Li>
             <Li><B>Rolar o board:</B> a roda do mouse rola as colunas na horizontal; dentro de uma coluna cheia, rola os cards primeiro.</Li>
             <Li><B>Tempo na etapa:</B> o relógio no rodapé do card esquenta com a idade — âmbar aos 3 dias, vermelho aos 7. Card vermelho é lead esfriando.</Li>
-            <Li><B>Filtros:</B> no topo do board — por edição, responsável e tag. Bom para ver só a sua carteira ou só um grupo.</Li>
-            <Li><B>Seleção múltipla:</B> passe o mouse no card e marque a bolinha no canto (ou selecione a coluna inteira pelo cabeçalho). A barra que aparece embaixo aplica tag, atribui responsável (gestor/administrador) e dispara em lote.</Li>
+            <Li><B>Filtros:</B> no topo do board — por edição, operador e tag. Bom para ver só a sua carteira ou só um grupo.</Li>
+            <Li><B>Seleção múltipla:</B> passe o mouse no card e marque a bolinha no canto (ou selecione a coluna inteira pelo cabeçalho). A barra que aparece embaixo aplica tag, atribui operador (gestor/administrador) e dispara em lote. Card de colega não entra na seleção — nele você só lê.</Li>
             <Li><B>Ações rápidas no card:</B> ao passar o mouse, aparecem os atalhos WhatsApp, ligar, e-mail e “Conversar no inbox”.</Li>
           </ul>
           {ehHM && (
@@ -383,12 +391,13 @@ export default function CentralAjuda() {
           <P>Três jeitos de encher a sua carteira com cards livres:</P>
           <ul className="mt-3 space-y-1.5">
             <Li><B>Em lote, no Meu dia:</B> clique em <B>“Pegar próximos 20 para mim”</B>. O sistema atribui a você os leads sem dono e a sua fila já reabastece.</Li>
-            <Li><B>Um a um, pelo card:</B> abra o card; se ele estiver <B>sem responsável</B>, aparece o botão <B>“Atribuir a mim”</B> (no HM, “Assumir”). Clique e o lead é seu.</Li>
+            <Li><B>Um a um, pelo card:</B> abra o card; se ele estiver <B>sem operador</B>, aparece o botão <B>“Atribuir a mim”</B> (no HM, “Assumir”). Clique e o lead é seu.</Li>
             <Li><B>Pelo gestor:</B> quem é gestor ou administrador distribui cards pela ficha, pelo painel do card ou pela seleção em lote no board.</Li>
           </ul>
           <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-sm leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
-            <B>Importante:</B> operador não “rouba” card — se o contato já tem dono, o botão de assumir não
-            aparece. Card com dono só muda de mão pelo gestor (dentro da equipe) ou pelo administrador do GP.
+            <B>Importante:</B> operador não “rouba” card — se o lead já tem dono, o botão de assumir não
+            aparece (o card do colega abre em leitura). Card com dono só muda de mão pelo gestor (dentro da
+            equipe) ou pelo administrador do GP.
           </div>
         </>
       ),
@@ -405,7 +414,7 @@ export default function CentralAjuda() {
           </P>
           <ul className="mt-3 space-y-1.5">
             <Li>No <B>Meu dia</B>, botão <B>“Registrar”</B> ao lado de cada nome da fila.</Li>
-            <Li>Na <B>ficha do contato</B>, cartão <B>“Atendimentos”</B> → botão “Registrar”.</Li>
+            <Li>Na <B>ficha do lead</B>, cartão <B>“Atendimentos”</B> → botão “Registrar”.</Li>
           </ul>
           <p className="mt-4 text-sm font-semibold text-slate-800 dark:text-slate-100">Como preencher (leva segundos)</p>
           <ul className="mt-2 space-y-1.5">
@@ -416,7 +425,7 @@ export default function CentralAjuda() {
             <Li>Atalhos: <Kbd>Enter</Kbd> salva, <Kbd>Esc</Kbd> fecha (na anotação, <Kbd>Ctrl</Kbd> + <Kbd>Enter</Kbd> salva).</Li>
           </ul>
           <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-            <B>Onde isso aparece depois:</B> na lista “Atendimentos” da ficha do contato e no seu placar do
+            <B>Onde isso aparece depois:</B> na lista “Atendimentos” da ficha do lead e no seu placar do
             Meu dia. A aba <B>Histórico</B> do card mostra a linha do tempo completa do lead — disparos
             enviados, respostas, notas e mudanças de etapa.
           </p>
@@ -487,7 +496,7 @@ export default function CentralAjuda() {
           </ul>
           <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
             No Kanban, dá para disparar para uma etapa inteira, para os selecionados ou usar o{" "}
-            <B>Disparo inteligente</B>, que monta sozinho a lista de quem abordar. Contatos marcados{" "}
+            <B>Disparo inteligente</B>, que monta sozinho a lista de quem abordar. Leads marcados{" "}
             <B>opt-out</B> nunca recebem disparo. Os templates do portal ficam na tela <B>Templates</B> —
             são eles também que reabrem conversa fechada no Inbox.
           </p>

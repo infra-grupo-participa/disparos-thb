@@ -162,9 +162,9 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
     return (
       <div className={wrap}>
         <EmptyState
-          title="Nenhum contato selecionado"
-          description="Vá em Contatos, selecione os destinatários e dispare por e-mail."
-          action={<Link href={`${base}/contatos`}><Button variant="primary">Ir para Contatos</Button></Link>}
+          title="Nenhum lead selecionado"
+          description="Vá em Leads, selecione os destinatários e dispare por e-mail."
+          action={<Link href={`${base}/contatos`}><Button variant="primary">Ir para Leads</Button></Link>}
         />
       </div>
     );
@@ -172,7 +172,7 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
 
   return (
     <div className={wrap}>
-      <PageHeader title="Disparar e-mail" description={`${selecao.length} contato(s) selecionado(s)`} />
+      <PageHeader title="Disparar e-mail" description={`${selecao.length} lead(s) selecionado(s)`} />
 
       <div className="space-y-5">
         <Card className="p-5">

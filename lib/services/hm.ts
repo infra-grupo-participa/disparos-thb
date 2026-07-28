@@ -1,7 +1,7 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
-import { podeVerPorEscopo } from "@/lib/services/visibilidade";
+import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 
 const log = logger("hm");
 
@@ -567,6 +567,7 @@ export type AtribuicaoErro =
   | "nao_encontrado"               // card não existe
   | "destino_invalido"             // id de destino não é usuário ativo
   | "destino_fora_da_equipe"       // gestor tentando atribuir fora da própria equipe
+  | "destino_sem_portal"           // destino sem o portal do card na whitelist (0145)
   | "atribuicao_travada"           // card com dono/trava — imutável para este nível
   | "sem_permissao_para_atribuir"; // operador dando o card a outrem / texto livre sem ser master
 export type AtribuicaoResultado = { ok: true } | { ok: false; reason: AtribuicaoErro };
@@ -611,18 +612,23 @@ export async function atribuirResponsavelHm(
 
   // Resolve o destino para um usuário ATIVO. Pelo nome (legado): se não casar
   // com usuário nenhum, só o master pode gravar texto livre — para os demais o
-  // nome solto era exatamente o desvio da hierarquia.
-  let user: { id: string; equipe_id: string | null } | null;
+  // nome solto era exatamente o desvio da hierarquia. `tem_portal` sai na mesma
+  // query: atribuir a quem não tem 'HM' na whitelist (0145) faria o card sumir
+  // da vista do destino no instante seguinte — recusado para TODOS os níveis
+  // (28/07, decisão do Marcio: equipes são globais, o isolamento é do portal).
+  type DestinoUser = { id: string; equipe_id: string | null; tem_portal: boolean };
+  const TEM_PORTAL_HM = `exists (select 1 from cs.usuario_portais up where up.usuario_id = u.id and up.portal = 'HM') as tem_portal`;
+  let user: DestinoUser | null;
   if (destino.tipo === "id") {
-    user = await queryOne<{ id: string; equipe_id: string | null }>(
-      `select id, equipe_id from cs.usuarios where id = $1 and ativo`,
+    user = await queryOne<DestinoUser>(
+      `select u.id, u.equipe_id, ${TEM_PORTAL_HM} from cs.usuarios u where u.id = $1 and u.ativo`,
       [destino.id],
     );
     if (!user) return { ok: false, reason: "destino_invalido" };
   } else {
-    user = await queryOne<{ id: string; equipe_id: string | null }>(
-      `select id, equipe_id from cs.usuarios
-        where lower(btrim(nome)) = lower(btrim($1)) and ativo
+    user = await queryOne<DestinoUser>(
+      `select u.id, u.equipe_id, ${TEM_PORTAL_HM} from cs.usuarios u
+        where lower(btrim(u.nome)) = lower(btrim($1)) and u.ativo
         limit 1`,
       [destino.nome],
     );
@@ -656,6 +662,10 @@ export async function atribuirResponsavelHm(
     }
   }
 
+  // Portal antes da hierarquia: sem 'HM' na whitelist não há destino válido —
+  // nem para o master (o card sumiria da vista da pessoa; libere o portal antes).
+  if (!user.tem_portal) return { ok: false, reason: "destino_sem_portal" };
+
   // Hierarquia do DESTINO (lib/papeis) + estado do CARD.
   if (!podeAtribuirPara(sessao, user)) {
     return { ok: false, reason: nivel === "gestor" ? "destino_fora_da_equipe" : "sem_permissao_para_atribuir" };
@@ -675,24 +685,44 @@ export async function atribuirResponsavelHm(
   return { ok: true };
 }
 
-// Gating de visibilidade de um card HM: quem pode ABRIR/EDITAR o card. Master
-// vê tudo; gestor vê o pool + os cards da equipe dele; operador comum vê o pool
-// (sem dono e sem equipe roteada) OU o card atribuído a ELE. Espelha o WHERE
-// das listagens — a lista não mostra, a ficha não abre. Retorna true se pode ver.
+// ===== Leitura ≠ ação (28/07): DOIS gates, um por pergunta ==================
+// podeVerCardHm  → LEITURA: quem pode ABRIR o card (ficha, conversa, export).
+//                  Espelha o WHERE das listagens (escopoVisibilidade): master
+//                  tudo; gestor E OPERADOR o pool + a equipe inteira.
+// podeAgirCardHm → ESCRITA: quem pode EDITAR/mover/atribuir/enviar (escopoAcao):
+//                  operador SÓ no pool e nos cards DELE — card de colega abre
+//                  em leitura e recusa escrita (403 'card_de_outro_operador').
+// Era UMA função servindo às duas perguntas — exatamente a confusão que fazia
+// o operador não ver o board da equipe. NÃO reunificar.
 type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null };
-export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): Promise<boolean> {
-  const escopo = escopoVisibilidade(sessao);
-  if (escopo.modo === "tudo") return true;
-  const k = await queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null }>(
+
+async function cardEscopoHm(compradorId: string) {
+  return queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null }>(
     `select responsavel_id, equipe_id, responsavel from cs.contatos_hm_kanban where comprador_id = $1`,
     [compradorId],
   );
+}
+
+export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): Promise<boolean> {
+  const escopo = escopoVisibilidade(sessao);
+  if (escopo.modo === "tudo") return true;
+  const k = await cardEscopoHm(compradorId);
   if (!k) return true; // inexistente → deixa o 404 acontecer no fluxo normal
   // O MESMO predicado do sqlEscopo das listagens e do podeVerContato dos
   // genéricos (visibilidade.ts). Inclui a regra do texto órfão: card cujo dono
   // existe só como TEXTO (id null, texto preenchido) NÃO é pool — o HM tratava
   // como livre e o card ficava visível a todo mundo (divergência corrigida 27/07).
   return podeVerPorEscopo(escopo, k);
+}
+
+// Gate de AÇÃO das rotas de escrita (PATCH da ficha, mover no board, lote,
+// inbox POST/PATCH, sócios). As rotas respondem 403 com o próprio veredicto
+// como reason ('card_de_outro_operador' | 'sem_acesso').
+export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string): Promise<VeredictoAcao> {
+  if (ehMaster(sessao)) return "ok";
+  const k = await cardEscopoHm(compradorId);
+  if (!k) return "ok"; // inexistente → deixa o 404 acontecer no fluxo normal
+  return veredictoAcao(sessao, k);
 }
 
 // Colunas de cancelamento — Reclamada (pedido) e Reembolsado (fato).

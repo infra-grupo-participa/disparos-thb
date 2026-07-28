@@ -3,7 +3,7 @@ import { guard } from "@/lib/guard";
 import { eventoDe } from "@/lib/services/evento";
 import { parseBody, AtendimentoRegistrarSchema } from "@/lib/validators";
 import { registrarAtendimento, listarPorComprador } from "@/lib/services/ligacao";
-import { podeVerContato } from "@/lib/services/contato";
+import { podeVerContato, podeAgirContato } from "@/lib/services/contato";
 
 export const runtime = "nodejs";
 
@@ -35,10 +35,12 @@ export async function POST(req: Request) {
   const p = await parseBody(req, AtendimentoRegistrarSchema);
   if (!p.ok) return p.res;
 
-  // Gating de equipe (0146): registrar um atendimento é agir sobre o contato —
-  // só em card que o ator VÊ (pool / própria equipe / os dele).
-  if (!(await podeVerContato(sessao, p.data.compradorId, eventoDe(req)))) {
-    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): registrar atendimento é ESCRITA —
+  // operador só no pool e nos cards DELE; o histórico do colega abre em leitura
+  // (GET), mas não se registra por ele: 403 'card_de_outro_operador'.
+  const acao = await podeAgirContato(sessao, p.data.compradorId, eventoDe(req));
+  if (acao !== "ok") {
+    return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
 
   const atendimento = await registrarAtendimento({ ...p.data, operador: sessao.nome || "cs" });

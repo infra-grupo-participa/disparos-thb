@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
-import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { eventoDe } from "@/lib/services/evento";
 import { parseBody, KanbanLoteSchema } from "@/lib/validators";
-import { addTagEmLote, atribuirResponsavel, sqlEscopo, type DestinoAtribuicao } from "@/lib/services/contato";
+import { veredictoAcao } from "@/lib/services/visibilidade";
+import { addTagEmLote, atribuirResponsavel, type DestinoAtribuicao } from "@/lib/services/contato";
 
 export const runtime = "nodejs";
 
@@ -13,10 +13,12 @@ type Falha = { compradorId: string; motivo: string };
 // POST /api/kanban/lote — ações em massa sobre a seleção do board.
 // body: { compradorIds, addTag?, responsavel? }
 //
-// Cada ação só se aplica aos cards que o ator VÊ (predicado de escopo da 0146):
-// ids fora do escopo voltam em `falhas`, nominalmente — não derrubam o lote. O
-// responsável passa pela MESMA hierarquia da ficha (atribuirResponsavel): o
-// lote não pode ser a porta dos fundos que a rota unitária fechou.
+// Cada ação só se aplica aos cards em que o ator pode AGIR (escopo de AÇÃO,
+// 28/07 — o lote é escrita): ids fora voltam em `falhas`, nominalmente — não
+// derrubam o lote. O card do colega (visível no board pelo escopo de leitura)
+// falha como "card de outro operador". O responsável passa pela MESMA
+// hierarquia da ficha (atribuirResponsavel): o lote não pode ser a porta dos
+// fundos que a rota unitária fechou.
 export async function POST(req: Request) {
   const evento = eventoDe(req);
   // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
@@ -28,25 +30,25 @@ export async function POST(req: Request) {
   if (!p.ok) return p.res;
   const b = p.data;
 
-  // Recorte em UMA query (não N podeVerContato): quais dos selecionados o ator
-  // pode tocar. O que sobrar é "sem acesso".
-  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
-  const visiveis = new Set(
-    (
-      await query<{ comprador_id: string }>(
-        `select v.comprador_id
-           from cs.contatos_evento v
-          where v.evento = $2 and v.comprador_id = any($1::uuid[])
-            and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}`,
-        [b.compradorIds, evento, verTudo, usuarioId, equipeId],
-      )
-    ).map((r) => r.comprador_id),
+  // Recorte em UMA query (não N podeAgirContato): as colunas de escopo de todos
+  // os selecionados de uma vez; o veredicto (ok / card de colega / sem acesso)
+  // é o MESMO predicado das rotas unitárias (veredictoAcao, visibilidade.ts).
+  const rows = await query<{ comprador_id: string; responsavel_id: string | null; equipe_id: string | null; responsavel: string | null }>(
+    `select v.comprador_id, v.responsavel_id, v.equipe_id, v.responsavel
+       from cs.contatos_evento v
+      where v.evento = $2 and v.comprador_id = any($1::uuid[])`,
+    [b.compradorIds, evento],
   );
+  const veredictos = new Map(rows.map((r) => [r.comprador_id, veredictoAcao(sessao, r)]));
 
-  const falhas: Falha[] = b.compradorIds
-    .filter((id) => !visiveis.has(id))
-    .map((compradorId) => ({ compradorId, motivo: "sem acesso a este card" }));
-  const ids = b.compradorIds.filter((id) => visiveis.has(id));
+  const falhas: Falha[] = [];
+  const ids: string[] = [];
+  for (const compradorId of b.compradorIds) {
+    const v = veredictos.get(compradorId); // ausente = não existe no evento → 404 nominal
+    if (v === "ok") ids.push(compradorId);
+    else if (v === "card_de_outro_operador") falhas.push({ compradorId, motivo: "card de outro operador" });
+    else falhas.push({ compradorId, motivo: v === "sem_acesso" ? "sem acesso a este card" : "contato não encontrado" });
+  }
 
   // Escopado pelo MESMO evento do guard: a tag entra só na linha deste portal.
   if (b.addTag && b.addTag.trim() && ids.length) await addTagEmLote(ids, evento, b.addTag.trim());
@@ -64,6 +66,7 @@ export async function POST(req: Request) {
       if (!r.ok) {
         const motivo =
           r.reason === "destino_fora_da_equipe" ? "destino fora da sua equipe"
+          : r.reason === "destino_sem_portal" ? `destino sem acesso ao portal ${evento}`
           : r.reason === "atribuicao_travada" ? "card já tem outro responsável"
           : r.reason === "sem_permissao_para_atribuir" ? "sem permissão para atribuir"
           : "contato não encontrado";

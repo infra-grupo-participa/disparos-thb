@@ -128,6 +128,10 @@ export const CanalPatchSchema = z.object({
 export const InboxMsgSchema = z.object({ texto: z.string().trim().min(1), atendente: z.string().optional() });
 export const InboxStatusSchema = z.object({ status: z.enum(["resolvido", "pendente"]) });
 
+// Data de FORMULÁRIO (YYYY-MM-DD): valida o formato antes do ::date do
+// Postgres (22007 viraria 500); "" e null limpam o campo.
+const dataCampo = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data em YYYY-MM-DD"), z.literal(""), z.null()]);
+
 export const ContatoPatchSchema = z.object({
   estagio_chave: z.string().optional(),
   proxima_acao_em: z.string().nullable().optional(),
@@ -137,6 +141,13 @@ export const ContatoPatchSchema = z.object({
   tags: z.array(z.string()).optional(),
   responsavel: z.string().nullable().optional(),
   opt_out: z.boolean().optional(),
+  // ----- Acordo e crédito (0149 — espelham a nomenclatura do HM/0056) -----
+  // Contrato completo documentado no comentário de app/api/contato/[id]/route.ts.
+  acordo: z.string().nullable().optional(),
+  pagamento_previsto_em: dataCampo.optional(),
+  credito_oferta: z.string().nullable().optional(),
+  credito_compra_em: dataCampo.optional(),
+  credito_valor_pago: z.number().nonnegative().nullable().optional(),
 });
 
 // Registro de atendimento do operador. Vale para qualquer canal — o que o funil

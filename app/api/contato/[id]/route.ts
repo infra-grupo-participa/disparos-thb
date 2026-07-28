@@ -3,7 +3,7 @@ import { guard } from "@/lib/guard";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, ContatoPatchSchema } from "@/lib/validators";
 import { eventoDe } from "@/lib/services/evento";
-import { moverEstagio, setTags, setOptOut, podeVerContato, atribuirResponsavel, type DestinoAtribuicao } from "@/lib/services/contato";
+import { moverEstagio, setTags, setOptOut, podeVerContato, podeAgirContato, atribuirResponsavel, type DestinoAtribuicao } from "@/lib/services/contato";
 
 export const runtime = "nodejs";
 
@@ -16,8 +16,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   // evento (HT+SEM…) na view; sem o filtro, a linha vinha arbitrária e podia
   // abrir o contato de OUTRO portal (isolamento de portais, 27/07).
   const evento = eventoDe(req);
-  // Gating de equipe (0146): a lista não mostra, a ficha não abre — sem isto o
-  // recorte da listagem era cosmético (bastava forçar o comprador_id aqui).
+  // Gate de LEITURA (28/07, leitura ≠ ação): a ficha ABRE para quem VÊ o card
+  // nas listagens — inclusive o operador abrindo o card de um colega da equipe
+  // (em leitura; a escrita é o podeAgirContato do PATCH).
   if (!(await podeVerContato(g.sessao, compradorId, evento))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }
@@ -41,6 +42,25 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     [compradorId, evento],
   );
   if (!contato) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
+
+  // Acordo e crédito (0149) em query SEPARADA e blindada: o deploy sobe no push
+  // e a migration é aplicada à mão — enquanto as colunas não existirem (42703),
+  // os campos voltam null e a ficha continua abrindo (padrão do cache 0147 em
+  // inbox/[id]). Remover o try/catch quando a 0149 estiver aplicada.
+  let acordoCredito: Record<string, unknown> = {
+    acordo: null, pagamento_previsto_em: null,
+    credito_oferta: null, credito_compra_em: null, credito_valor_pago: null,
+  };
+  try {
+    const ac = await queryOne(
+      `select acordo, pagamento_previsto_em, credito_oferta, credito_compra_em, credito_valor_pago
+         from cs.contatos where comprador_id = $1 and evento = $2`,
+      [compradorId, evento],
+    );
+    if (ac) acordoCredito = ac;
+  } catch {
+    /* pré-0149: colunas ainda não existem — campos seguem null */
+  }
 
   const timeline = await query(
     `select i.tipo, i.descricao, i.autor, i.criado_em
@@ -86,10 +106,35 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     [compradorId],
   );
 
-  return NextResponse.json({ ok: true, contato, timeline, metricas, formularios, score: score?.score ?? 0, emailAc });
+  return NextResponse.json({ ok: true, contato: { ...contato, ...acordoCredito }, timeline, metricas, formularios, score: score?.score ?? 0, emailAc });
 }
 
-// PATCH: atualiza estágio / próxima ação / observações; opcionalmente adiciona uma nota.
+// PATCH: atualiza estágio / próxima ação / observações / acordo e crédito;
+// opcionalmente adiciona uma nota.
+//
+// ===== CONTRATO — Acordo e crédito (0149; o front monta a ficha contra isto) =
+// Campos do body (todos opcionais; enviar só o que mudou; "" ou null LIMPAM):
+//   acordo:                string|null  — o combinado com o cliente, texto livre
+//                          (ex.: "12x no boleto, a partir do dia 15"). Mesmo
+//                          nome/semântica do HM (cs.contatos_hm.acordo, 0056).
+//   pagamento_previsto_em: "YYYY-MM-DD"|""|null — data prevista do pagamento
+//                          combinado (date, sem hora; formato validado: outro
+//                          formato → 400 do zod).
+//   credito_oferta:        string|null  — de onde vem o crédito/saldo (nome da
+//                          oferta ou compra anterior, ex.: "Renovação 2026").
+//   credito_compra_em:     "YYYY-MM-DD"|""|null — data da compra que gerou o
+//                          crédito.
+//   credito_valor_pago:    number|null (>= 0) — quanto o cliente pagou = o
+//                          SALDO a descontar na oferta. Nos genéricos não há
+//                          pró-rata (isso é regra do HM): o valor não se
+//                          consome com o tempo.
+// GET desta rota devolve os 5 campos DENTRO de `contato` (null enquanto a
+// migration 0149 não estiver aplicada). Se o PATCH receber esses campos ANTES
+// da 0149 estar em produção, o resto do PATCH aplica normalmente e a resposta
+// vem com `aviso: "acordo_nao_salvo_migration_pendente"` — nada estoura.
+// Anotações NÃO têm campo novo: `observacoes` (texto corrido da ficha) e
+// `nota` (entrada na timeline, cs.interacoes tipo 'nota') já cobrem.
+// ============================================================================
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
   const evento = eventoDe(req);
@@ -102,10 +147,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!parsed.ok) return parsed.res;
   const b = parsed.data;
 
-  // Gating de equipe (0146): só mexe no contato quem pode vê-lo (pool / própria
-  // equipe / os dele). O análogo do podeVerCardHm do PATCH da ficha HM.
-  if (!(await podeVerContato(sessao, compradorId, evento))) {
-    return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  // Gate de AÇÃO (28/07, leitura ≠ ação): editar é ESCRITA — operador só no
+  // pool e nos cards DELE. A ficha do colega abre em leitura (GET), mas o PATCH
+  // recusa com 403 'card_de_outro_operador' (o front traduz o reason).
+  const acao = await podeAgirContato(sessao, compradorId, evento);
+  if (acao !== "ok") {
+    return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
 
   // TODA escrita abaixo é escopada pelo MESMO `evento` validado no guard: a
@@ -130,6 +177,36 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       evento,
     ],
   );
+
+  // Acordo e crédito (0149) — atualiza só os enviados ("" limpa), em UPDATE
+  // SEPARADO e blindado: enquanto a 0149 não estiver aplicada as colunas não
+  // existem (42703) e este bloco degrada com `aviso` na resposta, sem derrubar
+  // o resto do PATCH (padrão 0147). Remover o try/catch quando aplicada.
+  let aviso: string | undefined;
+  {
+    const setsAc: string[] = [];
+    const valsAc: unknown[] = [compradorId, evento];
+    const addAc = (col: string, v: unknown, cast = "") => {
+      valsAc.push(v === "" ? null : v);
+      setsAc.push(`${col} = $${valsAc.length}${cast}`);
+    };
+    if (b.acordo !== undefined) addAc("acordo", b.acordo);
+    if (b.pagamento_previsto_em !== undefined) addAc("pagamento_previsto_em", b.pagamento_previsto_em, "::date");
+    if (b.credito_oferta !== undefined) addAc("credito_oferta", b.credito_oferta);
+    if (b.credito_compra_em !== undefined) addAc("credito_compra_em", b.credito_compra_em, "::date");
+    if (b.credito_valor_pago !== undefined) addAc("credito_valor_pago", b.credito_valor_pago);
+    if (setsAc.length) {
+      try {
+        await query(
+          `update cs.contatos set ${setsAc.join(", ")}, atualizado_em = now()
+            where comprador_id = $1 and evento = $2`,
+          valsAc,
+        );
+      } catch {
+        aviso = "acordo_nao_salvo_migration_pendente";
+      }
+    }
+  }
 
   // tags / responsável / opt-out (atualiza só os campos enviados) — via serviço
   if (b.tags !== undefined) await setTags(compradorId, evento, b.tags);
@@ -159,5 +236,5 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     );
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json(aviso ? { ok: true, aviso } : { ok: true });
 }

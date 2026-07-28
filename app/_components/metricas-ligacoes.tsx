@@ -138,13 +138,13 @@ export function MetricasLigacoes({ desde, ate }: { desde?: string; ate?: string 
       {/* Ranking por atendente */}
       <Card className="overflow-hidden">
         <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-          <SecaoTitulo cor="slate">Produtividade por atendente</SecaoTitulo>
+          <SecaoTitulo cor="slate">Produtividade por operador</SecaoTitulo>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
               <tr>
-                <th className="px-4 py-2.5 font-semibold">Atendente</th>
+                <th className="px-4 py-2.5 font-semibold">Operador</th>
                 <th className="px-4 py-2.5 font-semibold">Tentativas</th>
                 <th className="px-4 py-2.5 font-semibold">Atendidas</th>
                 <th className="px-4 py-2.5 font-semibold">Tempo falado</th>

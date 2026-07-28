@@ -254,12 +254,18 @@ function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
 }
 
 export default function HmKanbanPage() {
-  const { nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster } = useMe();
+  const { nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   // Card em Reclamada/Reembolsado é SÓ do master (o backend devolve 403 no GET
   // da ficha) — para os demais a UI nem convida ao clique. Enquanto a sessão
   // carrega (ehMaster()=false), nasce bloqueado: na dúvida, a regra fecha.
   const cardBloqueado = (c: Card) => ehEstagioCancelamento(c.estagio_chave) && !ehMaster();
+  // Card de COLEGA (28/07): o operador VÊ o pool + todos os cards da equipe,
+  // mas só AGE no que é dele ou está livre. O card do colega abre em LEITURA
+  // (o drawer cuida disso); aqui o board não convida a arrastar nem a lote —
+  // a API recusa com 403 `card_de_outro_operador`. A regra é o escopoAcao de
+  // lib/papeis (via useMe.ehCardDeColega), a MESMA do backend.
+  const cardDeColega = (c: Card) => ehCardDeColega(c);
   // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
   const podeConfigEquipes = podeDistribuir();
   const [colunas, setColunas] = useState<Coluna[]>([]);
@@ -559,7 +565,9 @@ export default function HmKanbanPage() {
 
   const q = busca.trim().toLowerCase();
   const cardsFiltrados = q ? cards.filter((c) => c.nome.toLowerCase().includes(q) || (c.telefone ?? "").includes(q)) : cards;
-  const cardsSelecionaveis = cardsFiltrados.filter((c) => !cardBloqueado(c));
+  // Cancelados (não-master) e cards de colega ficam FORA da seleção em massa:
+  // disparo/lote sobre eles é agir num card em que a pessoa não pode agir.
+  const cardsSelecionaveis = cardsFiltrados.filter((c) => !cardBloqueado(c) && !cardDeColega(c));
   const colunasAba = colunas.filter((c) => (c.aba ?? "comercial") === aba);
   // O card pago conta nas duas abas (ele aparece nas duas) — por isso o total
   // sai daqui, e não de um count no banco que não conhece o espelho.
@@ -813,11 +821,14 @@ export default function HmKanbanPage() {
                             // fica visível, mas não abre nem arrasta — o backend já
                             // devolve 403; aqui a UI deixa de convidar ao gesto.
                             bloqueado={cardBloqueado(card)}
+                            // Card de colega: abre em LEITURA (contexto, não erro) —
+                            // sem arrasto e sem lote; o selo diz de quem ele é.
+                            colega={cardDeColega(card)}
                             onDragStart={() => { arrastando.current = card; }}
                             onDragEnd={() => { pararAutoScroll(); arrastando.current = null; setAlvo(null); }}
                             onAbrir={() => { if (!cardBloqueado(card)) setSelecionado(card.comprador_id); }}
                             onMenu={(x, y) => setMenu({ card, x, y })}
-                            selecionavel={podeDisparar && !cardBloqueado(card)}
+                            selecionavel={podeDisparar && !cardBloqueado(card) && !cardDeColega(card)}
                             marcado={marcados.has(card.comprador_id)}
                             onToggleMarcado={() => toggleMarcado(card.comprador_id)}
                             coresTags={coresTags}
@@ -865,9 +876,16 @@ export default function HmKanbanPage() {
             {cardBloqueado(menu.card) && (
               <p className="px-3 pb-1.5 text-[11px] text-rose-600 dark:text-rose-400">{TITLE_CARD_CANCELADO}</p>
             )}
+            {/* Card de colega: a ficha abre (em leitura); mover, sócio e desfazer
+                são ações — a API recusaria com 403, o menu não oferece. */}
+            {cardDeColega(menu.card) && (
+              <p className="px-3 pb-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                Card de {menu.card.responsavel ?? "outro operador"} — abre em leitura.
+              </p>
+            )}
             <MenuItem disabled={cardBloqueado(menu.card)} onClick={() => { setSelecionado(menu.card.comprador_id); setMenu(null); }}>Abrir ficha</MenuItem>
-            <MenuItem disabled={cardBloqueado(menu.card)} onClick={() => { const c = menu.card; setMenu(null); setAddSocio({ compradorId: c.comprador_id, nome: c.nome }); }}>+ Adicionar sócio</MenuItem>
-            <MenuItem onClick={() => { const c = menu.card; setMenu(null); desfazerMovimento(c); }}>Desfazer último movimento</MenuItem>
+            <MenuItem disabled={cardBloqueado(menu.card) || cardDeColega(menu.card)} onClick={() => { const c = menu.card; setMenu(null); setAddSocio({ compradorId: c.comprador_id, nome: c.nome }); }}>+ Adicionar sócio</MenuItem>
+            <MenuItem disabled={cardDeColega(menu.card)} onClick={() => { const c = menu.card; setMenu(null); desfazerMovimento(c); }}>Desfazer último movimento</MenuItem>
 
             {ABAS.map((a) => {
               const doGrupo = estagios.filter((e) => (e.aba ?? "comercial") === a.id);
@@ -882,7 +900,7 @@ export default function HmKanbanPage() {
                     return (
                       <MenuItem
                         key={e.chave}
-                        disabled={atual}
+                        disabled={atual || cardDeColega(menu.card)}
                         onClick={() => { const c = menu.card; setMenu(null); moverParaEtapa(c, e); }}
                       >
                         <span className="flex items-center justify-between gap-2">
@@ -1314,9 +1332,9 @@ function SelosExtras({ itens }: { itens: { key: string; rotulo: string; el: Reac
 }
 
 function CardItem({
-  card, espelho, ehPool, bloqueado, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags,
+  card, espelho, ehPool, bloqueado, colega, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags,
 }: {
-  card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
+  card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; colega?: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
   onMenu: (x: number, y: number) => void;
   selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
   coresTags: Record<string, string | null>;
@@ -1372,13 +1390,18 @@ function CardItem({
       data-card
       role={bloqueado ? undefined : "button"}
       tabIndex={bloqueado ? -1 : 0}
-      draggable={!bloqueado}
-      onDragStart={bloqueado ? undefined : onDragStart}
+      // Card de colega abre (em leitura), mas não arrasta — mover é agir.
+      draggable={!bloqueado && !colega}
+      onDragStart={bloqueado || colega ? undefined : onDragStart}
       onDragEnd={onDragEnd}
       onClick={bloqueado ? undefined : onAbrir}
       onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}
       onKeyDown={(e) => { if (e.key === "Enter" && !bloqueado) onAbrir(); }}
-      title={bloqueado ? TITLE_CARD_CANCELADO : "Clique para abrir · botão direito para mover ou desfazer"}
+      title={bloqueado
+        ? TITLE_CARD_CANCELADO
+        : colega
+          ? `Card de ${card.responsavel ?? "outro operador"} — clique para abrir em leitura`
+          : "Clique para abrir · botão direito para mover ou desfazer"}
       // Portadores de cor por INLINE STYLE (vencem qualquer classe):
       //   • borda ESQUERDA = cor da equipe dona (0140). Cor nula cai no cinza
       //     padrão; pool de verdade (sem equipe e sem dono) ganha a MESMA faixa
@@ -1449,6 +1472,17 @@ function CardItem({
             >
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
               Pool · livre
+            </span>
+          )}
+          {/* Card de colega (visão do operador): contexto, não bloqueio — slate
+              discreto, com o NOME do dono. Abre em leitura; não arrasta. */}
+          {colega && (
+            <span
+              className="inline-flex max-w-[10rem] items-center gap-0.5 truncate rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
+              title={`Card de ${card.responsavel ?? "outro operador"} — você pode ver a ficha e o histórico, mas quem age é o dono ou o gestor.`}
+            >
+              <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+              <span className="truncate">com {card.responsavel ?? "colega"}</span>
             </span>
           )}
           {/* Falso-verde do crédito pró-rata: avisa em vez de deixar o card mentir. */}

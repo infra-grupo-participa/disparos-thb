@@ -11,7 +11,7 @@ import { Reveal } from "@/app/_components/anim";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { toast } from "@/app/_components/toast";
-import { useMe } from "@/app/_components/use-me";
+import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { usePortal } from "@/app/_components/use-portal";
 import { MarcaPortal } from "@/app/_components/marca";
 
@@ -39,6 +39,8 @@ type Detalhe = {
   contato: {
     nome: string; email: string; telefone: string | null; edicao: string | null; estagio_chave: string | null; estagio_nome: string | null;
     ultima_compra_ht: string | null; tags: string[] | null; responsavel: string | null; opt_out: boolean;
+    // Dono por id (a rota já devolve) — é o que diz se o card é de um colega.
+    responsavel_id?: string | null;
     legado_no_grupo: boolean | null; legado_ativado: boolean | null;
   };
   timeline: Interacao[];
@@ -120,6 +122,14 @@ export default function KanbanPage() {
   const { me, nivel, podeDisparar: podeDisparaFn, podeDistribuir } = useMe();
   const { portal, evento, base, nome: eventoNome, ehHT } = usePortal();
   const podeDisparar = podeDisparaFn(evento);
+  // Card de COLEGA (28/07): o operador VÊ o pool + os cards da equipe, mas só
+  // AGE no que é dele ou está livre — o detalhe abre em leitura e a API recusa
+  // escrita com 403 `card_de_outro_operador`. A regra é o escopoAcao de
+  // lib/papeis (nivel vem de lá, via useMe); como o payload do CARD do kanban
+  // genérico não traz ids de dono, aqui a comparação é pelo NOME
+  // (`responsavel` × `me.nome`) — o Drawer refina pelo `responsavel_id` que o
+  // detalhe devolve (useMe.ehCardDeColega).
+  const cardDeColega = (c: Card) => nivel === "operador" && !!c.responsavel && !!me && c.responsavel !== me.nome;
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [edicoes, setEdicoes] = useState<string[]>([]);
@@ -197,11 +207,15 @@ export default function KanbanPage() {
   }
 
   // Seleção múltipla (checkbox / menu de contexto) para disparo em lote.
+  // Card de colega fica FORA da seleção: lote/disparo é agir num card em que o
+  // operador não pode agir (a API recusaria um a um).
   function toggleSel(id: string) {
+    const c = cards.find((x) => x.comprador_id === id);
+    if (c && cardDeColega(c) && !selecaoMulti.has(id)) return;
     setSelecaoMulti((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
   function selecionarEtapa(chave: string) {
-    setSelecaoMulti((s) => { const n = new Set(s); cards.filter((c) => c.estagio_chave === chave).forEach((c) => n.add(c.comprador_id)); return n; });
+    setSelecaoMulti((s) => { const n = new Set(s); cards.filter((c) => c.estagio_chave === chave && !cardDeColega(c)).forEach((c) => n.add(c.comprador_id)); return n; });
   }
   function dispararCards(lista: Card[]) {
     const sel = lista.filter((c) => c.telefone).map((c) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone as string, edicao: c.edicao }));
@@ -366,6 +380,9 @@ export default function KanbanPage() {
                         // `responsavel` (o payload genérico não expõe ids);
                         // para o operador, card visível sem texto = pool.
                         ehPool={nivel === "operador" && !card.responsavel}
+                        // Card de colega: abre em leitura, não arrasta, não entra
+                        // em lote — o selo diz de quem ele é.
+                        colega={cardDeColega(card)}
                         selecionado={selecaoMulti.has(card.comprador_id)}
                         modoSelecao={selecaoMulti.size > 0}
                         onDragStart={() => { arrastando.current = card; }}
@@ -452,11 +469,20 @@ export default function KanbanPage() {
             className="fixed z-[60] w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-pop dark:border-slate-700 dark:bg-slate-900"
             style={{ top: Math.min(menu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 230), left: Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 240) }}
           >
+            {/* Card de colega: selecionar/disparar são AÇÃO — o menu avisa e não
+                oferece; "Abrir detalhes" continua (a leitura é o ponto). */}
+            {cardDeColega(menu.card) && (
+              <p className="px-3 pb-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                Card de {menu.card.responsavel ?? "outro operador"} — abre em leitura.
+              </p>
+            )}
+            {!cardDeColega(menu.card) && (
             <MenuItem onClick={() => { toggleSel(menu.card.comprador_id); setMenu(null); }}>
               {selecaoMulti.has(menu.card.comprador_id) ? "Desselecionar" : "Selecionar"}
             </MenuItem>
+            )}
             <MenuItem onClick={() => { const col = colunas.find((c) => c.chave === menu.card.estagio_chave); if (col) selecionarColunaToda(col); setMenu(null); }}>Selecionar toda a coluna</MenuItem>
-            {podeDisparar && (
+            {podeDisparar && !cardDeColega(menu.card) && (
               <>
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
                 <MenuItem onClick={() => { dispararCards([menu.card]); setMenu(null); }}>Disparar para este</MenuItem>
@@ -482,8 +508,8 @@ function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: (
   );
 }
 
-function CardItem({ card, ehPool, selecionado, modoSelecao, onDragStart, onClick, onToggleSel, onMenu }: {
-  card: Card; ehPool?: boolean; selecionado: boolean; modoSelecao: boolean;
+function CardItem({ card, ehPool, colega, selecionado, modoSelecao, onDragStart, onClick, onToggleSel, onMenu }: {
+  card: Card; ehPool?: boolean; colega?: boolean; selecionado: boolean; modoSelecao: boolean;
   onDragStart: () => void; onClick: () => void; onToggleSel: () => void; onMenu: (x: number, y: number) => void;
 }) {
   const { base } = usePortal();
@@ -491,17 +517,22 @@ function CardItem({ card, ehPool, selecionado, modoSelecao, onDragStart, onClick
     <div
       role="button"
       tabIndex={0}
-      draggable
-      onDragStart={onDragStart}
+      // Card de colega abre (em leitura), mas não arrasta — mover é agir.
+      draggable={!colega}
+      onDragStart={colega ? undefined : onDragStart}
       onClick={onClick}
       onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}
       onKeyDown={(e) => { if (e.key === "Enter") onClick(); }}
+      title={colega ? `Card de ${card.responsavel ?? "outro operador"} — clique para abrir em leitura` : undefined}
       className={cn(
-        "group relative block cursor-grab rounded-lg border bg-white p-2.5 shadow-card transition hover:shadow-soft active:cursor-grabbing dark:bg-slate-900",
+        "group relative block rounded-lg border bg-white p-2.5 shadow-card transition hover:shadow-soft dark:bg-slate-900",
+        colega ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
         selecionado ? "border-brand ring-2 ring-brand/30 dark:border-brand-400 dark:ring-brand-400/30" : "border-slate-200 hover:border-brand/30 dark:border-slate-800 dark:hover:border-brand-400/30",
       )}
     >
-      {/* Checkbox de seleção — aparece no hover ou quando já há seleção */}
+      {/* Checkbox de seleção — aparece no hover ou quando já há seleção.
+          Card de colega não entra em seleção (lote é agir) — sem a bolinha. */}
+      {!colega && (
       <button
         onClick={(e) => { e.stopPropagation(); onToggleSel(); }}
         aria-label="Selecionar"
@@ -514,6 +545,7 @@ function CardItem({ card, ehPool, selecionado, modoSelecao, onDragStart, onClick
       >
         <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
       </button>
+      )}
 
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap gap-1">
@@ -534,6 +566,17 @@ function CardItem({ card, ehPool, selecionado, modoSelecao, onDragStart, onClick
             >
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
               Pool · livre
+            </span>
+          )}
+          {/* Card de colega (visão do operador): contexto, não bloqueio — o
+              MESMO selo do board HM, com o nome do dono. Abre em leitura. */}
+          {colega && (
+            <span
+              className="inline-flex max-w-[10rem] items-center gap-0.5 truncate rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
+              title={`Card de ${card.responsavel ?? "outro operador"} — você pode ver os detalhes e o histórico, mas quem age é o dono ou o gestor.`}
+            >
+              <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+              <span className="truncate">com {card.responsavel ?? "colega"}</span>
             </span>
           )}
           <TagsIcon tags={card.tags} />
@@ -611,7 +654,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
   card: Card; colunas: Coluna[]; responsaveis: string[]; podeDisparar: boolean; onClose: () => void; onMover: (chave: string) => void; onDisparar: () => void; onAtualizar: () => void;
 }) {
   const { base } = usePortal();
-  const { me, podeDistribuir } = useMe();
+  const { me, podeDistribuir, ehCardDeColega } = useMe();
   const [det, setDet] = useState<Detalhe | null>(null);
   const [tagNova, setTagNova] = useState("");
   const [aba, setAba] = useState<"resumo" | "forms" | "historico">("resumo");
@@ -622,7 +665,14 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
   );
   useEffect(() => { setDet(null); recarregar(); }, [recarregar]);
 
+  // Card de COLEGA abre em LEITURA (28/07): sem mover etapa, sem tags, sem
+  // opt-out — timeline e formulários seguem abertos, que é o ponto. A regra é
+  // o escopoAcao de lib/papeis (via useMe.ehCardDeColega), a MESMA do backend.
+  const somenteLeitura = ehCardDeColega(det?.contato);
+
   async function patch(payload: Record<string, unknown>) {
+    // Toda escrita passa por aqui — barrar no ponto único (mesmo padrão do HM).
+    if (somenteLeitura) { toast(msgErroPermissao("card_de_outro_operador")!, "erro"); return; }
     await fetch(`/api/contato/${card.comprador_id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     await recarregar();
     onAtualizar();
@@ -680,6 +730,13 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
           {/* ===== Aba RESUMO ===== */}
           {aba === "resumo" && (
             <>
+              {/* Card de colega: contexto, não erro — o mesmo aviso slate do HM. */}
+              {somenteLeitura && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                  <strong className="text-slate-700 dark:text-slate-200">Card de {det?.contato.responsavel ?? "outro operador"}.</strong>{" "}
+                  Você pode ver os detalhes e o histórico, mas não alterar — só quem pode agir é o dono ou o gestor.
+                </div>
+              )}
               {/* Respondeu? + métricas */}
               <div className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium",
                 respondeu ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400")}>
@@ -717,7 +774,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
               {/* Mover etapa */}
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Etapa da jornada</label>
-                <select value={card.estagio_chave} onChange={(e) => onMover(e.target.value)} className={fieldClass}>
+                <select value={card.estagio_chave} disabled={somenteLeitura} onChange={(e) => onMover(e.target.value)} className={fieldClass}>
                   {colunas.map((c) => <option key={c.chave} value={c.chave}>{c.nome}</option>)}
                 </select>
               </div>
@@ -731,23 +788,27 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                       {tagsAtuais.map((t) => (
                         <span key={t} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset", tagTone(t))}>
                           {t}
-                          <button onClick={() => removeTag(t)} className="opacity-60 transition hover:opacity-100" aria-label={`Remover ${t}`}>×</button>
+                          {!somenteLeitura && <button onClick={() => removeTag(t)} className="opacity-60 transition hover:opacity-100" aria-label={`Remover ${t}`}>×</button>}
                         </span>
                       ))}
-                      <input
-                        value={tagNova}
-                        onChange={(e) => setTagNova(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-                        onBlur={addTag}
-                        placeholder="+ nova"
-                        className="w-20 rounded-full border border-dashed border-slate-300 bg-transparent px-2 py-0.5 text-xs outline-none placeholder:text-slate-400 focus:border-brand dark:border-slate-600 dark:text-slate-200"
-                      />
+                      {!somenteLeitura && (
+                        <input
+                          value={tagNova}
+                          onChange={(e) => setTagNova(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                          onBlur={addTag}
+                          placeholder="+ nova"
+                          className="w-20 rounded-full border border-dashed border-slate-300 bg-transparent px-2 py-0.5 text-xs outline-none placeholder:text-slate-400 focus:border-brand dark:border-slate-600 dark:text-slate-200"
+                        />
+                      )}
                     </div>
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {TAGS_PADRAO.filter((t) => !tagsAtuais.includes(t)).map((t) => (
-                        <button key={t} onClick={() => patch({ tags: [...tagsAtuais, t] })} className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70 ring-1 ring-inset transition hover:opacity-100", tagTone(t))}>+ {t}</button>
-                      ))}
-                    </div>
+                    {!somenteLeitura && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {TAGS_PADRAO.filter((t) => !tagsAtuais.includes(t)).map((t) => (
+                          <button key={t} onClick={() => patch({ tags: [...tagsAtuais, t] })} className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70 ring-1 ring-inset transition hover:opacity-100", tagTone(t))}>+ {t}</button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Operador</label>
@@ -796,7 +857,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                     )}
                   </div>
                   <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                    <input type="checkbox" checked={!!det.contato.opt_out} onChange={(e) => patch({ opt_out: e.target.checked })} className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600" />
+                    <input type="checkbox" checked={!!det.contato.opt_out} disabled={somenteLeitura} onChange={(e) => patch({ opt_out: e.target.checked })} className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600" />
                     Opt-out — não recebe disparos
                   </label>
                 </div>
@@ -810,7 +871,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
             !det ? (
               <div className="flex items-center gap-2 py-4 text-sm text-slate-400 dark:text-slate-500"><Spinner className="h-4 w-4" /> Carregando…</div>
             ) : forms.length === 0 ? (
-              <p className="py-2 text-sm text-slate-400 dark:text-slate-500">Nenhum formulário respondido por este contato.</p>
+              <p className="py-2 text-sm text-slate-400 dark:text-slate-500">Nenhum formulário respondido por este lead.</p>
             ) : (
               <div className="space-y-4">
                 {forms.map((f, i) => {
@@ -872,7 +933,8 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
           <Link href={`${base}/contatos/${card.comprador_id}`} className="flex-1">
             <Button variant="secondary" className="w-full">Ficha completa</Button>
           </Link>
-          {card.telefone && podeDisparar && <Button variant="primary" onClick={onDisparar} className="flex-1">Disparar</Button>}
+          {/* Disparar é AGIR no lead do colega — some no modo leitura. */}
+          {card.telefone && podeDisparar && !somenteLeitura && <Button variant="primary" onClick={onDisparar} className="flex-1">Disparar</Button>}
         </div>
       </aside>
     </>

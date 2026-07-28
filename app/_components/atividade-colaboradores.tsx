@@ -6,7 +6,8 @@
 // O que muda entre os consumidores é só o endpoint e a coluna "Ligações"
 // (bucket que só os portais genéricos registram) — por isso o componente é um
 // e a coluna é opcional. A lista já vem RECORTADA pelo nível de quem chama
-// (master vê todos, gestor a equipe dele, operador só a si) — a UI não filtra.
+// (master vê todos; gestor e operador veem a própria equipe — novo modelo
+// 28/07, o operador acompanha as ações dos colegas) — a UI não filtra.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, Spinner, cn, fieldCompactClass } from "@/app/_components/ui";
@@ -147,7 +148,7 @@ export function AtividadeColaboradores({
                   <th className="px-3 py-2.5 text-right font-medium">Notas</th>
                   <th className="px-3 py-2.5 text-right font-medium">Disparos</th>
                   {comLigacoes && <th className="px-3 py-2.5 text-right font-medium">Ligações</th>}
-                  <th className="px-3 py-2.5 text-right font-medium" title="Responsável, tag, pagamento, cadastro…">Outras</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Atribuição de operador, tag, pagamento, cadastro…">Outras</th>
                   <th className="px-3 py-2.5 text-right font-medium">Cards</th>
                   <th className="px-4 py-2.5 text-right font-medium">Última</th>
                 </tr>

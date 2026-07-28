@@ -8,8 +8,9 @@ import { usePortal } from "@/app/_components/use-portal";
 // da tarefa HT30: "operador faz tudo pelo próprio sistema + visão de todas as
 // ações do operador". Mesma leitura do /hm/atividade (componente compartilhado),
 // consumindo /api/atividade, que soma o bucket "Ligações" (atendimentos por
-// telefone registrados pelo time). O RECORTE é do servidor: master vê todos,
-// gestor a própria equipe, operador só a si — a tela mostra o que vier.
+// telefone registrados pelo time). O RECORTE é do servidor: master vê todos;
+// gestor E operador veem a própria equipe (novo modelo 28/07 — o operador
+// acompanha as ações dos colegas) — a tela mostra o que vier.
 
 export default function AtividadePage() {
   const { portal, evento, nome, ehHT } = usePortal();
@@ -25,7 +26,8 @@ export default function AtividadePage() {
         </div>
         <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           O que cada colaborador fez no portal — movimentações, notas, disparos, ligações e demais
-          ações assinadas. A lista respeita o seu nível: gestor vê a equipe; operador, as próprias ações.
+          ações assinadas. A lista respeita o seu nível: quem é de uma equipe vê a equipe inteira;
+          o administrador do Grupo Participa vê todas.
         </p>
       </div>
 

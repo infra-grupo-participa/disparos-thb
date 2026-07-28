@@ -94,6 +94,11 @@ export function podeDistribuir(u: Ator | null | undefined): boolean {
 //   operador → só se o destino é ELE MESMO (assumir).
 // Destino null (devolver ao pool) NÃO passa por aqui — a rota decide com o card
 // em mãos (precisa saber de quem o card é e se está travado pelo admin).
+// PORTAL (28/07): além desta hierarquia, o destino precisa ter o PORTAL do card
+// na whitelist (cs.usuario_portais) — senão o card some da vista dele no
+// instante seguinte. Essa checagem exige banco e vive nos serviços de
+// atribuição (atribuirResponsavelHm / atribuirResponsavel), que recusam com
+// reason 'destino_sem_portal'. Este predicado isomórfico segue só papel×equipe.
 export function podeAtribuirPara(
   ator: Ator,
   destino: { id: string; equipe_id: string | null } | null,
@@ -113,40 +118,63 @@ export function podeAcessarPortal(portais: string[] | null | undefined, portalEv
   return !!portais && portais.includes(portalEvento);
 }
 
-// ===== Escopo de visibilidade (WHERE das queries do HM) ====================
-//   tudo     → master (sem recorte): vê tudo, e o que está com cada operador.
-//   equipe   → gestor: vê o POOL + TODOS os cards da equipe dele (de qualquer
-//              operador da equipe) — para poder distribuir e acompanhar.
-//   operador → comum: vê SÓ o POOL (sem dono) + os cards atribuídos a ELE. Não vê
-//              os dos colegas. Cada um enxerga o que é dele + o que está livre.
+// ===== Escopos: ENXERGAR ≠ PODER AGIR (decisão do Marcio, 28/07) ============
+// Duas perguntas, duas funções — uma só respondendo às duas era exatamente o
+// que fazia o operador não ver o trabalho dos colegas:
+//   escopoVisibilidade(u) → LEITURA: o que aparece nas LISTAGENS (kanban,
+//     tabela, inbox, agendamentos, elegíveis, relatórios, exports, dashboards,
+//     atividade) e o que ABRE em modo leitura (ficha, conversa).
+//   escopoAcao(u) → ESCRITA: em quais cards o ator pode AGIR (editar, mover,
+//     atribuir, registrar atendimento, enviar mensagem, lote).
+//
+// Modos:
+//   tudo     → sem recorte.
+//   equipe   → POOL + os cards da equipe (equipeId) + os do PRÓPRIO usuário
+//              (usuarioId — cobre o operador SEM equipe, cujos cards têm
+//              equipe derivada nula e sumiriam do próprio dono sem este ramo).
+//   operador → SÓ o POOL + os cards atribuídos a ELE.
 export type EscopoVisibilidade =
   | { modo: "tudo" }
-  | { modo: "equipe"; equipeId: string | null }
+  | { modo: "equipe"; equipeId: string | null; usuarioId: string }
   | { modo: "operador"; usuarioId: string };
 
+// LEITURA: master vê tudo; gestor E OPERADOR veem o pool + a equipe inteira —
+// cada operador tem o seu fluxo, mas acompanha as ações dos colegas e o status
+// dos cards da mesma equipe.
 export function escopoVisibilidade(u: Ator): EscopoVisibilidade {
+  if (nivelDe(u) === "master") return { modo: "tudo" };
+  // SEM equipe (equipe_id null), gestor ou operador: modo 'equipe' com equipeId
+  // null DE PROPÓSITO — no predicado SQL, `k.equipe_id = $x::uuid` com $x nulo
+  // não casa nada; sobra o pool + os cards do PRÓPRIO (usuarioId). Jamais
+  // degradar isso para 'tudo' (seria dar visão global a quem não tem equipe),
+  // e jamais deixar `null = null` casar (vazaria todo card sem equipe).
+  return { modo: "equipe", equipeId: u.equipe_id, usuarioId: u.id };
+}
+
+// ESCRITA: é o que escopoVisibilidade ERA antes de leitura e ação se separarem.
+// master age em tudo; gestor no pool + na equipe dele; operador SÓ no pool
+// (assumir) e nos cards dele. Card de colega abre em leitura e recusa escrita
+// (403 reason 'card_de_outro_operador' — as rotas mapeiam via avaliarAcao).
+export function escopoAcao(u: Ator): EscopoVisibilidade {
   const nivel = nivelDe(u);
   if (nivel === "master") return { modo: "tudo" };
-  // Gestor SEM equipe (equipe_id null) fica em modo 'equipe' com equipeId null
-  // DE PROPÓSITO: no predicado SQL, `k.equipe_id = $x::uuid` com $x nulo não
-  // casa nada — ele vê só o pool. É o comportamento seguro; jamais degradar
-  // isso para 'tudo' (seria dar visão global a quem não tem equipe nenhuma).
-  if (nivel === "gestor") return { modo: "equipe", equipeId: u.equipe_id };
+  if (nivel === "gestor") return { modo: "equipe", equipeId: u.equipe_id, usuarioId: u.id };
   return { modo: "operador", usuarioId: u.id };
 }
 
-// Achata o escopo em 3 parâmetros para o WHERE das queries — só um de
-// equipeId/usuarioId é não-nulo. O predicado padrão é o sqlEscopo de
-// lib/services/visibilidade.ts (aplicado em kanban/tabela/inbox/elegíveis/
-// agendamentos/exports, HM E genéricos):
+// Achata o escopo em 3 parâmetros para o WHERE das queries. O predicado padrão
+// é o sqlEscopo de lib/services/visibilidade.ts (aplicado em kanban/tabela/
+// inbox/elegíveis/agendamentos/exports, HM E genéricos):
 //   (verTudo OR (responsavel_id null AND equipe_id null AND texto vazio) -- livre
-//            OR equipe_id = equipeId                        -- gestor: a equipe
-//            OR responsavel_id = usuarioId)                 -- operador: os dele
-// Card com dono só em TEXTO (órfão) NÃO é livre — fica com o master.
+//            OR equipe_id = equipeId                    -- modo equipe: a equipe
+//            OR responsavel_id = usuarioId)             -- os do próprio usuário
+// No modo 'equipe' equipeId E usuarioId vêm preenchidos (equipe + os dele); no
+// modo 'operador' só usuarioId. Card com dono só em TEXTO (órfão) NÃO é livre —
+// fica com o master.
 export function paramsEscopo(e: EscopoVisibilidade): { verTudo: boolean; equipeId: string | null; usuarioId: string | null } {
   return {
     verTudo: e.modo === "tudo",
     equipeId: e.modo === "equipe" ? e.equipeId : null,
-    usuarioId: e.modo === "operador" ? e.usuarioId : null,
+    usuarioId: e.modo === "tudo" ? null : e.usuarioId,
   };
 }
