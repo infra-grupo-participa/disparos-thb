@@ -22,7 +22,7 @@ export const fieldCompactClass = fieldClass.replace(/^w-full /, "");
 type ButtonProps = {
   children: ReactNode;
   variant?: "primary" | "secondary" | "ghost" | "danger";
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "icon";
   className?: string;
 } & React.ButtonHTMLAttributes<HTMLButtonElement>;
 
@@ -35,6 +35,9 @@ const BTN_VARIANTS: Record<NonNullable<ButtonProps["variant"]>, string> = {
 const BTN_SIZES: Record<NonNullable<ButtonProps["size"]>, string> = {
   sm: "px-3 py-1.5 text-xs",
   md: "px-4 py-2.5 text-sm",
+  // Botão só-ícone (fechar drawer, ações compactas): quadrado, sem padding
+  // extra — o ícone centraliza pelo flex do próprio Button.
+  icon: "h-8 w-8 text-sm",
 };
 
 export function Button({ children, variant = "primary", size = "md", className, ...rest }: ButtonProps) {

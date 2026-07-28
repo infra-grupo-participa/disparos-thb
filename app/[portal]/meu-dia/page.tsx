@@ -8,6 +8,7 @@ import { Reveal } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
 import { useMe } from "@/app/_components/use-me";
 import { RegistrarAtendimento } from "@/app/_components/ligacao";
+import { toast } from "@/app/_components/toast";
 
 // "Meu dia" — a tela do operador. Três perguntas, nesta ordem:
 //   quem eu prometi retornar? · quem está esperando? · quem ninguém tocou?
@@ -82,7 +83,8 @@ export default function MeuDiaPage() {
       if (j.ok) {
         setMeus(true);
         await carregar();
-        alert(j.pegos > 0 ? `${j.pegos} lead(s) atribuído(s) a você.` : "Nenhum lead sem dono disponível agora.");
+        if (j.pegos > 0) toast(`${j.pegos} lead(s) atribuído(s) a você.`);
+        else toast("Nenhum lead sem dono disponível agora.", "erro");
       }
     } finally {
       setPegando(false);
@@ -246,7 +248,7 @@ function Fila({
                 className="h-8 shrink-0 px-3 text-xs"
                 onClick={() => onRegistrar(i)}
                 disabled={!i.telefone}
-                title={i.telefone ? "Registrar atendimento" : "Contato sem telefone"}
+                title={i.telefone ? "Registrar atendimento" : "Lead sem telefone"}
               >
                 Registrar
               </Button>

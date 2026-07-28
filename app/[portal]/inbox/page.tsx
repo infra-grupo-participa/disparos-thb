@@ -7,6 +7,7 @@ import { PageFade } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
 import { useMe } from "@/app/_components/use-me";
 import { RegistrarAtendimento } from "@/app/_components/ligacao";
+import { toast } from "@/app/_components/toast";
 
 type Conversa = {
   comprador_id: string; nome: string; telefone: string | null; edicao: string | null;
@@ -206,13 +207,13 @@ export default function InboxPage() {
       const d = await r.json();
       if (d.ok) {
         setTplSel("");
-        alert("Template de abertura enviado. Quando o lead responder, a conversa reabre e você poderá escrever livremente.");
+        toast("Template de abertura enviado — quando o lead responder, a conversa reabre.");
         void carregarConversas();
       } else {
-        alert(d.motivo || d.reason || "Não foi possível enviar o template de abertura.");
+        toast(d.motivo || d.reason || "Não foi possível enviar o template de abertura.", "erro");
       }
     } catch {
-      alert("Falha ao enviar o template. Tente novamente.");
+      toast("Falha ao enviar o template. Tente novamente.", "erro");
     } finally {
       setEnviandoTpl(false);
     }
@@ -298,7 +299,7 @@ export default function InboxPage() {
         // Reverte o otimista e devolve o texto ao campo.
         setMensagens((m) => m.filter((x) => x.id !== tmpId));
         setTexto(txt);
-        alert(d.reason || "Falha ao enviar (a janela de 24h pode estar fechada).");
+        toast(d.reason || "Falha ao enviar (a janela de 24h pode estar fechada).", "erro");
         return;
       }
       // Atualiza lista e métricas em segundo plano (banco, rápido) — não trava o input.
@@ -307,7 +308,7 @@ export default function InboxPage() {
     } catch {
       setMensagens((m) => m.filter((x) => x.id !== tmpId));
       setTexto(txt);
-      alert("Falha ao enviar. Tente novamente.");
+      toast("Falha ao enviar. Tente novamente.", "erro");
     } finally {
       setEnviando(false);
     }
@@ -320,13 +321,18 @@ export default function InboxPage() {
     await carregarMetricas();
   }
 
-  function addSnippet() {
-    const t = window.prompt("Nova resposta rápida:");
-    if (t && t.trim()) {
-      const novo = [...snippets, t.trim()];
-      setSnippets(novo);
-      try { localStorage.setItem("cs_snippets", JSON.stringify(novo)); } catch { /* noop */ }
-    }
+  // Nova resposta rápida: input inline no lugar do window.prompt — Enter salva,
+  // Esc ou clicar fora cancelam (o gesto de salvar é explícito, sem surpresa
+  // de blur gravando texto pela metade). null = campo fechado.
+  const [novoSnippet, setNovoSnippet] = useState<string | null>(null);
+  function salvarSnippet() {
+    const t = (novoSnippet ?? "").trim();
+    setNovoSnippet(null);
+    if (!t) return;
+    const novo = [...snippets, t];
+    setSnippets(novo);
+    try { localStorage.setItem("cs_snippets", JSON.stringify(novo)); } catch { /* noop */ }
+    toast("Resposta rápida adicionada.");
   }
 
   const k = metricas?.kpis;
@@ -373,7 +379,7 @@ export default function InboxPage() {
       {modoDisparo && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2 dark:border-brand-400/20 dark:bg-brand-400/5">
           <span className="text-sm text-brand-700 dark:text-brand-300">
-            Mostrando os contatos deste disparo, na ordem em que a mensagem saiu — as respostas aparecem aqui conforme chegam.
+            Mostrando os leads deste disparo, na ordem em que a mensagem saiu — as respostas aparecem aqui conforme chegam.
           </span>
           <button
             onClick={() => { setModoDisparo(null); try { window.history.replaceState(null, "", window.location.pathname); } catch { /* noop */ } }}
@@ -559,7 +565,23 @@ export default function InboxPage() {
                         {s}
                       </button>
                     ))}
-                    <button onClick={addSnippet} title="Adicionar resposta rápida" className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs text-slate-400 transition hover:text-slate-600 dark:border-slate-600 dark:hover:text-slate-300">+ atalho</button>
+                    {novoSnippet === null ? (
+                      <button onClick={() => setNovoSnippet("")} title="Adicionar resposta rápida" className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs text-slate-400 transition hover:text-slate-600 dark:border-slate-600 dark:hover:text-slate-300">+ atalho</button>
+                    ) : (
+                      <input
+                        autoFocus
+                        value={novoSnippet}
+                        onChange={(e) => setNovoSnippet(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); salvarSnippet(); }
+                          if (e.key === "Escape") setNovoSnippet(null);
+                        }}
+                        onBlur={() => setNovoSnippet(null)}
+                        placeholder="Nova resposta rápida… (Enter salva, Esc cancela)"
+                        aria-label="Nova resposta rápida"
+                        className="w-72 max-w-full rounded-full border border-dashed border-brand/50 bg-transparent px-2.5 py-1 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-brand dark:border-brand-400/50 dark:text-slate-200 dark:placeholder:text-slate-500"
+                      />
+                    )}
                   </div>
                   <div className="flex items-end gap-2">
                     <input
@@ -630,14 +652,14 @@ function Desempenho({ metricas, onClose }: { metricas: Metricas; onClose: () => 
           </button>
         </div>
 
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Por atendente</h3>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Por operador</h3>
         {metricas.porAtendente.length === 0 ? (
           <p className="py-3 text-sm text-slate-400 dark:text-slate-500">Ainda não há atendimentos registrados.</p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-                <tr><th className="px-3 py-2 font-semibold">Atendente</th><th className="px-3 py-2 font-semibold">Atendimentos</th><th className="px-3 py-2 font-semibold">1º contato médio</th><th className="px-3 py-2 font-semibold">SLA</th></tr>
+                <tr><th className="px-3 py-2 font-semibold">Operador</th><th className="px-3 py-2 font-semibold">Atendimentos</th><th className="px-3 py-2 font-semibold">1º contato médio</th><th className="px-3 py-2 font-semibold">SLA</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {metricas.porAtendente.map((a) => (

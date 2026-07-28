@@ -163,7 +163,7 @@ export default function DashboardPage() {
       {erro && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" role="alert">
           <span>{erro}{atualizadoEm ? ` Mostrando os dados de ${hms(atualizadoEm)}.` : ""}</span>
-          <button onClick={carregar} className="shrink-0 font-medium underline-offset-2 hover:underline">Tentar agora</button>
+          <Button variant="secondary" size="sm" className="shrink-0" onClick={carregar}>Tentar agora</Button>
         </div>
       )}
 
@@ -351,7 +351,7 @@ function derivarProximaAcao(arvore: NoEdicao[], atividade: Atividade[]): Acao {
     return {
       tom: "sugestao",
       titulo: "Nenhum disparo registrado",
-      descricao: "Selecione contatos e faça o primeiro disparo para acompanhar os resultados aqui.",
+      descricao: "Selecione leads e faça o primeiro disparo para acompanhar os resultados aqui.",
     };
   }
 

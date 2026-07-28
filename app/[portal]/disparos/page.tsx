@@ -105,13 +105,13 @@ export default function DisparosPage() {
   // Reenvia SÓ os que não chegaram (nunca saíram + falha de entrega). Confirma
   // antes: é envio real de WhatsApp para pessoas.
   async function reenviarCaidos(d: Disparo) {
-    if (!window.confirm(`Reenviar para os ${d.nao_chegaram} contato(s) que não receberam (nunca enviados + falha de entrega)? Quem já recebeu não será incomodado.`)) return;
+    if (!window.confirm(`Reenviar para os ${d.nao_chegaram} lead(s) que não receberam (nunca enviados + falha de entrega)? Quem já recebeu não será incomodado.`)) return;
     setReenviando(d.id); setAviso(null);
     try {
       const r = await fetch(`/api/disparos/${d.id}/reenviar-caidos?evento=${evento}`, { method: "POST" });
       const j = await r.json();
       if (j.ok) {
-        setAviso(`Reenviando para ${j.reenviando} contato(s) que não chegaram. Acompanhe a barra.`);
+        setAviso(`Reenviando para ${j.reenviando} lead(s) que não chegaram. Acompanhe a barra.`);
         await carregar();
       } else {
         setAviso(j.reason || "Não foi possível reenviar agora.");
@@ -166,11 +166,8 @@ export default function DisparosPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Link
-                      href={`${base}/inbox?disparo=${d.id}`}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                    >
-                      Ver conversas
+                    <Link href={`${base}/inbox?disparo=${d.id}`}>
+                      <Button variant="secondary" size="sm">Ver conversas</Button>
                     </Link>
                     {podeRetomar && (
                       <Button size="sm" onClick={() => retomar(d)} disabled={retomando === d.id}>

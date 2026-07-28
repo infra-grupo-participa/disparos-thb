@@ -40,7 +40,9 @@ export function Toaster() {
     const timers: ReturnType<typeof setTimeout>[] = [];
     emitir = (t) => {
       setItens((ls) => [...ls.slice(-2), t]); // no máximo 3 na tela
-      timers.push(setTimeout(() => setItens((ls) => ls.filter((x) => x.id !== t.id)), 3500));
+      // Erro fica mais tempo na tela: costuma explicar POR QUE algo não
+      // aconteceu (checklist, saldo, permissão) e precisa dar tempo de ler.
+      timers.push(setTimeout(() => setItens((ls) => ls.filter((x) => x.id !== t.id)), t.tipo === "erro" ? 7000 : 4000));
     };
     return () => { emitir = null; timers.forEach(clearTimeout); };
   }, []);
@@ -52,7 +54,9 @@ export function Toaster() {
         <div
           key={t.id}
           className={cn(
-            "pointer-events-auto flex items-center gap-2.5 rounded-xl border py-2.5 pl-2.5 pr-4 text-sm font-medium shadow-pop",
+            // max-w + items-start: mensagens longas (ex.: por que o movimento
+            // falhou) quebram linha em vez de virar uma faixa de tela inteira.
+            "pointer-events-auto flex max-w-xl items-start gap-2.5 rounded-xl border py-2.5 pl-2.5 pr-4 text-left text-sm font-medium shadow-pop",
             "motion-safe:animate-fade-in",
             TOM[t.tipo].wrap,
           )}

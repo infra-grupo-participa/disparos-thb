@@ -34,9 +34,9 @@ export default function UserMenu() {
 
   if (!me) {
     return (
-      <button onClick={logout} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100">
+      <Button variant="ghost" size="sm" onClick={logout}>
         Sair
-      </button>
+      </Button>
     );
   }
 

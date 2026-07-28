@@ -45,7 +45,7 @@ export default function BuscaGlobal() {
     <>
       <button
         onClick={() => setAberto(true)}
-        aria-label="Buscar aluno"
+        aria-label="Buscar lead"
         title="Buscar (Ctrl+K)"
         className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
       >
@@ -61,7 +61,7 @@ export default function BuscaGlobal() {
                 ref={inputRef}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Buscar aluno por nome, e-mail ou telefone…"
+                placeholder="Buscar lead por nome, e-mail ou telefone…"
                 className="w-full bg-transparent py-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
               />
             </div>

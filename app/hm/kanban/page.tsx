@@ -16,6 +16,7 @@ import { DisparoInteligente } from "@/app/_components/disparo-inteligente";
 import { TagChip } from "@/app/_components/tags";
 import { ContatoDoNome } from "@/app/_components/copiavel";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
+import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { SeloEquipe, COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
@@ -373,8 +374,9 @@ export default function HmKanbanPage() {
     try {
       const r = await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios/provisionar`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d?.ok) window.alert(`Não foi possível enviar ${s.nome} à base. Tente de novo.`);
-      else if (!d.provisionados) window.alert(`${s.nome} não foi enviado: o titular precisa estar como aluno na base primeiro.`);
+      if (!r.ok || !d?.ok) toast(`Não foi possível enviar ${s.nome} à base. Tente de novo.`, "erro");
+      else if (!d.provisionados) toast(`${s.nome} não foi enviado: o titular precisa estar como aluno na base primeiro.`, "erro");
+      else toast(`${s.nome} enviado à base THB.`);
       await carregar();
     } finally {
       setEnviandoBase((atual) => { const n = new Set(atual); n.delete(s.socio_id); return n; });
@@ -428,10 +430,9 @@ export default function HmKanbanPage() {
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         if (d?.reason === "checklist_incompleto") {
-          window.alert(
-            `${card.nome} ainda não pode entrar em "Ativação Realizada".\n\n` +
-              `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
-              "Marque os itens do checklist na ficha do card.",
+          toast(
+            `${card.nome} ainda não pode entrar em "Ativação Realizada" — falta: ${(d.faltando ?? []).join(", ")}. Marque os itens do checklist na ficha do card.`,
+            "erro",
           );
         } else if (d?.reason === "saldo_em_aberto") {
           // O sinal não é pagamento realizado: só entra na Ativação quem quitou o
@@ -439,15 +440,15 @@ export default function HmKanbanPage() {
           const falta = typeof d.faltam === "number" && d.faltam > 0
             ? ` Faltam ${d.faltam.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} do saldo.`
             : "";
-          window.alert(
-            `${card.nome} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
-              "Registre o pagamento do saldo (valor cheio) na ficha antes de mover para a Ativação.",
+          toast(
+            `${card.nome} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta} Registre o pagamento do saldo (valor cheio) na ficha antes de mover para a Ativação.`,
+            "erro",
           );
         } else {
           // 403 de permissão (sem_portal / sem_permissao / atribuicao_travada…):
           // diz o MOTIVO em vez de o card só voltar sozinho.
           const msg = msgErroPermissao(d?.reason);
-          if (msg) window.alert(msg);
+          if (msg) toast(msg, "erro");
         }
       }
     } finally {
@@ -515,7 +516,7 @@ export default function HmKanbanPage() {
         body: JSON.stringify({ reverter: true }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!d?.ok) window.alert(`${card.nome} não tem um movimento anterior para desfazer.`);
+      if (!d?.ok) toast(`${card.nome} não tem um movimento anterior para desfazer.`, "erro");
     } finally {
       await carregar();
     }
@@ -575,7 +576,7 @@ export default function HmKanbanPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {totalComercial + totalAtivacao} aluno(s) — arraste os cards entre as etapas e para cima/baixo para ordenar a fila.
+            {totalComercial + totalAtivacao} lead(s) — arraste os cards entre as etapas e para cima/baixo para ordenar a fila.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -662,11 +663,11 @@ export default function HmKanbanPage() {
 
         <div className="relative min-w-[10rem] flex-1">
           <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar aluno…" className={cn(fieldClass, "w-full pl-8")} />
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar lead…" className={cn(fieldClass, "w-full pl-8")} />
         </div>
 
         {responsaveis.length > 0 && (
-          <MultiSelect rotulo="Responsável" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
+          <MultiSelect rotulo="Operador" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
         )}
         {canais.length > 0 && (
           <MultiSelect rotulo="Canal" grupos={gruposCanal(canais)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
@@ -1273,6 +1274,45 @@ function MenuItem({ children, onClick, disabled }: { children: React.ReactNode; 
   );
 }
 
+// Selos informativos do card, colapsados num "+N" discreto. Regra do corte:
+// fica SEMPRE visível o que muda a ação do operador (cadeado de cancelado,
+// pool, conferir saldo, equipe); colapsa o que é só contexto (categoria de
+// entrada, parcela/pago, recompra — que já tem a borda superior vermelha como
+// sinal permanente). Acessível: o aria-label do botão lista todos os selos
+// (o leitor de tela ouve tudo sem abrir); Enter/Espaço abrem, Esc fecha, e o
+// foco do teclado também revela o popover.
+function SelosExtras({ itens }: { itens: { key: string; rotulo: string; el: React.ReactNode }[] }) {
+  const [aberto, setAberto] = useState(false);
+  if (itens.length === 0) return null;
+  return (
+    <span
+      className="relative inline-flex"
+      onMouseEnter={() => setAberto(true)}
+      onMouseLeave={() => setAberto(false)}
+    >
+      <button
+        type="button"
+        aria-expanded={aberto}
+        aria-label={`Mais ${itens.length} selo(s): ${itens.map((i) => i.rotulo).join("; ")}`}
+        onClick={(e) => { e.stopPropagation(); setAberto((v) => !v); }}
+        // stopPropagation sempre: Enter aqui não pode abrir a ficha (o card
+        // inteiro é role=button e escuta Enter).
+        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") setAberto(false); }}
+        onFocus={() => setAberto(true)}
+        onBlur={() => setAberto(false)}
+        className="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500 transition hover:border-slate-300 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:text-slate-200"
+      >
+        +{itens.length}
+      </button>
+      {aberto && (
+        <span className="absolute left-0 top-full z-30 mt-1 flex w-max max-w-[15rem] flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-pop dark:border-slate-700 dark:bg-slate-900">
+          {itens.map((i) => <Fragment key={i.key}>{i.el}</Fragment>)}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function CardItem({
   card, espelho, ehPool, bloqueado, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags,
 }: {
@@ -1299,6 +1339,34 @@ function CardItem({
   const dataEtapa = card.estagio_chave === "hm_reuniao_agendada" ? { label: "Reunião", quando: card.reuniao_em }
     : card.estagio_chave === "hm_entrevista_agendada" ? { label: "Entrevista", quando: card.entrevista_em }
     : null;
+  // Selos SÓ informativos → colapsam no "+N" (ver SelosExtras). Recompra segue
+  // sinalizada pela borda superior vermelha mesmo com o selo colapsado.
+  const extras: { key: string; rotulo: string; el: React.ReactNode }[] = [];
+  if (recompra) extras.push({ key: "recompra", rotulo: `Recompra (${recompra})`, el: <SeloRecompra origem={recompra} /> });
+  if (cat) extras.push({
+    key: "cat", rotulo: `Entrada: ${cat.txt}`,
+    el: <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>,
+  });
+  if (parcela) extras.push({
+    key: "parcela", rotulo: parcela.txt,
+    el: (
+      <span className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", parcela.cls)} title={parcela.title}>
+        {parcela.txt === "Parcela atrasada"
+          ? <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+          : <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4m10-10h-4M6 12H2" /></svg>}
+        {parcela.txt}
+      </span>
+    ),
+  });
+  else if (card.apto_ativacao) extras.push({
+    key: "pago", rotulo: "Saldo pago",
+    el: (
+      <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" title="Pagamento do saldo confirmado">
+        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+        pago
+      </span>
+    ),
+  });
   return (
     <div
       data-card
@@ -1372,9 +1440,6 @@ function CardItem({
               só admin GP
             </span>
           )}
-          {/* Recompra: o selo repete a cor da borda superior com TEXTO — a marca
-              precisa ser inequívoca, não um palpite de quem nota a borda. */}
-          {recompra && <SeloRecompra origem={recompra} />}
           {/* Selo do pool (só na visão do operador): este card está livre —
               abra a ficha e clique em "Atribuir a mim". */}
           {ehPool && (
@@ -1386,7 +1451,6 @@ function CardItem({
               Pool · livre
             </span>
           )}
-          {cat && <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>}
           {/* Falso-verde do crédito pró-rata: avisa em vez de deixar o card mentir. */}
           {card.conferir_saldo && (
             <span
@@ -1397,20 +1461,9 @@ function CardItem({
               conferir saldo
             </span>
           )}
-          {/* Parcelando ainda deve o saldo: mostra o estado da parcela, não "pago". */}
-          {parcela ? (
-            <span className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", parcela.cls)} title={parcela.title}>
-              {parcela.txt === "Parcela atrasada"
-                ? <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
-                : <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4m10-10h-4M6 12H2" /></svg>}
-              {parcela.txt}
-            </span>
-          ) : card.apto_ativacao && (
-            <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" title="Pagamento do saldo confirmado">
-              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-              pago
-            </span>
-          )}
+          {/* Recompra, categoria de entrada e parcela/pago são contexto, não
+              ação: moram no "+N" (hover/foco/Enter revelam; o aria-label lê tudo). */}
+          <SelosExtras itens={extras} />
         </div>
         <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", corAvatar(card.nome))}>{inicial(card.nome)}</span>
       </div>
@@ -1445,7 +1498,7 @@ function CardItem({
           {card.responsavel ? (
             <Avatar nome={card.responsavel} className="h-5 w-5 text-[9px] ring-2 ring-white dark:ring-slate-900" />
           ) : (
-            <span title="Sem responsável" className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600 dark:text-slate-600">
+            <span title="Sem operador" className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600 dark:text-slate-600">
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
             </span>
           )}

@@ -8,7 +8,9 @@ import { DisparoModal } from "@/app/_components/disparo";
 import { DisparoInteligente } from "@/app/_components/disparo-inteligente";
 import { TagsIcon, TAGS_PADRAO, tagTone } from "@/app/_components/tags";
 import { Reveal } from "@/app/_components/anim";
-import { Avatar } from "@/app/_components/avatar";
+import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
+import { EdicaoBadge } from "@/app/_components/edicao-badge";
+import { toast } from "@/app/_components/toast";
 import { useMe } from "@/app/_components/use-me";
 import { usePortal } from "@/app/_components/use-portal";
 import { MarcaPortal } from "@/app/_components/marca";
@@ -65,16 +67,6 @@ function Sinal({ on, label }: { on: boolean; label: string }) {
   );
 }
 
-const AVATAR = ["bg-brand-100 text-brand-700", "bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-800", "bg-violet-100 text-violet-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700"];
-const AVATAR_DARK = ["dark:bg-brand-400/20 dark:text-brand-300", "dark:bg-blue-500/20 dark:text-blue-300", "dark:bg-emerald-500/20 dark:text-emerald-300", "dark:bg-amber-500/20 dark:text-amber-300", "dark:bg-violet-500/20 dark:text-violet-300", "dark:bg-rose-500/20 dark:text-rose-300", "dark:bg-cyan-500/20 dark:text-cyan-300"];
-function corAvatar(nome: string) {
-  let h = 0;
-  for (let i = 0; i < (nome?.length || 0); i++) h = (h * 31 + nome.charCodeAt(i)) >>> 0;
-  const i = h % AVATAR.length;
-  return `${AVATAR[i]} ${AVATAR_DARK[i]}`;
-}
-const inicial = (nome: string) => (nome?.trim()?.[0] || "?").toUpperCase();
-
 function relativo(iso: string | null): string {
   if (!iso) return "";
   const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -123,16 +115,6 @@ function tempoTom(iso: string | null): string {
   if (dias >= 3) return "text-amber-500 dark:text-amber-400";
   return "text-slate-400 dark:text-slate-500";
 }
-
-const EDICAO_COR: Record<string, string> = {
-  HT21: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
-  HT22: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-  HT23: "bg-lime-100 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300",
-  HT24: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-  HT25: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300",
-  HT26: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
-  HT27: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-};
 
 export default function KanbanPage() {
   const { me, nivel, podeDisparar: podeDisparaFn, podeDistribuir } = useMe();
@@ -210,7 +192,7 @@ export default function KanbanPage() {
     const r = await fetch(`/api/contatos?${params.toString()}`);
     const d = await r.json();
     const lista = (d.ok ? d.contatos : []).filter((c: { telefone: string | null }) => c.telefone);
-    if (lista.length === 0) { alert("Nenhum contato com telefone nesta etapa."); return; }
+    if (lista.length === 0) { toast("Nenhum lead com telefone nesta etapa.", "erro"); return; }
     setDispararSelecao(lista.map((c: { comprador_id: string; nome: string; telefone: string; edicao: string | null }) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone, edicao: c.edicao })));
   }
 
@@ -223,7 +205,7 @@ export default function KanbanPage() {
   }
   function dispararCards(lista: Card[]) {
     const sel = lista.filter((c) => c.telefone).map((c) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone as string, edicao: c.edicao }));
-    if (sel.length === 0) { alert("Nenhum dos selecionados tem telefone."); return; }
+    if (sel.length === 0) { toast("Nenhum dos selecionados tem telefone.", "erro"); return; }
     setDispararSelecao(sel);
   }
   const cardsSelecionados = () => cards.filter((c) => selecaoMulti.has(c.comprador_id));
@@ -262,7 +244,7 @@ export default function KanbanPage() {
     const lista = (d.ok ? d.contatos : [])
       .filter((c: { comprador_id: string; telefone: string | null }) => ids.has(c.comprador_id) && c.telefone)
       .map((c: { comprador_id: string; nome: string; telefone: string; edicao: string | null }) => ({ comprador_id: c.comprador_id, nome: c.nome, telefone: c.telefone, edicao: c.edicao }));
-    if (!lista.length) { alert("Nenhum dos selecionados tem telefone."); return; }
+    if (!lista.length) { toast("Nenhum dos selecionados tem telefone.", "erro"); return; }
     setDispararSelecao(lista);
   }
 
@@ -289,7 +271,7 @@ export default function KanbanPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{ehHT ? "Jornada do HT" : `Jornada · ${eventoNome}`}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {totalGeral} {ehHT ? "comprador(es)" : "contato(s)"}{edicao ? ` · ${edicao}` : ""} — arraste os cards entre as etapas, clique para ver detalhes.
+            {totalGeral} {ehHT ? "comprador(es)" : "lead(s)"}{edicao ? ` · ${edicao}` : ""} — arraste os cards entre as etapas, clique para ver detalhes.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -299,7 +281,7 @@ export default function KanbanPage() {
           </select>
           {opcoesResponsavel.length > 0 && (
             <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto")}>
-              <option value="">Todos os responsáveis</option>
+              <option value="">Todos os operadores</option>
               {opcoesResponsavel.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           )}
@@ -448,11 +430,11 @@ export default function KanbanPage() {
                 value=""
                 onChange={(e) => { const v = e.target.value; if (v) lote({ responsavel: v === "__nenhum__" ? null : v }); e.target.value = ""; }}
                 className={cn(fieldClass, "w-auto py-1.5 text-xs")}
-                title="Atribuir responsável aos selecionados"
+                title="Atribuir operador aos selecionados"
               >
-                <option value="">Atribuir CS…</option>
+                <option value="">Atribuir operador…</option>
                 {opcoesResponsavel.map((r) => <option key={r} value={r}>{r}</option>)}
-                <option value="__nenhum__">— Remover responsável —</option>
+                <option value="__nenhum__">— Remover operador —</option>
               </select>
             )}
             {podeDisparar && (
@@ -535,9 +517,8 @@ function CardItem({ card, ehPool, selecionado, modoSelecao, onDragStart, onClick
 
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap gap-1">
-          {card.edicao && (
-            <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", EDICAO_COR[card.edicao] || "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}>{card.edicao}</span>
-          )}
+          {/* Paleta única de edição (edicao-badge.tsx) — a mesma da lista de Leads. */}
+          {card.edicao && <EdicaoBadge edicao={card.edicao} />}
           {card.opt_out && (
             <span className="inline-flex items-center gap-0.5 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:bg-rose-500/15 dark:text-rose-300" title="Opt-out: não recebe disparos">
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><path d="m5 5 14 14" /></svg>
@@ -572,7 +553,7 @@ function CardItem({ card, ehPool, selecionado, modoSelecao, onDragStart, onClick
           {card.responsavel ? (
             <Avatar nome={card.responsavel} className="h-5 w-5 text-[9px] ring-2 ring-white dark:ring-slate-900" />
           ) : (
-            <span title="Sem responsável" className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600 dark:text-slate-600">
+            <span title="Sem operador" className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600 dark:text-slate-600">
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
             </span>
           )}
@@ -673,9 +654,9 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
             <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{card.nome}</h2>
             <p className="truncate text-xs text-slate-500 dark:text-slate-400">{card.telefone || "sem telefone"}{card.edicao ? ` · ${card.edicao}` : ""}</p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-          </button>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Fechar painel">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </Button>
         </div>
 
         {/* Abas */}
@@ -769,7 +750,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                     </div>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Responsável (CS)</label>
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Operador</label>
                     {podeDistribuir() ? (
                       // MASTER/GESTOR: seletor de destino (o backend valida a equipe).
                       <div className="flex items-center gap-2">
@@ -779,7 +760,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                           onChange={(e) => { const v = e.target.value; patch({ responsavel: v || null }); }}
                           className={fieldClass}
                         >
-                          <option value="">— Sem responsável —</option>
+                          <option value="">— Sem operador —</option>
                           {det.contato.responsavel && !responsaveis.includes(det.contato.responsavel) && (
                             <option value={det.contato.responsavel}>{det.contato.responsavel}</option>
                           )}
@@ -796,7 +777,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                           </>
                         ) : (
                           <span className="inline-flex items-center rounded-lg border border-dashed border-teal-400 px-2.5 py-1.5 text-xs font-medium text-teal-700 dark:border-teal-500/50 dark:text-teal-300">
-                            Sem responsável — livre para assumir
+                            Sem operador — livre para assumir
                           </span>
                         )}
                       </div>
@@ -807,7 +788,7 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                         type="button"
                         onClick={() => patch({ responsavel: me.nome })}
                         className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline dark:text-brand-300"
-                        title={det.contato.responsavel ? `Assumir de ${det.contato.responsavel}` : "Assumir este contato"}
+                        title={det.contato.responsavel ? `Assumir de ${det.contato.responsavel}` : "Assumir este lead"}
                       >
                         <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
                         {det.contato.responsavel ? "Assumir para mim" : "Atribuir a mim"}
