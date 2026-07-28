@@ -35,7 +35,7 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
             k.pagamento_meio, k.pagamento_previsto_em, k.acordo, k.oferta_saldo_codigo, k.link_saldo_enviado_em,
             k.nao_contatar, k.nao_contatar_motivo, k.revisar, k.revisar_motivo,
             k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa, k.grupo_informes, k.pendencia,
-            k.cancelamento_em, k.cancelamento_motivo, k.link_facebook,
+            k.cancelamento_em, k.cancelamento_motivo, k.cancelamento_valor, k.link_facebook,
             k.cancelamento_efetivado_em, k.cancelamento_origem,
             k.hotmart_cancelado_em, k.hotmart_cancelamento_evento, k.hotmart_cancelamento_transacao,
             k.hotmart_status, k.hotmart_status_em, k.canal_aquisicao,

@@ -245,6 +245,8 @@ export const HmContatoPatchSchema = z.object({
   pendencia: z.string().nullable().optional(),
   // ----- cancelamento -----
   cancelamento_motivo: z.string().nullable().optional(),
+  // Valor financeiro do cancelamento (0152): a reembolsar/reter. null limpa.
+  cancelamento_valor: z.number().nonnegative().nullable().optional(),
   // Arrastar o card para "Solicitou Cancelamento" é o PEDIDO. Estas duas ações
   // são o FATO: confirmar (o reembolso saiu) marca o aluno como cancelado e abre
   // a pendência de remover os acessos; desfazer volta atrás (reembolso negado).

@@ -146,6 +146,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   // Cancelamento: o motivo. "Pediu reembolso? SIM" sem o porquê não serve a ninguém.
   if (b.cancelamento_motivo !== undefined) add("cancelamento_motivo", b.cancelamento_motivo);
+  // Valor financeiro do cancelamento (0152): a reembolsar/reter.
+  if (b.cancelamento_valor !== undefined) add("cancelamento_valor", b.cancelamento_valor);
 
   // Revogação dos acessos do cancelado — o inverso do checklist de ativação.
   // O "quando" é carimbado pelo banco quando os quatro caem; o "quem" é este

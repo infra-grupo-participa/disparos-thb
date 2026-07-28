@@ -36,7 +36,7 @@ type Contato = {
   // ativação
   ativ_searchie: boolean; ativ_comunidade: boolean; ativ_grupo: boolean; ativ_pesquisa: boolean;
   grupo_informes: string | null; pendencia: string | null; link_facebook: string | null;
-  cancelamento_em: string | null; cancelamento_motivo: string | null;
+  cancelamento_em: string | null; cancelamento_motivo: string | null; cancelamento_valor: string | null;
   // cancelamento: o pedido (cancelamento_em) e o fato (cancelamento_efetivado_em)
   cancelamento_efetivado_em: string | null; cancelamento_origem: string | null;
   // …e o fato pelos olhos da HOTMART (0091). Só o webhook escreve nestes.
@@ -368,6 +368,10 @@ export function HmDrawer({
   // ao Comercial conserva a data do pagamento como histórico, mas volta a pedir a
   // confirmação — senão o formulário de pagamento nunca mais reapareceria.
   const jaPagou = !!c?.apto_ativacao;
+  // Reunião finalizada (0152): o bloco financeiro de cancelamento só aparece
+  // depois que a reunião comercial foi de fato realizada — é a regra pedida
+  // ("tem que vir após a reunião finalizada"). Vale o resultado OU já ter data.
+  const reuniaoFinalizada = c?.reuniao_resultado === "Realizada" || c?.reuniao_resultado === "Realizada/pago";
   const temHistorico = timeline.some((it) => it.tipo === "mudanca_estagio");
   // Trava dos cancelados (27/07): card em Reclamada/Reembolsado é read-only para
   // quem não é MASTER. O backend barra; aqui a UI avisa e desabilita.
@@ -903,16 +907,22 @@ export function HmDrawer({
                   sócios — e abre o checklist de remoção dos acessos, que é o que
                   de fato tira a pessoa de dentro do Searchie, do grupo e da
                   comunidade. Se ele voltar, é este mesmo cadastro que revive. */}
-              {(c.cancelamento_em || c.cancelamento_efetivado_em) && (
+              {/* Bloco financeiro do cancelamento (0152): aparece após a REUNIÃO
+                  FINALIZADA, ou sempre que já houver um cancelamento em curso (não
+                  esconder um pedido/efetivado só porque a reunião não foi marcada). */}
+              {(reuniaoFinalizada || c.cancelamento_em || c.cancelamento_efetivado_em) && (
                 <div className={cn(
                   "rounded-lg border p-3",
                   c.cancelamento_efetivado_em
                     ? "border-rose-200 bg-rose-50/50 dark:border-rose-500/30 dark:bg-rose-500/5"
-                    : "border-amber-200 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/5",
+                    : (c.cancelamento_em)
+                      ? "border-amber-200 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/5"
+                      // Só o registro financeiro pós-reunião (sem pedido ainda): neutro.
+                      : "border-slate-200 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-800/40",
                 )}>
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      {c.cancelamento_efetivado_em ? "Cancelado" : "Cancelamento solicitado"}
+                      {c.cancelamento_efetivado_em ? "Cancelado" : c.cancelamento_em ? "Cancelamento solicitado" : "Cancelamento (financeiro)"}
                     </p>
                     {c.cancelamento_efetivado_em && (
                       <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
@@ -921,10 +931,16 @@ export function HmDrawer({
                     )}
                   </div>
 
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Pediu em {fmt(c.cancelamento_em)}
-                    {c.cancelamento_efetivado_em && <> · efetivado em {fmt(c.cancelamento_efetivado_em)}</>}
-                  </p>
+                  {c.cancelamento_em ? (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Pediu em {fmt(c.cancelamento_em)}
+                      {c.cancelamento_efetivado_em && <> · efetivado em {fmt(c.cancelamento_efetivado_em)}</>}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                      Registre aqui o financeiro caso o aluno peça o cancelamento diretamente à equipe.
+                    </p>
+                  )}
 
                   {/* O que a HOTMART diz — o fato, separado da nossa leitura dele.
                       Confirmar à mão é um palpite ("o reembolso deve ter saído");
@@ -956,7 +972,33 @@ export function HmDrawer({
                     />
                   </label>
 
-                  {!c.cancelamento_efetivado_em ? (
+                  {/* Valor financeiro do cancelamento (0152): a reembolsar/reter. */}
+                  <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Valor do cancelamento (a reembolsar/reter)
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <span className="text-xs text-slate-400">R$</span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0"
+                        defaultValue={c.cancelamento_valor != null ? String(num(c.cancelamento_valor)) : ""}
+                        disabled={somenteLeitura}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim();
+                          const atual = c.cancelamento_valor != null ? String(num(c.cancelamento_valor)) : "";
+                          if (v === atual) return;
+                          patch({ cancelamento_valor: v === "" ? null : Number(v) });
+                        }}
+                        placeholder="ex.: 300"
+                        className={cn(fieldClass, "flex-1")}
+                      />
+                    </div>
+                  </label>
+
+                  {/* Só o registro financeiro pós-reunião (sem pedido de fato): nada
+                      de confirmar/remover acessos — não há cancelamento a processar. */}
+                  {!c.cancelamento_em && !c.cancelamento_efetivado_em ? null : !c.cancelamento_efetivado_em ? (
                     <button
                       onClick={() => {
                         if (window.confirm(
