@@ -58,6 +58,7 @@ export async function GET(req: Request) {
          from cs.contatos_hm_kanban v
          left join ult u on u.comprador_id = v.comprador_id
         where v.telefone is not null and v.telefone <> ''
+          and v.produto = 'HM'                   -- board do produto (0155); disparo dos boards novos vem depois
           and not coalesce(v.nao_contatar, false)
           and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
           and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}

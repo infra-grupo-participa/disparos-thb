@@ -24,7 +24,7 @@ import type { Usuario } from "@/lib/auth";
 // suportado pelos índices parciais da 0148 (cs_interacoes_ultima_conversa_*):
 // 1 index scan curto por linha, em vez de varrer a timeline inteira do contato.
 
-export type FilaFiltro = { status?: string | null; disparoId?: string | null };
+export type FilaFiltro = { status?: string | null; disparoId?: string | null; produto?: "HM" | "AURUM" | "ETHB" };
 export type FilaResultado = { conversas: unknown[]; pendentes: number };
 
 // ---- Portais genéricos (HT / SEM / CNHF) — cs.contatos via cs.contatos_evento
@@ -114,6 +114,7 @@ export async function filaInbox(sessao: Usuario, evento: string, filtro: FilaFil
 export async function filaInboxHm(sessao: Usuario, filtro: FilaFiltro): Promise<FilaResultado> {
   const status = filtro.status ?? null;
   const disparoId = filtro.disparoId ?? null;
+  const produto = filtro.produto ?? "HM"; // board do produto (0155)
 
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
 
@@ -141,10 +142,11 @@ export async function filaInboxHm(sessao: Usuario, filtro: FilaFiltro): Promise<
            join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
            ${LATERAL_ULTIMA}
           where dc.disparo_id = $1 and dc.enviado
+            and ch.produto = $5
             and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}
           order by dc.enviado_em desc nulls last
           limit 500`,
-        [disparoId, verTudo, usuarioId, equipeId],
+        [disparoId, verTudo, usuarioId, equipeId, produto],
       )
     : await query(
         `select ${COLS}
@@ -153,6 +155,7 @@ export async function filaInboxHm(sessao: Usuario, filtro: FilaFiltro): Promise<
            ${LATERAL_ULTIMA}
           where k.telefone is not null and k.telefone <> ''
             and ($1::text is null or ch.inbox_status = $1)
+            and ch.produto = $5
             and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}
           order by (ch.inbox_status = 'pendente') desc,
                    case when ch.inbox_status = 'pendente'
@@ -160,7 +163,7 @@ export async function filaInboxHm(sessao: Usuario, filtro: FilaFiltro): Promise<
                    end asc nulls last,
                    coalesce(ch.aguardando_desde, ch.ultima_resposta_em, ch.atualizado_em) desc
           limit 200`,
-        [status, verTudo, usuarioId, equipeId],
+        [status, verTudo, usuarioId, equipeId, produto],
       );
 
   const resumo = await queryOne<{ pendentes: number }>(
@@ -168,8 +171,9 @@ export async function filaInboxHm(sessao: Usuario, filtro: FilaFiltro): Promise<
        from cs.contatos_hm_kanban k
        join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
       where ch.inbox_status = 'pendente'
+        and ch.produto = $4
         and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 1, usuario: 2, equipe: 3 })}`,
-    [verTudo, usuarioId, equipeId],
+    [verTudo, usuarioId, equipeId, produto],
   );
 
   return { conversas, pendentes: resumo?.pendentes ?? 0 };

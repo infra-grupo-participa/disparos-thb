@@ -23,6 +23,9 @@ export async function GET(req: Request) {
   // Mesmo escopo do board: master tudo; gestor vê a equipe dele; operador vê o
   // pool + os dele. Idêntico à rota do kanban por construção.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
+  // Board do produto (0155): mesma esteira, recorte por produto (default HM).
+  const prodRaw = (sp.get("produto") || "HM").toUpperCase();
+  const produto = (prodRaw === "AURUM" || prodRaw === "ETHB" ? prodRaw : "HM") as "HM" | "AURUM" | "ETHB";
 
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E.
@@ -30,7 +33,7 @@ export async function GET(req: Request) {
     responsavel: sp.getAll("responsavel"),
     canal: sp.getAll("canal"),
     turma: sp.getAll("turma"),
-    verTudo, equipeId, usuarioId,
+    verTudo, equipeId, usuarioId, produto,
   });
 
   // As listas dos filtros saem da base inteira (não da fatia filtrada): um

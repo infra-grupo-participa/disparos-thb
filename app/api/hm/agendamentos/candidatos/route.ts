@@ -30,6 +30,8 @@ export async function GET(req: Request) {
   // Escopo padrão do board: só sugere quem o ator VÊ (pool / a equipe dele /
   // os dele). Sem isso, a busca por nome vazava a carteira das outras equipes.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
+  const prodRaw = (sp.get("produto") || "HM").toUpperCase(); // board do produto (0155)
+  const produto = prodRaw === "AURUM" || prodRaw === "ETHB" ? prodRaw : "HM";
 
   // `precisa` no topo (a fila do dia), depois o resto por nome. Sem busca, só a fila.
   const rows = await query(
@@ -39,10 +41,11 @@ export async function GET(req: Request) {
        from cs.contatos_hm_kanban
       where (($1 = '' and estagio_chave = any($2))
          or ($1 <> '' and (nome ilike '%' || $1 || '%' or telefone ilike '%' || $1 || '%')))
+        and produto = $6
         and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 3, usuario: 4, equipe: 5 })}
       order by (estagio_chave = any($2)) desc, nome
       limit 25`,
-    [q, precisa, verTudo, usuarioId, equipeId],
+    [q, precisa, verTudo, usuarioId, equipeId, produto],
   );
 
   return NextResponse.json({ ok: true, candidatos: rows });

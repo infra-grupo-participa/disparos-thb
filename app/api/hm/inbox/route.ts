@@ -18,10 +18,13 @@ export async function GET(req: Request) {
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
+  const prodRaw = (sp.get("produto") || "HM").toUpperCase(); // board do produto (0155)
+  const produto = prodRaw === "AURUM" || prodRaw === "ETHB" ? prodRaw : "HM";
 
   const { conversas, pendentes } = await filaInboxHm(g.sessao, {
     status: sp.get("status"),      // pendente | resolvido
     disparoId: sp.get("disparo"),  // ver só os contatos de um disparo
+    produto,
   });
   return NextResponse.json({ ok: true, conversas, pendentes });
 }

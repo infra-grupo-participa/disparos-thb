@@ -22,6 +22,8 @@ export type FiltrosHm = {
   usuarioId?: string | null;
   /** Líder de equipe — vê o pool + todos os cards da equipe (equipe_id). */
   equipeId?: string | null;
+  /** Board do produto (0155): 'HM' (default), 'AURUM' ou 'ETHB'. Isola a esteira. */
+  produto?: "HM" | "AURUM" | "ETHB";
 };
 
 // Datas: o driver pg entrega Date no servidor (o XLSX as recebe assim), mas a
@@ -208,7 +210,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
   const lista = (v?: string[] | null) => (v && v.length ? v : null);
   const p = [lista(f.responsavel), lista(f.canal), lista(f.turma), f.estagio || null,
              f.verTudo ?? false, f.usuarioId ?? null, f.equipeId ?? null,
-             HM_ESTAGIOS_CANCELAMENTO];
+             HM_ESTAGIOS_CANCELAMENTO, f.produto ?? "HM"];
 
   const colunas = await query<ColunaHm>(
     `select e.chave, e.nome, e.cor, e.aba, e.ordem
@@ -279,6 +281,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
         and ($4::text is null or k.estagio_chave = $4)
         -- Escopo (predicado único, visibilidade.ts — igual à rota do kanban):
         -- vejo tudo OU é card LIVRE OU é MEU ($6) OU é da minha equipe ($7).
+        and k.produto = $9                       -- board do produto (0155)
         and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags" }, { verTudo: 5, usuario: 6, equipe: 7 })}
         -- Cancelados (Reclamada/Reembolsado, $8) são acesso SÓ do master, como
         -- nas rotas unitárias (403 na ficha): quem não vê tudo não recebe a
