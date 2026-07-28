@@ -31,7 +31,7 @@ export async function GET(req: Request) {
             'reuniao'::text as tipo, reuniao_em as quando, reuniao_resultado as resultado
        from cs.contatos_hm_kanban
       where reuniao_em is not null and ($1::text is null or $1 = 'reuniao')
-        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}
+        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 2, usuario: 3, equipe: 4 })}
      union all
      select comprador_id, nome, email, telefone, plano, responsavel, estagio_nome, estagio_aba,
             tags, turma, turma_origem, acordo, pagamento_meio, pagamento_previsto_em,
@@ -41,7 +41,7 @@ export async function GET(req: Request) {
             'entrevista'::text as tipo, entrevista_em as quando, entrevista_resultado as resultado
        from cs.contatos_hm_kanban
       where entrevista_em is not null and ($1::text is null or $1 = 'entrevista')
-        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}
+        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 2, usuario: 3, equipe: 4 })}
      order by quando asc nulls last`,
     [tipo, verTudo, usuarioId, equipeId],
   );

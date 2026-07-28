@@ -79,7 +79,7 @@ export async function GET(req: Request) {
         and ($3::text[] is null or k.tags && $3)
         -- Escopo (predicado único, visibilidade.ts): vejo tudo OU é card LIVRE
         -- (sem id, sem equipe E sem texto órfão) OU é MEU OU é da minha equipe.
-        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 4, usuario: 5, equipe: 6 })}
+        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags" }, { verTudo: 4, usuario: 5, equipe: 6 })}
       order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
   );
@@ -102,7 +102,7 @@ export async function GET(req: Request) {
          or exists (
               select 1 from cs.contatos_hm_kanban tk
                where tk.comprador_id = s.titular_comprador_id
-                 and ${sqlEscopo({ rid: "tk.responsavel_id", eq: "tk.equipe_id", nome: "tk.responsavel" }, { verTudo: 1, usuario: 2, equipe: 3 })})
+                 and ${sqlEscopo({ rid: "tk.responsavel_id", eq: "tk.equipe_id", nome: "tk.responsavel", tags: "tk.tags" }, { verTudo: 1, usuario: 2, equipe: 3 })})
       order by s.titular_nome, s.nome`,
     [verTudo, usuarioId, equipeId],
   );

@@ -279,7 +279,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
         and ($4::text is null or k.estagio_chave = $4)
         -- Escopo (predicado único, visibilidade.ts — igual à rota do kanban):
         -- vejo tudo OU é card LIVRE OU é MEU ($6) OU é da minha equipe ($7).
-        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 5, usuario: 6, equipe: 7 })}
+        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags" }, { verTudo: 5, usuario: 6, equipe: 7 })}
         -- Cancelados (Reclamada/Reembolsado, $8) são acesso SÓ do master, como
         -- nas rotas unitárias (403 na ficha): quem não vê tudo não recebe a
         -- LINHA — financeiro, motivo e reembolso não saem em XLSX nem na tabela.

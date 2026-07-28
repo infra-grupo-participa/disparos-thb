@@ -23,7 +23,11 @@ import { escopoAcao, escopoVisibilidade, nivelDe, type Ator, type EscopoVisibili
 // Colunas que expõem responsavel_id, equipe_id e responsavel (texto) —
 // cs.contatos_evento / cs.contatos_ht / cs.contatos_hm_kanban; para cs.contatos
 // cru, o chamador junta cs.usuarios para ter a equipe.
-type ColunasEscopo = { rid: string; eq: string; nome: string };
+type ColunasEscopo = { rid: string; eq: string; nome: string;
+  // Coluna de tags do card (ex.: 'k.tags'). Quando presente, o predicado ganha
+  // o ramo canal→pessoa (0154): o operador também vê/age em cards cuja tag está
+  // atribuída a ele em cs.usuario_canais. Omitir onde a tabela não tem tags.
+  tags?: string };
 
 // O predicado de CARD LIVRE em SQL — a definição canônica, usada dentro do
 // sqlEscopo e sozinha onde a pergunta é só "está livre?" (pegar-leads).
@@ -37,16 +41,26 @@ export function sqlCardLivre(a: ColunasEscopo): string {
 // NULL-safe por construção: `eq = $x::uuid` com $x nulo é unknown e NÃO casa —
 // gestor sem equipe vê só o pool, nunca "null = null" virando vazamento.
 export function sqlEscopo(a: ColunasEscopo, p: { verTudo: number; usuario: number; equipe: number }): string {
+  // Ramo canal→pessoa (0154): reusa o placeholder $usuario — sem novo parâmetro.
+  // Card com alguma tag atribuída a mim em cs.usuario_canais entra na minha visão.
+  // `$usuario` nulo (master, que já entra por verTudo) → EXISTS falso, inócuo.
+  const ramoCanal = a.tags
+    ? `\n       or exists (select 1 from cs.usuario_canais uc
+                    where uc.usuario_id = $${p.usuario}::uuid and uc.canal = any(${a.tags}))`
+    : "";
   return `($${p.verTudo}::boolean
        or ${sqlCardLivre(a)}
        or ${a.eq} = $${p.equipe}::uuid
-       or ${a.rid} = $${p.usuario}::uuid)`;
+       or ${a.rid} = $${p.usuario}::uuid${ramoCanal})`;
 }
 
 export type CardVisibilidade = {
   responsavel_id: string | null;
   equipe_id: string | null;
   responsavel: string | null;
+  // Tags do card (canal→pessoa, 0154). Presente nas rotas unitárias que checam
+  // o ramo de canais; ausente = o ramo não conta (fecha, não abre).
+  tags?: string[] | null;
 };
 
 // O predicado de "card livre" em JS — o espelho EXATO do ramo pool do
@@ -58,11 +72,16 @@ export function ehCardLivre(c: CardVisibilidade): boolean {
   return c.responsavel_id === null && c.equipe_id === null && (c.responsavel ?? "") === "";
 }
 
-// O predicado completo (verTudo OR livre OR minha equipe OR meu) sobre um card
-// já carregado — usado por podeVerCardHm (hm.ts) e podeVerContato (contato.ts).
-export function podeVerPorEscopo(escopo: EscopoVisibilidade, c: CardVisibilidade): boolean {
+// O predicado completo (verTudo OR livre OR minha equipe OR meu OR meu-canal)
+// sobre um card já carregado — usado por podeVerCardHm (hm.ts) e podeVerContato
+// (contato.ts). `canais` = as tags que o usuário cuida (cs.usuario_canais, 0154);
+// espelha EXATO o ramo canal do sqlEscopo. Omitido/[] = ramo não conta.
+export function podeVerPorEscopo(escopo: EscopoVisibilidade, c: CardVisibilidade, canais?: string[]): boolean {
   if (escopo.modo === "tudo") return true;
   if (ehCardLivre(c)) return true;
+  // Ramo canal→pessoa: card com alguma tag que EU cuido entra na minha visão
+  // (mesma regra do SQL). fail-closed: sem canais ou sem tags, não abre nada.
+  if (canais && canais.length && c.tags && c.tags.some((t) => canais.includes(t))) return true;
   // `equipe_id !== null` de propósito: ator sem equipe (equipeId null) não
   // pode casar com card de equipe nula — "null === null" viraria vazamento.
   // O ramo `responsavel_id === usuarioId` cobre o card do PRÓPRIO usuário
@@ -84,9 +103,11 @@ export function podeVerPorEscopo(escopo: EscopoVisibilidade, c: CardVisibilidade
 // perguntas saem do MESMO card carregado, uma query só.
 export type VeredictoAcao = "ok" | "card_de_outro_operador" | "sem_acesso";
 
-export function veredictoAcao(sessao: Ator, c: CardVisibilidade): VeredictoAcao {
-  if (podeVerPorEscopo(escopoAcao(sessao), c)) return "ok";
-  return podeVerPorEscopo(escopoVisibilidade(sessao), c) ? "card_de_outro_operador" : "sem_acesso";
+export function veredictoAcao(sessao: Ator, c: CardVisibilidade, canais?: string[]): VeredictoAcao {
+  // Canal→pessoa (0154): quem cuida do canal AGE no card como se fosse dele —
+  // o ramo entra tanto na ação quanto na leitura, então nunca vira "card de colega".
+  if (podeVerPorEscopo(escopoAcao(sessao), c, canais)) return "ok";
+  return podeVerPorEscopo(escopoVisibilidade(sessao), c, canais) ? "card_de_outro_operador" : "sem_acesso";
 }
 
 // Lista de responsáveis para os seletores de atribuição, RECORTADA por nível

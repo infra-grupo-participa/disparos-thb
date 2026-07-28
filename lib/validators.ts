@@ -97,6 +97,13 @@ export const EquipePadraoSchema = z.object({
   equipe_id: z.string().uuid().nullable(),
 });
 
+// Canal → pessoa (0154): o operador cuida de um canal (vê E age nos cards dele).
+export const UsuarioCanalSchema = z.object({
+  usuario_id: z.string().uuid(),
+  canal: z.string().trim().min(1),
+  acao: z.enum(["vincular", "remover"]).default("vincular"),
+});
+
 // Troca de senha: admin reseta (só novaSenha) ou o próprio usuário troca
 // (atualSenha + novaSenha — validado na rota).
 export const SenhaSchema = z.object({

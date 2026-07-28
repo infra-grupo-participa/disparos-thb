@@ -39,7 +39,7 @@ export async function GET(req: Request) {
        from cs.contatos_hm_kanban
       where (($1 = '' and estagio_chave = any($2))
          or ($1 <> '' and (nome ilike '%' || $1 || '%' or telefone ilike '%' || $1 || '%')))
-        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
+        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 3, usuario: 4, equipe: 5 })}
       order by (estagio_chave = any($2)) desc, nome
       limit 25`,
     [q, precisa, verTudo, usuarioId, equipeId],

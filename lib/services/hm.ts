@@ -697,10 +697,17 @@ export async function atribuirResponsavelHm(
 type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null };
 
 async function cardEscopoHm(compradorId: string) {
-  return queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null }>(
-    `select responsavel_id, equipe_id, responsavel from cs.contatos_hm_kanban where comprador_id = $1`,
+  return queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null; tags: string[] | null }>(
+    `select responsavel_id, equipe_id, responsavel, tags from cs.contatos_hm_kanban where comprador_id = $1`,
     [compradorId],
   );
+}
+
+// Canais (tags) que o usuário cuida (canal→pessoa, 0154). Vazio p/ quem não tem
+// nenhum — o ramo de canais então não conta (fail-closed). Uma query enxuta.
+async function canaisDoUsuario(usuarioId: string): Promise<string[]> {
+  const r = await query<{ canal: string }>(`select canal from cs.usuario_canais where usuario_id = $1`, [usuarioId]);
+  return r.map((x) => x.canal);
 }
 
 export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): Promise<boolean> {
@@ -712,7 +719,8 @@ export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): 
   // genéricos (visibilidade.ts). Inclui a regra do texto órfão: card cujo dono
   // existe só como TEXTO (id null, texto preenchido) NÃO é pool — o HM tratava
   // como livre e o card ficava visível a todo mundo (divergência corrigida 27/07).
-  return podeVerPorEscopo(escopo, k);
+  // + ramo canal→pessoa (0154): os canais que a pessoa cuida.
+  return podeVerPorEscopo(escopo, k, await canaisDoUsuario(sessao.id));
 }
 
 // Gate de AÇÃO das rotas de escrita (PATCH da ficha, mover no board, lote,
@@ -722,7 +730,7 @@ export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string):
   if (ehMaster(sessao)) return "ok";
   const k = await cardEscopoHm(compradorId);
   if (!k) return "ok"; // inexistente → deixa o 404 acontecer no fluxo normal
-  return veredictoAcao(sessao, k);
+  return veredictoAcao(sessao, k, await canaisDoUsuario(sessao.id)); // + canal→pessoa (0154)
 }
 
 // Colunas de cancelamento — Reclamada (pedido) e Reembolsado (fato).
