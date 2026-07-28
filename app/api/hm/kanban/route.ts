@@ -33,7 +33,14 @@ export async function GET(req: Request) {
   // pool + todos os cards da equipe dele; operador comum vê o pool + só os
   // cards atribuídos a ele. O filtro por responsável (abaixo) é conveniência.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
-  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId];
+  // Produto/board (0155): a MESMA esteira serve HM, Aurum e ETHB — o board é
+  // recortado por produto. Default 'HM' (o board histórico); os boards novos
+  // chamam esta rota com ?produto=AURUM|ETHB. Isola os cards entre os boards.
+  const produto = ((): "HM" | "AURUM" | "ETHB" => {
+    const p = (sp.get("produto") || "HM").toUpperCase();
+    return p === "AURUM" || p === "ETHB" ? p : "HM";
+  })();
+  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId, produto];
 
   const colunas = await query(
     `select e.chave, e.nome, e.cor, e.aba
@@ -77,6 +84,7 @@ export async function GET(req: Request) {
       where ($1::text[] is null or k.responsavel = any($1))
         and ($2::text[] is null or k.tags && $2)
         and ($3::text[] is null or k.tags && $3)
+        and k.produto = $7                       -- board do produto (0155)
         -- Escopo (predicado único, visibilidade.ts): vejo tudo OU é card LIVRE
         -- (sem id, sem equipe E sem texto órfão) OU é MEU OU é da minha equipe.
         and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags" }, { verTudo: 4, usuario: 5, equipe: 6 })}
@@ -98,13 +106,16 @@ export async function GET(req: Request) {
             (s.aluno_id is not null) as na_base,
             (s.titular_aluno_id is not null) as titular_na_base
        from cs.vw_hm_socios s
+       -- Sócio pertence ao board do produto do TITULAR (0155): filtra sempre,
+       -- inclusive p/ o master (senão sócio de Aurum vazaria no board HM).
+       join cs.contatos_hm t on t.comprador_id = s.titular_comprador_id and t.produto = $4
       where $1::boolean
          or exists (
               select 1 from cs.contatos_hm_kanban tk
                where tk.comprador_id = s.titular_comprador_id
                  and ${sqlEscopo({ rid: "tk.responsavel_id", eq: "tk.equipe_id", nome: "tk.responsavel", tags: "tk.tags" }, { verTudo: 1, usuario: 2, equipe: 3 })})
       order by s.titular_nome, s.nome`,
-    [verTudo, usuarioId, equipeId],
+    [verTudo, usuarioId, equipeId, produto],
   );
 
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já
