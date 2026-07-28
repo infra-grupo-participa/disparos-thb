@@ -63,7 +63,7 @@ export const UsuarioPatchSchema = z.object({
 
 // Portais que a conta pode acessar (0145) — a whitelist inteira de uma vez.
 export const UsuarioPortaisSchema = z.object({
-  portais: z.array(z.enum(["HT", "SEM", "CNHF", "HM"])),
+  portais: z.array(z.enum(["HT", "SEM", "CNHF", "HM", "AURUM", "ETHB"])),
 });
 
 // Cor em hex (#rrggbb) — usada por equipes (0140) e pelo catálogo de tags.

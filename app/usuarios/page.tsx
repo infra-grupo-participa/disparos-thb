@@ -7,7 +7,7 @@ import { PageFade } from "@/app/_components/anim";
 import { LegendaNiveis, SeloNivel } from "@/app/_components/selo-nivel";
 
 type Papel = "admin" | "disparador" | "operador";
-type Portal = "HT" | "SEM" | "CNHF" | "HM";
+type Portal = "HT" | "SEM" | "CNHF" | "HM" | "AURUM" | "ETHB";
 type Usuario = {
   id: string; nome: string; email: string; papel: Papel; ativo: boolean; criado_em: string; portais: Portal[];
   // Campos de equipe que o NÍVEL efetivo (lib/papeis.nivelDe) precisa. O GET
@@ -26,6 +26,8 @@ const PORTAIS: { id: Portal; label: string }[] = [
   { id: "SEM", label: "Seminário" },
   { id: "CNHF", label: "Curso" },
   { id: "HM", label: "Holding Masters" },
+  { id: "AURUM", label: "Aurum" },
+  { id: "ETHB", label: "ETHB" },
 ];
 
 export default function UsuariosPage() {

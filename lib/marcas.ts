@@ -7,10 +7,10 @@
 // nenhuma marca é redesenhada ou imitada aqui — ou é o arquivo oficial, ou é a
 // sigla. Para ativar a logo de um evento, basta soltar o SVG em public/marcas/ e
 // apontar `logo` (e `logoRatio`, a proporção do desenho) para ele.
-export type PortalId = "ht" | "seminario" | "hm" | "curso";
+export type PortalId = "ht" | "seminario" | "hm" | "curso" | "aurum" | "ethb";
 
 export type Marca = {
-  evento: "HT" | "SEM" | "HM" | "CNHF";
+  evento: "HT" | "SEM" | "HM" | "CNHF" | "AURUM" | "ETHB";
   nome: string;
   sigla: string;
   cor: string;
@@ -65,6 +65,26 @@ export const PORTAIS: Record<PortalId, Marca> = {
     logo: null, // → public/marcas/curso.svg (enquanto não houver, cai no monograma "CFH")
     logoRatio: null,
   },
+  aurum: {
+    evento: "AURUM",
+    nome: "Aurum",
+    sigla: "AUR",
+    cor: "#CA8A04", // amarelo-ouro (yellow-600)
+    desc: "Ativação do Aurum — comercial e ativação dos alunos.",
+    gradiente: "from-yellow-600 to-amber-400",
+    logo: null, // → public/marcas/aurum.svg (enquanto não houver, cai no monograma "AUR")
+    logoRatio: null,
+  },
+  ethb: {
+    evento: "ETHB",
+    nome: "ETHB",
+    sigla: "ETHB",
+    cor: "#0D9488", // teal-600
+    desc: "Comercial e ativação do ETHB (Kelly + monitores + Ellen).",
+    gradiente: "from-teal-600 to-emerald-400",
+    logo: null, // → public/marcas/ethb.svg (enquanto não houver, cai no monograma "ETHB")
+    logoRatio: null,
+  },
 };
 
 // Marca da casa (login e tela de seleção). Mesma regra: sem arquivo oficial, o
@@ -81,5 +101,7 @@ export function portalDoPath(pathname: string | null | undefined): PortalId {
   if (seg === "seminario") return "seminario";
   if (seg === "hm") return "hm";
   if (seg === "curso") return "curso";
+  if (seg === "aurum") return "aurum";
+  if (seg === "ethb") return "ethb";
   return "ht";
 }
