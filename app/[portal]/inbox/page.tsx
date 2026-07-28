@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
@@ -8,75 +8,21 @@ import { usePortal } from "@/app/_components/use-portal";
 import { useMe } from "@/app/_components/use-me";
 import { RegistrarAtendimento } from "@/app/_components/ligacao";
 import { toast } from "@/app/_components/toast";
+import { InboxComposer } from "@/app/_components/inbox-composer";
+import {
+  Avatar, Bolha, FilaItem, esperaMin, fmtMin, waLink,
+  type Conversa, type Janela, type Mensagem,
+} from "@/app/_components/inbox-itens";
 
-type Conversa = {
-  comprador_id: string; nome: string; telefone: string | null; edicao: string | null;
-  estagio_nome: string | null; ultima_resposta_em: string | null; ultima_msg: string | null;
-  ultima_de_cs: boolean | null; ultima_msg_em: string | null;
-  inbox_status: string; aguardando_desde: string | null; opt_out: boolean; responsavel: string | null;
-};
-
-// Limpa os prefixos internos ("Respondeu:" do lead, "CS respondeu:" do CS) e,
-// quando a última mensagem foi do operador, mostra "Você:" como no WhatsApp.
-function previewMsg(c: Conversa): string {
-  const txt = (c.ultima_msg || "").replace(/^(CS )?[Rr]espondeu:\s*/, "").trim();
-  if (!txt) return "—";
-  return c.ultima_de_cs ? `Você: ${txt}` : txt;
-}
-type Mensagem = { id: string; de: "lead" | "cs"; origem?: "lead" | "template" | "equipe"; senderBy?: string | null; tipo: string; texto: string; data: string | null };
-// Rótulo humano da origem da bolha — o operador distingue o que foi TEMPLATE
-// (disparo/abertura) do que a equipe escreveu à mão no chat.
-const ROTULO_ORIGEM: Record<string, string> = { template: "Template", equipe: "Equipe" };
-type Janela = { aberta: boolean; ultimaEntrada: string | null; expiraEm: string | null };
 type TemplateItem = { id: string; nome: string; canal: string; ativo: boolean };
 type Metricas = {
   kpis: { pendentes: number; total_atendimentos: number; atendidas_hoje: number; frt_medio: number | null; frt_hoje: number | null; sla_pct: number | null; maior_espera_min: number | null; sla_min: number };
   porAtendente: { atendente: string; atendimentos: number; frt_medio: number | null; sla_pct: number | null }[];
   porDia: { dia: string; qtd: number; frt: number | null }[];
 };
-
-const SNIPPETS_DEFAULT = [
-  "Olá! Tudo bem? 😊 Aqui é o time do Holding Total.",
-  "Que bom te ver por aqui! Como posso ajudar?",
-  "O link do nosso grupo é: ",
-  "Sua dúvida foi resolvida? Qualquer coisa é só chamar! 🙌",
-];
-
-const fmtData = (iso: string | null) => iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
-const fmtHora = (iso: string | null) => iso ? new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
-function fmtMin(m: number | null | undefined) {
-  if (m == null) return "—";
-  if (m < 60) return `${m} min`;
-  const h = Math.floor(m / 60), mm = m % 60;
-  return mm ? `${h}h ${mm}m` : `${h}h`;
-}
-function esperaMin(iso: string | null) {
-  return iso ? Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)) : 0;
-}
-const inicial = (nome: string) => (nome?.trim()?.[0] || "?").toUpperCase();
-// Link do WhatsApp (wa.me) — o comercial inicia a conversa direto, útil para
-// leads de prospecção (ex.: Seminário) fora da janela de 24h da Unnichat.
-function waLink(tel: string | null): string | null {
-  if (!tel) return null;
-  let d = tel.replace(/\D/g, "");
-  if (d.length < 8) return null;
-  if (!d.startsWith("55")) d = "55" + d;
-  return `https://wa.me/${d}`;
-}
-const AVATAR_CORES = [
-  "bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300", "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
-  "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300", "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
-  "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300", "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
-  "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300",
-];
-function corAvatar(nome: string) {
-  let h = 0;
-  for (let i = 0; i < (nome?.length || 0); i++) h = (h * 31 + nome.charCodeAt(i)) >>> 0;
-  return AVATAR_CORES[h % AVATAR_CORES.length];
-}
-function Avatar({ nome, size = "md" }: { nome: string; size?: "sm" | "md" }) {
-  return <span className={cn("inline-flex shrink-0 items-center justify-center rounded-full font-semibold", size === "sm" ? "h-9 w-9 text-sm" : "h-10 w-10 text-base", corAvatar(nome))}>{inicial(nome)}</span>;
-}
+// Última versão vista de cada thread — voltar a uma conversa mostra na hora o
+// que já se conhece (stale) e revalida em fundo, sem spinner nem tela vazia.
+type ThreadCache = { mensagens: Mensagem[]; aviso: string | null; janela: Janela | null };
 
 export default function InboxPage() {
   const { evento, nome } = usePortal();
@@ -88,12 +34,11 @@ export default function InboxPage() {
   const [conversas, setConversas] = useState<Conversa[]>([]);
   const [pendentes, setPendentes] = useState(0);
   const [filtro, setFiltro] = useState<"pendente" | "" | "resolvido">("pendente");
+  const [busca, setBusca] = useState("");
   const [sel, setSel] = useState<Conversa | null>(null);
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   const [carregandoMsg, setCarregandoMsg] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [texto, setTexto] = useState("");
-  const [enviando, setEnviando] = useState(false);
   const [atendente, setAtendente] = useState("");
   // Usuários ativos para o "Atendendo como" — seleção, nunca texto livre: nome
   // digitado errado sumia das métricas por atendente.
@@ -103,7 +48,6 @@ export default function InboxPage() {
   const [registrando, setRegistrando] = useState(false);
   const [metricas, setMetricas] = useState<Metricas | null>(null);
   const [showDesempenho, setShowDesempenho] = useState(false);
-  const [snippets, setSnippets] = useState<string[]>(SNIPPETS_DEFAULT);
   const [deepLink, setDeepLink] = useState<string | null>(null);
   const [modoDisparo, setModoDisparo] = useState<string | null>(null);
   const [janela, setJanela] = useState<Janela | null>(null);
@@ -116,6 +60,32 @@ export default function InboxPage() {
   const ultimaMsgRef = useRef<string | null>(null);
   const pendAntesRef = useRef<number>(0);
 
+  // ---- Guardas de corrida ---------------------------------------------------
+  // O GET do thread passa pelo Unnichat (latência variável): clicando em A e
+  // logo em B, a resposta de A pode chegar DEPOIS e pintar a conversa errada.
+  // Cada abrir() incrementa a sequência e aborta o fetch anterior; respostas de
+  // sequência velha são descartadas. O mesmo vale entre dois carregarConversas
+  // (troca de filtro × tick do poll) via filaSeqRef.
+  const abrirSeqRef = useRef(0);
+  const threadAbortRef = useRef<AbortController | null>(null);
+  const selIdRef = useRef<string | null>(null);
+  const threadCacheRef = useRef(new Map<string, ThreadCache>());
+  const filaSeqRef = useRef(0);
+  const filaJsonRef = useRef("");
+  // O operador está no fim do chat? Atualizado no onScroll (ref: não re-renderiza).
+  const nearBottomRef = useRef(true);
+  const threadKeyRef = useRef<string | null>(null);
+  const falhasPollRef = useRef(0);
+  const pollMontouRef = useRef(false);
+
+  // Relógio de minuto: faz "aguardando X min" avançar na fila/header sem fetch.
+  // Um re-render por minuto é barato — FilaItem/Bolha são memoizados.
+  const [agoraMin, setAgoraMin] = useState(() => Math.floor(Date.now() / 60000));
+  useEffect(() => {
+    const t = setInterval(() => setAgoraMin(Math.floor(Date.now() / 60000)), 30000);
+    return () => clearInterval(t);
+  }, []);
+
   // Templates de abertura (WhatsApp) do evento — o que reabre a janela de 24h.
   useEffect(() => {
     fetch(`/api/templates?evento=${evento}`)
@@ -123,13 +93,6 @@ export default function InboxPage() {
       .then((d) => { if (d.ok) setTemplates((d.templates as TemplateItem[]).filter((t) => t.ativo && t.canal !== "email")); })
       .catch(() => {});
   }, [evento]);
-
-  useEffect(() => {
-    try {
-      const s = localStorage.getItem("cs_snippets");
-      if (s) setSnippets(JSON.parse(s));
-    } catch { /* noop */ }
-  }, []);
 
   // "Atendendo como" nasce do usuário LOGADO (antes era texto livre em
   // localStorage: nome abreviado ou errado sumia das métricas). Atender em nome
@@ -144,10 +107,21 @@ export default function InboxPage() {
   }, []);
 
   const carregarConversas = useCallback(async () => {
+    const seq = ++filaSeqRef.current;
     const qs = modoDisparo ? `&disparo=${modoDisparo}` : (filtro ? `&status=${filtro}` : "");
     const r = await fetch(`${inboxBase}?evento=${evento}${qs}`);
     const d = await r.json();
-    if (d.ok) { setConversas(d.conversas); setPendentes(d.pendentes ?? 0); }
+    if (seq !== filaSeqRef.current) return; // resposta velha (filtro trocou ou outro tick já passou)
+    if (d.ok) {
+      // Só troca o array se algo de fato mudou — senão o poll de 12s
+      // re-renderizava a fila inteira à toa, mesmo sem novidade.
+      const json = JSON.stringify(d.conversas);
+      if (json !== filaJsonRef.current) {
+        filaJsonRef.current = json;
+        setConversas(d.conversas);
+      }
+      setPendentes(d.pendentes ?? 0);
+    }
   }, [filtro, evento, modoDisparo, inboxBase]);
   const carregarMetricas = useCallback(async () => {
     // Métricas de atendimento ainda não existem para o HM (overlay próprio) — adiado.
@@ -157,8 +131,7 @@ export default function InboxPage() {
     if (d.ok) setMetricas(d);
   }, [evento]);
 
-  useEffect(() => { carregarConversas(); }, [carregarConversas]);
-  useEffect(() => { carregarMetricas(); }, [carregarMetricas]);
+  useEffect(() => { void carregarMetricas().catch(() => {}); }, [carregarMetricas]);
 
   // Deep-link vindo do Kanban (/inbox?c=comprador_id): abre todas as conversas e seleciona a do cliente.
   useEffect(() => {
@@ -172,23 +145,51 @@ export default function InboxPage() {
   }, []);
 
   const abrir = useCallback(async (c: Conversa) => {
-    setSel(c); setMensagens([]); setAviso(null); setJanela(null); setTplSel(""); setCarregandoMsg(true);
+    const seq = ++abrirSeqRef.current;
+    threadAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    threadAbortRef.current = ctrl;
+    selIdRef.current = c.comprador_id;
+    nearBottomRef.current = true;
+    setSel(c); setTplSel("");
     ultimaMsgRef.current = c.ultima_msg_em; // sincroniza: abrir já traz o thread
+    const cache = threadCacheRef.current.get(c.comprador_id);
+    if (cache) {
+      // Conversa já vista: pinta na hora com a última versão e revalida em fundo.
+      setMensagens(cache.mensagens); setAviso(cache.aviso); setJanela(cache.janela);
+      setCarregandoMsg(false);
+    } else {
+      setMensagens([]); setAviso(null); setJanela(null);
+      setCarregandoMsg(true);
+    }
     try {
-      const r = await fetch(`${inboxBase}/${c.comprador_id}?evento=${evento}`);
+      const r = await fetch(`${inboxBase}/${c.comprador_id}?evento=${evento}`, { signal: ctrl.signal });
       const d = await r.json();
-      if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); setJanela(d.janela ?? null); }
-    } finally { setCarregandoMsg(false); }
+      if (seq !== abrirSeqRef.current) return; // chegou tarde: outra conversa já foi aberta
+      if (d.ok) {
+        const fresco: ThreadCache = { mensagens: d.mensagens, aviso: d.aviso ?? null, janela: d.janela ?? null };
+        threadCacheRef.current.set(c.comprador_id, fresco);
+        setMensagens(fresco.mensagens); setAviso(fresco.aviso); setJanela(fresco.janela);
+      }
+    } catch { /* abort (troca de conversa) ou rede — o poll recupera depois */ }
+    finally { if (seq === abrirSeqRef.current) setCarregandoMsg(false); }
   }, [inboxBase, evento]);
 
   // Recarrega SÓ as mensagens da conversa aberta, sem limpar a tela nem mostrar
   // spinner — é o refresh silencioso do polling quando o lead responde, para não
   // piscar a conversa a cada ciclo.
   const recarregarThread = useCallback(async (compradorId: string) => {
+    const seq = abrirSeqRef.current;
     try {
       const r = await fetch(`${inboxBase}/${compradorId}?evento=${evento}`);
       const d = await r.json();
-      if (d.ok) { setMensagens(d.mensagens); setAviso(d.aviso ?? null); setJanela(d.janela ?? null); }
+      // Descarta se o operador trocou de conversa enquanto a resposta viajava.
+      if (seq !== abrirSeqRef.current || selIdRef.current !== compradorId) return;
+      if (d.ok) {
+        const fresco: ThreadCache = { mensagens: d.mensagens, aviso: d.aviso ?? null, janela: d.janela ?? null };
+        threadCacheRef.current.set(compradorId, fresco);
+        setMensagens(fresco.mensagens); setAviso(fresco.aviso); setJanela(fresco.janela);
+      }
     } catch { /* silencioso: é atualização de fundo */ }
   }, [inboxBase, evento]);
 
@@ -208,7 +209,7 @@ export default function InboxPage() {
       if (d.ok) {
         setTplSel("");
         toast("Template de abertura enviado — quando o lead responder, a conversa reabre.");
-        void carregarConversas();
+        void carregarConversas().catch(() => {});
       } else {
         toast(d.motivo || d.reason || "Não foi possível enviar o template de abertura.", "erro");
       }
@@ -223,28 +224,81 @@ export default function InboxPage() {
   useEffect(() => {
     if (!deepLink || !conversas.length) return;
     const c = conversas.find((x) => x.comprador_id === deepLink);
-    if (c) { abrir(c); setDeepLink(null); }
+    if (c) { void abrir(c); setDeepLink(null); }
   }, [deepLink, conversas, abrir]);
 
-  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [mensagens]);
-
-  // Tempo real (leve): a cada 12s repuxa a fila do banco e, em paralelo, pede ao
-  // servidor para puxar do Unnichat as respostas novas (trava de servidor evita
-  // excesso). É isto que faz a resposta do lead "aparecer sozinha" — sem depender
-  // de cron externo nem webhook: basta o inbox estar aberto. Se o sync trouxe algo
-  // novo, recarrega a fila de novo para a conversa subir na hora.
+  // Auto-scroll educado: só arrasta para o fim quando (a) trocou de conversa,
+  // (b) o próprio operador acabou de enviar (bolha otimista tmp-*), ou (c) ele
+  // JÁ estava no fim. Quem rolou para cima lendo o histórico fica onde está.
   useEffect(() => {
-    const puxar = async () => {
-      void carregarConversas();
+    const el = chatRef.current;
+    if (!el) return;
+    const chave = sel?.comprador_id ?? null;
+    const trocouConversa = threadKeyRef.current !== chave;
+    threadKeyRef.current = chave;
+    const ultima = mensagens[mensagens.length - 1];
+    const acabeiDeEnviar = !!ultima && ultima.id.startsWith("tmp-");
+    if (trocouConversa || acabeiDeEnviar || nearBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [mensagens, sel]);
+
+  // Poll adaptativo (setTimeout encadeado, não setInterval):
+  // - aba VISÍVEL: a cada ~12s puxa a fila e pede ao servidor o sync do Unnichat
+  //   (é isto que faz a resposta do lead "aparecer sozinha");
+  // - aba em SEGUNDO PLANO: cai para 1 GET/min só da fila (mantém o contador do
+  //   título e o bip) e NÃO faz sync — uma aba esquecida à noite custa ~90% menos;
+  // - voltou o foco: refetch imediato;
+  // - erro: backoff exponencial (24s→48s→96s, teto 2min) com jitter para dez
+  //   operadores não martelarem o servidor em uníssono.
+  useEffect(() => {
+    let vivo = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const agendar = (ms: number) => {
+      timer = setTimeout(() => { void ciclo(); }, ms + Math.random() * ms * 0.15);
+    };
+
+    const ciclo = async () => {
+      if (!vivo) return;
       try {
+        if (document.hidden) {
+          await carregarConversas();
+          falhasPollRef.current = 0;
+          agendar(60000);
+          return;
+        }
+        await carregarConversas();
         const r = await fetch(`/api/inbox/sync?evento=${evento}`, { method: "POST" });
         const d = await r.json();
-        if (d.ok && d.novas > 0) void carregarConversas();
-      } catch { /* silencioso: é atualização de fundo */ }
+        // Se o sync trouxe algo novo, recarrega a fila para a conversa subir na hora.
+        if (d.ok && d.novas > 0) await carregarConversas();
+        falhasPollRef.current = 0;
+        agendar(12000);
+      } catch {
+        falhasPollRef.current += 1;
+        agendar(Math.min(12000 * 2 ** falhasPollRef.current, 120000));
+      }
     };
-    void puxar(); // já na entrada, sem esperar o primeiro ciclo
-    const t = setInterval(() => { void puxar(); }, 12000);
-    return () => clearInterval(t);
+
+    if (!pollMontouRef.current) {
+      // Primeira entrada na tela: ciclo completo (fila + sync) já de cara.
+      pollMontouRef.current = true;
+      void ciclo();
+    } else {
+      // Troca de filtro/evento: só a fila — antes cada troca disparava DOIS GET
+      // (efeito próprio + puxar() imediato do poll) e mais um POST de sync.
+      void carregarConversas().catch(() => {});
+      agendar(12000);
+    }
+
+    const aoMudarVisibilidade = () => {
+      if (!document.hidden) { clearTimeout(timer); void ciclo(); }
+    };
+    document.addEventListener("visibilitychange", aoMudarVisibilidade);
+    return () => {
+      vivo = false;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", aoMudarVisibilidade);
+    };
   }, [carregarConversas, evento]);
 
   // Notificação discreta: o título da aba conta os pendentes (como o WhatsApp
@@ -273,7 +327,7 @@ export default function InboxPage() {
   // Conversa aberta: se o polling trouxe uma mensagem nova do lead nela, recarrega
   // o thread silenciosamente para a bolha aparecer sem o operador clicar de novo.
   useEffect(() => {
-    if (!sel) { ultimaMsgRef.current = null; return; }
+    if (!sel) { ultimaMsgRef.current = null; selIdRef.current = null; return; }
     const atual = conversas.find((c) => c.comprador_id === sel.comprador_id);
     const marca = atual?.ultima_msg_em ?? null;
     if (marca && marca !== ultimaMsgRef.current) {
@@ -282,60 +336,108 @@ export default function InboxPage() {
     }
   }, [conversas, sel, recarregarThread]);
 
-  async function enviar() {
-    if (!sel || !texto.trim()) return;
-    const txt = texto.trim();
+  // A janela de 24h pode EXPIRAR com a conversa aberta — sem isto o input
+  // seguia liberado até o envio falhar. Um timer local vira a chave na hora
+  // certa e o composer dá lugar ao banner de template.
+  useEffect(() => {
+    if (!janela?.aberta || !janela.expiraEm) return;
+    const ms = new Date(janela.expiraEm).getTime() - Date.now();
+    const fechar = () => setJanela((j) => (j ? { ...j, aberta: false } : j));
+    if (ms <= 0) { fechar(); return; }
+    const t = setTimeout(fechar, Math.min(ms, 2 ** 31 - 1));
+    return () => clearTimeout(t);
+  }, [janela]);
+
+  // Envio da resposta — otimista: a bolha aparece na hora; se o servidor recusar,
+  // some e o composer decide se devolve o texto (só quando o campo está vazio).
+  const enviarMensagem = useCallback(async (txt: string): Promise<boolean> => {
+    if (!sel) return false;
     const tmpId = `tmp-${Date.now()}`;
-    setEnviando(true);
-    setTexto("");
-    // Otimista: mostra a mensagem na hora, sem esperar o ida-e-volta à Unnichat.
-    setMensagens((m) => [...m, { id: tmpId, de: "cs", tipo: "message", texto: txt, data: new Date().toISOString() }]);
+    const bolha: Mensagem = { id: tmpId, de: "cs", tipo: "message", texto: txt, data: new Date().toISOString() };
+    setMensagens((m) => [...m, bolha]);
     try {
       const r = await fetch(`${inboxBase}/${sel.comprador_id}?evento=${evento}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto: txt, atendente: atendente || undefined }),
       });
       const d = await r.json();
       if (!d.ok) {
-        // Reverte o otimista e devolve o texto ao campo.
         setMensagens((m) => m.filter((x) => x.id !== tmpId));
-        setTexto(txt);
         toast(d.reason || "Falha ao enviar (a janela de 24h pode estar fechada).", "erro");
-        return;
+        return false;
       }
+      // Mantém o cache do thread coerente até a próxima revalidação.
+      const cache = threadCacheRef.current.get(sel.comprador_id);
+      if (cache) threadCacheRef.current.set(sel.comprador_id, { ...cache, mensagens: [...cache.mensagens, bolha] });
       // Atualiza lista e métricas em segundo plano (banco, rápido) — não trava o input.
-      void carregarConversas();
-      void carregarMetricas();
+      void carregarConversas().catch(() => {});
+      void carregarMetricas().catch(() => {});
+      return true;
     } catch {
       setMensagens((m) => m.filter((x) => x.id !== tmpId));
-      setTexto(txt);
       toast("Falha ao enviar. Tente novamente.", "erro");
-    } finally {
-      setEnviando(false);
+      return false;
     }
-  }
+  }, [sel, inboxBase, evento, atendente, carregarConversas, carregarMetricas]);
 
-  async function resolver(c: Conversa, status: "resolvido" | "pendente") {
-    await fetch(`${inboxBase}/${c.comprador_id}?evento=${evento}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
-    if (sel?.comprador_id === c.comprador_id) setSel({ ...sel, inbox_status: status });
-    await carregarConversas();
-    await carregarMetricas();
-  }
+  // Resolver/reabrir otimista: a tela muda na hora, o servidor confirma em fundo —
+  // antes o botão esperava fila + métricas para liberar.
+  const resolver = useCallback(async (c: Conversa, status: "resolvido" | "pendente") => {
+    setSel((s) => (s && s.comprador_id === c.comprador_id ? { ...s, inbox_status: status } : s));
+    setConversas((ls) => ls.map((x) => (x.comprador_id === c.comprador_id ? { ...x, inbox_status: status } : x)));
+    setPendentes((p) => (status === "resolvido" ? Math.max(0, p - 1) : p + 1));
+    filaJsonRef.current = ""; // força o próximo fetch da fila a aplicar a verdade do servidor
+    try {
+      const r = await fetch(`${inboxBase}/${c.comprador_id}?evento=${evento}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      if (!r.ok) throw new Error();
+    } catch {
+      toast("Não foi possível atualizar o status — recarregando a fila.", "erro");
+    } finally {
+      void carregarConversas().catch(() => {});
+      void carregarMetricas().catch(() => {});
+    }
+  }, [inboxBase, evento, carregarConversas, carregarMetricas]);
 
-  // Nova resposta rápida: input inline no lugar do window.prompt — Enter salva,
-  // Esc ou clicar fora cancelam (o gesto de salvar é explícito, sem surpresa
-  // de blur gravando texto pela metade). null = campo fechado.
-  const [novoSnippet, setNovoSnippet] = useState<string | null>(null);
-  function salvarSnippet() {
-    const t = (novoSnippet ?? "").trim();
-    setNovoSnippet(null);
-    if (!t) return;
-    const novo = [...snippets, t];
-    setSnippets(novo);
-    try { localStorage.setItem("cs_snippets", JSON.stringify(novo)); } catch { /* noop */ }
-    toast("Resposta rápida adicionada.");
-  }
+  // Busca client-side na fila: achar 1 lead entre 200 sem scroll manual.
+  const visiveis = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return conversas;
+    const dig = q.replace(/\D/g, "");
+    return conversas.filter((c) =>
+      c.nome.toLowerCase().includes(q) ||
+      (dig.length >= 2 && (c.telefone || "").replace(/\D/g, "").includes(dig)));
+  }, [conversas, busca]);
+
+  // Teclado: ↑/↓ navegam a fila, E resolve a conversa aberta. Ignora quando o
+  // foco está num campo — digitar nunca dispara atalho.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      const alvo = e.target as HTMLElement | null;
+      const tag = alvo?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || alvo?.isContentEditable) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (!visiveis.length) return;
+        e.preventDefault();
+        const i = visiveis.findIndex((c) => c.comprador_id === sel?.comprador_id);
+        const prox = i === -1
+          ? (e.key === "ArrowDown" ? 0 : visiveis.length - 1)
+          : Math.min(Math.max(i + (e.key === "ArrowDown" ? 1 : -1), 0), visiveis.length - 1);
+        if (prox === i) return;
+        const c = visiveis[prox];
+        void abrir(c);
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-conversa-id="${c.comprador_id}"]`)?.scrollIntoView({ block: "nearest" });
+        });
+      } else if ((e.key === "e" || e.key === "E") && !e.ctrlKey && !e.metaKey && !e.altKey && sel && sel.inbox_status === "pendente") {
+        e.preventDefault();
+        void resolver(sel, "resolvido");
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [visiveis, sel, abrir, resolver]);
 
   const k = metricas?.kpis;
+  const slaMin = k?.sla_min ?? 15;
 
   return (
     <PageFade>
@@ -369,11 +471,13 @@ export default function InboxPage() {
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCS label="Pendentes agora" valor={k?.pendentes ?? pendentes} tom={(k?.pendentes ?? pendentes) > 0 ? "rose" : "emerald"}
+        {/* "Pendentes agora" vem da PRÓPRIA fila (poll de segundos) — as métricas
+            só carregam no mount e ficavam defasadas o dia todo. */}
+        <KpiCS label="Pendentes agora" valor={pendentes} tom={pendentes > 0 ? "rose" : "emerald"}
           sub={k?.maior_espera_min != null ? `pior espera ${fmtMin(k.maior_espera_min)}` : "tudo em dia"} />
         <KpiCS label="1º contato (hoje)" valor={fmtMin(k?.frt_hoje)} tom="brand" sub={`média geral ${fmtMin(k?.frt_medio)}`} />
         <KpiCS label="Atendidas hoje" valor={k?.atendidas_hoje ?? 0} tom="sky" sub={`${k?.total_atendimentos ?? 0} no total`} />
-        <KpiCS label={`Dentro do SLA (${k?.sla_min ?? 15}min)`} valor={k?.sla_pct != null ? `${k.sla_pct}%` : "—"} tom="emerald" sub="1º contato no prazo" />
+        <KpiCS label={`Dentro do SLA (${slaMin}min)`} valor={k?.sla_pct != null ? `${k.sla_pct}%` : "—"} tom="emerald" sub="1º contato no prazo" />
       </div>
 
       {modoDisparo && (
@@ -408,45 +512,52 @@ export default function InboxPage() {
             ))}
           </div>
 
+          {/* Busca na fila — filtra o que já está carregado, sem ida ao servidor. */}
+          <div className="border-b border-slate-100 px-2 py-1.5 dark:border-slate-800">
+            <div className="relative">
+              <svg className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") { setBusca(""); e.currentTarget.blur(); }
+                  if (e.key === "Enter" && visiveis.length) { void abrir(visiveis[0]); e.currentTarget.blur(); }
+                }}
+                placeholder="Buscar nome ou telefone…"
+                aria-label="Buscar conversa por nome ou telefone"
+                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-brand focus:ring-2 focus:ring-brand/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-brand-400 dark:focus:ring-brand-400/15"
+              />
+            </div>
+          </div>
+
           <div className="min-h-0 flex-1 overflow-auto">
-            {conversas.length === 0 ? (
-              <div className="p-4"><EmptyState title="Nada por aqui" description={filtro === "pendente" ? "Nenhuma conversa aguardando resposta. 🎉" : "Quando um lead responder, aparece aqui."} /></div>
+            {visiveis.length === 0 ? (
+              <div className="p-4">
+                {conversas.length > 0 && busca.trim() ? (
+                  <EmptyState title="Nenhum resultado" description={`Nenhuma conversa combina com “${busca.trim()}” nesta aba.`} />
+                ) : (
+                  <EmptyState title="Nada por aqui" description={filtro === "pendente" ? "Nenhuma conversa aguardando resposta. 🎉" : "Quando um lead responder, aparece aqui."} />
+                )}
+              </div>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {conversas.map((c) => {
-                  const ativo = sel?.comprador_id === c.comprador_id;
-                  const pend = c.inbox_status === "pendente";
-                  const espera = pend ? esperaMin(c.aguardando_desde) : 0;
-                  const atrasado = espera > (k?.sla_min ?? 15);
-                  return (
-                    <li key={c.comprador_id}>
-                      <button onClick={() => abrir(c)} className={cn("flex w-full items-start gap-3 px-4 py-3 text-left transition", ativo ? "bg-brand-50 dark:bg-brand-400/10" : "hover:bg-slate-50 dark:hover:bg-slate-800/60")}>
-                        <div className="relative">
-                          <Avatar nome={c.nome} />
-                          {pend && <span className={cn("absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-slate-900", atrasado ? "bg-rose-500" : "bg-amber-400")} />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={cn("truncate font-semibold", ativo ? "text-brand-700 dark:text-brand-300" : "text-slate-800 dark:text-slate-200")}>{c.nome}</span>
-                            <span className="shrink-0 text-[11px] tabular-nums text-slate-400 dark:text-slate-500">{fmtData(c.ultima_msg_em ?? c.ultima_resposta_em)}</span>
-                          </div>
-                          <div className="mt-0.5 flex items-center justify-between gap-2">
-                            <span className={cn("truncate text-xs", c.ultima_de_cs ? "text-slate-400 dark:text-slate-500" : "text-slate-500 dark:text-slate-400")}>{previewMsg(c)}</span>
-                            <EdicaoBadge edicao={c.edicao} className="shrink-0" />
-                          </div>
-                          {pend && (
-                            <span className={cn("mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", atrasado ? "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300" : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300")}>
-                              aguardando {fmtMin(espera)}
-                            </span>
-                          )}
-                          {c.opt_out && <span className="ml-1 mt-1 inline-flex items-center rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:bg-rose-500/15 dark:text-rose-300">opt-out</span>}
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
+                {visiveis.map((c) => (
+                  <FilaItem
+                    key={c.comprador_id}
+                    c={c}
+                    ativo={sel?.comprador_id === c.comprador_id}
+                    slaMin={slaMin}
+                    agoraMin={agoraMin}
+                    meuNome={atendente || me?.nome || ""}
+                    onAbrir={abrir}
+                  />
+                ))}
               </ul>
             )}
+          </div>
+
+          <div className="hidden border-t border-slate-100 px-3 py-1.5 text-center text-[10px] text-slate-400 dark:border-slate-800 dark:text-slate-500 lg:block">
+            <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">↑</kbd> <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">↓</kbd> navegam a fila · <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">E</kbd> resolve a conversa aberta
           </div>
         </aside>
 
@@ -501,29 +612,22 @@ export default function InboxPage() {
                   </a>
                 )}
                 {sel.inbox_status === "pendente"
-                  ? <Button variant="secondary" size="sm" onClick={() => resolver(sel, "resolvido")}>Resolver</Button>
-                  : <Button variant="ghost" size="sm" onClick={() => resolver(sel, "pendente")}>Reabrir</Button>}
+                  ? <Button variant="secondary" size="sm" onClick={() => void resolver(sel, "resolvido")} title="Marcar como resolvida (tecla E)">Resolver</Button>
+                  : <Button variant="ghost" size="sm" onClick={() => void resolver(sel, "pendente")}>Reabrir</Button>}
               </header>
 
-              <div ref={chatRef} className="min-h-0 flex-1 space-y-2 overflow-auto bg-[#ECE5DD] p-4 dark:bg-slate-800">
+              <div
+                ref={chatRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  // Margem de tolerância: "perto do fim" conta como no fim.
+                  nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                }}
+                className="min-h-0 flex-1 space-y-2 overflow-auto bg-[#ECE5DD] p-4 dark:bg-slate-800"
+              >
                 {carregandoMsg && <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-600 dark:text-slate-300"><Spinner /> Carregando conversa…</div>}
                 {aviso && <div className="mx-auto w-fit max-w-[85%] rounded-full bg-amber-50 px-3 py-1 text-center text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30">{aviso}</div>}
-                {mensagens.map((m) => {
-                  const cs = m.de === "cs";
-                  return (
-                    <div key={m.id} className={cn("flex", cs ? "justify-end" : "justify-start")}>
-                      <div className={cn("max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm", cs ? "rounded-br-sm bg-[#DCF8C6] dark:bg-emerald-900/40 dark:text-slate-100" : "rounded-bl-sm bg-white dark:bg-slate-700 dark:text-slate-100")}>
-                        {cs && m.origem && ROTULO_ORIGEM[m.origem] && (
-                          <span className={cn("mb-0.5 block text-[10px] font-semibold uppercase tracking-wide", m.origem === "template" ? "text-brand-500 dark:text-brand-300" : "text-slate-400 dark:text-slate-500")}>
-                            {ROTULO_ORIGEM[m.origem]}
-                          </span>
-                        )}
-                        <p className="whitespace-pre-wrap break-words text-slate-800 dark:text-slate-200">{m.texto}</p>
-                        <span className="mt-1 block text-right text-[10px] tabular-nums text-slate-400 dark:text-slate-500">{fmtHora(m.data)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
+                {mensagens.map((m) => <Bolha key={m.id} m={m} />)}
                 {!carregandoMsg && mensagens.length === 0 && !aviso && <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Sem mensagens nesta conversa.</p>}
               </div>
 
@@ -556,50 +660,8 @@ export default function InboxPage() {
                   </div>
                 </div>
               ) : (
-                <div className="border-t border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
-                  {/* Respostas rápidas */}
-                  <div className="mb-2 flex flex-wrap gap-1.5">
-                    {snippets.map((s, i) => (
-                      <button key={i} onClick={() => setTexto((t) => (t ? t + " " : "") + s)} title={s}
-                        className="max-w-[180px] truncate rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-brand/30 hover:bg-brand/5 dark:border-slate-700 dark:text-slate-300 dark:hover:border-brand-400/30 dark:hover:bg-brand-400/10">
-                        {s}
-                      </button>
-                    ))}
-                    {novoSnippet === null ? (
-                      <button onClick={() => setNovoSnippet("")} title="Adicionar resposta rápida" className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs text-slate-400 transition hover:text-slate-600 dark:border-slate-600 dark:hover:text-slate-300">+ atalho</button>
-                    ) : (
-                      <input
-                        autoFocus
-                        value={novoSnippet}
-                        onChange={(e) => setNovoSnippet(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") { e.preventDefault(); salvarSnippet(); }
-                          if (e.key === "Escape") setNovoSnippet(null);
-                        }}
-                        onBlur={() => setNovoSnippet(null)}
-                        placeholder="Nova resposta rápida… (Enter salva, Esc cancela)"
-                        aria-label="Nova resposta rápida"
-                        className="w-72 max-w-full rounded-full border border-dashed border-brand/50 bg-transparent px-2.5 py-1 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-brand dark:border-brand-400/50 dark:text-slate-200 dark:placeholder:text-slate-500"
-                      />
-                    )}
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <input
-                      value={texto}
-                      onChange={(e) => setTexto(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }}
-                      placeholder="Escreva uma resposta…"
-                      className={cn(fieldClass, "flex-1")}
-                    />
-                    <Button onClick={enviar} disabled={enviando || !texto.trim()}>
-                      {enviando ? (<><Spinner className="text-white" /> Enviando…</>) : "Enviar"}
-                    </Button>
-                  </div>
-                  <p className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
-                    <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                    Janela aberta{janela?.expiraEm ? ` · fecha ${fmtData(janela.expiraEm)}` : ""} — você pode escrever livremente. Responder marca a conversa como resolvida.
-                  </p>
-                </div>
+                /* key = comprador: trocar de conversa zera o campo e refaz o autoFocus. */
+                <InboxComposer key={sel.comprador_id} onEnviar={enviarMensagem} expiraEm={janela?.expiraEm ?? null} />
               )}
             </>
           )}
@@ -619,7 +681,7 @@ export default function InboxPage() {
           telefone={sel.telefone}
           canalInicial="whatsapp"
           onClose={() => setRegistrando(false)}
-          onSalvo={() => { setRegistrando(false); void carregarMetricas(); }}
+          onSalvo={() => { setRegistrando(false); void carregarMetricas().catch(() => {}); }}
         />
       )}
     </PageFade>

@@ -1,93 +1,28 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
-import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
-import { query, queryOne } from "@/lib/db";
-import { sqlEscopo } from "@/lib/services/contato";
+import { filaInbox } from "@/lib/services/inbox-fila";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
 
 // GET /api/inbox — fila de conversas do evento ativo: leads que já responderam.
-// Pendentes (aguardando o CS/comercial) sobem ao topo; ?status filtra a fila.
+// Pendentes sobem ao topo, com quem espera há MAIS tempo primeiro (fila de SLA);
+// ?status filtra a fila; ?disparo lista quem recebeu aquele disparo.
+//
+// A montagem da fila (colunas, ordenação, recorte de escopo) vive em
+// lib/services/inbox-fila.ts — compartilhada com POST /api/inbox/sync, que
+// devolve a fila junto do sync (?fila=1) para o cliente fazer UMA chamada por
+// tick. O contrato da linha de conversa está documentado lá.
 export async function GET(req: Request) {
   // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
   const g = await guard({ portal: eventoDe(req) });
   if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
-  const status = sp.get("status") || null; // pendente | resolvido
-  const disparoId = sp.get("disparo") || null; // ver só os contatos de um disparo
   const evento = eventoDe(req);
 
-  // No HT, a fila do inbox é só quem já respondeu (atendimento reativo). Em
-  // eventos de prospecção (ex.: Seminário), o comercial inicia a conversa, então
-  // a fila mostra todos os leads com telefone — os que interagiram no topo.
-  const todosDoEvento = evento !== "HT";
-
-  // Recorte de SEGURANÇA (0146): a fila, o modo disparo e o contador de
-  // pendentes só contam conversas do escopo de quem olha (pool/equipe/os dele).
-  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
-  const ESCOPO_V = (p: { verTudo: number; usuario: number; equipe: number }) =>
-    sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, p);
-
-  const LATERAL_ULTIMA = `
-       left join lateral (
-         -- Última mensagem da conversa, seja do lead (resposta) ou do CS
-         -- (nota "CS respondeu: ...", como o inbox registra ao enviar).
-         select i.descricao, i.criado_em, (i.tipo = 'nota') as de_cs
-           from cs.interacoes i
-          where i.contato_id = ct.id
-            and (i.tipo = 'resposta' or (i.tipo = 'nota' and i.descricao like 'CS respondeu:%'))
-          order by i.criado_em desc
-          limit 1
-       ) um on true`;
-
-  // Modo "disparo": lista exatamente quem recebeu aquele disparo, na ordem em
-  // que a mensagem saiu (timestamp do envio, mais recente no topo).
-  const conversas = disparoId
-    ? await query(
-        `select v.comprador_id, v.nome, v.telefone, v.edicao,
-                v.estagio_chave, v.estagio_nome, v.ultima_resposta_em, v.ultimo_contato_em,
-                ct.inbox_status, ct.aguardando_desde, ct.opt_out, ct.responsavel, ct.tags,
-                um.descricao as ultima_msg, um.de_cs as ultima_de_cs, um.criado_em as ultima_msg_em
-           from cs.disparo_contatos dc
-           join cs.contatos_evento v on v.comprador_id = dc.comprador_id and v.evento = $2
-           join cs.contatos ct on ct.comprador_id = v.comprador_id and ct.evento = v.evento
-           ${LATERAL_ULTIMA}
-          where dc.disparo_id = $1 and dc.enviado
-            and ${ESCOPO_V({ verTudo: 3, usuario: 4, equipe: 5 })}
-          order by dc.enviado_em desc nulls last
-          limit 500`,
-        [disparoId, evento, verTudo, usuarioId, equipeId],
-      )
-    : await query(
-        `select v.comprador_id, v.nome, v.telefone, v.edicao,
-                v.estagio_chave, v.estagio_nome, v.ultima_resposta_em, v.ultimo_contato_em,
-                ct.inbox_status, ct.aguardando_desde, ct.opt_out, ct.responsavel, ct.tags,
-                um.descricao as ultima_msg, um.de_cs as ultima_de_cs, um.criado_em as ultima_msg_em
-           from cs.contatos_evento v
-           join cs.contatos ct on ct.comprador_id = v.comprador_id and ct.evento = v.evento
-           ${LATERAL_ULTIMA}
-          where v.evento = $2
-            and ($3::boolean or v.ultima_resposta_em is not null)
-            and (v.telefone is not null and v.telefone <> '')
-            and ($1::text is null or ct.inbox_status = $1)
-            and ${ESCOPO_V({ verTudo: 4, usuario: 5, equipe: 6 })}
-          order by (ct.inbox_status = 'pendente') desc,
-                   coalesce(ct.aguardando_desde, v.ultima_resposta_em, v.ultimo_contato_em) desc
-          limit 200`,
-        [status, evento, todosDoEvento, verTudo, usuarioId, equipeId],
-      );
-
-  // O contador espelha o recorte da fila — um "3 pendentes" com fila vazia
-  // seria o painel dizendo que existe trabalho que o operador não pode ver.
-  const resumo = await queryOne<{ pendentes: number }>(
-    `select count(*) filter (where ct.inbox_status = 'pendente')::int as pendentes
-       from cs.contatos ct
-       left join cs.usuarios ru on ru.id = ct.responsavel_id
-      where ct.evento = $1
-        and ${sqlEscopo({ rid: "ct.responsavel_id", eq: "ru.equipe_id", nome: "ct.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}`,
-    [evento, verTudo, usuarioId, equipeId],
-  );
-
-  return NextResponse.json({ ok: true, conversas, pendentes: resumo?.pendentes ?? 0 });
+  const { conversas, pendentes } = await filaInbox(g.sessao, evento, {
+    status: sp.get("status"),      // pendente | resolvido
+    disparoId: sp.get("disparo"),  // ver só os contatos de um disparo
+  });
+  return NextResponse.json({ ok: true, conversas, pendentes });
 }

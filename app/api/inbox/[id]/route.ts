@@ -14,21 +14,55 @@ export const maxDuration = 60;
 
 type Contato = { comprador_id: string; nome: string; telefone: string | null; evento: string };
 
-// Obtém o id do contato na Unnichat: do disparo mais recente (já guardado) ou,
-// na falta, via createContact (idempotente — retorna o existente pelo telefone).
-// Usa a credencial do canal do evento (HT vs Seminário podem ter contas distintas).
+// Obtém o id do contato na Unnichat, nesta ordem de custo:
+//   1. cache em cs.contatos.unnichat_contact_id (0147) — 1 SELECT por poll;
+//   2. do disparo mais recente (cs.disparo_contatos, índice da 0148);
+//   3. createContact (idempotente — retorna o existente pelo telefone).
+// O que 2/3 resolvem é PERSISTIDO no cache: antes, um contato sem disparo
+// gerava um createContact na Unnichat A CADA POLL da thread (escrita externa
+// escondida no caminho de leitura), e o lookup em disparo_contatos era um seq
+// scan por abertura. Cache por (comprador, evento): o contact id pertence à
+// CONTA Unnichat do canal, e o canal é por evento.
 async function resolverContactId(c: Contato, cfg: CanalCfg): Promise<string | null> {
+  // O deploy é AUTOMÁTICO no push e a migration é aplicada à mão: enquanto a
+  // 0147 não estiver em produção, a coluna de cache não existe e o select
+  // estoura (42703) — o que quebraria a ABERTURA DA CONVERSA, não só o cache.
+  // Sem cache o fluxo continua correto pelos passos 2/3, só mais caro.
+  // Remover o try/catch quando a 0147 estiver aplicada.
+  let cache: { unnichat_contact_id: string | null } | null = null;
+  try {
+    cache = await queryOne<{ unnichat_contact_id: string | null }>(
+      `select unnichat_contact_id from cs.contatos where comprador_id = $1 and evento = $2`,
+      [c.comprador_id, c.evento],
+    );
+  } catch {
+    cache = null;
+  }
+  if (cache?.unnichat_contact_id) return cache.unnichat_contact_id;
+
   const existente = await queryOne<{ unnichat_contact_id: string }>(
     `select unnichat_contact_id from cs.disparo_contatos
       where comprador_id = $1 and unnichat_contact_id is not null
       order by enviado_em desc nulls last limit 1`,
     [c.comprador_id],
   );
-  if (existente?.unnichat_contact_id) return existente.unnichat_contact_id;
-  const tel = normalizePhone(c.telefone);
-  if (!tel) return null;
-  const r = await createContact({ name: c.nome || tel, phone: tel, cfg });
-  return r.contactId ?? null;
+  let contactId = existente?.unnichat_contact_id ?? null;
+  if (!contactId) {
+    const tel = normalizePhone(c.telefone);
+    if (!tel) return null;
+    const r = await createContact({ name: c.nome || tel, phone: tel, cfg });
+    contactId = r.contactId ?? null;
+  }
+  if (contactId) {
+    // Mesma razão do try/catch acima: gravar o cache é otimização, e falhar ao
+    // otimizar não pode impedir a conversa de abrir.
+    await query(
+      `update cs.contatos set unnichat_contact_id = $3
+        where comprador_id = $1 and evento = $2 and unnichat_contact_id is distinct from $3`,
+      [c.comprador_id, c.evento, contactId],
+    ).catch(() => {});
+  }
+  return contactId;
 }
 
 async function carregarContato(id: string, evento: string): Promise<Contato | null> {
@@ -43,6 +77,10 @@ async function carregarContato(id: string, evento: string): Promise<Contato | nu
 }
 
 // GET — carrega a conversa (mensagens trocadas) do contato com a Unnichat.
+// PAYLOAD enxuto (polling): devolve { ok, mensagens, janela[, aviso] }. Não
+// devolve mais `contato` (o cliente já tem a linha da fila) nem `senderBy` cru
+// por mensagem (a UI só lê `de`/`origem`; se um dia precisarmos distinguir
+// automação de humano, reintroduzir mapeado, não cru).
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   // Portal do evento RESOLVIDO (cookie/query) contra a whitelist da conta (0145).
   const g = await guard({ portal: eventoDe(req) });
@@ -59,7 +97,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const canal = await getCanal(c.evento);
   const contactId = await resolverContactId(c, canal);
   if (!contactId) {
-    return NextResponse.json({ ok: true, contato: c, mensagens: [], aviso: "Contato sem registro na Unnichat ainda." });
+    return NextResponse.json({ ok: true, mensagens: [], aviso: "Contato sem registro na Unnichat ainda." });
   }
 
   const { messages } = await getContactMessages(contactId, canal);
@@ -67,14 +105,12 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     const ehLead = String(m.senderBy || "").toLowerCase() === "contact";
     // Origem da bolha, para o operador saber de onde veio cada mensagem do lado
     // "nosso": um TEMPLATE (disparo/abertura, type=template) vs texto livre que
-    // saiu da equipe pelo chat. `senderBy` cru vai junto para refinar depois
-    // (distinguir automação de humano) quando confirmarmos os valores do Unnichat.
+    // saiu da equipe pelo chat.
     const origem = ehLead ? "lead" : m.type === "template" ? "template" : "equipe";
     return {
       id: m.id,
       de: ehLead ? "lead" : "cs",
       origem,
-      senderBy: m.senderBy ?? null,
       tipo: m.type,
       texto: m.type === "template" ? (m.text || "[template enviado]") : m.text,
       data: m.date ?? null,
@@ -97,7 +133,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     expiraEm: ultimaEntradaMs > 0 ? new Date(ultimaEntradaMs + JANELA_MS).toISOString() : null,
   };
 
-  return NextResponse.json({ ok: true, contato: c, mensagens, janela });
+  return NextResponse.json({ ok: true, mensagens, janela });
 }
 
 // POST — envia uma mensagem de texto livre ao contato (dentro da janela de 24h).
@@ -146,17 +182,22 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, reason: r.erro || "falha ao enviar" }, { status: 400 });
   }
 
-  const atendente = (p.data.atendente ?? "").trim() || null;
+  // Quem atendeu = quem está LOGADO (sessao.nome), como o inbox do HM já fazia.
+  // O campo `atendente` do corpo é IGNORADO: era texto livre do cliente, dava
+  // para forjar quem atendeu — e isso alimenta a métrica de FRT/SLA por
+  // atendente. (O cliente pode parar de enviá-lo; o schema só o tolera.)
+  const atendente = (g.sessao.nome || "").trim() || "cs";
 
-  // Fecha a pendência + grava o atendimento com o FRT (serviço de atendimento).
-  const frtMin = await registrarRespostaCS(c.comprador_id, atendente);
+  // Fecha a pendência + grava o atendimento com o FRT (serviço de atendimento),
+  // na linha DESTE evento.
+  const frtMin = await registrarRespostaCS(c.comprador_id, c.evento, atendente);
 
   // Registra a resposta na timeline (com o atendente) — na linha DESTE evento
   // (sem o filtro, entrava uma nota por portal em que o comprador existe).
   await query(
     `insert into cs.interacoes (contato_id, tipo, descricao, autor)
      select id, 'nota', $2, $3 from cs.contatos where comprador_id = $1 and evento = $4`,
-    [c.comprador_id, `CS respondeu: ${texto.slice(0, 200)}`, atendente || "cs", c.evento],
+    [c.comprador_id, `CS respondeu: ${texto.slice(0, 200)}`, atendente, c.evento],
   );
 
   return NextResponse.json({ ok: true, frt_minutos: frtMin });
@@ -173,6 +214,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
   const p = await parseBody(req, InboxStatusSchema);
   if (!p.ok) return p.res;
-  await mudarStatus(params.id, p.data.status);
+  await mudarStatus(params.id, eventoDe(req), p.data.status);
   return NextResponse.json({ ok: true });
 }

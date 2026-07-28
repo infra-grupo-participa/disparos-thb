@@ -18,20 +18,50 @@ export const maxDuration = 60;
 
 type ContatoHm = { comprador_id: string; nome: string; telefone: string | null };
 
-// Id do contato na Unnichat: do disparo mais recente (já guardado) ou via
-// createContact (idempotente pelo telefone). Igual ao inbox genérico.
+// Id do contato na Unnichat, na mesma ordem de custo do inbox genérico:
+// cache em cs.contatos_hm.unnichat_contact_id (0147) → disparo mais recente
+// (índice da 0148) → createContact (idempotente pelo telefone). O resultado é
+// persistido no cache: antes, contato sem disparo gerava um createContact na
+// Unnichat a CADA poll da thread, e o lookup era um seq scan por abertura.
 async function resolverContactId(c: ContatoHm, cfg: CanalCfg): Promise<string | null> {
+  // Deploy é automático no push, migration é aplicada à mão: enquanto a 0147
+  // não estiver em produção a coluna não existe e o select estoura (42703),
+  // quebrando a ABERTURA da conversa — não só o cache. Sem cache o fluxo segue
+  // pelos passos 2/3, só mais caro. Remover quando a 0147 estiver aplicada.
+  let cache: { unnichat_contact_id: string | null } | null = null;
+  try {
+    cache = await queryOne<{ unnichat_contact_id: string | null }>(
+      `select unnichat_contact_id from cs.contatos_hm where comprador_id = $1`,
+      [c.comprador_id],
+    );
+  } catch {
+    cache = null;
+  }
+  if (cache?.unnichat_contact_id) return cache.unnichat_contact_id;
+
   const existente = await queryOne<{ unnichat_contact_id: string }>(
     `select unnichat_contact_id from cs.disparo_contatos
       where comprador_id = $1 and unnichat_contact_id is not null
       order by enviado_em desc nulls last limit 1`,
     [c.comprador_id],
   );
-  if (existente?.unnichat_contact_id) return existente.unnichat_contact_id;
-  const tel = normalizePhone(c.telefone);
-  if (!tel) return null;
-  const r = await createContact({ name: c.nome || tel, phone: tel, cfg });
-  return r.contactId ?? null;
+  let contactId = existente?.unnichat_contact_id ?? null;
+  if (!contactId) {
+    const tel = normalizePhone(c.telefone);
+    if (!tel) return null;
+    const r = await createContact({ name: c.nome || tel, phone: tel, cfg });
+    contactId = r.contactId ?? null;
+  }
+  if (contactId) {
+    // Gravar o cache é otimização: falhar ao otimizar não pode impedir a
+    // conversa de abrir (mesma razão do try/catch acima).
+    await query(
+      `update cs.contatos_hm set unnichat_contact_id = $2
+        where comprador_id = $1 and unnichat_contact_id is distinct from $2`,
+      [c.comprador_id, contactId],
+    ).catch(() => {});
+  }
+  return contactId;
 }
 
 async function carregarContatoHm(id: string): Promise<ContatoHm | null> {
@@ -42,6 +72,9 @@ async function carregarContatoHm(id: string): Promise<ContatoHm | null> {
 }
 
 // GET — carrega a conversa (mensagens trocadas) do contato com a Unnichat.
+// PAYLOAD enxuto (polling): { ok, mensagens, janela[, aviso] } — sem `contato`
+// (o cliente já tem a linha da fila) e sem `senderBy` cru por mensagem (a UI só
+// lê `de`/`origem`). Mesmo contrato do inbox genérico.
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
@@ -62,7 +95,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const canal = await getCanal("HM");
   const contactId = await resolverContactId(c, canal);
   if (!contactId) {
-    return NextResponse.json({ ok: true, contato: c, mensagens: [], aviso: "Contato sem registro na Unnichat ainda." });
+    return NextResponse.json({ ok: true, mensagens: [], aviso: "Contato sem registro na Unnichat ainda." });
   }
 
   const { messages } = await getContactMessages(contactId, canal);
@@ -73,7 +106,6 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       id: m.id,
       de: ehLead ? "lead" : "cs",
       origem,
-      senderBy: m.senderBy ?? null,
       tipo: m.type,
       texto: m.type === "template" ? (m.text || "[template enviado]") : m.text,
       data: m.date ?? null,
@@ -94,7 +126,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     expiraEm: ultimaEntradaMs > 0 ? new Date(ultimaEntradaMs + JANELA_MS).toISOString() : null,
   };
 
-  return NextResponse.json({ ok: true, contato: c, mensagens, janela });
+  return NextResponse.json({ ok: true, mensagens, janela });
 }
 
 // POST — envia texto livre ao contato (dentro da janela de 24h).
