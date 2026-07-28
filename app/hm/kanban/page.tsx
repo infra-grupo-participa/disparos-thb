@@ -83,6 +83,8 @@ type Socio = {
   titular_cancelado: boolean;
   checks_feitos: number;
   status: "nao_iniciado" | "em_ativacao" | "ativado" | "sem_acesso";
+  // Estágio próprio do sócio quando arrastado (0150); null = coluna derivada.
+  estagio_chave: string | null;
   // O sócio já existe em public.thb_alunos (a base que o GPS lê)? E o titular?
   na_base: boolean;
   titular_na_base: boolean;
@@ -97,11 +99,13 @@ function estadoNaBase(s: Socio): "na_base" | "fora_da_base" | "aguarda_titular" 
   return s.titular_na_base ? "fora_da_base" : "aguarda_titular";
 }
 
-// Em qual coluna da Ativação o sócio aparece: quando os 3 acessos estão liberados
-// ele vai para "Acesso Liberado"; senão fica em "Pendente de Liberação", que é
-// onde o Thomas trabalha. Titular cancelado também fica em pendente (é a fila do
-// "remover acesso"), mas com o alerta vermelho.
+// Em qual coluna da Ativação o sócio aparece. Se o operador ARRASTOU o card
+// (estagio_chave setado, 0150), a coluna é essa — vale o gesto manual. Caso
+// contrário, deriva do status: 3 acessos → "Acesso Liberado"; senão "Pendente de
+// Liberação", onde o Thomas trabalha. Titular cancelado também cai em pendente (é
+// a fila do "remover acesso"), mas com o alerta vermelho.
 function colunaDoSocio(s: Socio): string {
+  if (s.estagio_chave) return s.estagio_chave;
   return s.status === "ativado" ? "hm_acesso_liberado" : "hm_pendente_liberacao";
 }
 
@@ -306,6 +310,9 @@ export default function HmKanbanPage() {
   const [menu, setMenu] = useState<{ card: Card; x: number; y: number } | null>(null);
   const [cadastrando, setCadastrando] = useState(false);
   const arrastando = useRef<Card | null>(null);
+  // Sócio sendo arrastado (0150) — trilho separado do titular; o drop da coluna
+  // checa este primeiro (o sócio só troca de coluna, não reordena).
+  const arrastandoSocio = useRef<Socio | null>(null);
 
   function toggleMarcado(id: string) {
     setMarcados((prev) => {
@@ -368,6 +375,20 @@ export default function HmKanbanPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ socioId: s.socio_id, [campo]: novo }),
     });
+  }
+
+  // Arrasta o sócio para outra coluna da Ativação (0150). Fixa o estágio próprio
+  // dele; reusa a rota de sócios (é edição do sócio, não do titular). Otimista.
+  async function moverSocio(s: Socio, estagioChave: string) {
+    if (colunaDoSocio(s) === estagioChave) return;
+    setSocios((lista) => lista.map((x) => (x.socio_id === s.socio_id ? { ...x, estagio_chave: estagioChave } : x)));
+    const r = await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ socioId: s.socio_id, estagio_chave: estagioChave }),
+    });
+    const d = await r.json().catch(() => ({ ok: false }));
+    if (!d.ok) { alert("Não foi possível mover o sócio."); carregar(); }
   }
 
   // "Enviar à base": empurra o sócio órfão para a base mestre THB. Reusa a função
@@ -769,6 +790,14 @@ export default function HmKanbanPage() {
                   <div
                     data-col-scroll
                     onDragOver={(e) => {
+                      // Sócio arrastado (0150): só troca de coluna (sem reordenar).
+                      // Aceita o drop em qualquer coluna da Ativação e destaca a coluna.
+                      if (arrastandoSocio.current) {
+                        e.preventDefault();
+                        setAlvo((a) => (a?.col === col.chave ? a : { col: col.chave, indice: -1 }));
+                        autoScrollColuna(e.currentTarget, e.clientY);
+                        return;
+                      }
                       const card = arrastando.current;
                       if (!card) return;
                       // Espelho não se reordena na própria coluna (a fila dele é a
@@ -789,6 +818,14 @@ export default function HmKanbanPage() {
                     onDrop={(e) => {
                       e.preventDefault();
                       pararAutoScroll();
+                      // Sócio arrastado (0150): fixa a coluna dele e encerra.
+                      const socio = arrastandoSocio.current;
+                      if (socio) {
+                        arrastandoSocio.current = null;
+                        setAlvo(null);
+                        moverSocio(socio, col.chave);
+                        return;
+                      }
                       const card = arrastando.current;
                       // Recalcula a posição pelo cursor no momento do drop — com o
                       // auto-scroll, o alvo guardado pode estar defasado.
@@ -847,6 +884,11 @@ export default function HmKanbanPage() {
                         onToggle={(campo) => toggleSocioCheck(s, campo)}
                         onEnviarBase={() => enviarSocioParaBase(s)}
                         enviandoBase={enviandoBase.has(s.socio_id)}
+                        // Arrastar (0150): titular cancelado fica preso (é a fila de
+                        // remoção); o resto pode ser movido entre as colunas.
+                        arrastavel={!s.titular_cancelado}
+                        onDragStart={() => { arrastandoSocio.current = s; }}
+                        onDragEnd={() => { pararAutoScroll(); arrastandoSocio.current = null; setAlvo(null); }}
                       />
                     ))}
                   </div>
@@ -1042,12 +1084,15 @@ export default function HmKanbanPage() {
 // não é um card financeiro: não arrasta, não abre ficha de cobrança, não entra
 // em lente nenhuma. Só os 3 acessos e o status. Quando o titular cancela, o
 // acesso do sócio cai junto (cascata) e o card pede a remoção.
-function SocioCard({ socio: s, onAbrir, onToggle, onEnviarBase, enviandoBase }: {
+function SocioCard({ socio: s, onAbrir, onToggle, onEnviarBase, enviandoBase, arrastavel, onDragStart, onDragEnd }: {
   socio: Socio;
   onAbrir: () => void;
   onToggle: (campo: "ativ_searchie" | "ativ_comunidade" | "ativ_grupo") => void;
   onEnviarBase: () => void;
   enviandoBase: boolean;
+  arrastavel?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }) {
   const wa = waLink(s.telefone);
   const semAcesso = s.status === "sem_acesso";
@@ -1073,10 +1118,14 @@ function SocioCard({ socio: s, onAbrir, onToggle, onEnviarBase, enviandoBase }: 
   return (
     <div
       data-socio
+      draggable={arrastavel}
+      onDragStart={arrastavel ? onDragStart : undefined}
+      onDragEnd={arrastavel ? onDragEnd : undefined}
       onClick={onAbrir}
-      title="Abrir a ficha do sócio"
+      title={arrastavel ? "Arraste para outra coluna, ou clique para abrir a ficha do sócio" : "Abrir a ficha do sócio"}
       className={cn(
         "relative block cursor-pointer rounded-lg border p-2.5 shadow-card transition hover:shadow-pop",
+        arrastavel && "cursor-grab active:cursor-grabbing",
         semAcesso
           ? "border-rose-200 bg-rose-50/50 dark:border-rose-500/25 dark:bg-rose-500/5"
           : "border-sky-200 bg-sky-50/60 dark:border-sky-500/25 dark:bg-sky-500/5",

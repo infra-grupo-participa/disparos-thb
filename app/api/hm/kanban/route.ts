@@ -94,7 +94,7 @@ export async function GET(req: Request) {
     `select s.socio_id, s.contato_hm_id, s.nome, s.email, s.telefone, s.link_facebook, s.origem,
             s.ativ_searchie, s.ativ_comunidade, s.ativ_grupo,
             s.titular_comprador_id, s.titular_nome, s.titular_turma, s.titular_origem,
-            s.titular_cancelado, s.checks_feitos, s.status,
+            s.titular_cancelado, s.checks_feitos, s.status, s.estagio_chave,
             (s.aluno_id is not null) as na_base,
             (s.titular_aluno_id is not null) as titular_na_base
        from cs.vw_hm_socios s

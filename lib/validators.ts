@@ -293,6 +293,9 @@ export const HmSocioPatchSchema = z.object({
   ativ_searchie: z.boolean().optional(),
   ativ_comunidade: z.boolean().optional(),
   ativ_grupo: z.boolean().optional(),
+  // Estágio próprio do sócio (0150): arrastar o card para uma coluna da Ativação.
+  // "" / null volta ao modo derivado (coluna calculada pelos 3 acessos).
+  estagio_chave: z.string().nullable().optional(),
 });
 
 export const KanbanLoteSchema = z.object({

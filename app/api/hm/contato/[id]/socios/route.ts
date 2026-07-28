@@ -80,6 +80,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.ativ_searchie !== undefined) add("ativ_searchie", b.ativ_searchie);
   if (b.ativ_comunidade !== undefined) add("ativ_comunidade", b.ativ_comunidade);
   if (b.ativ_grupo !== undefined) add("ativ_grupo", b.ativ_grupo);
+  // Arrastar o sócio (0150): a chave vira o id do estágio; "" / null solta a
+  // fixação e o card volta a derivar a coluna dos 3 acessos.
+  if (b.estagio_chave !== undefined) {
+    const est = b.estagio_chave
+      ? await queryOne<{ id: number }>(`select id from cs.estagios where evento = 'HM' and chave = $1`, [b.estagio_chave])
+      : null;
+    add("estagio_id", est?.id ?? null);
+  }
 
   if (sets.length) {
     // O `contato_hm_id` no where impede editar sócio de outro card por id solto.
