@@ -81,7 +81,9 @@ export default function TopNav() {
 
   // Enquanto `nivel` é null (carregando), os links restritos ficam ocultos — a
   // navegação nasce fechada e abre conforme o direito de cada um.
-  const links = (portal === "hm" ? LINKS_HM : LINKS)
+  // Aurum e ETHB (0155) são a MESMA esteira do HM — usam a navegação do HM.
+  const ehEsteiraHm = portal === "hm" || portal === "aurum" || portal === "ethb";
+  const links = (ehEsteiraHm ? LINKS_HM : LINKS)
     .filter((l) => (!l.soMaster || nivel === "master") && (!l.soGestor || nivel === "master" || nivel === "gestor"));
 
   return (

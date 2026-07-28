@@ -15,6 +15,7 @@ import { MultiSelect } from "@/app/_components/multi-select";
 import { ContatoDoNome } from "@/app/_components/copiavel";
 import { DisparoModal } from "@/app/_components/disparo";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
+import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { MarcaPortal } from "@/app/_components/marca";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
@@ -390,6 +391,7 @@ const PRESETS: Record<VisaoId, string[]> = {
 
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
+  const fetchHm = useFetchHm(); // esteira multi-produto (0155)
   const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   // Linha em Reclamada/Reembolsado é SÓ do master (o backend devolve 403 no GET
@@ -522,7 +524,7 @@ export default function HmTabelaPage() {
       for (const v of filtroResp) params.append("responsavel", v);
       for (const v of filtroCanal) params.append("canal", v);
       for (const v of filtroTurma) params.append("turma", v);
-      const r = await fetch(`/api/hm/tabela?${params.toString()}`);
+      const r = await fetchHm(`/api/hm/tabela?${params.toString()}`);
       const d = await r.json();
       if (d.ok) {
         setLinhas(d.linhas);
@@ -535,7 +537,7 @@ export default function HmTabelaPage() {
     } finally {
       setCarregando(false);
     }
-  }, [filtroResp, filtroCanal, filtroTurma]);
+  }, [filtroResp, filtroCanal, filtroTurma, fetchHm]);
   useEffect(() => { if (filtrosProntos) carregar(); }, [carregar, filtrosProntos]);
   // O catálogo de tags (cores + opções do picker). Recarrega junto com o lote —
   // uma tag criada no picker precisa aparecer na lista logo em seguida.

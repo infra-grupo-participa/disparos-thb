@@ -5,6 +5,7 @@ import { Card, Spinner, cn } from "@/app/_components/ui";
 import { MarcaPortal } from "@/app/_components/marca";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { useMe } from "@/app/_components/use-me";
+import { useFetchHm } from "@/app/hm/_components/api-produto";
 
 // Relatório de reuniões (C1). Vincula as marcações de reunião (Comercial) e
 // entrevista (Ativação) de todos os cards numa lista só: quando, com quem,
@@ -51,6 +52,7 @@ type Quando = "proximas" | "passadas" | "todas";
 export default function HmReunioesPage() {
   // podeDistribuir → a aba "Equipes" do alternador aparece para master e gestor.
   const { podeDistribuir } = useMe();
+  const fetchHm = useFetchHm(); // esteira multi-produto (0155)
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [quando, setQuando] = useState<Quando>("proximas");
@@ -59,13 +61,13 @@ export default function HmReunioesPage() {
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const r = await fetch("/api/hm/tabela");
+      const r = await fetchHm("/api/hm/tabela");
       const d = await r.json();
       if (d.ok) setLinhas(d.linhas);
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [fetchHm]);
   useEffect(() => { carregar(); }, [carregar]);
 
   // Uma linha por marcação: um card pode ter reunião E entrevista.

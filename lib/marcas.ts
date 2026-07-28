@@ -70,7 +70,7 @@ export const PORTAIS: Record<PortalId, Marca> = {
     nome: "Aurum",
     sigla: "AUR",
     cor: "#CA8A04", // amarelo-ouro (yellow-600)
-    desc: "Ativação do Aurum — comercial e ativação dos alunos.",
+    desc: "Aurum — o nível premium dos alunos: comercial, reunião e ativação da jornada de ponta.",
     gradiente: "from-yellow-600 to-amber-400",
     logo: null, // → public/marcas/aurum.svg (enquanto não houver, cai no monograma "AUR")
     logoRatio: null,
@@ -80,7 +80,7 @@ export const PORTAIS: Record<PortalId, Marca> = {
     nome: "ETHB",
     sigla: "ETHB",
     cor: "#0D9488", // teal-600
-    desc: "Comercial e ativação do ETHB (Kelly + monitores + Ellen).",
+    desc: "ETHB — Time Holding Brasil: comercial, renovação e liberação de acesso dos alunos.",
     gradiente: "from-teal-600 to-emerald-400",
     logo: null, // → public/marcas/ethb.svg (enquanto não houver, cai no monograma "ETHB")
     logoRatio: null,

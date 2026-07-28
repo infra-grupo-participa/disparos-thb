@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useFetchHm } from "@/app/hm/_components/api-produto";
 import Link from "next/link";
 import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { Avatar } from "@/app/_components/avatar";
@@ -106,6 +107,7 @@ function gcalLink(ev: Agendamento): string | null {
 }
 
 export default function HmAgendamentosPage() {
+  const fetchHm = useFetchHm(); // esteira multi-produto (0155): HM/Aurum/ETHB
   const [rows, setRows] = useState<Agendamento[]>([]);
   const [tipo, setTipo] = useState("");
   const [colaborador, setColaborador] = useState("");
@@ -143,13 +145,13 @@ export default function HmAgendamentosPage() {
     try {
       const params = new URLSearchParams();
       if (tipo) params.set("tipo", tipo);
-      const r = await fetch(`/api/hm/agendamentos?${params.toString()}`);
+      const r = await fetchHm(`/api/hm/agendamentos?${params.toString()}`);
       const d = await r.json();
       if (d.ok) setRows(d.agendamentos);
     } finally {
       setCarregando(false);
     }
-  }, [tipo]);
+  }, [tipo, fetchHm]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -548,6 +550,7 @@ function CriarAgendamento({ slot, onClose, onCriado }: {
   onClose: () => void;
   onCriado: () => void;
 }) {
+  const fetchHm = useFetchHm(); // esteira multi-produto (0155)
   const [tipo, setTipo] = useState<"reuniao" | "entrevista">("reuniao");
   const [q, setQ] = useState("");
   const [cands, setCands] = useState<{ comprador_id: string; nome: string; telefone: string | null; estagio_nome: string | null; responsavel: string | null; precisa: boolean; ja_em: string | null }[]>([]);
@@ -560,7 +563,7 @@ function CriarAgendamento({ slot, onClose, onCriado }: {
     setBuscando(true);
     const t = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/hm/agendamentos/candidatos?tipo=${tipo}&q=${encodeURIComponent(q)}`);
+        const r = await fetchHm(`/api/hm/agendamentos/candidatos?tipo=${tipo}&q=${encodeURIComponent(q)}`);
         const d = await r.json();
         if (vivo && d.ok) setCands(d.candidatos);
       } finally {
@@ -568,7 +571,7 @@ function CriarAgendamento({ slot, onClose, onCriado }: {
       }
     }, q ? 250 : 0);
     return () => { vivo = false; clearTimeout(t); };
-  }, [q, tipo]);
+  }, [q, tipo, fetchHm]);
 
   async function agendar(compradorId: string) {
     setSalvando(compradorId);
