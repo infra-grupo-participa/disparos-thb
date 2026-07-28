@@ -91,6 +91,12 @@ export const EquipeRotaSchema = z.object({
   equipe_id: z.string().uuid().nullable(),
 });
 
+// Equipe padrão p/ novas vendas HM (0146) — para onde toda venda nova é
+// carimbada na criação. null = volta ao pool (comportamento anterior).
+export const EquipePadraoSchema = z.object({
+  equipe_id: z.string().uuid().nullable(),
+});
+
 // Troca de senha: admin reseta (só novaSenha) ou o próprio usuário troca
 // (atualSenha + novaSenha — validado na rota).
 export const SenhaSchema = z.object({

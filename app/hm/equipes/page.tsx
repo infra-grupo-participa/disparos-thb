@@ -39,6 +39,7 @@ export default function HmEquipesPage() {
   const [novaCor, setNovaCor] = useState("#0d9488");
   const [rotaCanal, setRotaCanal] = useState("");
   const [rotaEquipe, setRotaEquipe] = useState("");
+  const [equipePadrao, setEquipePadrao] = useState<string | null>(null);
 
   // Ver = master OU gestor (null enquanto carrega). Editar = SÓ master.
   const podeVer = me ? podeDistribuir() : null;
@@ -50,11 +51,16 @@ export default function HmEquipesPage() {
       const re = await fetch("/api/hm/equipes");
       const de = await re.json();
       if (de.ok) { setEquipes(de.equipes); setUsuarios(de.usuarios); }
-      // Rotas canal → equipe são config global: só o master consulta/edita.
+      // Rotas canal → equipe e equipe padrão são config global: só o master.
       if (podeEditar) {
-        const rr = await fetch("/api/hm/equipes/rotas");
+        const [rr, rp] = await Promise.all([
+          fetch("/api/hm/equipes/rotas"),
+          fetch("/api/hm/equipes/padrao"),
+        ]);
         const dr = await rr.json();
         if (dr.ok) { setRotas(dr.rotas); setCanais(dr.canais); }
+        const dp = await rp.json();
+        if (dp.ok) setEquipePadrao(dp.equipe_id ?? null);
       }
     } finally { setCarregando(false); }
   }, [podeEditar]);
@@ -89,6 +95,13 @@ export default function HmEquipesPage() {
     const d = await r.json();
     if (!d.ok) { alert("Não foi possível salvar a rota."); return; }
     await carregar();
+  }
+
+  async function salvarEquipePadrao(equipe_id: string | null) {
+    setEquipePadrao(equipe_id); // otimista
+    const r = await fetch("/api/hm/equipes/padrao", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ equipe_id }) });
+    const d = await r.json();
+    if (!d.ok) { alert("Não foi possível salvar a equipe padrão."); await carregar(); }
   }
 
   if (podeVer === false) {
@@ -277,8 +290,36 @@ export default function HmEquipesPage() {
             )}
           </Card>
 
-          {/* Rotas canal → equipe — config global, só o master */}
+          {/* Config global (só o master): equipe padrão + roteamento por canal */}
           {podeEditar && (
+          <div className="space-y-4">
+          {/* Equipe padrão para novas vendas */}
+          <Card className="p-4">
+            <h2 className="mb-1 text-sm font-semibold text-slate-700 dark:text-slate-200">Equipe padrão das vendas novas</h2>
+            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+              Toda venda de HM que entrar <strong>de agora em diante</strong> já cai nesta equipe. Os cards que já estão no board não mudam — só as compras novas. Deixe em &ldquo;Ninguém&rdquo; para que caiam no pool aberto.
+            </p>
+            <select
+              value={equipePadrao ?? ""}
+              onChange={(e) => salvarEquipePadrao(e.target.value || null)}
+              className={cn(fieldClass, "w-full")}
+              title="Equipe que recebe automaticamente as novas vendas de HM"
+            >
+              <option value="">Ninguém (cai no pool aberto)</option>
+              {equipes.map((eq) => <option key={eq.id} value={eq.id}>{eq.nome}</option>)}
+            </select>
+            {equipePadrao && (() => {
+              const eq = equipes.find((x) => x.id === equipePadrao);
+              return eq ? (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  <span className="inline-block h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: eq.cor }} />
+                  Novas vendas caem em <strong className="text-slate-700 dark:text-slate-200">{eq.nome}</strong>.
+                </p>
+              ) : null;
+            })()}
+          </Card>
+
+          {/* Rotas canal → equipe */}
           <Card className="p-4">
             <h2 className="mb-1 text-sm font-semibold text-slate-700 dark:text-slate-200">Roteamento de canais</h2>
             <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
@@ -314,6 +355,7 @@ export default function HmEquipesPage() {
               </Button>
             </div>
           </Card>
+          </div>
           )}
         </div>
       )}
