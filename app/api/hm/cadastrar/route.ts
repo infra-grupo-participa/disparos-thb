@@ -32,6 +32,7 @@ export async function POST(req: Request) {
       turma: b.turma, categoria: b.categoria ?? null,
       responsavel: souMaster ? (b.responsavel ?? null) : (sessao.nome || null),
       estagioChave: b.estagio_chave,
+      produto: b.produto,
     },
     sessao.nome || "cs",
   );

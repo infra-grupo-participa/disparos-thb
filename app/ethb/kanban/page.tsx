@@ -1,0 +1,3 @@
+// Board do ETHB = a MESMA tela do HM (0155). A página lê o produto da URL
+// (useProdutoHm) e recorta tudo por produto='ETHB'. Reexport para não duplicar.
+export { default } from "@/app/hm/kanban/page";

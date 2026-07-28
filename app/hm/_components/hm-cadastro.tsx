@@ -22,11 +22,13 @@ const MOTIVO: Record<string, string> = {
 };
 
 export function HmCadastroModal({
-  onClose, onCadastrado,
+  onClose, onCadastrado, produto = "HM",
 }: {
   onClose: () => void;
   // Recebe o comprador_id criado/encontrado — a tela recarrega e pode abrir a ficha.
   onCadastrado: (compradorId: string, jaExistia: boolean) => void;
+  // Board em que o card nasce (0155): HM (default), AURUM ou ETHB.
+  produto?: "HM" | "AURUM" | "ETHB";
 }) {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
@@ -58,6 +60,7 @@ export function HmCadastroModal({
           categoria: categoria || null,
           responsavel: responsavel.trim() || null,
           estagio_chave: estagio,
+          produto,
         }),
       });
       const d: Resposta = await r.json();

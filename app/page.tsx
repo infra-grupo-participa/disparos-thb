@@ -9,11 +9,11 @@ import { podeAcessarPortal } from "@/lib/papeis";
 // /seminario/* ou /hm/*; a troca também fica no cabeçalho, dentro do sistema.
 // A identidade de cada portal (nome, cor, logo) vem de lib/marcas.
 // Controle de acesso (0145): só os portais liberados para a conta aparecem aqui.
-// AURUM e ETHB (0153) já existem como PORTAL para o controle de acesso (o admin
-// marca/desmarca em /usuarios), mas ainda NÃO entram no ORDEM da seleção: a área
-// própria deles (board) é a frente 5-6. Assim que o board existir, é só somar
-// "aurum"/"ethb" ao ORDEM — o resto (marca, acesso, rota) já está pronto.
-const ORDEM: PortalId[] = ["ht", "seminario", "hm", "curso"];
+// AURUM e ETHB (0155): board próprio = a MESMA esteira do HM recortada por
+// produto (/aurum/kanban, /ethb/kanban). Já entram na seleção; o card só nasce
+// nesses boards por cadastro manual (ou, no futuro, por compra da oferta do
+// produto). Só aparecem para quem tem o portal na whitelist (0145).
+const ORDEM: PortalId[] = ["ht", "seminario", "hm", "curso", "aurum", "ethb"];
 const EVENTO_DO_SLUG: Record<PortalId, string> = { ht: "HT", seminario: "SEM", hm: "HM", curso: "CNHF", aurum: "AURUM", ethb: "ETHB" };
 
 export default async function SelecaoPortal({ searchParams }: { searchParams: { sem_acesso?: string } }) {

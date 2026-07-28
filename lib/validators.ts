@@ -205,6 +205,8 @@ export const HmCadastroSchema = z.object({
   // Onde alocar. Padrão no serviço: "Contato Inicial" do comercial (a entrada do
   // funil). Restrito às duas entradas que fazem sentido para um cadastro novo.
   estagio_chave: z.enum(["hm_comprou", "hm_pendente_liberacao"]).optional(),
+  // Board em que o card nasce (0155): HM (default), AURUM ou ETHB.
+  produto: z.enum(["HM", "AURUM", "ETHB"]).optional(),
 });
 
 export const HmContatoPatchSchema = z.object({

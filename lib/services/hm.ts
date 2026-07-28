@@ -956,6 +956,7 @@ export async function cadastrarManualHm(
   dados: {
     nome: string; email: string; telefone?: string | null; documento?: string | null;
     turma?: string | null; categoria?: string | null; responsavel?: string | null; estagioChave?: string | null;
+    produto?: "HM" | "AURUM" | "ETHB";
   },
   autor = "cs",
 ): Promise<CadastroManualHm> {
@@ -971,6 +972,12 @@ export async function cadastrarManualHm(
   if (res.ok !== true) {
     log.warn("cadastro manual HM recusado", { reason: res.reason, email: dados.email });
     return { ok: false, reason: String(res.reason ?? "falha") };
+  }
+  // Board do produto (0155): a fn cria o card sempre como HM (default da coluna);
+  // se o cadastro é de outro board, carimba o produto no card recém-criado. Feito
+  // aqui p/ não mexer na função SQL (sensível). Só quando não-HM.
+  if (dados.produto && dados.produto !== "HM" && res.comprador_id) {
+    await query(`update cs.contatos_hm set produto = $2 where comprador_id = $1`, [res.comprador_id as string, dados.produto]);
   }
   return {
     ok: true,
