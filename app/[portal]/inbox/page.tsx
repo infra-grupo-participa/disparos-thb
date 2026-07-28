@@ -5,6 +5,8 @@ import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
+import { useMe } from "@/app/_components/use-me";
+import { RegistrarAtendimento } from "@/app/_components/ligacao";
 
 type Conversa = {
   comprador_id: string; nome: string; telefone: string | null; edicao: string | null;
@@ -77,6 +79,7 @@ function Avatar({ nome, size = "md" }: { nome: string; size?: "sm" | "md" }) {
 
 export default function InboxPage() {
   const { evento, nome } = usePortal();
+  const { me } = useMe();
   // O HM vive num overlay isolado (cs.contatos_hm) e tem rotas de inbox próprias
   // (/api/hm/inbox*). Os demais portais usam as genéricas. A tela é a MESMA — só o
   // prefixo dos endpoints de inbox muda. Templates/send já tratam evento por si.
@@ -91,6 +94,12 @@ export default function InboxPage() {
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [atendente, setAtendente] = useState("");
+  // Usuários ativos para o "Atendendo como" — seleção, nunca texto livre: nome
+  // digitado errado sumia das métricas por atendente.
+  const [usuarios, setUsuarios] = useState<string[]>([]);
+  // Modal de registro de atendimento DENTRO da conversa — o gesto mais repetido
+  // do dia não pode exigir voltar ao kanban para achar a pessoa de novo.
+  const [registrando, setRegistrando] = useState(false);
   const [metricas, setMetricas] = useState<Metricas | null>(null);
   const [showDesempenho, setShowDesempenho] = useState(false);
   const [snippets, setSnippets] = useState<string[]>(SNIPPETS_DEFAULT);
@@ -116,12 +125,22 @@ export default function InboxPage() {
 
   useEffect(() => {
     try {
-      setAtendente(localStorage.getItem("cs_atendente") || "");
       const s = localStorage.getItem("cs_snippets");
       if (s) setSnippets(JSON.parse(s));
     } catch { /* noop */ }
   }, []);
-  function salvarAtendente(v: string) { setAtendente(v); try { localStorage.setItem("cs_atendente", v); } catch { /* noop */ } }
+
+  // "Atendendo como" nasce do usuário LOGADO (antes era texto livre em
+  // localStorage: nome abreviado ou errado sumia das métricas). Atender em nome
+  // de outra pessoa continua possível — trocando no select, e só até recarregar:
+  // a cada sessão o padrão volta a ser quem está logado.
+  useEffect(() => { if (me) setAtendente((atual) => atual || me.nome); }, [me]);
+  useEffect(() => {
+    fetch("/api/usuarios")
+      .then((r) => r.json())
+      .then((d) => { if (d.ok) setUsuarios((d.usuarios as { nome: string; ativo: boolean }[]).filter((u) => u.ativo).map((u) => u.nome)); })
+      .catch(() => { /* sem lista, o select fica só com o próprio usuário */ });
+  }, []);
 
   const carregarConversas = useCallback(async () => {
     const qs = modoDisparo ? `&disparo=${modoDisparo}` : (filtro ? `&status=${filtro}` : "");
@@ -326,13 +345,19 @@ export default function InboxPage() {
         </span>
         <div className="flex-1" />
         <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-          <span>Atendendo como</span>
-          <input
+          <label htmlFor="inbox-atendente">Atendendo como</label>
+          <select
+            id="inbox-atendente"
             value={atendente}
-            onChange={(e) => salvarAtendente(e.target.value)}
-            placeholder="seu nome"
-            className="w-28 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-          />
+            onChange={(e) => setAtendente(e.target.value)}
+            title={me && atendente && atendente !== me.nome ? `Atendendo em nome de ${atendente} — você está logado como ${me.nome}` : "Quem assina as respostas nas métricas de atendimento"}
+            className="max-w-[11rem] rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          >
+            {/* União: lista de ativos + o logado (se a lista falhar, ele sempre existe). */}
+            {[...new Set([...(me ? [me.nome] : []), ...usuarios, ...(atendente ? [atendente] : [])])].map((n) => (
+              <option key={n} value={n}>{me && n === me.nome ? `${n} (você)` : n}</option>
+            ))}
+          </select>
         </div>
         <Button variant="secondary" size="sm" onClick={() => setShowDesempenho(true)}>Desempenho</Button>
       </div>
@@ -444,6 +469,19 @@ export default function InboxPage() {
                     {sel.inbox_status === "pendente" && sel.aguardando_desde ? <span className="text-rose-500 dark:text-rose-400"> · aguardando {fmtMin(esperaMin(sel.aguardando_desde))}</span> : null}
                   </p>
                 </div>
+                {/* Registrar atendimento SEM sair da conversa — antes eram três
+                    telas (inbox → kanban → ficha) para o gesto mais repetido do
+                    dia, e na prática ninguém registrava. */}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setRegistrando(true)}
+                  disabled={!sel.telefone}
+                  title={sel.telefone ? "Registrar o atendimento desta conversa" : "Contato sem telefone — não dá para registrar atendimento"}
+                >
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" /></svg>
+                  Registrar
+                </Button>
                 {waLink(sel.telefone) && (
                   <a
                     href={waLink(sel.telefone)!}
@@ -548,6 +586,19 @@ export default function InboxPage() {
 
       {showDesempenho && metricas && (
         <Desempenho metricas={metricas} onClose={() => setShowDesempenho(false)} />
+      )}
+
+      {/* O MESMO modal do meu-dia e da ficha — um endpoint, um caminho de escrita.
+          Canal já vem como WhatsApp: a conversa aconteceu aqui. */}
+      {registrando && sel?.telefone && (
+        <RegistrarAtendimento
+          compradorId={sel.comprador_id}
+          nome={sel.nome}
+          telefone={sel.telefone}
+          canalInicial="whatsapp"
+          onClose={() => setRegistrando(false)}
+          onSalvo={() => { setRegistrando(false); void carregarMetricas(); }}
+        />
       )}
     </PageFade>
   );

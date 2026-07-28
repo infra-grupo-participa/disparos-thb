@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
-import { ehMaster, escopoVisibilidade, nivelDe, paramsEscopo } from "@/lib/papeis";
+import { ehMaster, escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
+import { listaResponsaveis, sqlEscopo } from "@/lib/services/visibilidade";
 import { moverEstagioHm, podeVerCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
@@ -76,12 +77,9 @@ export async function GET(req: Request) {
       where ($1::text[] is null or k.responsavel = any($1))
         and ($2::text[] is null or k.tags && $2)
         and ($3::text[] is null or k.tags && $3)
-        -- Escopo: vejo tudo (GP/admin) OU é pool OU o card é MEU (operador) OU
-        -- o card é da minha equipe (líder de equipe). $6 nulo p/ operador, $5 nulo p/ líder.
-        and ($4::boolean
-             or (k.responsavel_id is null and k.equipe_id is null)
-             or k.responsavel_id = $5::uuid
-             or k.equipe_id = $6::uuid)
+        -- Escopo (predicado único, visibilidade.ts): vejo tudo OU é card LIVRE
+        -- (sem id, sem equipe E sem texto órfão) OU é MEU OU é da minha equipe.
+        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 4, usuario: 5, equipe: 6 })}
       order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
   );
@@ -104,39 +102,19 @@ export async function GET(req: Request) {
          or exists (
               select 1 from cs.contatos_hm_kanban tk
                where tk.comprador_id = s.titular_comprador_id
-                 and ((tk.responsavel_id is null and tk.equipe_id is null)
-                      or tk.responsavel_id = $2::uuid
-                      or tk.equipe_id = $3::uuid))
+                 and ${sqlEscopo({ rid: "tk.responsavel_id", eq: "tk.equipe_id", nome: "tk.responsavel" }, { verTudo: 1, usuario: 2, equipe: 3 })})
       order by s.titular_nome, s.nome`,
     [verTudo, usuarioId, equipeId],
   );
 
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já
-  // tem card. Assim um operador novo aparece no seletor de responsável antes da
-  // primeira atribuição — senão ninguém consegue atribuir a ele.
-  // Lista RECORTADA por nível: master vê todos (+ responsáveis legados fora de
-  // usuarios); gestor só os membros ativos da PRÓPRIA equipe; operador só a si.
-  // O seletor não pode oferecer um destino que atribuirResponsavelHm vai
-  // recusar — era o gestor vendo nomes de outras equipes e colhendo 403.
-  const nivel = nivelDe(sessao);
-  const respRows =
-    nivel === "master"
-      ? await query<{ responsavel: string }>(
-          `select responsavel from (
-              select nome as responsavel from cs.usuarios where ativo
-              union
-              select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''
-           ) u
-           order by responsavel`,
-        )
-      : nivel === "gestor"
-        ? await query<{ responsavel: string }>(
-            `select nome as responsavel from cs.usuarios where ativo and equipe_id = $1 order by nome`,
-            [sessao.equipe_id],
-          )
-        : sessao.nome
-          ? [{ responsavel: sessao.nome }]
-          : [];
+  // tem card. Lista RECORTADA por nível (regra única em listaResponsaveis,
+  // visibilidade.ts): master = todos + legados; gestor = a própria equipe;
+  // operador = só ele. O seletor não pode oferecer destino que
+  // atribuirResponsavelHm vai recusar.
+  const responsaveis = await listaResponsaveis(sessao, {
+    sql: `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''`,
+  });
   // `qtd` alimenta a régua de canais fixos: o placar do canal INTEIRO, sem os
   // filtros da tela — o número é "quantas vendas o evento fez", não "quantas
   // estou vendo agora".
@@ -153,7 +131,7 @@ export async function GET(req: Request) {
     colunas,
     cards,
     socios,
-    responsaveis: respRows.map((r) => r.responsavel),
+    responsaveis,
     canais: tagRows.filter((t) => !t.eh_turma).map((t) => t.tag),
     turmas: tagRows.filter((t) => t.eh_turma).map((t) => t.tag),
     canaisQtd: Object.fromEntries(tagRows.filter((t) => !t.eh_turma).map((t) => [t.tag, t.qtd])),

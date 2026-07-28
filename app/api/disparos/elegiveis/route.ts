@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
-import { sqlEscopo } from "@/lib/services/contato";
+import { sqlEscopo } from "@/lib/services/visibilidade";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -60,10 +60,7 @@ export async function GET(req: Request) {
         where v.telefone is not null and v.telefone <> ''
           and not coalesce(v.nao_contatar, false)
           and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
-          and ($3::boolean
-               or (v.responsavel_id is null and v.equipe_id is null)
-               or v.responsavel_id = $4::uuid
-               or v.equipe_id = $5::uuid)
+          and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
           and (${filtroModo})
         order by (u.ultimo is null) desc, u.ultimo asc nulls first, v.nome
         limit $1`,

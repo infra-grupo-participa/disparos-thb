@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { nivelDe } from "@/lib/papeis";
+import { parsePeriodo } from "@/lib/validators";
 import { atividadeHm, type EscopoAtividade } from "@/lib/services/hm-atividade";
 
 export const runtime = "nodejs";
@@ -21,7 +22,12 @@ export async function GET(req: Request) {
     : nivel === "gestor" ? { modo: "equipe", equipeId: sessao.equipe_id }
     : { modo: "operador", nome: sessao.nome || "" };
 
-  const sp = new URL(req.url).searchParams;
-  const r = await atividadeHm({ de: sp.get("de"), ate: sp.get("ate") }, escopo);
+  // Validação de período compartilhada (lib/validators): sem ela, ?ate=invalido
+  // virava 22007 do Postgres e derrubava o painel com 500 — agora é 400
+  // data_invalida, a MESMA resposta do /api/atividade genérico.
+  const periodo = parsePeriodo(new URL(req.url).searchParams);
+  if (!periodo.ok) return periodo.res;
+
+  const r = await atividadeHm({ de: periodo.de, ate: periodo.ate }, escopo);
   return NextResponse.json({ ok: true, ...r });
 }

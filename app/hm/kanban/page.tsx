@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { DragEvent, WheelEvent } from "react";
-import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
+import { Button, cn, EmptyState, fieldClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
@@ -281,6 +281,9 @@ export default function HmKanbanPage() {
   const [busca, setBusca] = useState("");
   const [aba, setAba] = useState("comercial");
   const [carregando, setCarregando] = useState(true);
+  // Falha de carga/recarga do board — antes era silenciosa: a esteira parecia
+  // vazia (ou congelada após um movimento) sem nenhuma explicação.
+  const [erro, setErro] = useState<string | null>(null);
   const [alvo, setAlvo] = useState<Alvo | null>(null);
   const [selecionado, setSelecionado] = useState<string | null>(null);
   const [socioAberto, setSocioAberto] = useState<Socio | null>(null);
@@ -323,6 +326,7 @@ export default function HmKanbanPage() {
       const r = await fetch(`/api/hm/kanban?${params.toString()}`);
       const d = await r.json();
       if (d.ok) {
+        setErro(null);
         setColunas(d.colunas);
         setCards(d.cards);
         if (Array.isArray(d.socios)) setSocios(d.socios);
@@ -330,7 +334,11 @@ export default function HmKanbanPage() {
         if (Array.isArray(d.canais)) setCanais(d.canais);
         if (Array.isArray(d.turmas)) setTurmas(d.turmas);
         if (d.canaisQtd) setCanaisQtd(d.canaisQtd);
+      } else {
+        setErro(msgErroPermissao(d.reason) ?? "Não foi possível carregar a esteira. Tente de novo.");
       }
+    } catch {
+      setErro("Sem conexão com o servidor. Verifique a rede e tente de novo.");
     } finally {
       setCarregando(false);
     }
@@ -685,10 +693,33 @@ export default function HmKanbanPage() {
         onToggle={(c) => setFiltroCanal((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
       />
 
+      {/* Recarga falhou COM cards na tela (ex.: logo após mover um card): o
+          board pode estar defasado em relação ao banco — avisa em vez de calar. */}
+      {erro && cards.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" role="alert">
+          <span>{erro} O board pode estar desatualizado.</span>
+          <button onClick={carregar} className="shrink-0 font-medium underline-offset-2 hover:underline">Recarregar</button>
+        </div>
+      )}
+
       {carregando && cards.length === 0 ? (
         <div className="flex items-center justify-center gap-3 py-20 text-slate-400 dark:text-slate-500">
           <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando esteira…</span>
         </div>
+      ) : erro && cards.length === 0 ? (
+        // Falhou e não há NADA na tela: sem isto a esteira parecia vazia de
+        // verdade — o operador não sabia se era rede ou se os cards sumiram.
+        <EmptyState
+          icon={
+            <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+              <path d="M12 9v4M12 17h.01" />
+            </svg>
+          }
+          title="Não foi possível carregar a esteira"
+          description={erro}
+          action={<Button variant="secondary" onClick={carregar}>Tentar de novo</Button>}
+        />
       ) : (
         <div className="-mx-4 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6" onWheel={rolarBoardHorizontal}>
           <Reveal className="flex gap-3">

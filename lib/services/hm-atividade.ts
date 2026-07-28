@@ -40,6 +40,25 @@ export type EscopoAtividade =
   | { modo: "equipe"; equipeId: string | null }
   | { modo: "operador"; nome: string };
 
+// O WHERE do recorte + higiene de autor, UM só para o HM e para os genéricos
+// (placeholders fixos: $1 de, $2 ate, $3 atores de sistema, $4 modo, $5 equipe,
+// $6 nome). Divergir aqui é o gestor ver gente de outra equipe num painel e
+// não no outro.
+const SQL_RECORTE_AUTOR = `
+      where i.autor is not null
+        and btrim(lower(i.autor)) <> all($3::text[])
+        and i.autor not ilike 'migration%'
+        and ($1::timestamptz is null or i.criado_em >= $1)
+        and ($2::timestamptz is null or i.criado_em <  $2)
+        -- Recorte por nível: master tudo; gestor só a equipe dele (autor casa
+        -- por nome com um usuário da equipe); operador só a própria linha.
+        and ($4::text = 'tudo'
+             or ($4 = 'equipe' and exists (
+                   select 1 from cs.usuarios u
+                    where u.equipe_id = $5::uuid
+                      and lower(btrim(u.nome)) = lower(btrim(i.autor))))
+             or ($4 = 'operador' and lower(btrim(i.autor)) = lower(btrim($6::text))))`;
+
 export async function atividadeHm(
   f: { de?: string | null; ate?: string | null },
   escopo: EscopoAtividade = { modo: "tudo" },
@@ -62,19 +81,7 @@ export async function atividadeHm(
         max(i.criado_em)                                                  as ultima
        from cs.interacoes i
        join cs.contatos_hm ch on ch.id = i.contato_hm_id   -- só a esteira HM
-      where i.autor is not null
-        and btrim(lower(i.autor)) <> all($3::text[])
-        and i.autor not ilike 'migration%'
-        and ($1::timestamptz is null or i.criado_em >= $1)
-        and ($2::timestamptz is null or i.criado_em <  $2)
-        -- Recorte por nível: master tudo; gestor só a equipe dele (autor casa por
-        -- nome com um usuário da equipe); operador só a própria linha.
-        and ($4::text = 'tudo'
-             or ($4 = 'equipe' and exists (
-                   select 1 from cs.usuarios u
-                    where u.equipe_id = $5::uuid
-                      and lower(btrim(u.nome)) = lower(btrim(i.autor))))
-             or ($4 = 'operador' and lower(btrim(i.autor)) = lower(btrim($6::text))))
+      ${SQL_RECORTE_AUTOR}
       group by btrim(i.autor)
       order by count(*) desc, btrim(i.autor)`,
     [de, ate, ATORES_SISTEMA, modo, equipeId, nome],
@@ -124,19 +131,7 @@ export async function atividadeEvento(
         max(i.criado_em)                                                  as ultima
        from cs.interacoes i
        join cs.contatos c on c.id = i.contato_id and c.evento = $7  -- só o portal
-      where i.autor is not null
-        and btrim(lower(i.autor)) <> all($3::text[])
-        and i.autor not ilike 'migration%'
-        and ($1::timestamptz is null or i.criado_em >= $1)
-        and ($2::timestamptz is null or i.criado_em <  $2)
-        -- Recorte por nível: master tudo; gestor só a equipe dele (autor casa
-        -- por nome com um usuário da equipe); operador só a própria linha.
-        and ($4::text = 'tudo'
-             or ($4 = 'equipe' and exists (
-                   select 1 from cs.usuarios u
-                    where u.equipe_id = $5::uuid
-                      and lower(btrim(u.nome)) = lower(btrim(i.autor))))
-             or ($4 = 'operador' and lower(btrim(i.autor)) = lower(btrim($6::text))))
+      ${SQL_RECORTE_AUTOR}
       group by btrim(i.autor)
       order by count(*) desc, btrim(i.autor)`,
     [de, ate, ATORES_SISTEMA, modo, equipeId, nome, evento],

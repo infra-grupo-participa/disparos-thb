@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { query } from "@/lib/db";
 import { setResponsavelPorId } from "@/lib/services/contato";
+import { sqlCardLivre } from "@/lib/services/visibilidade";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -31,9 +32,7 @@ export async function POST(req: Request) {
        join cs.contatos ct on ct.comprador_id = ce.comprador_id and ct.evento = $1
        left join cs.estagios e on e.id = ct.estagio_id
       where ce.evento = $1
-        and ct.responsavel_id is null
-        and ce.equipe_id is null
-        and coalesce(ct.responsavel, '') = ''
+        and ${sqlCardLivre({ rid: "ct.responsavel_id", eq: "ce.equipe_id", nome: "ct.responsavel" })}
         and not ct.opt_out
         and ce.telefone is not null and ce.telefone <> ''
         and coalesce(e.is_final, false) = false

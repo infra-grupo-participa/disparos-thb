@@ -1,6 +1,7 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
+import { podeVerPorEscopo } from "@/lib/services/visibilidade";
 
 const log = logger("hm");
 
@@ -582,8 +583,8 @@ export async function atribuirResponsavelHm(
   autor = "cs",
 ): Promise<AtribuicaoResultado> {
   const nivel = nivelDe(sessao);
-  const atual = await queryOne<{ responsavel_id: string | null; responsavel: string | null; atribuicao_admin: boolean }>(
-    `select responsavel_id, responsavel, atribuicao_admin from cs.contatos_hm where comprador_id = $1`,
+  const atual = await queryOne<{ id: string; responsavel_id: string | null; responsavel: string | null; atribuicao_admin: boolean }>(
+    `select id, responsavel_id, responsavel, atribuicao_admin from cs.contatos_hm where comprador_id = $1`,
     [compradorId],
   );
   if (!atual) return { ok: false, reason: "nao_encontrado" };
@@ -627,7 +628,30 @@ export async function atribuirResponsavelHm(
     );
     if (!user) {
       if (nivel !== "master") return { ok: false, reason: "sem_permissao_para_atribuir" };
-      await setResponsavelHm(compradorId, destino.nome, autor);
+      // Texto livre do master: limpa o id (e a trava) ANTES — senão id e texto
+      // divergem: o texto diria "Fulano" e o card continuaria, pelo id, na
+      // carteira/equipe do dono antigo (a trigger da 0140 só deriva o texto
+      // quando o ID muda; escrever só o texto não a aciona). Mesmo conserto do
+      // atribuirResponsavel dos genéricos. O card vira "texto órfão": visível
+      // só a master até alguém reatribuir por id — é o que o texto livre É.
+      if (atual.responsavel_id) {
+        await query(
+          `update cs.contatos_hm set responsavel_id = null, atribuicao_admin = false, atualizado_em = now() where id = $1`,
+          [atual.id],
+        );
+      }
+      const nome = destino.nome.trim();
+      await query(`update cs.contatos_hm set responsavel = $2, atualizado_em = now() where id = $1`, [atual.id, nome]);
+      if ((atual.responsavel?.trim() || null) !== nome) {
+        await addInteracaoHm(
+          atual.id,
+          "sistema",
+          atual.responsavel?.trim()
+            ? `Responsável alterado de "${atual.responsavel.trim()}" para "${nome}"`
+            : `Responsável atribuído: "${nome}"`,
+          autor,
+        );
+      }
       return { ok: true };
     }
   }
@@ -638,8 +662,12 @@ export async function atribuirResponsavelHm(
   }
   if (nivel !== "master") {
     if (atual.atribuicao_admin) return { ok: false, reason: "atribuicao_travada" };
-    // Operador: só assume do pool (ou re-assume o próprio, que é no-op).
-    if (nivel === "operador" && atual.responsavel_id !== null && atual.responsavel_id !== sessao.id) {
+    // Operador: só assume do pool (ou re-assume o próprio, que é no-op). Card
+    // com outro dono — por id OU por TEXTO órfão — não é dele para pegar: o
+    // texto órfão não é pool (visibilidade.ts), e aqui a escrita espelha a
+    // leitura (mesma regra do atribuirResponsavel dos genéricos).
+    if (nivel === "operador" && ((atual.responsavel_id !== null && atual.responsavel_id !== sessao.id)
+        || (atual.responsavel_id === null && (atual.responsavel ?? "") !== ""))) {
       return { ok: false, reason: "atribuicao_travada" };
     }
   }
@@ -655,20 +683,16 @@ type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe
 export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): Promise<boolean> {
   const escopo = escopoVisibilidade(sessao);
   if (escopo.modo === "tudo") return true;
-  const k = await queryOne<{ responsavel_id: string | null; equipe_id: string | null }>(
-    `select responsavel_id, equipe_id from cs.contatos_hm_kanban where comprador_id = $1`,
+  const k = await queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null }>(
+    `select responsavel_id, equipe_id, responsavel from cs.contatos_hm_kanban where comprador_id = $1`,
     [compradorId],
   );
   if (!k) return true; // inexistente → deixa o 404 acontecer no fluxo normal
-  const ehPool = k.responsavel_id === null && k.equipe_id === null;
-  if (ehPool) return true;
-  // `equipe_id !== null` de propósito: gestor sem equipe (equipeId null) não
-  // pode casar com card de equipe nula — "null === null" viraria vazamento.
-  // (O WHERE das listagens já falha fechado: NULL = NULL é unknown em SQL; o
-  // furo era só aqui, em JS. Mesma proteção do podeVerContato em contato.ts.)
-  return escopo.modo === "equipe"
-    ? k.equipe_id !== null && k.equipe_id === escopo.equipeId
-    : k.responsavel_id === escopo.usuarioId;
+  // O MESMO predicado do sqlEscopo das listagens e do podeVerContato dos
+  // genéricos (visibilidade.ts). Inclui a regra do texto órfão: card cujo dono
+  // existe só como TEXTO (id null, texto preenchido) NÃO é pool — o HM tratava
+  // como livre e o card ficava visível a todo mundo (divergência corrigida 27/07).
+  return podeVerPorEscopo(escopo, k);
 }
 
 // Colunas de cancelamento — Reclamada (pedido) e Reembolsado (fato).

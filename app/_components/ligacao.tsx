@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Card, cn, fieldClass } from "@/app/_components/ui";
+import { toast } from "@/app/_components/toast";
 
 // Registro de ATENDIMENTO do operador — ligação, WhatsApp ou presencial.
 // Depois que o Atende Simples saiu, este é o único caminho de escrita: nada mais
@@ -92,6 +93,23 @@ function relativo(iso: string | null) {
   if (min < 1440) return `${Math.round(min / 60)}h`;
   return `${Math.round(min / 1440)}d`;
 }
+// Date → valor de <input type="datetime-local"> no fuso LOCAL do operador
+// (toISOString converteria para UTC e o retorno cairia na hora errada).
+function paraInputLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// Atalhos do "agendar retorno" — os três retornos que o operador mais marca,
+// sem abrir o seletor de data.
+const ATALHOS_RETORNO: { label: string; quando: () => Date }[] = [
+  { label: "+30min", quando: () => new Date(Date.now() + 30 * 60_000) },
+  { label: "+1h", quando: () => new Date(Date.now() + 60 * 60_000) },
+  {
+    label: "Amanhã 9h",
+    quando: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; },
+  },
+];
+
 const PhoneIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" /></svg>
 );
@@ -179,10 +197,17 @@ export function RegistrarAtendimento({
 
   const salvar = useCallback(async () => {
     if (salvando) return;
-    setSalvando(true);
     setErro(null);
+    // Duração digitada na mão: valida antes de gravar — negativo ou não-número
+    // viraria métrica lixo em silêncio.
+    const durMin = duracao.trim() ? parseFloat(duracao.replace(",", ".")) : null;
+    if (durMin !== null && (!Number.isFinite(durMin) || durMin < 0)) {
+      setErro("Duração inválida — use minutos, ex: 3 ou 2,5.");
+      return;
+    }
+    setSalvando(true);
     const body: Record<string, unknown> = { compradorId, telefone, canal, resultado };
-    if (duracao.trim()) body.duracaoSeg = Math.round(parseFloat(duracao.replace(",", ".")) * 60);
+    if (durMin !== null) body.duracaoSeg = Math.round(durMin * 60);
     if (anotacao.trim()) body.anotacao = anotacao.trim();
     if (retorno) body.retornoEm = new Date(retorno).toISOString();
     try {
@@ -193,6 +218,9 @@ export function RegistrarAtendimento({
       });
       const d = await r.json();
       if (!d.ok) { setErro(d.reason || "Não foi possível salvar."); setSalvando(false); return; }
+      // Confirmação visível ANTES de fechar — sem ela o operador ficava na
+      // dúvida se gravou e registrava duas vezes.
+      toast(retorno ? "Atendimento registrado · retorno agendado" : "Atendimento registrado");
       onSalvo();
     } catch {
       setErro("Falha de conexão.");
@@ -293,6 +321,29 @@ export function RegistrarAtendimento({
             <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Agendar retorno</label>
             <input type="datetime-local" value={retorno} onChange={(e) => setRetorno(e.target.value)} className={cn(fieldClass, "mt-1")} />
           </div>
+        </div>
+
+        {/* Atalhos de retorno — type="button" para não disparar o Enter-salva. */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {ATALHOS_RETORNO.map((a) => (
+            <button
+              key={a.label}
+              type="button"
+              onClick={() => setRetorno(paraInputLocal(a.quando()))}
+              className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-500 transition hover:border-brand/30 hover:bg-brand/5 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:border-brand-400/30 dark:hover:bg-brand-400/10 dark:hover:text-slate-200"
+            >
+              {a.label}
+            </button>
+          ))}
+          {retorno && (
+            <button
+              type="button"
+              onClick={() => setRetorno("")}
+              className="rounded-full px-2 py-0.5 text-[11px] font-medium text-slate-400 transition hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400"
+            >
+              limpar
+            </button>
+          )}
         </div>
 
         <label className="mt-3 block text-xs font-medium text-slate-500 dark:text-slate-400">Anotação</label>

@@ -3,11 +3,15 @@ import { getDb } from "@/lib/drizzle";
 import { query, queryOne } from "@/lib/db";
 import { contatos, estagios, interacoes } from "@/db/schema";
 import { escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator } from "@/lib/papeis";
+import { podeVerPorEscopo } from "@/lib/services/visibilidade";
 import type { AtribuicaoResultado, DestinoAtribuicao } from "@/lib/services/hm";
 
 // O contrato de atribuição é UM só, HM e genéricos — mesmos reasons, mesma
 // forma de destino. Reexportado para as rotas genéricas não importarem de hm.
 export type { AtribuicaoErro, AtribuicaoResultado, DestinoAtribuicao } from "@/lib/services/hm";
+// O predicado de escopo é UM só, HM e genéricos — vive em visibilidade.ts.
+// Reexportado para os ~14 call sites existentes não mudarem de import.
+export { sqlEscopo } from "@/lib/services/visibilidade";
 
 // Serviço de Contato (CRM): regras de negócio reutilizadas pelas rotas (detalhe,
 // Kanban, lote). Queries type-safe via Drizzle sobre o pool pg existente.
@@ -83,23 +87,11 @@ export async function addTagEmLote(compradorIds: string[], evento: string, tag: 
 // é coluna só de cs.contatos_hm) nem roteamento canal→equipe — a equipe do card
 // deriva exclusivamente do dono (cs.usuarios.equipe_id, views da 0146).
 //
-// POOL "de verdade" nos genéricos = responsavel_id NULL **e** texto vazio.
+// POOL "de verdade" = responsavel_id NULL **e** equipe NULL **e** texto vazio.
 // Card com texto órfão (nome que o backfill não casou: apelido, typo, ex-
-// operador) NÃO é pool: no mundo antigo ele era o card de alguém, e soltá-lo
-// como "livre para todos" vazaria o lead para qualquer equipe assumir. Ele fica
-// visível só a master até ser reatribuído por id (decisão documentada na 0146).
-
-// Fragmento SQL do predicado padrão de escopo, para as rotas montarem o WHERE
-// com os MESMOS placeholders sempre (verTudo boolean, usuarioId uuid, equipeId
-// uuid — a ordem do paramsEscopo). `a` = alias que expõe responsavel_id,
-// equipe_id e responsavel (cs.contatos_evento/cs.contatos_ht; para cs.contatos
-// cru, o chamador junta cs.usuarios para ter a equipe).
-export function sqlEscopo(a: { rid: string; eq: string; nome: string }, p: { verTudo: number; usuario: number; equipe: number }): string {
-  return `($${p.verTudo}::boolean
-       or (${a.rid} is null and ${a.eq} is null and coalesce(${a.nome}, '') = '')
-       or ${a.eq} = $${p.equipe}::uuid
-       or ${a.rid} = $${p.usuario}::uuid)`;
-}
+// operador) NÃO é pool — fica visível só a master até ser reatribuído por id.
+// O predicado (SQL e JS) vive em lib/services/visibilidade.ts, compartilhado
+// com o HM: duas respostas para "quem vê este card?" era o bug.
 
 // Quem pode ABRIR/EDITAR o contato deste evento — o análogo de podeVerCardHm.
 // Chamado em TODA rota que age sobre um contato específico (ficha, inbox 1:1,
@@ -115,13 +107,9 @@ export async function podeVerContato(sessao: Ator, compradorId: string, evento: 
     [compradorId, evento],
   );
   if (!c) return true; // inexistente → deixa o 404 acontecer no fluxo normal
-  const ehPool = c.responsavel_id === null && c.equipe_id === null && (c.responsavel ?? "").trim() === "";
-  if (ehPool) return true;
-  // `equipe_id !== null` de propósito: gestor sem equipe (equipeId null) não
-  // pode casar com card de equipe nula — "null === null" viraria vazamento.
-  return escopo.modo === "equipe"
-    ? c.equipe_id !== null && c.equipe_id === escopo.equipeId
-    : c.responsavel_id === escopo.usuarioId;
+  // O MESMO predicado do sqlEscopo das listagens (visibilidade.ts) — a lista
+  // não mostra, a ficha não abre, pela mesma regra e pelo mesmo código.
+  return podeVerPorEscopo(escopo, c);
 }
 
 // Atribui por ID (o caminho das equipes): grava responsavel_id — o texto deriva
@@ -246,9 +234,10 @@ export async function atribuirResponsavel(
     return { ok: false, reason: nivel === "gestor" ? "destino_fora_da_equipe" : "sem_permissao_para_atribuir" };
   }
   // Operador: só assume do pool (ou re-assume o próprio, que é no-op). Card com
-  // outro dono — por id ou por texto órfão — não é dele para pegar.
+  // outro dono — por id ou por texto órfão — não é dele para pegar. Sem trim,
+  // como o ehCardLivre/sqlEscopo: a escrita espelha a leitura exatamente.
   if (nivel === "operador" && ((atual.responsavel_id !== null && atual.responsavel_id !== sessao.id)
-      || (atual.responsavel_id === null && (atual.responsavel ?? "").trim() !== ""))) {
+      || (atual.responsavel_id === null && (atual.responsavel ?? "") !== ""))) {
     return { ok: false, reason: "atribuicao_travada" };
   }
   await setResponsavelPorId([compradorId], evento, user.id, autor);

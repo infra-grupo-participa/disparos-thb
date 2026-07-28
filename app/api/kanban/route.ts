@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
-import { escopoVisibilidade, nivelDe, paramsEscopo } from "@/lib/papeis";
-import { query, queryOne } from "@/lib/db";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
+import { query } from "@/lib/db";
 import { parseBody, KanbanMoverSchema } from "@/lib/validators";
-import { moverEstagio, podeVerContato, sqlEscopo } from "@/lib/services/contato";
+import { listaResponsaveis, sqlEscopo } from "@/lib/services/visibilidade";
+import { moverEstagio, podeVerContato } from "@/lib/services/contato";
 import { eventoDe } from "@/lib/services/evento";
 
 export const runtime = "nodejs";
@@ -91,29 +92,14 @@ export async function GET(req: Request) {
       order by max(ct.criado_em) desc nulls last`,
     [evento],
   );
-  // Lista de responsáveis RECORTADA por nível: master vê todos (donos atuais +
-  // usuários ativos, p/ atribuir a quem ainda não tem card); gestor só os
-  // membros ativos da própria equipe; operador só a si — o seletor não pode
-  // oferecer um destino que o backend vai recusar (podeAtribuirPara).
-  const nivel = nivelDe(g.sessao);
-  const respRows =
-    nivel === "master"
-      ? await query<{ responsavel: string }>(
-          `select responsavel from (
-              select nome as responsavel from cs.usuarios where ativo
-              union
-              select distinct responsavel from cs.contatos where evento = $1 and responsavel is not null and responsavel <> ''
-           ) u order by responsavel`,
-          [evento],
-        )
-      : nivel === "gestor"
-        ? await query<{ responsavel: string }>(
-            `select nome as responsavel from cs.usuarios where ativo and equipe_id = $1 order by nome`,
-            [g.sessao.equipe_id],
-          )
-        : g.sessao.nome
-          ? [{ responsavel: g.sessao.nome }]
-          : [];
+  // Lista de responsáveis RECORTADA por nível (regra única em
+  // listaResponsaveis, visibilidade.ts — a mesma do board HM): master = todos +
+  // legados do evento; gestor = a própria equipe; operador = só ele — o seletor
+  // não pode oferecer um destino que o backend vai recusar (podeAtribuirPara).
+  const responsaveis = await listaResponsaveis(g.sessao, {
+    sql: `select distinct responsavel from cs.contatos where evento = $1 and responsavel is not null and responsavel <> ''`,
+    params: [evento],
+  });
   const tagRows = await query<{ tag: string }>(
     `select distinct unnest(tags) as tag from cs.contatos where evento = $1 and array_length(tags, 1) > 0 order by tag`,
     [evento],
@@ -124,7 +110,7 @@ export async function GET(req: Request) {
     colunas,
     cards,
     edicoes: edicoesRows.map((e) => e.edicao),
-    responsaveis: respRows.map((r) => r.responsavel),
+    responsaveis,
     tags: tagRows.map((t) => t.tag),
   });
 }

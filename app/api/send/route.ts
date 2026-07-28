@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { podeDisparar } from "@/lib/auth";
 import { guard } from "@/lib/guard";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
-import { sqlEscopo } from "@/lib/services/contato";
+import { sqlEscopo } from "@/lib/services/visibilidade";
 import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
 import { logger } from "@/lib/log";
@@ -71,10 +71,7 @@ export async function POST(req: Request) {
           where v.comprador_id = any($1::uuid[]) and v.telefone is not null and v.telefone <> ''
             and not coalesce(v.nao_contatar, false)
             and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
-            and ($3::boolean
-                 or (v.responsavel_id is null and v.equipe_id is null)
-                 or v.responsavel_id = $4::uuid
-                 or v.equipe_id = $5::uuid)
+            and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
             and v.comprador_id not in (
               select dc.comprador_id from cs.disparo_contatos dc
                 join cs.disparos d on d.id = dc.disparo_id

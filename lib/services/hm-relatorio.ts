@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { HM_ESTAGIOS_CANCELAMENTO } from "@/lib/services/hm";
+import { sqlEscopo } from "@/lib/services/visibilidade";
 
 // A esteira HM inteira, uma linha por aluno, pronta para virar relatório. É a
 // mesma leitura do board — mesmos filtros, mesma ordem das colunas e dos cards —
@@ -276,12 +277,9 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
         and ($2::text[] is null or k.tags && $2)
         and ($3::text[] is null or k.tags && $3)
         and ($4::text is null or k.estagio_chave = $4)
-        -- Escopo (igual à rota do kanban): vejo tudo OU é pool OU o card é MEU
-        -- (operador, $6) OU o card é da minha equipe (líder, $7).
-        and ($5::boolean
-             or (k.responsavel_id is null and k.equipe_id is null)
-             or k.responsavel_id = $6::uuid
-             or k.equipe_id = $7::uuid)
+        -- Escopo (predicado único, visibilidade.ts — igual à rota do kanban):
+        -- vejo tudo OU é card LIVRE OU é MEU ($6) OU é da minha equipe ($7).
+        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 5, usuario: 6, equipe: 7 })}
         -- Cancelados (Reclamada/Reembolsado, $8) são acesso SÓ do master, como
         -- nas rotas unitárias (403 na ficha): quem não vê tudo não recebe a
         -- LINHA — financeiro, motivo e reembolso não saem em XLSX nem na tabela.

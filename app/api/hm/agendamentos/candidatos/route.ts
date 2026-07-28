@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/visibilidade";
 
 export const runtime = "nodejs";
 
@@ -38,10 +39,7 @@ export async function GET(req: Request) {
        from cs.contatos_hm_kanban
       where (($1 = '' and estagio_chave = any($2))
          or ($1 <> '' and (nome ilike '%' || $1 || '%' or telefone ilike '%' || $1 || '%')))
-        and ($3::boolean
-             or (responsavel_id is null and equipe_id is null)
-             or responsavel_id = $4::uuid
-             or equipe_id = $5::uuid)
+        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
       order by (estagio_chave = any($2)) desc, nome
       limit 25`,
     [q, precisa, verTudo, usuarioId, equipeId],

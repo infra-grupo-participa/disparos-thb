@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
+import { sqlEscopo } from "@/lib/services/visibilidade";
 
 export const runtime = "nodejs";
 
@@ -47,10 +48,7 @@ export async function GET(req: Request) {
            join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
            ${LATERAL_ULTIMA}
           where dc.disparo_id = $1 and dc.enviado
-            and ($2::boolean
-                 or (k.responsavel_id is null and k.equipe_id is null)
-                 or k.responsavel_id = $3::uuid
-                 or k.equipe_id = $4::uuid)
+            and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}
           order by dc.enviado_em desc nulls last
           limit 500`,
         [disparoId, verTudo, usuarioId, equipeId],
@@ -63,10 +61,7 @@ export async function GET(req: Request) {
            ${LATERAL_ULTIMA}
           where k.telefone is not null and k.telefone <> ''
             and ($1::text is null or ch.inbox_status = $1)
-            and ($2::boolean
-                 or (k.responsavel_id is null and k.equipe_id is null)
-                 or k.responsavel_id = $3::uuid
-                 or k.equipe_id = $4::uuid)
+            and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}
           order by (ch.inbox_status = 'pendente') desc,
                    coalesce(ch.aguardando_desde, ch.ultima_resposta_em, ch.atualizado_em) desc
           limit 200`,
@@ -79,10 +74,7 @@ export async function GET(req: Request) {
        from cs.contatos_hm_kanban k
        join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
       where ch.inbox_status = 'pendente'
-        and ($1::boolean
-             or (k.responsavel_id is null and k.equipe_id is null)
-             or k.responsavel_id = $2::uuid
-             or k.equipe_id = $3::uuid)`,
+        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 1, usuario: 2, equipe: 3 })}`,
     [verTudo, usuarioId, equipeId],
   );
 

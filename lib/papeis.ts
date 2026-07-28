@@ -136,11 +136,13 @@ export function escopoVisibilidade(u: Ator): EscopoVisibilidade {
 }
 
 // Achata o escopo em 3 parâmetros para o WHERE das queries — só um de
-// equipeId/usuarioId é não-nulo. Predicado padrão (aplicado em kanban/tabela/
-// inbox/elegíveis/agendamentos/exports):
-//   (verTudo OR (responsavel_id is null and equipe_id is null)  -- pool
-//            OR equipe_id = equipeId                            -- gestor: a equipe
-//            OR responsavel_id = usuarioId)                     -- operador: os dele
+// equipeId/usuarioId é não-nulo. O predicado padrão é o sqlEscopo de
+// lib/services/visibilidade.ts (aplicado em kanban/tabela/inbox/elegíveis/
+// agendamentos/exports, HM E genéricos):
+//   (verTudo OR (responsavel_id null AND equipe_id null AND texto vazio) -- livre
+//            OR equipe_id = equipeId                        -- gestor: a equipe
+//            OR responsavel_id = usuarioId)                 -- operador: os dele
+// Card com dono só em TEXTO (órfão) NÃO é livre — fica com o master.
 export function paramsEscopo(e: EscopoVisibilidade): { verTudo: boolean; equipeId: string | null; usuarioId: string | null } {
   return {
     verTudo: e.modo === "tudo",

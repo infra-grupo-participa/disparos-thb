@@ -15,6 +15,7 @@ import { Campeoes } from "@/app/_components/campeoes";
 import { Jornada } from "@/app/_components/jornada";
 import { PerfilCanais } from "@/app/_components/perfil-canais";
 import { usePortal } from "@/app/_components/use-portal";
+import { msgErroPermissao } from "@/app/_components/use-me";
 
 type Kpis = { enviados: number; respondidos: number; sla_medio: number | null };
 
@@ -53,6 +54,9 @@ export default function DashboardPage() {
   const [edicao, setEdicao] = useState("");
 
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
+  // Erro de carga — antes o catch engolia a falha e a tela ficava vazia sem
+  // explicação. Com dados na tela, vira um aviso; sem dados, vira o estado da tela.
+  const [erro, setErro] = useState<string | null>(null);
   // Três níveis: Executiva (resultado) · Canais (operação) · Inteligência (análise).
   const [aba, setAba] = useState<"executiva" | "canais" | "inteligencia">("executiva");
   // Sub-seleção de canal dentro da aba Canais.
@@ -70,14 +74,20 @@ export default function DashboardPage() {
       if (edicao) params.set("edicao", edicao);
       const r = await fetch(`/api/dashboard?${params.toString()}`);
       const d = await r.json();
-      if (!d.ok) return;
+      if (!d.ok) {
+        setErro(msgErroPermissao(d.reason) ?? "Não foi possível carregar o dashboard. Tente de novo em instantes.");
+        return;
+      }
+      setErro(null);
       setKpis(d.kpis);
       if (Array.isArray(d.arvore)) setArvore(d.arvore);
       if (Array.isArray(d.atividade)) setAtividade(d.atividade);
       if (Array.isArray(d.edicoes)) setEdicoes(d.edicoes);
       setAtualizadoEm(new Date());
     } catch {
-      /* mantém os dados anteriores em caso de falha de rede */
+      // Falha de rede: mantém os dados anteriores na tela, mas AVISA — antes o
+      // erro era engolido e o dashboard parecia vazio/parado sem motivo.
+      setErro("Sem conexão com o servidor. Verifique a rede — o painel tentará de novo sozinho.");
     } finally {
       carregandoRef.current = false;
     }
@@ -105,6 +115,27 @@ export default function DashboardPage() {
     [arvore, atividade],
   );
 
+  // A primeira carga falhou e não há nada para mostrar: o erro É a tela —
+  // não uma página em branco que parece bug.
+  if (erro && !kpis) {
+    return (
+      <div>
+        <PageHeader title={ehHT ? "Dashboard" : `Dashboard · ${eventoNome}`} />
+        <EmptyState
+          icon={
+            <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+              <path d="M12 9v4M12 17h.01" />
+            </svg>
+          }
+          title="Não foi possível carregar o dashboard"
+          description={erro}
+          action={<Button variant="secondary" onClick={carregar}>Tentar de novo</Button>}
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
       <PageHeader
@@ -126,6 +157,15 @@ export default function DashboardPage() {
           </div>
         }
       />
+
+      {/* Falha de rede COM dados na tela: avisa que os números são os da última
+          carga boa, em vez de fingir que está tudo ao vivo. */}
+      {erro && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" role="alert">
+          <span>{erro}{atualizadoEm ? ` Mostrando os dados de ${hms(atualizadoEm)}.` : ""}</span>
+          <button onClick={carregar} className="shrink-0 font-medium underline-offset-2 hover:underline">Tentar agora</button>
+        </div>
+      )}
 
       {/* Filtros */}
       <Card className="mb-5 p-3.5">

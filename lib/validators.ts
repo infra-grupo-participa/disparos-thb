@@ -23,6 +23,23 @@ export async function parseBody<T extends z.ZodTypeAny>(
 
 const id = z.string().min(1);
 
+// ----- Período (?de=&ate=) das rotas de atividade/relatório -----
+// Valida o FORMATO antes de parametrizar: data inválida viraria erro 22007 do
+// Postgres (500 derrubando o painel) — aqui é 400 `data_invalida`, que é o que
+// a entrada malformada merece. Regra ÚNICA para /api/atividade e
+// /api/hm/atividade (o HM não validava e o ?ate=invalido estourava 500).
+const DATA_ISO_RE = /^\d{4}-\d{2}-\d{2}(T[0-9:.+-]+Z?)?$/;
+export function parsePeriodo(
+  sp: URLSearchParams,
+): { ok: true; de: string | null; ate: string | null } | { ok: false; res: NextResponse } {
+  const de = sp.get("de");
+  const ate = sp.get("ate");
+  if ((de && !DATA_ISO_RE.test(de)) || (ate && !DATA_ISO_RE.test(ate))) {
+    return { ok: false, res: NextResponse.json({ ok: false, reason: "data_invalida" }, { status: 400 }) };
+  }
+  return { ok: true, de, ate };
+}
+
 export const AuthSchema = z.object({
   email: z.string().trim().min(1).email(),
   senha: z.string().min(1),

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
-import { escopoVisibilidade, nivelDe, paramsEscopo } from "@/lib/papeis";
+import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
+import { listaResponsaveis } from "@/lib/services/visibilidade";
 import { relatorioHm } from "@/lib/services/hm-relatorio";
 
 export const runtime = "nodejs";
@@ -34,31 +35,12 @@ export async function GET(req: Request) {
 
   // As listas dos filtros saem da base inteira (não da fatia filtrada): um
   // seletor que só mostra o que já passou pelo filtro não deixa trocar de filtro.
-  // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já
-  // tem card — senão um operador novo nunca aparece para ser atribuído.
-  // RECORTADA por nível (mesma regra do board): master = todos + legados;
-  // gestor = só a própria equipe; operador = só ele. A UI confia nesta lista
-  // para o seletor de atribuição — oferecer destino que o backend recusa é 403
-  // garantido na cara do gestor.
-  const nivel = nivelDe(g.sessao);
-  const respRows =
-    nivel === "master"
-      ? await query<{ responsavel: string }>(
-          `select responsavel from (
-              select nome as responsavel from cs.usuarios where ativo
-              union
-              select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''
-           ) u
-           order by responsavel`,
-        )
-      : nivel === "gestor"
-        ? await query<{ responsavel: string }>(
-            `select nome as responsavel from cs.usuarios where ativo and equipe_id = $1 order by nome`,
-            [g.sessao.equipe_id],
-          )
-        : g.sessao.nome
-          ? [{ responsavel: g.sessao.nome }]
-          : [];
+  // RECORTADA por nível (regra única em listaResponsaveis, visibilidade.ts —
+  // a mesma do board): master = todos + legados; gestor = a própria equipe;
+  // operador = só ele. A UI confia nesta lista para o seletor de atribuição.
+  const responsaveis = await listaResponsaveis(g.sessao, {
+    sql: `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''`,
+  });
   // `qtd` alimenta a régua de canais fixos — o placar do canal inteiro, sem os
   // filtros da tela (mesma regra da rota do kanban).
   const tagRows = await query<{ tag: string; eh_turma: boolean; qtd: number }>(
@@ -73,7 +55,7 @@ export async function GET(req: Request) {
     ok: true,
     linhas: relatorio.linhas,
     estagios: relatorio.colunas,
-    responsaveis: respRows.map((r) => r.responsavel),
+    responsaveis,
     canais: tagRows.filter((t) => !t.eh_turma).map((t) => t.tag),
     turmas: tagRows.filter((t) => t.eh_turma).map((t) => t.tag),
     canaisQtd: Object.fromEntries(tagRows.filter((t) => !t.eh_turma).map((t) => [t.tag, t.qtd])),
