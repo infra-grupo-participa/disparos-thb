@@ -615,8 +615,11 @@ export default function HmKanbanPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Cadastrar à mão — quem o seed não pegou, ou quem entra por fora. */}
-          <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
+          {/* Cadastrar à mão — só o master (admin do GP). Card é reflexo da Hotmart;
+              colaborador não cria card à mão (30/07). */}
+          {ehMaster() && (
+            <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
+          )}
           {/* A outra leitura da mesma esteira — os filtros viajam na URL */}
           <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
           {/* Relatório da esteira — sai com os filtros que estão valendo. O servidor

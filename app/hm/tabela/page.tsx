@@ -1470,8 +1470,11 @@ export default function HmTabelaPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Cadastrar à mão — quem o seed não pegou, ou quem entra por fora. */}
-          <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
+          {/* Cadastrar à mão — só o master (admin do GP). Card é reflexo da Hotmart;
+              colaborador não cria card à mão (30/07). */}
+          {ehMaster() && (
+            <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
+          )}
           <HmVisao atual="tabela" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
           {/* O XLSX é o mesmo relatório desta tela — mesmos filtros, mesma função.
               O servidor recorta por equipe: para quem não é master, o rótulo não

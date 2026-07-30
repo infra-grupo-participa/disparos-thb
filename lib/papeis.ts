@@ -17,6 +17,19 @@ export function podeDisparar(papel: Papel | null | undefined, evento?: string | 
   return false;
 }
 
+// Arraste/ação livre no board por equipe×evento (30/07, pedido do Marcio):
+// no SEMINÁRIO (evento SEM) a equipe PRINCIPAL (Grupo Participa Pro Max) age em
+// QUALQUER card — não só no pool/nos seus. O Seminário é outbound de SDR e o time
+// principal remaneja a fila entre si o dia todo; a regra operador (só pool+dele)
+// travava o arrasto de card de colega (403). Restrito a SEM e à equipe principal:
+// HM/HT seguem com o gate normal, e equipe comum não é afetada.
+const EVENTOS_ACAO_LIVRE_PRINCIPAL: readonly string[] = ["SEM"];
+export function acaoLivrePorEquipeEvento(u: Ator | null | undefined, evento?: string | null): boolean {
+  return !!evento
+    && EVENTOS_ACAO_LIVRE_PRINCIPAL.includes(evento)
+    && u?.equipe_tipo === "principal";
+}
+
 // ===== Equipes / níveis de acesso ==========================================
 // A equipe é ortogonal ao papel: o papel diz o que a pessoa FAZ, a equipe diz
 // de quem são os cards que ela VÊ. 'principal' = Grupo Participa (Pro Max), a

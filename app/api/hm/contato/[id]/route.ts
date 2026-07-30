@@ -3,7 +3,7 @@ import { guard } from "@/lib/guard";
 import { ehMaster } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, registrarPagamentoHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, podeAgirCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
+import { moverEstagioHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, podeAgirCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -60,6 +60,20 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     [compradorId],
   );
   if (!atual) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
+
+  // Dados de TRANSAÇÃO só entram pela Hotmart (30/07, decisão do Marcio). Nenhum
+  // colaborador — nem o master — "marca como pago" ou digita valor pago/saldo à
+  // mão: um pagamento inexistente na Hotmart não pode virar aluno ativo (foi o
+  // caso da Kelly). Se a Hotmart não refletiu, o certo é catalogar a oferta de
+  // saldo que faltou (cs.hm_ofertas_saldo + public.hm_product_catalog) — aí o
+  // trigger cs.fn_seed_contato_hm move o card sozinho. Estes campos são recusados
+  // no servidor, não só escondidos na tela.
+  if (b.marcar_pagamento || b.pagamento_forma !== undefined || b.valor_total !== undefined || b.valor_pago !== undefined) {
+    return NextResponse.json({ ok: false, reason: "pagamento_so_hotmart" }, { status: 403 });
+  }
+  if (b.saldo_a_pagar_manual !== undefined) {
+    return NextResponse.json({ ok: false, reason: "saldo_so_hotmart" }, { status: 403 });
+  }
 
   // Trava dos cancelados (27/07): card em Reclamada/Reembolsado é IMUTÁVEL para
   // quem não é MASTER (admin do GP) — e mandar um card PARA essas colunas também
@@ -118,17 +132,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.link_saldo_enviado !== undefined) {
     sets.push(`link_saldo_enviado_em = ${b.link_saldo_enviado ? "now()" : "null"}`);
   }
-  // Saldo a pagar informado pelo Victor (0151): grava valor + quem/quando; null
-  // limpa os três e o card volta a mostrar o pró-rata calculado.
-  if (b.saldo_a_pagar_manual !== undefined) {
-    if (b.saldo_a_pagar_manual === null) {
-      sets.push(`saldo_a_pagar_manual = null`, `saldo_a_pagar_manual_por = null`, `saldo_a_pagar_manual_em = null`);
-    } else {
-      add("saldo_a_pagar_manual", b.saldo_a_pagar_manual);
-      add("saldo_a_pagar_manual_por", operador);
-      sets.push(`saldo_a_pagar_manual_em = now()`);
-    }
-  }
+  // (saldo_a_pagar_manual removido em 30/07: saldo vem só da Hotmart — rejeitado no topo.)
 
   // Travas operacionais — o operador precisa VER isso antes de ligar.
   if (b.nao_contatar !== undefined) add("nao_contatar", b.nao_contatar);
@@ -231,22 +235,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     await fecharAgendamentoHm(compradorId, b.agendamento_tipo, b.agendamento_status, b.agendamento_motivo ?? null, operador);
   }
 
-  // Pagamento do saldo — provisiona o aluno e vai para a Ativação SÓ se cobrir o
-  // pacote inteiro. Sinal/parcial fica registrado com o saldo em aberto, no
-  // comercial (0098). A tela avisa quando não finalizou.
-  if (b.marcar_pagamento || b.pagamento_forma) {
-    const pg = await registrarPagamentoHm(
-      compradorId,
-      b.pagamento_forma ?? "avista",
-      b.pagamento_parcelas ?? null,
-      b.valor_total ?? null,
-      b.valor_pago ?? null,
-      operador,
-    );
-    if (pg.ok && !pg.finalizado) {
-      return NextResponse.json({ ok: true, pagamento_parcial: true, faltam: pg.faltam });
-    }
-  }
+  // (Pagamento do saldo manual removido em 30/07: pagamento vira aluno ativo SÓ
+  // pela Hotmart, via trigger cs.fn_seed_contato_hm. Rejeitado no topo do handler.)
 
   // O cancelamento virou fato: o reembolso saiu (na Hotmart isso chega sozinho
   // pelo webhook; acordo por fora precisa de alguém para dizer). Marca o aluno

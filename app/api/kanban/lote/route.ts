@@ -3,7 +3,8 @@ import { guard } from "@/lib/guard";
 import { query } from "@/lib/db";
 import { eventoDe } from "@/lib/services/evento";
 import { parseBody, KanbanLoteSchema } from "@/lib/validators";
-import { veredictoAcao } from "@/lib/services/visibilidade";
+import { veredictoAcao, podeVerPorEscopo } from "@/lib/services/visibilidade";
+import { acaoLivrePorEquipeEvento, escopoVisibilidade } from "@/lib/papeis";
 import { addTagEmLote, atribuirResponsavel, type DestinoAtribuicao } from "@/lib/services/contato";
 
 export const runtime = "nodejs";
@@ -39,7 +40,14 @@ export async function POST(req: Request) {
       where v.evento = $2 and v.comprador_id = any($1::uuid[])`,
     [b.compradorIds, evento],
   );
-  const veredictos = new Map(rows.map((r) => [r.comprador_id, veredictoAcao(sessao, r)]));
+  // Ação livre no Seminário p/ a equipe principal (30/07): todo card VISÍVEL vira
+  // "ok" no lote — a mesma liberação de podeAgirContato, aplicada aqui em massa.
+  const livre = acaoLivrePorEquipeEvento(sessao, evento);
+  const escopoVis = escopoVisibilidade(sessao);
+  const veredictos = new Map(rows.map((r) => [
+    r.comprador_id,
+    livre ? (podeVerPorEscopo(escopoVis, r) ? "ok" : "sem_acesso") : veredictoAcao(sessao, r),
+  ]));
 
   const falhas: Falha[] = [];
   const ids: string[] = [];

@@ -190,19 +190,14 @@ export function HmDrawer({
   const [reuniao, setReuniao] = useState("");
   const [entrevista, setEntrevista] = useState("");
   const [nota, setNota] = useState("");
-  const [confirmarPagto, setConfirmarPagto] = useState(false);
   const [disparar, setDisparar] = useState(false);
   const [fin, setFin] = useState<Financeiro | null>(null);
-  const [forma, setForma] = useState<"avista" | "parcelado">("avista");
-  const [parcelas, setParcelas] = useState("12");
-  const [valorTotal, setValorTotal] = useState("");
-  const [valorPago, setValorPago] = useState("");
+  // (pagamento/valor/saldo manual removidos em 30/07: dados de transação vêm da Hotmart)
   // acordo do saldo + ativação (rascunho local; só grava no OK/blur)
   const [prorata, setProrata] = useState<Prorata | null>(null);
   const [links, setLinks] = useState<LinkSaldo[]>([]);
   const [acordo, setAcordo] = useState("");
   const [previsao, setPrevisao] = useState("");
-  const [saldoManual, setSaldoManual] = useState("");
   const [pendencia, setPendencia] = useState("");
   const [grupo, setGrupo] = useState("");
   const [copiado, setCopiado] = useState(false);
@@ -245,17 +240,9 @@ export function HmDrawer({
       if (rascunhoIniciado.current !== compradorId) {
         setAcordo(d.contato.acordo ?? "");
         setPrevisao(d.contato.pagamento_previsto_em?.slice(0, 10) ?? "");
-        setSaldoManual(d.financeiro?.saldo_a_pagar_manual != null ? String(num(d.financeiro.saldo_a_pagar_manual)) : "");
         setPendencia(d.contato.pendencia ?? "");
         setGrupo(d.contato.grupo_informes ?? "");
         rascunhoIniciado.current = compradorId;
-      }
-      // Pré-preenche o formulário de pagamento com a sugestão do servidor
-      // (15.000 para quem entrou pelo sinal). À vista => pago = total.
-      const sugestao = num(d.financeiro?.valor_total) || num(d.financeiro?.sugestao_valor_total);
-      if (sugestao > 0) {
-        setValorTotal(String(sugestao));
-        setValorPago(String(num(d.financeiro?.valor_pago) || sugestao));
       }
     }
   }, [compradorId]);
@@ -705,33 +692,8 @@ export function HmDrawer({
                   <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">Saldo cheio: {brl(14700)}</p>
                 )}
 
-                {/* Saldo a pagar informado pelo Victor (0151): valor digitado que
-                    vira a verdade do card. Vazio = usa o pró-rata calculado acima. */}
-                {!jaPagou && (
-                  <label className="mb-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    Saldo a pagar (informado pelo Victor)
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      <span className="text-xs text-slate-400">R$</span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
-                        min="0"
-                        placeholder="ex.: 14700"
-                        value={saldoManual}
-                        disabled={somenteLeitura}
-                        onChange={(e) => setSaldoManual(e.target.value)}
-                        onBlur={() => {
-                          const v = saldoManual.trim();
-                          const atual = fin?.saldo_a_pagar_manual != null ? String(num(fin.saldo_a_pagar_manual)) : "";
-                          if (v === atual) return;
-                          patch({ saldo_a_pagar_manual: v === "" ? null : Number(v) });
-                        }}
-                        className={cn(fieldClass, "flex-1")}
-                      />
-                    </div>
-                  </label>
-                )}
+                {/* Saldo a pagar manual removido (30/07): o saldo é calculado pelo
+                    pró-rata sobre o que a Hotmart registrou — não se digita à mão. */}
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
@@ -1182,86 +1144,17 @@ export function HmDrawer({
               {!jaPagou && !somenteLeitura && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Saldo — R$ 14.700</p>
-                  {confirmarPagto ? (
-                    <div>
-                      <p className="mb-2 text-xs text-amber-800 dark:text-amber-200">
-                        O card vai para a <strong>Ativação</strong> (Pendente de Liberação) e o aluno é criado/atualizado na
-                        <strong> base THB</strong> com os valores abaixo.
-                        {c.turma_origem
-                          ? ` Ele é aluno da ${c.turma_origem} — mantém a turma e o acesso é renovado por 1 ano.`
-                          : " Lead novo — entra na turma atual (T39)."}
-                      </p>
-
-                      <div className="mb-2 grid grid-cols-2 gap-2">
-                        <label className="text-[11px] font-medium text-amber-800 dark:text-amber-200">
-                          Valor total
-                          <input type="number" min="0" step="0.01" value={valorTotal}
-                            onChange={(e) => {
-                              setValorTotal(e.target.value);
-                              if (forma === "avista") setValorPago(e.target.value);
-                            }}
-                            className={fieldClass} />
-                        </label>
-                        <label className="text-[11px] font-medium text-amber-800 dark:text-amber-200">
-                          Valor já pago
-                          <input type="number" min="0" step="0.01" value={valorPago}
-                            onChange={(e) => setValorPago(e.target.value)} className={fieldClass} />
-                        </label>
-                        <label className="text-[11px] font-medium text-amber-800 dark:text-amber-200">
-                          Forma
-                          <select value={forma} className={fieldClass}
-                            onChange={(e) => {
-                              const f = e.target.value as "avista" | "parcelado";
-                              setForma(f);
-                              if (f === "avista") setValorPago(valorTotal);
-                            }}>
-                            <option value="avista">À vista (quitado)</option>
-                            <option value="parcelado">Parcelado</option>
-                          </select>
-                        </label>
-                        {forma === "parcelado" && (
-                          <label className="text-[11px] font-medium text-amber-800 dark:text-amber-200">
-                            Parcelas
-                            <input type="number" min="1" max="24" value={parcelas}
-                              onChange={(e) => setParcelas(e.target.value)} className={fieldClass} />
-                          </label>
-                        )}
-                      </div>
-
-                      <p className="mb-2 text-[11px] text-amber-800 dark:text-amber-200">
-                        Saldo devedor: <strong>{brl(Math.max(num(valorTotal) - num(valorPago), 0))}</strong>
-                        {" · "}situação: <strong>{num(valorTotal) > 0 && num(valorTotal) - num(valorPago) <= 0 ? "quitado" : num(valorPago) > 0 ? "em andamento" : "só sinal"}</strong>
-                      </p>
-                      {num(fin?.hotmart_bruto) > 0 && (
-                        <p className="mb-2 text-[11px] text-amber-700/80 dark:text-amber-300/70">
-                          Referência: a Hotmart registra {brl(num(fin?.hotmart_bruto))} em compras aprovadas.
-                          Em boleto parcelado esse número conta só a parcela paga — confira antes de confirmar.
-                        </p>
-                      )}
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button variant="primary" size="sm" disabled={salvando || num(valorTotal) <= 0}
-                          onClick={async () => {
-                            await patch({
-                              pagamento_forma: forma,
-                              pagamento_parcelas: forma === "parcelado" ? Number(parcelas) || null : null,
-                              valor_total: num(valorTotal),
-                              valor_pago: num(valorPago),
-                              marcar_pagamento: true,
-                            });
-                            setConfirmarPagto(false);
-                          }}>
-                          {salvando && <Spinner className="h-3.5 w-3.5" />}Confirmar e criar na base
-                        </Button>
-                        <Button variant="secondary" size="sm" disabled={salvando} onClick={() => setConfirmarPagto(false)}>Cancelar</Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button variant="primary" size="sm" disabled={salvando} onClick={() => setConfirmarPagto(true)}>Registrar pagamento</Button>
-                      <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
-                    </div>
-                  )}
+                  {/* Pagamento NÃO é mais lançado à mão (30/07): quem confirma a venda é a
+                      Hotmart. Ao aprovar o pagamento do saldo, o card entra sozinho na
+                      Ativação. Aqui só o link do checkout e a orientação. */}
+                  <div>
+                    <p className="mb-2 text-[11px] text-amber-800 dark:text-amber-200">
+                      O pagamento é confirmado <strong>automaticamente pela Hotmart</strong>. Envie o link
+                      do saldo ao aluno; assim que ele pagar, o card vai sozinho para a Ativação
+                      (Pendente de Liberação) e o aluno é criado na base. Não há lançamento manual.
+                    </p>
+                    <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
+                  </div>
                 </div>
               )}
 
@@ -1508,8 +1401,6 @@ function AdminEdicao({ compradorId, atual, onSalvo }: {
   const [f, setF] = useState({
     nome: atual.nome, email: atual.email ?? "", telefone: atual.telefone ?? "",
     turma_origem: atual.turma_origem ?? "",
-    valor_total: atual.valor_total ? String(num(atual.valor_total)) : "",
-    valor_pago: atual.valor_pago ? String(num(atual.valor_pago)) : "",
     pagamento_em: toLocalInput(atual.pagamento_em),
     cancelamento_em: toLocalInput(atual.cancelamento_em),
   });
@@ -1522,8 +1413,7 @@ function AdminEdicao({ compradorId, atual, onSalvo }: {
     if (f.email.trim() && f.email.trim() !== (atual.email ?? "")) body.email = f.email.trim();
     if (f.telefone.trim() && f.telefone.trim() !== (atual.telefone ?? "")) body.telefone = f.telefone.trim();
     if (f.turma_origem.trim() !== (atual.turma_origem ?? "")) body.turma_origem = f.turma_origem.trim() || null;
-    if (f.valor_total !== (atual.valor_total ? String(num(atual.valor_total)) : "") && f.valor_total !== "") body.valor_total = Number(f.valor_total);
-    if (f.valor_pago !== (atual.valor_pago ? String(num(atual.valor_pago)) : "") && f.valor_pago !== "") body.valor_pago = Number(f.valor_pago);
+    // valor_total/valor_pago não se editam à mão (30/07): vêm da Hotmart.
     if (f.pagamento_em !== toLocalInput(atual.pagamento_em)) body.pagamento_em = f.pagamento_em ? new Date(f.pagamento_em).toISOString() : null;
     if (f.cancelamento_em !== toLocalInput(atual.cancelamento_em)) body.cancelamento_em = f.cancelamento_em ? new Date(f.cancelamento_em).toISOString() : null;
     if (Object.keys(body).length === 0) { setAberto(false); return; }
@@ -1552,7 +1442,7 @@ function AdminEdicao({ compradorId, atual, onSalvo }: {
         onClick={() => setAberto(true)}
         className="w-full rounded-lg border border-dashed border-slate-300 px-3 py-2 text-left text-xs font-medium text-slate-500 transition hover:border-brand hover:text-brand dark:border-slate-700 dark:text-slate-400 dark:hover:border-brand-400 dark:hover:text-brand-300"
       >
-        Edição administrativa — nome, contato, financeiro e datas
+        Edição administrativa — nome, contato e datas
       </button>
     );
   }
@@ -1573,12 +1463,7 @@ function AdminEdicao({ compradorId, atual, onSalvo }: {
         <label className="text-xs text-slate-500 dark:text-slate-400">Turma de origem
           <input value={f.turma_origem} onChange={set("turma_origem")} placeholder="T12" className={fieldClass} />
         </label>
-        <label className="text-xs text-slate-500 dark:text-slate-400">Valor total (R$)
-          <input type="number" min="0" step="0.01" value={f.valor_total} onChange={set("valor_total")} className={fieldClass} />
-        </label>
-        <label className="text-xs text-slate-500 dark:text-slate-400">Valor pago (R$)
-          <input type="number" min="0" step="0.01" value={f.valor_pago} onChange={set("valor_pago")} className={fieldClass} />
-        </label>
+        {/* Valor total/pago não se editam à mão (30/07): vêm da Hotmart. */}
         <label className="text-xs text-slate-500 dark:text-slate-400">Saldo pago em
           <input type="datetime-local" value={f.pagamento_em} onChange={set("pagamento_em")} className={fieldClass} />
         </label>

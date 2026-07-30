@@ -16,6 +16,16 @@ export async function POST(req: Request) {
   if (!g.ok) return g.res;
   const sessao = g.sessao;
 
+  // Card é reflexo da Hotmart (30/07): colaborador NÃO cria card à mão. Quando o
+  // seed não pega uma venda, a causa é oferta fora do catálogo — corrige-se lá,
+  // não fabricando card. O cadastro manual (indicação / acordo por fora) fica
+  // restrito ao master (admin do GP), que responde pela exceção. Foi o cadastro
+  // manual que gerou os cards fantasma (Mauricio/Samantha/Márcia, 27/07).
+  const souMaster = ehMaster(sessao);
+  if (!souMaster) {
+    return NextResponse.json({ ok: false, reason: "cadastro_manual_so_admin" }, { status: 403 });
+  }
+
   const parsed = await parseBody(req, HmCadastroSchema);
   if (!parsed.ok) return parsed.res;
   const b = parsed.data;
@@ -25,7 +35,6 @@ export async function POST(req: Request) {
   // pior, cai no pool de todo mundo). Também ignora o `responsavel` do body
   // para não-master: aceitar nome livre aqui reabriria o desvio da hierarquia.
   // Master segue podendo criar no pool (sem responsável) ou com quem indicar.
-  const souMaster = ehMaster(sessao);
   const r = await cadastrarManualHm(
     {
       nome: b.nome, email: b.email, telefone: b.telefone, documento: b.documento,

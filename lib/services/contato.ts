@@ -2,7 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/lib/drizzle";
 import { query, queryOne } from "@/lib/db";
 import { contatos, estagios, interacoes } from "@/db/schema";
-import { ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator } from "@/lib/papeis";
+import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator } from "@/lib/papeis";
 import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 import type { AtribuicaoResultado, DestinoAtribuicao } from "@/lib/services/hm";
 
@@ -127,6 +127,12 @@ export async function podeVerContato(sessao: Ator, compradorId: string, evento: 
 // próprio veredicto como reason ('card_de_outro_operador' | 'sem_acesso').
 export async function podeAgirContato(sessao: Ator, compradorId: string, evento: string): Promise<VeredictoAcao> {
   if (ehMaster(sessao)) return "ok";
+  // Ação livre no Seminário para a equipe principal (30/07): remaneja qualquer
+  // card do SEM, não só o pool/os seus. Só precisa ver o card (não pode agir em
+  // card de outro EVENTO/portal — mas aqui o evento já é SEM). Ver acaoLivrePorEquipeEvento.
+  if (acaoLivrePorEquipeEvento(sessao, evento)) {
+    return (await podeVerContato(sessao, compradorId, evento)) ? "ok" : "sem_acesso";
+  }
   const c = await contatoEscopo(compradorId, evento);
   if (!c) return "ok"; // inexistente → deixa o 404 acontecer no fluxo normal
   return veredictoAcao(sessao, c);

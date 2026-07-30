@@ -23,6 +23,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const b = p.data;
   const compradorId = params.id;
 
+  // Valor de transação NÃO se digita nem no admin (30/07): valor_total/valor_pago
+  // vêm exclusivamente da Hotmart (via cs.fn_seed_contato_hm / fn_hm_valores_derivados).
+  // A correção de identidade (nome/e-mail/telefone/datas/turma) segue liberada —
+  // é saneamento de cadastro, não fabricação de venda.
+  if (b.valor_total !== undefined || b.valor_pago !== undefined) {
+    return NextResponse.json({ ok: false, reason: "valor_so_hotmart" }, { status: 403 });
+  }
+
   const atual = await queryOne<{
     id: string; nome: string; email: string | null; telefone: string | null;
     turma_origem: string | null;

@@ -11,6 +11,7 @@ import {
   podeDistribuir as regraPodeDistribuir,
   podeAtribuirPara as regraPodeAtribuirPara,
   escopoAcao as regraEscopoAcao,
+  acaoLivrePorEquipeEvento as regraAcaoLivre,
   type Papel,
   type TipoEquipe,
   type Nivel,
@@ -64,11 +65,16 @@ export function useMe() {
   // dele; master/gestor agem em tudo que veem. Card assim abre em LEITURA e a
   // API recusa escrita com 403 `card_de_outro_operador`. Sessão carregando ou
   // card sem dono → false (não é "de colega"; o backend segue protegendo).
-  const ehCardDeColega = (card: { responsavel_id?: string | null } | null | undefined) => {
+  // Ação livre no board por equipe×evento (SEM + equipe principal, 30/07): quando
+  // vale, nenhum card é "de colega" — a equipe principal arrasta a fila do
+  // Seminário inteira. Espelha o backend (podeAgirContato via acaoLivrePorEquipeEvento).
+  const acaoLivre = (evento?: string | null) => !!me && regraAcaoLivre(me, evento);
+  const ehCardDeColega = (card: { responsavel_id?: string | null } | null | undefined, evento?: string | null) => {
     if (!me || !card?.responsavel_id) return false;
+    if (acaoLivre(evento)) return false; // ação livre no evento → arrasta/edita tudo
     return regraEscopoAcao(me).modo === "operador" && card.responsavel_id !== me.id;
   };
-  return { me, nivel, ehMaster, podeVerTudo, podeGerirAcesso, podeDistribuir, podeAtribuirPara, podeDisparar, podeAcessarPortal, ehCardDeColega };
+  return { me, nivel, ehMaster, podeVerTudo, podeGerirAcesso, podeDistribuir, podeAtribuirPara, podeDisparar, podeAcessarPortal, ehCardDeColega, acaoLivre };
 }
 
 // ===== Tradução dos erros de permissão das rotas (403) ======================
@@ -86,6 +92,14 @@ export function msgErroPermissao(reason?: string | null): string | null {
       return "A atribuição deste card foi travada pelo administrador — só o Grupo Participa pode alterá-la.";
     case "cancelamento_so_admin_gp":
       return "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.";
+    case "pagamento_so_hotmart":
+      return "Pagamento não é lançado à mão — a confirmação vem da Hotmart. Envie o link do saldo; ao pagar, o card entra sozinho na Ativação. Se a Hotmart não refletiu, avise o admin para catalogar a oferta.";
+    case "saldo_so_hotmart":
+      return "O saldo é calculado sobre o que a Hotmart registrou — não se digita à mão.";
+    case "valor_so_hotmart":
+      return "Valor total/pago vêm da Hotmart e não são editáveis à mão. Corrija identidade e datas normalmente.";
+    case "cadastro_manual_so_admin":
+      return "Cards nascem da compra na Hotmart. O cadastro manual é restrito ao administrador do Grupo Participa.";
     case "card_de_outro_operador":
       // Novo modelo (28/07): o operador VÊ os cards da equipe, mas só AGE no que
       // é dele ou está no pool. A ficha do colega abre em leitura.

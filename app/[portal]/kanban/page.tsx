@@ -119,7 +119,7 @@ function tempoTom(iso: string | null): string {
 }
 
 export default function KanbanPage() {
-  const { me, nivel, podeDisparar: podeDisparaFn, podeDistribuir } = useMe();
+  const { me, nivel, podeDisparar: podeDisparaFn, podeDistribuir, acaoLivre } = useMe();
   const { portal, evento, base, nome: eventoNome, ehHT } = usePortal();
   const podeDisparar = podeDisparaFn(evento);
   // Card de COLEGA (28/07): o operador VÊ o pool + os cards da equipe, mas só
@@ -129,7 +129,9 @@ export default function KanbanPage() {
   // genérico não traz ids de dono, aqui a comparação é pelo NOME
   // (`responsavel` × `me.nome`) — o Drawer refina pelo `responsavel_id` que o
   // detalhe devolve (useMe.ehCardDeColega).
-  const cardDeColega = (c: Card) => nivel === "operador" && !!c.responsavel && !!me && c.responsavel !== me.nome;
+  // Ação livre no Seminário para a equipe principal (30/07): quando vale, nenhum
+  // card é "de colega" — a fila do SEM é arrastável por inteiro (espelha o backend).
+  const cardDeColega = (c: Card) => !acaoLivre(evento) && nivel === "operador" && !!c.responsavel && !!me && c.responsavel !== me.nome;
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [edicoes, setEdicoes] = useState<string[]>([]);
@@ -653,7 +655,7 @@ const TL_ICONE: Record<string, { path: string; wrap: string }> = {
 function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, onDisparar, onAtualizar }: {
   card: Card; colunas: Coluna[]; responsaveis: string[]; podeDisparar: boolean; onClose: () => void; onMover: (chave: string) => void; onDisparar: () => void; onAtualizar: () => void;
 }) {
-  const { base } = usePortal();
+  const { base, evento } = usePortal();
   const { me, podeDistribuir, ehCardDeColega } = useMe();
   const [det, setDet] = useState<Detalhe | null>(null);
   const [tagNova, setTagNova] = useState("");
@@ -668,7 +670,8 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
   // Card de COLEGA abre em LEITURA (28/07): sem mover etapa, sem tags, sem
   // opt-out — timeline e formulários seguem abertos, que é o ponto. A regra é
   // o escopoAcao de lib/papeis (via useMe.ehCardDeColega), a MESMA do backend.
-  const somenteLeitura = ehCardDeColega(det?.contato);
+  // No Seminário a equipe principal age livre (30/07): passa o evento p/ liberar.
+  const somenteLeitura = ehCardDeColega(det?.contato, evento);
 
   async function patch(payload: Record<string, unknown>) {
     // Toda escrita passa por aqui — barrar no ponto único (mesmo padrão do HM).
