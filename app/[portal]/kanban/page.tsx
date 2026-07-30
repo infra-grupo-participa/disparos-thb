@@ -204,7 +204,11 @@ export default function KanbanPage() {
       c.chave === estagioChave ? { ...c, total: c.total + 1 } : c.chave === anterior ? { ...c, total: Math.max(0, c.total - 1) } : c,
     ));
     try {
-      const r = await fetch("/api/kanban", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compradorId: card.comprador_id, estagioChave }) });
+      // Passa o evento EXPLÍCITO na query: sem isso o backend cai no cookie
+      // cs_evento (eventoDe), que fora do HT resolve o evento errado e o move volta
+      // 400 estagio_invalido (o card "não movia" no Seminário — bug 30/07). O GET
+      // já mandava ?evento; a escrita não — era a assimetria que quebrava.
+      const r = await fetch(`/api/kanban?evento=${encodeURIComponent(evento)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compradorId: card.comprador_id, estagioChave }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) {
         reverter();
@@ -287,7 +291,9 @@ export default function KanbanPage() {
   async function lote(payload: { addTag?: string; responsavel?: string | null }) {
     const ids = [...selecaoMulti];
     if (!ids.length) return;
-    await fetch("/api/kanban/lote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compradorIds: ids, ...payload }) });
+    // evento explícito na query (mesmo motivo do mover): fora do HT o cookie
+    // resolveria o evento errado e o lote agiria no portal errado / falharia.
+    await fetch(`/api/kanban/lote?evento=${encodeURIComponent(evento)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compradorIds: ids, ...payload }) });
     await carregar();
   }
   function addTagLote() {
@@ -681,8 +687,8 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
   const [aba, setAba] = useState<"resumo" | "forms" | "historico">("resumo");
 
   const recarregar = useCallback(
-    () => fetch(`/api/contato/${card.comprador_id}`).then((r) => r.json()).then((d) => { if (d.ok) setDet(d); }).catch(() => {}),
-    [card.comprador_id],
+    () => fetch(`/api/contato/${card.comprador_id}?evento=${encodeURIComponent(evento)}`).then((r) => r.json()).then((d) => { if (d.ok) setDet(d); }).catch(() => {}),
+    [card.comprador_id, evento],
   );
   useEffect(() => { setDet(null); recarregar(); }, [recarregar]);
 
@@ -695,7 +701,9 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
   async function patch(payload: Record<string, unknown>) {
     // Toda escrita passa por aqui — barrar no ponto único (mesmo padrão do HM).
     if (somenteLeitura) { toast(msgErroPermissao("card_de_outro_operador")!, "erro"); return; }
-    await fetch(`/api/contato/${card.comprador_id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    // evento explícito: sem isso o backend cai no cookie e, fora do HT, escreve/
+    // valida no evento errado (mover pela ficha dava estagio_invalido no SEM).
+    await fetch(`/api/contato/${card.comprador_id}?evento=${encodeURIComponent(evento)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     await recarregar();
     onAtualizar();
   }

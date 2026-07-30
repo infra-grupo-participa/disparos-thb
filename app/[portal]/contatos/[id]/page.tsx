@@ -211,7 +211,9 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   async function patch(payload: Record<string, unknown>) {
     // Toda escrita da ficha passa por aqui — barrar no ponto único.
     if (somenteLeitura) { toast(msgErroPermissao("card_de_outro_operador")!, "erro"); return; }
-    await fetch(`/api/contato/${id}`, {
+    // evento explícito na query: sem isso o backend cai no cookie cs_evento e,
+    // fora do HT, valida/escreve no evento errado (mover dava estagio_invalido).
+    await fetch(`/api/contato/${id}?evento=${encodeURIComponent(evento)}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
     await carregar();
