@@ -189,13 +189,32 @@ export default function KanbanPage() {
   async function mover(card: Card, estagioChave: string) {
     if (card.estagio_chave === estagioChave) return;
     const anterior = card.estagio_chave;
+    // Update OTIMISTA: move o card já. Mas o PATCH precisa CONFIRMAR — um 403/400/
+    // 500 NÃO lança (fetch só rejeita em falha de rede), então checar res.ok é
+    // obrigatório. Sem isso, o move falhava calado: a tela mostrava o card na
+    // coluna nova, o banco nunca gravava, e o refresh "voltava" o card (bug 30/07).
+    const reverter = () => {
+      setCards((cs) => cs.map((c) => (c.comprador_id === card.comprador_id ? { ...c, estagio_chave: anterior } : c)));
+      setColunas((cols) => cols.map((c) =>
+        c.chave === anterior ? { ...c, total: c.total + 1 } : c.chave === estagioChave ? { ...c, total: Math.max(0, c.total - 1) } : c,
+      ));
+    };
     setCards((cs) => cs.map((c) => (c.comprador_id === card.comprador_id ? { ...c, estagio_chave: estagioChave } : c)));
     setColunas((cols) => cols.map((c) =>
       c.chave === estagioChave ? { ...c, total: c.total + 1 } : c.chave === anterior ? { ...c, total: Math.max(0, c.total - 1) } : c,
     ));
     try {
-      await fetch("/api/kanban", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compradorId: card.comprador_id, estagioChave }) });
-    } catch { carregar(); }
+      const r = await fetch("/api/kanban", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compradorId: card.comprador_id, estagioChave }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) {
+        reverter();
+        toast(msgErroPermissao(d?.reason) ?? "Não foi possível mover o card. Tente de novo.", "erro");
+      }
+    } catch {
+      // Falha de rede: reverte o otimismo e reconcilia com o servidor.
+      reverter();
+      carregar();
+    }
   }
 
   async function dispararEtapa(col: Coluna) {
