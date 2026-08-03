@@ -21,9 +21,15 @@ export function podeDisparar(papel: Papel | null | undefined, evento?: string | 
 // no SEMINÁRIO (evento SEM) a equipe PRINCIPAL (Grupo Participa Pro Max) age em
 // QUALQUER card — não só no pool/nos seus. O Seminário é outbound de SDR e o time
 // principal remaneja a fila entre si o dia todo; a regra operador (só pool+dele)
-// travava o arrasto de card de colega (403). Restrito a SEM e à equipe principal:
-// HM/HT seguem com o gate normal, e equipe comum não é afetada.
-const EVENTOS_ACAO_LIVRE_PRINCIPAL: readonly string[] = ["SEM"];
+// travava o arrasto de card de colega (403). Restrito à equipe principal —
+// equipe comum (ex.: Equipe 2) segue com o gate normal.
+// HM (03/08, pedido do Marcio): a MESMA dor apareceu na Ativação do Holding
+// Masters. Ana Camila e Jusy (operadoras da equipe principal) ativam os alunos,
+// mas cada card cai atribuído a UMA delas (webhook/pagamento) e a colega não
+// conseguia arrastá-lo (draggable=false + 403 card_de_outro_operador). A equipe
+// principal remaneja a esteira de ativação entre si igual ao Seminário — então HM
+// entra na lista. Equipe comum e demais eventos (HT) seguem com o gate normal.
+const EVENTOS_ACAO_LIVRE_PRINCIPAL: readonly string[] = ["SEM", "HM"];
 export function acaoLivrePorEquipeEvento(u: Ator | null | undefined, evento?: string | null): boolean {
   return !!evento
     && EVENTOS_ACAO_LIVRE_PRINCIPAL.includes(evento)

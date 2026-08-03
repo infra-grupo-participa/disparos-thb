@@ -1,6 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
-import { ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
+import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
 import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 
 const log = logger("hm");
@@ -730,6 +730,14 @@ export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string):
   if (ehMaster(sessao)) return "ok";
   const k = await cardEscopoHm(compradorId);
   if (!k) return "ok"; // inexistente → deixa o 404 acontecer no fluxo normal
+  // Ação livre no HM para a equipe principal (03/08, pedido do Marcio): a equipe
+  // que ativa (Grupo Participa Pro Max) remaneja a esteira entre si — arrasta
+  // QUALQUER card do board, não só o pool/os seus. Continua precisando VER o card
+  // (escopo de leitura); age em card de colega, nunca em card de outra equipe.
+  // Espelha o Seminário (podeAgirContato via acaoLivrePorEquipeEvento).
+  if (acaoLivrePorEquipeEvento(sessao as Ator, "HM")) {
+    return (await podeVerCardHm(sessao, compradorId)) ? "ok" : "sem_acesso";
+  }
   return veredictoAcao(sessao, k, await canaisDoUsuario(sessao.id)); // + canal→pessoa (0154)
 }
 

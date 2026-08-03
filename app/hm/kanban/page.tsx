@@ -273,7 +273,10 @@ export default function HmKanbanPage() {
   // (o drawer cuida disso); aqui o board não convida a arrastar nem a lote —
   // a API recusa com 403 `card_de_outro_operador`. A regra é o escopoAcao de
   // lib/papeis (via useMe.ehCardDeColega), a MESMA do backend.
-  const cardDeColega = (c: Card) => ehCardDeColega(c);
+  // Evento "HM": a ação livre da equipe principal (03/08) desliga o "de colega"
+  // no board inteiro do HM — a equipe que ativa arrasta a esteira entre si, como
+  // no Seminário. Sem o evento, o gate por operador voltaria a travar o arrasto.
+  const cardDeColega = (c: Card) => ehCardDeColega(c, "HM");
   // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
   const podeConfigEquipes = podeDistribuir();
   const [colunas, setColunas] = useState<Coluna[]>([]);
