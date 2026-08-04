@@ -82,6 +82,16 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
   }
 
   function iniciarPolling(id: string) {
+    // Mesmo backoff do disparo de WhatsApp: 1,5s no início do envio, subindo até
+    // 10s em campanha longa, para a barra continuar viva sem repolar sem parar.
+    let intervalo = 1500;
+    const TETO = 10_000;
+
+    const agendar = () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(tick, intervalo);
+    };
+
     const tick = async () => {
       const r = await fetch(`/api/email/disparos/${id}`);
       const d = await r.json();
@@ -90,11 +100,17 @@ export function DisparoEmail({ selecaoInicial, aoFechar }: { selecaoInicial?: Se
         if (d.disparo.status === "concluido") {
           if (pollRef.current) clearInterval(pollRef.current);
           setEnviando(false);
+          return;
         }
       }
+      if (intervalo < TETO) {
+        intervalo = Math.min(Math.round(intervalo * 1.5), TETO);
+        agendar();
+      }
     };
+
     tick();
-    pollRef.current = setInterval(tick, 1500);
+    agendar();
   }
 
   // ---- Tela de progresso/resultado ----

@@ -94,10 +94,22 @@ export default function DashboardPage() {
   }, [desde, ate, edicao, evento]);
 
   // Recarrega ao montar, quando um filtro muda e a cada POLL_MS (auto-refresh).
+  // O poll SÓ roda com a aba visível: antes, uma aba esquecida aberta o dia inteiro
+  // batia no banco a cada 15s sem ninguém olhando (~5.760 requisições/dia por aba).
+  // Ao voltar para a aba, recarrega na hora para não mostrar dado velho.
   useEffect(() => {
     carregar();
-    const t = setInterval(carregar, POLL_MS);
-    return () => clearInterval(t);
+    const t = setInterval(() => {
+      if (!document.hidden) carregar();
+    }, POLL_MS);
+    const aoVoltar = () => {
+      if (!document.hidden) carregar();
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
   }, [carregar]);
 
   function limparFiltros() {
