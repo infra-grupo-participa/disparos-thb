@@ -209,6 +209,18 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
   }
 
   function iniciarPolling(id: string) {
+    // Começa rápido (1,5s) enquanto o operador acompanha o início do envio e vai
+    // espaçando até 10s em disparo longo. Antes era 1,5s fixo do começo ao fim:
+    // uma campanha de 30min sozinha gerava ~1.200 requisições. O teto mantém a
+    // barra viva sem martelar o servidor.
+    let intervalo = 1500;
+    const TETO = 10_000;
+
+    const agendar = () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(tick, intervalo);
+    };
+
     const tick = async () => {
       const r = await fetch(`/api/disparos/${id}`);
       const d = await r.json();
@@ -217,11 +229,17 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
         if (d.disparo.status === "concluido") {
           if (pollRef.current) clearInterval(pollRef.current);
           setEnviando(false);
+          return;
         }
       }
+      if (intervalo < TETO) {
+        intervalo = Math.min(Math.round(intervalo * 1.5), TETO);
+        agendar();
+      }
     };
+
     tick();
-    pollRef.current = setInterval(tick, 1500);
+    agendar();
   }
 
   // Consulta o status de entrega real (Meta) de cada contato e recarrega o progresso.

@@ -64,11 +64,25 @@ export default function DisparosPage() {
   // Auto-atualiza enquanto houver campanha em movimento — a barra de progresso
   // anda sozinha, como o operador espera ao ver "Enviando…". Para quando tudo
   // assenta, para não bater no servidor à toa.
+  // Também pausa com a aba em segundo plano: campanha longa com a aba esquecida
+  // aberta batia a cada 6s sem ninguém acompanhando. Volta a atualizar (e recarrega
+  // na hora) assim que o operador retorna para a aba.
   const temAtivo = disparos.some((d) => d.status === "em_andamento");
   useEffect(() => {
     if (timer.current) clearInterval(timer.current);
-    if (temAtivo) timer.current = setInterval(carregar, 6000);
-    return () => { if (timer.current) clearInterval(timer.current); };
+    if (temAtivo) {
+      timer.current = setInterval(() => {
+        if (!document.hidden) carregar();
+      }, 6000);
+    }
+    const aoVoltar = () => {
+      if (temAtivo && !document.hidden) carregar();
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      if (timer.current) clearInterval(timer.current);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
   }, [temAtivo, carregar]);
 
   async function retomar(d: Disparo) {

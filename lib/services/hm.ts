@@ -22,10 +22,40 @@ export const HM_STAGE_ENTREVISTA = "hm_entrevista_agendada";
 
 type EstagioHm = { id: number; chave: string; nome: string; aba: string | null; ordem: number };
 
+// cs.estagios é configuração: 38 linhas que praticamente não mudam, mas eram
+// relidas a cada operação da esteira (9,97 mi de varreduras acumuladas). Cache em
+// memória com TTL curto — se um estágio for renomeado/ativado no banco, a mudança
+// aparece em até 5 min sem precisar de deploy ou restart.
+const ESTAGIOS_TTL_MS = 5 * 60_000;
+let estagiosCache: { em: number; porChave: Map<string, EstagioHm> } | null = null;
+
+async function carregarEstagios(): Promise<Map<string, EstagioHm>> {
+  const agora = Date.now();
+  if (estagiosCache && agora - estagiosCache.em < ESTAGIOS_TTL_MS) {
+    return estagiosCache.porChave;
+  }
+  const linhas = await query<EstagioHm>(
+    `select id, chave, nome, aba, ordem from cs.estagios where evento = 'HM' and ativo`,
+  );
+  const porChave = new Map(linhas.map((e) => [e.chave, e]));
+  estagiosCache = { em: agora, porChave };
+  return porChave;
+}
+
 async function estagioPorChave(chave: string): Promise<EstagioHm | null> {
-  return queryOne<EstagioHm>(
-    `select id, chave, nome, aba, ordem from cs.estagios where chave = $1 and evento = 'HM' and ativo`,
-    [chave],
+  const porChave = await carregarEstagios();
+  return porChave.get(chave) ?? null;
+}
+
+// Busca por id serve à timeline (estágio anterior de uma interação antiga), que
+// pode apontar para estágio já desativado — por isso o cache (só ativos) é apenas
+// o caminho rápido, com fallback ao banco para não perder histórico.
+async function estagioPorId(id: number): Promise<{ chave: string } | null> {
+  const porChave = await carregarEstagios();
+  for (const e of porChave.values()) if (e.id === id) return e;
+  return queryOne<{ chave: string }>(
+    `select chave from cs.estagios where id = $1 and evento = 'HM'`,
+    [id],
   );
 }
 
@@ -350,10 +380,7 @@ export async function reverterEstagioHm(compradorId: string, autor = "cs"): Prom
   );
   if (!ult?.estagio_anterior_id) return false;
 
-  const anterior = await queryOne<{ chave: string }>(
-    `select chave from cs.estagios where id = $1 and evento = 'HM'`,
-    [ult.estagio_anterior_id],
-  );
+  const anterior = await estagioPorId(ult.estagio_anterior_id);
   if (!anterior) return false;
 
   return (await moverEstagioHm(compradorId, anterior.chave, autor)).ok;
