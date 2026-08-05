@@ -9,6 +9,7 @@ import { useMe } from "@/app/_components/use-me";
 import { RegistrarAtendimento } from "@/app/_components/ligacao";
 import { toast } from "@/app/_components/toast";
 import { InboxComposer } from "@/app/_components/inbox-composer";
+import { casaBusca } from "@/lib/busca";
 import {
   Avatar, Bolha, FilaItem, esperaMin, fmtMin, waLink,
   type Conversa, type Janela, type Mensagem,
@@ -399,12 +400,12 @@ export default function InboxPage() {
 
   // Busca client-side na fila: achar 1 lead entre 200 sem scroll manual.
   const visiveis = useMemo(() => {
-    const q = busca.trim().toLowerCase();
+    // Regras em lib/busca.ts — o que muda aqui é que acento deixou de importar
+    // ("joao" acha "João"); o mínimo de 2 dígitos do telefone fica como era,
+    // porque numa fila curta faz sentido e foi escolha desta tela.
+    const q = busca.trim();
     if (!q) return conversas;
-    const dig = q.replace(/\D/g, "");
-    return conversas.filter((c) =>
-      c.nome.toLowerCase().includes(q) ||
-      (dig.length >= 2 && (c.telefone || "").replace(/\D/g, "").includes(dig)));
+    return conversas.filter((c) => casaBusca(q, { texto: [c.nome], numero: [c.telefone], minDigitos: 2 }));
   }, [conversas, busca]);
 
   // Teclado: ↑/↓ navegam a fila, E resolve a conversa aberta. Ignora quando o

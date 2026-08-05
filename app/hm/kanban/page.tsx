@@ -21,6 +21,7 @@ import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { SeloEquipe, COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
+import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
 
@@ -593,8 +594,10 @@ export default function HmKanbanPage() {
     await patchMover(card, estagioChave, antesDe);
   }
 
-  const q = busca.trim().toLowerCase();
-  const cardsFiltrados = q ? cards.filter((c) => c.nome.toLowerCase().includes(q) || (c.telefone ?? "").includes(q)) : cards;
+  // Regras da busca livre em lib/busca.ts (acento, telefone por dígitos, nome
+  // composto em qualquer ordem) — as MESMAS da tabela.
+  const q = busca.trim();
+  const cardsFiltrados = q ? cards.filter((c) => casaBusca(q, { texto: [c.nome], numero: [c.telefone] })) : cards;
   // Cancelados (não-master) e cards de colega ficam FORA da seleção em massa:
   // disparo/lote sobre eles é agir num card em que a pessoa não pode agir.
   const cardsSelecionaveis = cardsFiltrados.filter((c) => !cardBloqueado(c) && !cardDeColega(c));
@@ -769,8 +772,8 @@ export default function HmKanbanPage() {
               const doCol = cardsFiltrados.filter((c) => colunaNaAba(c, aba) === col.chave);
               // Sócios só existem na Ativação; entram na coluna definida pelo status.
               const sociosDaCol = aba === "ativacao"
-                ? socios.filter((s) => colunaDoSocio(s) === col.chave && (!q
-                    || s.nome.toLowerCase().includes(q) || s.titular_nome.toLowerCase().includes(q)))
+                ? socios.filter((s) => colunaDoSocio(s) === col.chave
+                    && (!q || casaBusca(q, { texto: [s.nome, s.titular_nome] })))
                 : [];
               const ativa = alvo?.col === col.chave;
               // Onde a linha de inserção aparece nesta coluna (-1 = em nenhum lugar).
