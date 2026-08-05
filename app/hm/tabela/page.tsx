@@ -10,13 +10,15 @@ import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmCadastroModal } from "@/app/hm/_components/hm-cadastro";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
-import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
+import { canaisFixos, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
 import { MultiSelect } from "@/app/_components/multi-select";
 import { ContatoDoNome } from "@/app/_components/copiavel";
 import { DisparoModal } from "@/app/_components/disparo";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { MarcaPortal } from "@/app/_components/marca";
+import { PORTAIS } from "@/lib/marcas";
+import { useProdutoHm, type ProdutoHm } from "@/app/hm/_components/use-produto";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
@@ -55,7 +57,7 @@ const RESULTADOS = ["Aguardando retorno", "Agendada", "Realizada", "Realizada/pa
 // A "Origem" da linha exibe SÓ os 5 eventos fixados (decisão de 14/07 — Imersão
 // POA, HT26 etc. ficam de fora). A tag continua no card (o popup de tags e a
 // coluna Tags mostram tudo); aqui é a leitura de negócio, não o inventário.
-const canalDe = (tags: string[]) => tags.filter((t) => (CANAIS_FIXOS as readonly string[]).includes(t));
+const canalDe = (tags: string[], produto: ProdutoHm) => tags.filter((t) => canaisFixos(produto).includes(t));
 
 // O checklist com as MESMAS palavras do board (lib/services/hm) — quando a trava
 // recusar a entrada em "Ativação Realizada", o que falta se lê igual nas duas telas.
@@ -392,6 +394,9 @@ const PRESETS: Record<VisaoId, string[]> = {
 
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
+  // Portal e produto da URL: a MESMA tela serve HM, Aurum e ETHB (0155) —
+  // o portal manda na marca, o produto no recorte e na regua de canais.
+  const { portal, produto } = useProdutoHm();
   const fetchHm = useFetchHm(); // esteira multi-produto (0155)
   const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
@@ -1203,9 +1208,9 @@ export default function HmTabelaPage() {
     // venda veio. É fato derivado — quem muda canal é tag, não célula.
     origem: {
       id: "origem", label: "Origem",
-      sortVal: (l) => canalDe(l.tags)[0] ?? null,
+      sortVal: (l) => canalDe(l.tags, produto)[0] ?? null,
       render: (l) => {
-        const cs = canalDe(l.tags);
+        const cs = canalDe(l.tags, produto);
         return cs.length
           ? <span className="flex max-w-[16rem] flex-wrap gap-1">{cs.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} />)}</span>
           : <span>—</span>;
@@ -1466,8 +1471,11 @@ export default function HmTabelaPage() {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
-            <MarcaPortal portal="hm" altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
+            {/* Marca E nome vêm do portal da URL (0155): a MESMA tela serve HM,
+                Aurum e ETHB. Fixos em "hm"/"Holding Masters", a tabela do Aurum
+                se apresentava inteira como Holding Masters. */}
+            <MarcaPortal portal={portal} altura="h-7" comNome={false} />
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {PORTAIS[portal].nome}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {linhas.length} lead(s) — a esteira em linhas: ordene, filtre, edite na célula e aja em lote.
@@ -1535,7 +1543,7 @@ export default function HmTabelaPage() {
           <MultiSelect rotulo="Operador" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
         )}
         {canais.length > 0 && (
-          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
+          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais, produto)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
         )}
         {turmas.length > 0 && (
           <MultiSelect rotulo="Turma" grupos={[{ label: null, itens: turmas }]} selecionadas={filtroTurma} onChange={setFiltroTurma} />
@@ -1553,6 +1561,7 @@ export default function HmTabelaPage() {
       {/* A régua dos canais fixos — total de vendas por canal; clicar soma/tira
           o canal do filtro (o mesmo do dropdown, que segue para o resto). */}
       <HmCanaisFixos
+        produto={produto}
         contagem={canaisQtd}
         ativos={filtroCanal}
         onToggle={(c) => setFiltroCanal((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}

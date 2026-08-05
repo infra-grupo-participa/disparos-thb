@@ -1,17 +1,25 @@
 "use client";
 
 import { cn } from "@/app/_components/ui";
+import type { ProdutoHm } from "./use-produto";
 
-// A régua dos canais de aquisição que o time acompanha AGORA — fixados por
-// decisão da operação (14/07), com o total de vendas de cada um sempre à vista.
-// O dropdown de canal continua existindo para o resto (HT26, HT27, públicos…);
-// a régua é o atalho para a pergunta diária: "quanto veio de cada evento?".
+// A régua dos canais de aquisição que o time acompanha AGORA, com o total de
+// vendas de cada um sempre à vista. O dropdown de canal continua existindo para
+// o resto (HT26, HT27, públicos…); a régua é o atalho para a pergunta diária:
+// "quanto veio de cada evento?".
 //
 // A contagem vem do servidor e é do canal INTEIRO (ignora o filtro ativo) — o
 // número é o placar do canal, não o tamanho da fatia visível. Canal com zero
-// continua na régua de propósito: "Ex aluno Direto ao Ponto" zerado é o aviso
-// de que a migration 0066 ainda não recarimbou os cards.
-export const CANAIS_FIXOS = [
+// continua na régua de propósito: é o aviso de que ninguém entrou por ali ainda
+// (ou de que o carimbo de origem não rodou).
+//
+// POR PRODUTO (05/08/2026): a MESMA tela serve HM, Aurum e ETHB (0155), e a
+// régua era uma constante única com os canais do HM — no board do Aurum ela
+// listava "HT29", "HT ATM", "Live Direto ao Ponto"… todos zerados, canais que
+// não têm nada a ver com aquele board. Agora cada produto tem a sua.
+
+// Canais do HM — fixados por decisão da operação (14/07). Inalterados.
+const CANAIS_HM = [
   "HT29 - 26-07",
   "Live Direto ao Ponto",
   "HT ATM",
@@ -20,23 +28,55 @@ export const CANAIS_FIXOS = [
   "Ex aluno Direto ao Ponto",
 ] as const;
 
-// O filtro de canal oferece TODOS os canais de venda (27/07): os fixos ficam no
-// topo (grupo sem rótulo — o atalho do dia a dia) e o restante que a API devolve
-// — HT26, Imersão POA, públicos como "Aluno THB"/"Lead novo" etc. — cai num grupo
-// "Outros canais". A API (`d.canais`) já exclui Origem/Turma/Aurum, então aqui só
-// chega o que é canal; duplicatas dos fixos são removidas. A régua acima segue
-// mostrando apenas os fixos.
-export function gruposCanal(todos: string[]): { label: string | null; itens: string[] }[] {
-  const fixos = CANAIS_FIXOS as readonly string[];
+// Canais do Aurum. O pitch de 05/08/2026 aconteceu no Encontro do Time Holding
+// Brasil em São Paulo, e é essa a origem das primeiras vendas.
+//
+// ATENÇÃO ao ler um zero aqui: em 05/08/2026 a tag "ETHB SP" AINDA NÃO EXISTE em
+// nenhum card (as tags de origem hoje são "Acesso ETHB", "Aluno Aurum",
+// "Aurum A7/A8", "HT29 - 26-07"…). Ela passa a existir quando o card do Aurum
+// nascer carimbado — o que depende de duas coisas ainda pendentes: a oferta
+// qm4lu7py entrar em public.hm_product_catalog e cs.fn_seed_contato_hm carimbar
+// cs.contatos_hm.produto. Até lá o zero é correto, não é contador quebrado.
+const CANAIS_AURUM = [
+  "ETHB SP",
+] as const;
+
+// Canais do ETHB: ainda não definidos pela operação. Régua vazia se esconde
+// (melhor nada do que os canais do HM, que era o comportamento anterior).
+const CANAIS_ETHB: readonly string[] = [];
+
+const CANAIS_POR_PRODUTO: Record<ProdutoHm, readonly string[]> = {
+  HM: CANAIS_HM,
+  AURUM: CANAIS_AURUM,
+  ETHB: CANAIS_ETHB,
+};
+
+/** Os canais em régua do board deste produto. */
+export function canaisFixos(produto: ProdutoHm): readonly string[] {
+  return CANAIS_POR_PRODUTO[produto] ?? CANAIS_HM;
+}
+
+// O filtro de canal oferece TODOS os canais de venda (27/07): os fixos DO PRODUTO
+// ficam no topo (grupo sem rótulo — o atalho do dia a dia) e o restante que a API
+// devolve — HT26, Imersão POA, públicos como "Aluno THB"/"Lead novo" etc. — cai
+// num grupo "Outros canais". A API (`d.canais`) já exclui Origem/Turma/Aurum,
+// então aqui só chega o que é canal; duplicatas dos fixos são removidas.
+export function gruposCanal(todos: string[], produto: ProdutoHm): { label: string | null; itens: string[] }[] {
+  const fixos = canaisFixos(produto);
   const outros = todos
     .filter((c) => !fixos.includes(c))
     .sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const grupos: { label: string | null; itens: string[] }[] = [{ label: null, itens: [...CANAIS_FIXOS] }];
-  if (outros.length > 0) grupos.push({ label: "Outros canais", itens: outros });
+  const grupos: { label: string | null; itens: string[] }[] = [];
+  // Sem canais fixos (ETHB hoje), o dropdown vira uma lista só — sem um grupo
+  // vazio no topo, que renderizaria um cabeçalho sem itens.
+  if (fixos.length > 0) grupos.push({ label: null, itens: [...fixos] });
+  if (outros.length > 0) grupos.push({ label: fixos.length > 0 ? "Outros canais" : null, itens: outros });
   return grupos;
 }
 
 type Props = {
+  /** Board do produto — decide QUAIS canais a régua mostra. */
+  produto: ProdutoHm;
   /** vendas por canal (tag → nº de cards), vindas da API */
   contagem: Record<string, number>;
   /** canais filtrando a tela agora (o filtro aceita vários — OU entre eles) */
@@ -44,11 +84,15 @@ type Props = {
   onToggle: (canal: string) => void;
 };
 
-export function HmCanaisFixos({ contagem, ativos, onToggle }: Props) {
+export function HmCanaisFixos({ produto, contagem, ativos, onToggle }: Props) {
+  const fixos = canaisFixos(produto);
+  // Produto sem régua definida: não renderiza a linha (nem o rótulo "canais:").
+  if (fixos.length === 0) return null;
+
   return (
     <div className="mb-3 flex flex-wrap items-baseline gap-x-1 gap-y-1 px-1 text-[11px] leading-5">
       <span className="mr-0.5 font-medium text-slate-400 dark:text-slate-500">canais:</span>
-      {CANAIS_FIXOS.map((canal) => {
+      {fixos.map((canal) => {
         const n = contagem[canal] ?? 0;
         const eleAtivo = ativos.includes(canal);
         return (

@@ -4,6 +4,37 @@
 
 :root {
   color-scheme: light;
+
+  /* Paleta da marca em triplas RGB (ver tailwind.config). Estes sao os laranjas
+     historicos do Grupo Participa — qualquer portal sem override le daqui, ou
+     seja, HM/HT/SEM/CNHF continuam exatamente como estavam. */
+  --brand-50: 255 247 237;
+  --brand-100: 255 237 213;
+  --brand-200: 254 215 170;
+  --brand-300: 253 186 116;
+  --brand-400: 251 146 60;
+  --brand-500: 249 115 22;
+  --brand-600: 234 88 12;
+  --brand-700: 194 65 12;
+  --brand-800: 154 52 18;
+  --brand-900: 124 45 18;
+}
+
+/* AURUM: dourado. Nao e "tudo dourado" — a paleta da marca so pinta os DETALHES
+   (aba ativa, selo, borda de card selecionado, contador em destaque); o corpo da
+   tela continua slate, igual aos outros boards. O ancoramento e o #CA8A04 de
+   lib/marcas.ts, que ja era a cor do portal. */
+[data-portal="aurum"] {
+  --brand-50: 254 252 232;
+  --brand-100: 254 249 195;
+  --brand-200: 254 240 138;
+  --brand-300: 253 224 71;
+  --brand-400: 250 204 21;
+  --brand-500: 234 179 8;
+  --brand-600: 202 138 4;
+  --brand-700: 161 98 7;
+  --brand-800: 133 77 14;
+  --brand-900: 113 63 18;
 }
 .dark {
   color-scheme: dark;

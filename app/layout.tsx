@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import TopNav from "./_components/top-nav";
 import { Toaster } from "./_components/toast";
+import PortalTheme from "./_components/portal-theme";
 
 export const metadata: Metadata = {
   title: "CS · Grupo Participa",
@@ -15,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Aplica o tema salvo ANTES do paint para evitar flash de tema errado. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('tema');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})()`,
+            __html: `(function(){try{var t=localStorage.getItem('tema');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}try{var p=location.pathname.split('/').filter(Boolean)[0]||'';document.documentElement.setAttribute('data-portal',p)}catch(e){}})()`,
           }}
         />
         {/* Inter carregada pelo navegador (não no build) — evita falha de build em ambientes de rede restrita. */}
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="min-h-screen font-sans">
+        <PortalTheme />
         <TopNav />
         <main className="mx-auto max-w-7xl animate-fade-in px-4 py-6 sm:px-6 lg:py-8">{children}</main>
         {/* Confirmações do sistema (toast) — um único ponto de montagem. */}

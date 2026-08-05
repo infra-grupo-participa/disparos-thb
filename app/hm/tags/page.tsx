@@ -6,6 +6,8 @@ import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { TagChip } from "@/app/_components/tags";
 import { useMe } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
+import { PORTAIS } from "@/lib/marcas";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 // Gestão do catálogo de tags do HM (cs.tags, 0067). Criar é de todos; renomear,
 // recolorir e excluir são de admin, porque propagam para TODOS os cards — o
@@ -22,6 +24,10 @@ const PALETA = [
 ];
 
 export default function HmTagsPage() {
+  // Marca e nome vem do portal da URL (0155): a MESMA tela serve HM, Aurum e
+  // ETHB. Fixo em "hm"/"Holding Masters", o board do Aurum se apresentava
+  // com a identidade do Holding Masters.
+  const { portal } = useProdutoHm();
   // Gestão do catálogo (renomear/recolorir/excluir propaga a TODOS os cards) é
   // do MASTER — admin de equipe comum não gere catálogo global. Criar é de todos.
   const { ehMaster } = useMe();
@@ -121,8 +127,8 @@ export default function HmTagsPage() {
       </Link>
 
       <div className="mb-1 flex items-center gap-2.5">
-        <MarcaPortal portal="hm" altura="h-7" comNome={false} />
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Tags · Holding Masters</h1>
+        <MarcaPortal portal={portal} altura="h-7" comNome={false} />
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Tags · {PORTAIS[portal].nome}</h1>
       </div>
       <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
         Criar é de todos; renomear, recolorir e excluir propagam para todos os cards — por isso são do administrador do Grupo Participa.

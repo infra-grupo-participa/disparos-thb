@@ -41,6 +41,9 @@ const PRODUCT_CHANNEL: Record<string, string> = {
   "5682989": "CLINICA", // Clínica de Holding Familiar
   "5951389": "ETHB",    // Encontro do Time Holding Brasil
   "1667133": "IMERSAO", // Imersão em Holding Familiar
+  // AURUM entra por NOME (resolveChannel abaixo) — o produto se chama "Aurum" e
+  // o product_id ainda não foi confirmado. Quando ele aparecer no primeiro
+  // payload (cs.hotmart_eventos), fixar aqui: o id é mais estável que o nome.
 };
 
 // Nomes legíveis por canal
@@ -51,6 +54,7 @@ const CHANNEL_LABEL: Record<string, string> = {
   CLINICA: "Clínica em Holding Familiar - Porto Alegre",
   ETHB:    "Encontro do Time Holding Brasil",
   IMERSAO: "Imersão em Holding Familiar - Porto Alegre",
+  AURUM:   "Aurum",
 };
 
 function normalizeStr(s: string): string {
@@ -69,6 +73,18 @@ function resolveChannel(productId: string, productName: string): string | null {
   if (name.includes("holding mais") || name.includes("hmais")) return "HMAIS";
   if (name.includes("clinica") || (name.includes("cl") && name.includes("nica"))) return "CLINICA";
   if (name.includes("encontro do time") || name.includes("ethb")) return "ETHB";
+  // Aurum (pitch no ETHB São Paulo, 05/08/2026, oferta qm4lu7py). Mapear o canal
+  // faz a venda ser PERSISTIDA em compradores/compras + cs.hotmart_eventos — que
+  // é o que hoje NÃO acontece: produto não mapeado leva 200 e é descartado sem
+  // deixar rastro, e a Hotmart não retenta.
+  //
+  // Card no board do Aurum ainda NÃO nasce daqui, de propósito: quem cria card é
+  // cs.fn_seed_contato_hm, e só quando a oferta existe em public.hm_product_catalog
+  // — e essa função não preenche cs.contatos_hm.produto (fica no default 'HM').
+  // Cadastrar a oferta antes de ensinar o produto ao trigger jogaria comprador de
+  // Aurum no board do Holding Masters. Então: primeiro não perder a venda; o card
+  // vem no backfill, depois da mudança de chave (ver plano).
+  if (name.includes("aurum")) return "AURUM";
   if (name.includes("imersao") || (name.includes("imers") && name.includes("holding"))) return "IMERSAO";
 
   return null;

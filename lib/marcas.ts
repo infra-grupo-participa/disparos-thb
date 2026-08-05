@@ -72,8 +72,11 @@ export const PORTAIS: Record<PortalId, Marca> = {
     cor: "#CA8A04", // amarelo-ouro (yellow-600)
     desc: "Aurum — o nível premium dos alunos: comercial, reunião e ativação da jornada de ponta.",
     gradiente: "from-yellow-600 to-amber-400",
-    logo: null, // → public/marcas/aurum.svg (enquanto não houver, cai no monograma "AUR")
-    logoRatio: null,
+    // Monograma "A" dourado dentro de um círculo, o arquivo oficial (mesma logo
+    // usada no SIP e na central-de-projetos). Cor única sobre fundo transparente,
+    // então lê bem no claro E no escuro — não é versão negativa.
+    logo: "/marcas/aurum.png",
+    logoRatio: [535, 466],
   },
   ethb: {
     evento: "ETHB",
