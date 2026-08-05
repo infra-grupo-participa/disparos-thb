@@ -18,6 +18,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
+import { PORTAIS } from "@/lib/marcas";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { SeloEquipe, COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
@@ -614,7 +615,10 @@ export default function HmKanbanPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <MarcaPortal portal={portal} altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
+            {/* O nome vem da marca do portal (0155): a MESMA tela serve HM, Aurum
+                e ETHB. Fixo em "Holding Masters", o board do Aurum mostrava a
+                logo do Aurum ao lado do nome do HM. */}
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {PORTAIS[portal].nome}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {totalComercial + totalAtivacao} lead(s) — arraste os cards entre as etapas e para cima/baixo para ordenar a fila.

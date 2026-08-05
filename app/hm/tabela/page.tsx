@@ -17,6 +17,8 @@ import { DisparoModal } from "@/app/_components/disparo";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { MarcaPortal } from "@/app/_components/marca";
+import { PORTAIS } from "@/lib/marcas";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
@@ -392,6 +394,8 @@ const PRESETS: Record<VisaoId, string[]> = {
 
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
+  // Portal da URL: a MESMA tela serve HM, Aurum e ETHB (0155).
+  const { portal } = useProdutoHm();
   const fetchHm = useFetchHm(); // esteira multi-produto (0155)
   const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
@@ -1466,8 +1470,11 @@ export default function HmTabelaPage() {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
-            <MarcaPortal portal="hm" altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
+            {/* Marca E nome vêm do portal da URL (0155): a MESMA tela serve HM,
+                Aurum e ETHB. Fixos em "hm"/"Holding Masters", a tabela do Aurum
+                se apresentava inteira como Holding Masters. */}
+            <MarcaPortal portal={portal} altura="h-7" comNome={false} />
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {PORTAIS[portal].nome}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {linhas.length} lead(s) — a esteira em linhas: ordene, filtre, edite na célula e aja em lote.

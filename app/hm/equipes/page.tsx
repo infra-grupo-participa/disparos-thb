@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, Card, EmptyState, Spinner, cn, fieldClass, fieldCompactClass } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
 import { MarcaPortal } from "@/app/_components/marca";
+import { PORTAIS } from "@/lib/marcas";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { useMe } from "@/app/_components/use-me";
 import { Avatar } from "@/app/_components/avatar";
@@ -29,6 +31,8 @@ const LABEL_PAPEL: Record<Papel, string> = {
 
 
 export default function HmEquipesPage() {
+  // Portal da URL: a MESMA tela serve HM, Aurum e ETHB (0155).
+  const { portal } = useProdutoHm();
   const { me, ehMaster, podeDistribuir } = useMe();
   const [equipes, setEquipes] = useState<Equipe[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
@@ -120,9 +124,11 @@ export default function HmEquipesPage() {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
-            <MarcaPortal portal="hm" altura="h-7" comNome={false} />
+            {/* Marca E nome vêm do portal da URL (0155) — a MESMA tela serve HM,
+                Aurum e ETHB. Ver o mesmo ajuste no kanban e na tabela. */}
+            <MarcaPortal portal={portal} altura="h-7" comNome={false} />
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-              {podeEditar ? "Equipes · Holding Masters" : "Minha equipe · Holding Masters"}
+              {podeEditar ? `Equipes · ${PORTAIS[portal].nome}` : `Minha equipe · ${PORTAIS[portal].nome}`}
             </h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
