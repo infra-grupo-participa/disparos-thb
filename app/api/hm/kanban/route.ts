@@ -129,12 +129,20 @@ export async function GET(req: Request) {
   // `qtd` alimenta a régua de canais fixos: o placar do canal INTEIRO, sem os
   // filtros da tela — o número é "quantas vendas o evento fez", não "quantas
   // estou vendo agora".
+  // RECORTADO POR PRODUTO (05/08/2026). Sem o filtro, esta consulta varria
+  // cs.contatos_hm inteira: o board do Aurum listava no dropdown de canal os
+  // canais do HM ("HT29", "HT ATM", "Live Direto ao Ponto"...) e a régua somava
+  // cards de outro board — inclusive gente que comprou Aurum mas cujo card
+  // ficou no HM, inflando o placar de "ETHB SP" com quem o board nem mostra.
+  // O placar continua sendo do canal INTEIRO (ignora os filtros da tela); o que
+  // ele deixa de ignorar é o board.
   const tagRows = await query<{ tag: string; eh_turma: boolean; qtd: number }>(
     `select t as tag, t ~ $1 as eh_turma, count(*)::int as qtd
        from cs.contatos_hm, unnest(tags) t
+      where produto = $2
       group by t
       order by tag`,
-    [RE_TURMA],
+    [RE_TURMA, produto],
   );
 
   return NextResponse.json({

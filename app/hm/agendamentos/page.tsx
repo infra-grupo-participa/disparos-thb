@@ -6,6 +6,8 @@ import Link from "next/link";
 import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { Avatar } from "@/app/_components/avatar";
 import { TagChip } from "@/app/_components/tags";
+import { PORTAIS } from "@/lib/marcas";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 type Agendamento = {
   comprador_id: string; nome: string; email: string | null; telefone: string | null; plano: string | null;
@@ -107,6 +109,10 @@ function gcalLink(ev: Agendamento): string | null {
 }
 
 export default function HmAgendamentosPage() {
+  // Marca e nome vem do portal da URL (0155): a MESMA tela serve HM, Aurum e
+  // ETHB. Fixo em "hm"/"Holding Masters", o board do Aurum se apresentava
+  // com a identidade do Holding Masters.
+  const { portal } = useProdutoHm();
   const fetchHm = useFetchHm(); // esteira multi-produto (0155): HM/Aurum/ETHB
   const [rows, setRows] = useState<Agendamento[]>([]);
   const [tipo, setTipo] = useState("");
@@ -245,7 +251,7 @@ export default function HmAgendamentosPage() {
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Agenda · Holding Masters</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Agenda · {PORTAIS[portal].nome}</h1>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             Reuniões comerciais e entrevistas de ativação — T39. {rows.length} agendamento(s).
           </p>
