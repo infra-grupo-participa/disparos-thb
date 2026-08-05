@@ -9,19 +9,24 @@ const config: Config = {
         // Marca (laranja Grupo Participa/advmais) com escala completa para
         // hierarquia consistente. Base na paleta orange — #f97316 (accent-1) e
         // #ea580c (accent-2) são as cores oficiais usadas nos demais projetos.
+        // A paleta virou VARIAVEL CSS (05/08/2026) para o board poder mudar de
+        // cor por portal: a MESMA tela serve HM, Aurum e ETHB (0155), e o Aurum
+        // e dourado. Os valores padrao no :root de globals.css sao EXATAMENTE
+        // os laranjas de antes — HM/HT/SEM/CNHF nao mudam um pixel. O formato
+        // "rgb(var(--x) / <alpha-value>)" e o que preserva bg-brand/10 e afins.
         brand: {
-          DEFAULT: "#ea580c",
-          light: "#f97316",
-          50: "#fff7ed",
-          100: "#ffedd5",
-          200: "#fed7aa",
-          300: "#fdba74",
-          400: "#fb923c",
-          500: "#f97316",
-          600: "#ea580c",
-          700: "#c2410c",
-          800: "#9a3412",
-          900: "#7c2d12",
+          DEFAULT: "rgb(var(--brand-600) / <alpha-value>)",
+          light: "rgb(var(--brand-500) / <alpha-value>)",
+          50: "rgb(var(--brand-50) / <alpha-value>)",
+          100: "rgb(var(--brand-100) / <alpha-value>)",
+          200: "rgb(var(--brand-200) / <alpha-value>)",
+          300: "rgb(var(--brand-300) / <alpha-value>)",
+          400: "rgb(var(--brand-400) / <alpha-value>)",
+          500: "rgb(var(--brand-500) / <alpha-value>)",
+          600: "rgb(var(--brand-600) / <alpha-value>)",
+          700: "rgb(var(--brand-700) / <alpha-value>)",
+          800: "rgb(var(--brand-800) / <alpha-value>)",
+          900: "rgb(var(--brand-900) / <alpha-value>)",
         },
       },
       fontFamily: {
