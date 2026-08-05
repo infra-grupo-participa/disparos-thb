@@ -20,6 +20,7 @@ import { MarcaPortal } from "@/app/_components/marca";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
+import { casaBusca } from "@/lib/busca";
 
 // A visão em tabela da esteira HM — a terceira leitura da mesma esteira (o board
 // responde "onde cada um está"; aqui a pergunta é "o que está acontecendo com
@@ -705,10 +706,13 @@ export default function HmTabelaPage() {
   // ----------------------------------------------------------------- leitura
   const hoje0 = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }, []);
 
-  const q = busca.trim().toLowerCase();
+  // Busca livre: acento não conta ("joao" acha "João"), telefone casa por
+  // dígitos (dá para colar o número como aparece na tela) e nome composto casa
+  // em qualquer ordem. Regras em lib/busca.ts.
+  const q = busca.trim();
   const base = useMemo(
     () => (q
-      ? linhas.filter((l) => l.nome.toLowerCase().includes(q) || (l.telefone ?? "").includes(q) || (l.email ?? "").toLowerCase().includes(q))
+      ? linhas.filter((l) => casaBusca(q, { texto: [l.nome, l.email], numero: [l.telefone] }))
       : linhas),
     [linhas, q],
   );
