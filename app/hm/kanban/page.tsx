@@ -718,7 +718,7 @@ export default function HmKanbanPage() {
           <MultiSelect rotulo="Operador" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
         )}
         {canais.length > 0 && (
-          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
+          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais, produto)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
         )}
         {turmas.length > 0 && (
           <MultiSelect rotulo="Turma" grupos={[{ label: null, itens: turmas }]} selecionadas={filtroTurma} onChange={setFiltroTurma} />
@@ -737,6 +737,7 @@ export default function HmKanbanPage() {
           cada um, sempre à vista; clicar soma/tira o canal do filtro (o mesmo
           filtro do dropdown, que continua servindo para o resto). */}
       <HmCanaisFixos
+        produto={produto}
         contagem={canaisQtd}
         ativos={filtroCanal}
         onToggle={(c) => setFiltroCanal((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
