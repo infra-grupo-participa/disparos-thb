@@ -34,7 +34,9 @@ export function HmCadastroModal({
   const [email, setEmail] = useState("");
   const [telefone, setTelefone] = useState("");
   const [documento, setDocumento] = useState("");
-  const [turma, setTurma] = useState("T39");
+  // 0165: "T39" é a turma corrente do HM. Pré-preencher isso no board do Aurum
+  // cadastraria o aluno na turma de outro produto — fora do HM nasce vazio.
+  const [turma, setTurma] = useState(produto && produto !== "HM" ? "" : "T39");
   const [categoria, setCategoria] = useState<"" | "sinal" | "compra_cheia">("");
   const [responsavel, setResponsavel] = useState("");
   const [estagio, setEstagio] = useState<"hm_comprou" | "hm_pendente_liberacao">("hm_comprou");
@@ -124,7 +126,8 @@ export function HmCadastroModal({
           </label>
           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
             Turma
-            <input className={cn(fieldClass, "mt-1")} value={turma} onChange={(e) => setTurma(e.target.value)} placeholder="T39" />
+            {/* 0165: placeholder era "T39", a turma do HM — no Aurum induzia a erro. */}
+            <input className={cn(fieldClass, "mt-1")} value={turma} onChange={(e) => setTurma(e.target.value)} placeholder="turma" />
           </label>
           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
             Operador

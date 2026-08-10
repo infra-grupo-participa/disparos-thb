@@ -212,7 +212,7 @@ export function HmDrawer({
   const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   // 0164: a mesma pessoa pode ter card em 2 boards — a ficha precisa saber QUAL abrir.
-  const { produto: produtoBoard } = useProdutoHm();
+  const { produto: produtoBoard, nome: nomePortal } = useProdutoHm();
   const [c, setC] = useState<Contato | null>(null);
   // O GET pode ser RECUSADO (403 cancelamento_so_admin_gp num link colado, sessão
   // caída…). Sem este estado o drawer ficava no "Carregando…" para sempre.
@@ -631,15 +631,17 @@ export function HmDrawer({
                 )}
               </Campo>
 
-              {/* Turma no HM: a atual do programa (T39) vem sozinha ao pagar.
-                  O campo existe para a exceção — alguém que entra em outra turma. */}
-              <Campo label="Turma no HM">
+              {/* Turma do programa: a atual vem sozinha ao pagar. O campo existe
+                  para a exceção — alguém que entra em outra turma.
+                  0165: o rótulo e o placeholder eram fixos do HM ("Turma no HM",
+                  "T39") e apareciam assim no board do Aurum. Agora seguem o portal. */}
+              <Campo label={`Turma no ${nomePortal}`}>
                 <div className="flex items-center gap-2">
                   <input
                     defaultValue={c.turma ?? ""}
                     disabled={somenteLeitura}
                     onBlur={(e) => { if (e.target.value.trim() && e.target.value !== (c.turma ?? "")) patch({ turma: e.target.value.trim() }); }}
-                    placeholder="T39"
+                    placeholder="turma"
                     className={fieldClass}
                   />
                   {c.turma_origem && (

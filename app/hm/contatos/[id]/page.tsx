@@ -384,12 +384,19 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                     Registrar pagamento realizado
                   </Button>
                 </div>
-                <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition hover:underline dark:text-brand-300">
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
-                  Abrir checkout do saldo na Hotmart
-                </a>
+                {/* 0165: SALDO_CHECKOUT é a oferta 2vibw97m, DO HM. No card do Aurum
+                    mandaria o aluno pagar o saldo errado — some até haver link próprio
+                    (mesma regra já aplicada no drawer). */}
+                {!aurum && (
+                  <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition hover:underline dark:text-brand-300">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+                    Abrir checkout do saldo na Hotmart
+                  </a>
+                )}
                 <p className="text-xs text-slate-400 dark:text-slate-500">
-                  Ao registrar, o card vai para a Ativação (Pendente de Liberação) e o aluno é criado/atualizado na base THB (turma T39) com os valores acima.
+                  {/* 0165: dizia "turma T39" — do HM. A turma sai do que a pessoa É
+                      (lead novo entra na atual; aluno da base mantém a dele). */}
+                  Ao registrar, o card vai para a Ativação (Pendente de Liberação) e o aluno é criado/atualizado na base THB com os valores acima.
                 </p>
               </div>
             )}

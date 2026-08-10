@@ -249,7 +249,9 @@ export default function HmAgendamentosPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Agenda · {nomePortal}</h1>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            Reuniões comerciais e entrevistas de ativação — T39. {rows.length} agendamento(s).
+            {/* 0165: "T39" é a turma do HM — no board do Aurum era número de outro
+                produto. O subtítulo passa a ser do portal. */}
+            Reuniões comerciais e entrevistas de ativação. {rows.length} agendamento(s).
           </p>
         </div>
 
