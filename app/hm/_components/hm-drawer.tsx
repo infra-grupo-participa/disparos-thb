@@ -85,6 +85,19 @@ type LinkSaldo = { codigo: string; valor: string; recorrente: boolean; link: str
 // Saldo do Aurum ETHB SP (0158): crédito pró-rata calculado FORA do banco (planilha
 // do Victor) e ingerido. `saldo_a_pagar` vem null nas exceções (gratuidade,
 // cancelado, em revisão) — nesse caso mostra-se o rótulo, nunca um valor.
+// A mesma pessoa em OUTRO board (0164). No card é um selo de uma linha; aqui vem
+// completo, porque é o que muda a conversa: etapa, dono, se pagou, se virou aluno.
+type OutroPortal = {
+  outro_produto: string;
+  outro_estagio: string | null;
+  outro_aba: string | null;
+  outro_apto: boolean;
+  outro_pagamento_em: string | null;
+  outro_tem_matricula: boolean;
+  outro_responsavel: string | null;
+  outro_atualizado_em: string | null;
+  comprador_id: string;
+};
 type AurumSaldoDrawer = {
   credito: string | null;
   situacao: string;
@@ -217,6 +230,7 @@ export function HmDrawer({
   // Saldo do Aurum (0158) + saldo cheio do board (14.700 no HM, 59.000 no Aurum).
   const [aurum, setAurum] = useState<AurumSaldoDrawer | null>(null);
   const [saldoCheio, setSaldoCheio] = useState<string | null>(null);
+  const [outrosPortais, setOutrosPortais] = useState<OutroPortal[]>([]);
   const [links, setLinks] = useState<LinkSaldo[]>([]);
   const [acordo, setAcordo] = useState("");
   const [previsao, setPrevisao] = useState("");
@@ -252,6 +266,7 @@ export function HmDrawer({
       setProrata(d.prorata ?? null);
       setAurum(d.aurumSaldo ?? null);
       setSaldoCheio(d.saldoCheio ?? null);
+      setOutrosPortais(d.outrosPortais ?? []);
       setLinks(d.linksSaldo ?? []);
       setSocios(d.socios ?? []);
       setAgendamentos(d.agendamentos ?? []);
@@ -561,6 +576,40 @@ export function HmDrawer({
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
                   <strong className="text-slate-700 dark:text-slate-200">Card de {c.responsavel ?? "outro operador"}.</strong>{" "}
                   Você pode ver a ficha, a timeline e o histórico, mas não alterar — só quem pode agir é o dono ou o gestor.
+                </div>
+              )}
+
+              {/* A MESMA pessoa em outro board (0164). Vem ANTES da etapa de
+                  propósito: saber que ela já está em "Acesso Liberado" no HM muda
+                  como o operador do Aurum conduz — tem de ler antes de mexer aqui.
+                  Clicar leva ao card dela no outro board, que rola e destaca. */}
+              {outrosPortais.length > 0 && (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-2.5 dark:border-indigo-500/30 dark:bg-indigo-500/10">
+                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+                    Esta pessoa também está em
+                  </p>
+                  <ul className="space-y-1.5">
+                    {outrosPortais.map((o) => (
+                      <li key={o.outro_produto}>
+                        <Link
+                          href={`/${o.outro_produto.toLowerCase()}/kanban?card=${o.comprador_id}`}
+                          className="group block rounded-md px-1.5 py-1 transition hover:bg-indigo-100/70 dark:hover:bg-indigo-500/15"
+                          title={`Abrir o card de ${c.nome} no board ${o.outro_produto}`}
+                        >
+                          <span className="flex items-center gap-1.5 text-xs font-semibold text-indigo-800 dark:text-indigo-200">
+                            {o.outro_produto} · {o.outro_estagio ?? "—"}
+                            {o.outro_aba && <span className="font-normal text-indigo-500 dark:text-indigo-300/70">({o.outro_aba === "ativacao" ? "Ativação" : "Comercial"})</span>}
+                            <svg className="h-3 w-3 opacity-0 transition group-hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
+                          </span>
+                          <span className="mt-0.5 block text-[11px] text-indigo-600/80 dark:text-indigo-300/70">
+                            {o.outro_responsavel ? `com ${o.outro_responsavel}` : "sem operador"}
+                            {o.outro_pagamento_em ? ` · pagou em ${fmt(o.outro_pagamento_em)}` : ""}
+                            {o.outro_tem_matricula ? " · já é aluno na base" : ""}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 

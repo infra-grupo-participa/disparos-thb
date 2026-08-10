@@ -6,6 +6,7 @@ import { MarcaPortal } from "@/app/_components/marca";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { useMe } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 // Relatório de reuniões (C1). Vincula as marcações de reunião (Comercial) e
 // entrevista (Ativação) de todos os cards numa lista só: quando, com quem,
@@ -53,6 +54,7 @@ export default function HmReunioesPage() {
   // podeDistribuir → a aba "Equipes" do alternador aparece para master e gestor.
   const { podeDistribuir } = useMe();
   const fetchHm = useFetchHm(); // esteira multi-produto (0155)
+  const { portal, nome: nomePortal } = useProdutoHm(); // marca e título do portal atual
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [quando, setQuando] = useState<Quando>("proximas");
@@ -130,8 +132,8 @@ export default function HmReunioesPage() {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
-            <MarcaPortal portal="hm" altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Reuniões · Holding Masters</h1>
+            <MarcaPortal portal={portal} altura="h-7" comNome={false} />
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Reuniões · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             As reuniões e entrevistas em uma lista — com operador, resultado, remarcações e a gravação.

@@ -399,7 +399,7 @@ const PRESETS: Record<VisaoId, string[]> = {
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
   const fetchHm = useFetchHm(); // esteira multi-produto (0155)
-  const { produto } = useProdutoHm(); // board atual: recorta os canais (10/08)
+  const { produto, portal, nome: nomePortal } = useProdutoHm(); // board atual: recorta os canais (10/08) e dá a marca do cabeçalho
   const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   // Linha em Reclamada/Reembolsado é SÓ do master (o backend devolve 403 no GET
@@ -1473,8 +1473,8 @@ export default function HmTabelaPage() {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
-            <MarcaPortal portal="hm" altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
+            <MarcaPortal portal={portal} altura="h-7" comNome={false} />
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {linhas.length} lead(s) — a esteira em linhas: ordene, filtre, edite na célula e aja em lote.

@@ -60,12 +60,15 @@ const SQL_RECORTE_AUTOR = `
                       and lower(btrim(u.nome)) = lower(btrim(i.autor))))
              or ($4 = 'operador' and lower(btrim(i.autor)) = lower(btrim($6::text))))`;
 
+// `produto` (0164): a esteira é a mesma para HM/AURUM/ETHB, então sem o recorte a
+// tela de Atividade do Aurum mostrava o movimento do HM.
 export async function atividadeHm(
-  f: { de?: string | null; ate?: string | null },
+  f: { de?: string | null; ate?: string | null; produto?: string | null },
   escopo: EscopoAtividade = { modo: "tudo" },
 ): Promise<Atividade> {
   const de = f.de || null;
   const ate = f.ate || null;
+  const produto = f.produto || null;
   const modo = escopo.modo;
   const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
   const nome = escopo.modo === "operador" ? escopo.nome : null;
@@ -83,9 +86,10 @@ export async function atividadeHm(
        from cs.interacoes i
        join cs.contatos_hm ch on ch.id = i.contato_hm_id   -- só a esteira HM
       ${SQL_RECORTE_AUTOR}
+        and ($7::text is null or ch.produto = $7)          -- board (0164)
       group by btrim(i.autor)
       order by count(*) desc, btrim(i.autor)`,
-    [de, ate, ATORES_SISTEMA, modo, equipeId, nome],
+    [de, ate, ATORES_SISTEMA, modo, equipeId, nome, produto],
   );
 
   return { de, ate, colaboradores };

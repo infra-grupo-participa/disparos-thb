@@ -6,22 +6,26 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Marca (laranja Grupo Participa/advmais) com escala completa para
-        // hierarquia consistente. Base na paleta orange — #f97316 (accent-1) e
-        // #ea580c (accent-2) são as cores oficiais usadas nos demais projetos.
+        // Marca com escala completa para hierarquia consistente. O DEFAULT
+        // continua sendo o laranja Grupo Participa/advmais (#ea580c / #f97316),
+        // mas agora via CSS var: quem define o valor é app/globals.css, e cada
+        // portal pode sobrescrever a paleta inteira com [data-tema="..."] no
+        // <html> (ver o tema "aurum", dourado). O `<alpha-value>` é obrigatório
+        // — sem ele, utilitários como bg-brand/5 e ring-brand/40 perdem a
+        // opacidade em silêncio.
         brand: {
-          DEFAULT: "#ea580c",
-          light: "#f97316",
-          50: "#fff7ed",
-          100: "#ffedd5",
-          200: "#fed7aa",
-          300: "#fdba74",
-          400: "#fb923c",
-          500: "#f97316",
-          600: "#ea580c",
-          700: "#c2410c",
-          800: "#9a3412",
-          900: "#7c2d12",
+          DEFAULT: "rgb(var(--brand-DEFAULT) / <alpha-value>)",
+          light: "rgb(var(--brand-light) / <alpha-value>)",
+          50: "rgb(var(--brand-50) / <alpha-value>)",
+          100: "rgb(var(--brand-100) / <alpha-value>)",
+          200: "rgb(var(--brand-200) / <alpha-value>)",
+          300: "rgb(var(--brand-300) / <alpha-value>)",
+          400: "rgb(var(--brand-400) / <alpha-value>)",
+          500: "rgb(var(--brand-500) / <alpha-value>)",
+          600: "rgb(var(--brand-600) / <alpha-value>)",
+          700: "rgb(var(--brand-700) / <alpha-value>)",
+          800: "rgb(var(--brand-800) / <alpha-value>)",
+          900: "rgb(var(--brand-900) / <alpha-value>)",
         },
       },
       fontFamily: {

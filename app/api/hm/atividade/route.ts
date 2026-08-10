@@ -29,6 +29,11 @@ export async function GET(req: Request) {
   const periodo = parsePeriodo(new URL(req.url).searchParams);
   if (!periodo.ok) return periodo.res;
 
-  const r = await atividadeHm({ de: periodo.de, ate: periodo.ate }, escopo);
+  // Board do produto (0164): sem isso a Atividade do Aurum somava o movimento do HM.
+  const pAtv = (new URL(req.url).searchParams.get("produto") || "").toUpperCase();
+  const r = await atividadeHm(
+    { de: periodo.de, ate: periodo.ate, produto: pAtv === "AURUM" || pAtv === "ETHB" || pAtv === "HM" ? pAtv : null },
+    escopo,
+  );
   return NextResponse.json({ ok: true, ...r });
 }

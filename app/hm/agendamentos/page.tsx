@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import Link from "next/link";
 import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { Avatar } from "@/app/_components/avatar";
@@ -108,6 +109,7 @@ function gcalLink(ev: Agendamento): string | null {
 
 export default function HmAgendamentosPage() {
   const fetchHm = useFetchHm(); // esteira multi-produto (0155): HM/Aurum/ETHB
+  const { nome: nomePortal } = useProdutoHm(); // título fala do portal atual
   const [rows, setRows] = useState<Agendamento[]>([]);
   const [tipo, setTipo] = useState("");
   const [colaborador, setColaborador] = useState("");
@@ -245,7 +247,7 @@ export default function HmAgendamentosPage() {
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Agenda · Holding Masters</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Agenda · {nomePortal}</h1>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             Reuniões comerciais e entrevistas de ativação — T39. {rows.length} agendamento(s).
           </p>

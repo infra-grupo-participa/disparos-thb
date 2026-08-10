@@ -12,10 +12,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <head>
-        {/* Aplica o tema salvo ANTES do paint para evitar flash de tema errado. */}
+        {/* Aplica o tema salvo ANTES do paint para evitar flash de tema errado.
+            Faz duas coisas: (1) claro/escuro pela preferência salva; (2) a marca
+            do portal, lida do primeiro segmento da URL — sem isto, o Aurum
+            pintaria laranja no primeiro frame e só viraria dourado depois da
+            hidratação. O TopNav mantém o atributo em dia ao navegar. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('tema');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})()`,
+            __html: `(function(){try{var t=localStorage.getItem('tema');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}try{var p=location.pathname.split('/').filter(Boolean)[0];if(p==='aurum'){document.documentElement.dataset.tema='aurum'}else{delete document.documentElement.dataset.tema}}catch(e){}})()`,
           }}
         />
         {/* Inter carregada pelo navegador (não no build) — evita falha de build em ambientes de rede restrita. */}

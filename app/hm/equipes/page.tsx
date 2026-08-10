@@ -5,6 +5,7 @@ import { Button, Card, EmptyState, Spinner, cn, fieldClass, fieldCompactClass } 
 import { PageFade } from "@/app/_components/anim";
 import { MarcaPortal } from "@/app/_components/marca";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { useMe } from "@/app/_components/use-me";
 import { Avatar } from "@/app/_components/avatar";
 import { SeloNivel } from "@/app/_components/selo-nivel";
@@ -30,6 +31,7 @@ const LABEL_PAPEL: Record<Papel, string> = {
 
 export default function HmEquipesPage() {
   const { me, ehMaster, podeDistribuir } = useMe();
+  const { portal, nome: nomePortal } = useProdutoHm(); // marca e título do portal atual
   const [equipes, setEquipes] = useState<Equipe[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [rotas, setRotas] = useState<Rota[]>([]);
@@ -120,9 +122,9 @@ export default function HmEquipesPage() {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
-            <MarcaPortal portal="hm" altura="h-7" comNome={false} />
+            <MarcaPortal portal={portal} altura="h-7" comNome={false} />
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-              {podeEditar ? "Equipes · Holding Masters" : "Minha equipe · Holding Masters"}
+              {podeEditar ? `Equipes · ${nomePortal}` : `Minha equipe · ${nomePortal}`}
             </h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">

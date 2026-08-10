@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "./theme-toggle";
 import BuscaGlobal from "./busca-global";
@@ -75,6 +76,16 @@ export default function TopNav() {
   const pathname = usePathname();
   const { portal, base, nome, cor } = usePortal();
   const { nivel } = useMe();
+
+  // Marca do portal no <html> (a paleta `brand` do Tailwind lê daí — ver
+  // globals.css). O script anti-flash do layout já acerta o primeiro paint;
+  // este efeito cobre a navegação client-side entre portais. Fica ANTES do
+  // early return de propósito: hook não pode ficar atrás de condicional.
+  useEffect(() => {
+    const el = document.documentElement;
+    if (portal === "aurum") el.dataset.tema = "aurum";
+    else delete el.dataset.tema;
+  }, [portal]);
 
   // Sem cabeçalho na tela de seleção de portal e no login.
   if (pathname === "/login" || pathname === "/") return null;

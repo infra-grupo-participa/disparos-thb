@@ -18,6 +18,8 @@ export type FichaHm = {
   aurumSaldo: Record<string, unknown> | null;
   /** Saldo cheio do BOARD, em reais (10/08): 59.000 no Aurum, 14.700 no HM. */
   saldoCheio: string | null;
+  /** A mesma pessoa nos OUTROS boards (0164) — vazio se ela só existe neste. */
+  outrosPortais: Record<string, unknown>[];
   /** Todas as marcações de reunião/entrevista — inclusive as que foram remarcadas. */
   agendamentos: Record<string, unknown>[];
   /** O histórico de versões da ficha (0097) — como a planilha: ver e recuperar. */
@@ -50,9 +52,11 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
             k.hotmart_status, k.hotmart_status_em, k.canal_aquisicao,
             k.rev_searchie, k.rev_comunidade, k.rev_grupo, k.rev_pesquisa,
             k.acessos_revogados_em, k.acessos_revogados_por, k.acessos_a_remover, k.aluno_id,
-            k.tags, k.observacoes, k.criado_em, ch.produto
+            k.tags, k.observacoes, k.criado_em, ch.produto, ch.id as contato_hm_id
        from cs.contatos_hm_kanban k
-       join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
+       -- 0164: join pelo CARD. Com card por pessoa×produto, casar por comprador_id
+       -- cruzaria o card do HM com o do Aurum (a mesma regressão da 0163).
+       join cs.contatos_hm ch on ch.id = k.contato_hm_id
       where k.comprador_id = $1
         and ($2::text is null or ch.produto = $2)
       order by ch.criado_em asc
@@ -153,6 +157,21 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
     [compradorId],
   );
 
+  // A MESMA pessoa nos OUTROS boards (0164). No card do kanban isso é um selo com
+  // uma linha; aqui vem estruturado, porque a ficha tem espaço para o que muda a
+  // conversa: em que etapa está, com quem, se já pagou e se virou aluno na base.
+  // Chaveado pelo CARD (a view é por contato_hm_id) — usar o id já resolvido acima
+  // evita repetir a regra do produto em dois lugares.
+  const outrosPortais = await query(
+    `select o.outro_produto, o.outro_estagio, o.outro_aba, o.outro_apto,
+            o.outro_pagamento_em, o.outro_tem_matricula, o.outro_responsavel,
+            o.outro_atualizado_em, o.comprador_id
+       from cs.vw_card_outros_portais o
+      where o.contato_hm_id = $1
+      order by o.outro_produto`,
+    [(contato as unknown as { contato_hm_id: string }).contato_hm_id],
+  );
+
   // Histórico de marcações (0064). A data vigente está no card; aqui está a
   // trilha — inclusive as marcações que caíram, que é o que revela o aluno que
   // remarca sem parar.
@@ -177,5 +196,5 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
   );
 
   return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, aurumSaldo,
-           saldoCheio: saldoCheio?.valor ?? null, agendamentos, versoes };
+           saldoCheio: saldoCheio?.valor ?? null, outrosPortais, agendamentos, versoes };
 }

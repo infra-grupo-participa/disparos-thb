@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import type { DragEvent, WheelEvent } from "react";
 import { Button, cn, EmptyState, fieldClass, Spinner } from "@/app/_components/ui";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
@@ -265,7 +266,7 @@ function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
 export default function HmKanbanPage() {
   const { nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   // Produto/board (0155): a mesma tela serve HM, Aurum e ETHB pela URL.
-  const { produto, portal } = useProdutoHm();
+  const { produto, portal, nome: nomePortal } = useProdutoHm();
   const qp = produto === "HM" ? "" : `produto=${produto}`; // sufixo p/ as APIs
   const podeDisparar = podeDisparaFn("HM");
   // Card em Reclamada/Reembolsado é SÓ do master (o backend devolve 403 no GET
@@ -308,6 +309,11 @@ export default function HmKanbanPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [alvo, setAlvo] = useState<Alvo | null>(null);
   const [selecionado, setSelecionado] = useState<string | null>(null);
+  // Deep-link ?card=<comprador_id> (0164): quem vem do selo "esta pessoa também está
+  // em X" cai no board do outro portal já com o card à vista. `destacado` faz o card
+  // pulsar por alguns segundos — sem isso o operador chega num board de 33 cards sem
+  // saber para onde olhar.
+  const [destacado, setDestacado] = useState<string | null>(null);
   const [socioAberto, setSocioAberto] = useState<Socio | null>(null);
   const [addSocio, setAddSocio] = useState<{ compradorId: string; nome: string } | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
@@ -436,8 +442,23 @@ export default function HmKanbanPage() {
     setFiltroResp(sp.getAll("responsavel"));
     setFiltroCanal(sp.getAll("canal"));
     setFiltroTurma(sp.getAll("turma"));
+    // ?card= chega ANTES dos cards carregarem: guarda o alvo e deixa o efeito de
+    // scroll agir quando a lista existir no DOM.
+    const alvo = sp.get("card");
+    if (alvo) { setDestacado(alvo); setSelecionado(alvo); }
     setFiltrosProntos(true);
   }, []);
+
+  // Rola até o card do deep-link e o destaca. Roda quando os cards já estão na tela
+  // (por isso depende de `cards`), e o timer limpa o realce para ele não ficar
+  // pulsando para sempre. O ?card= sai da URL no efeito de filtros logo abaixo.
+  useEffect(() => {
+    if (!destacado || cards.length === 0) return;
+    const el = document.querySelector<HTMLElement>(`[data-card="${destacado}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => setDestacado(null), 4000);
+    return () => clearTimeout(t);
+  }, [destacado, cards]);
   useEffect(() => {
     if (!filtrosProntos) return;
     const qs = paramsFiltro.toString();
@@ -617,7 +638,7 @@ export default function HmKanbanPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <MarcaPortal portal={portal} altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · Holding Masters</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {totalComercial + totalAtivacao} lead(s) — arraste os cards entre as etapas e para cima/baixo para ordenar a fila.
@@ -882,6 +903,7 @@ export default function HmKanbanPage() {
                             colega={cardDeColega(card)}
                             onDragStart={() => { arrastando.current = card; }}
                             onDragEnd={() => { pararAutoScroll(); arrastando.current = null; setAlvo(null); }}
+                            destacado={destacado === card.comprador_id}
                             onAbrir={() => { if (!cardBloqueado(card)) setSelecionado(card.comprador_id); }}
                             onMenu={(x, y) => setMenu({ card, x, y })}
                             selecionavel={podeDisparar && !cardBloqueado(card) && !cardDeColega(card)}
@@ -1401,12 +1423,14 @@ function SelosExtras({ itens }: { itens: { key: string; rotulo: string; el: Reac
 }
 
 function CardItem({
-  card, espelho, ehPool, bloqueado, colega, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags,
+  card, espelho, ehPool, bloqueado, colega, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags, destacado,
 }: {
   card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; colega?: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
   onMenu: (x: number, y: number) => void;
   selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
   coresTags: Record<string, string | null>;
+  /** Alvo do deep-link ?card= (0164): pulsa por alguns segundos para o olho achar. */
+  destacado?: boolean;
 }) {
   const cat = catLabel(card.categoria_entrada);
   const parcela = parcelaStatus(card);
@@ -1456,7 +1480,9 @@ function CardItem({
   });
   return (
     <div
-      data-card
+      // O id no atributo (0164) é o que o deep-link ?card= usa para achar e rolar
+      // até este card. Continua servindo ao querySelectorAll do arrasto.
+      data-card={card.comprador_id}
       role={bloqueado ? undefined : "button"}
       tabIndex={bloqueado ? -1 : 0}
       // Card de colega abre (em leitura), mas não arrasta — mover é agir.
@@ -1492,6 +1518,9 @@ function CardItem({
         bloqueado
           ? "cursor-not-allowed"
           : "cursor-pointer hover:border-brand/30 hover:shadow-soft active:cursor-grabbing",
+        // Alvo do deep-link (0164): anel índigo pulsante — mesma cor do selo que
+        // trouxe o operador até aqui, para ele reconhecer o que clicou.
+        destacado && "animate-pulse ring-2 ring-indigo-400 ring-offset-2 dark:ring-indigo-400 dark:ring-offset-slate-950",
         // Saldo quitado: um verde sutil, só o suficiente para diferenciar de longe
         // quem não deve mais nada. Não vale quando o card está selecionado (a borda
         // da marca vence) nem sobrescreve o anel de seleção.
@@ -1568,13 +1597,18 @@ function CardItem({
               que ela já está em "Acesso Liberado" no HM antes de abordar como contato
               novo — e vice-versa. Indigo para não competir com os alertas (âmbar). */}
           {card.outros_portais && (
-            <span
-              className="inline-flex items-center gap-0.5 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"
-              title={`A mesma pessoa em outro board — ${card.outros_portais}`}
+            // Clicar no selo LEVA ao card da mesma pessoa no outro board — que rola
+            // até ele e o destaca (0164). `stopPropagation` porque o card inteiro é
+            // clicável: sem isso o drawer deste card abriria por baixo da navegação.
+            <Link
+              href={`/${(card.outros_portais.split(":")[0] || "hm").trim().toLowerCase()}/kanban?card=${card.comprador_id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-0.5 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 transition hover:bg-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:hover:bg-indigo-500/25"
+              title={`Abrir esta pessoa no outro board — ${card.outros_portais}`}
             >
               <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12 19" /></svg>
               <span className="truncate">{card.outros_portais}</span>
-            </span>
+            </Link>
           )}
           {/* Recompra, categoria de entrada e parcela/pago são contexto, não
               ação: moram no "+N" (hover/foco/Enter revelam; o aria-label lê tudo). */}

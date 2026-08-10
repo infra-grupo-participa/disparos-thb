@@ -7,6 +7,7 @@ import { TagChip } from "@/app/_components/tags";
 import { useMe } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 // Gestão do catálogo de tags do HM (cs.tags, 0067). Criar é de todos; renomear,
 // recolorir e excluir são de admin, porque propagam para TODOS os cards — o
@@ -28,6 +29,7 @@ export default function HmTagsPage() {
   const { ehMaster } = useMe();
   const admin = ehMaster();
   const fetchHm = useFetchHm(); // anexa ?produto= — o catálogo é recortado por board
+  const { portal, base, nome: nomePortal } = useProdutoHm(); // marca, título e volta do portal atual
   const [tags, setTags] = useState<Tag[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [novoNome, setNovoNome] = useState("");
@@ -117,14 +119,14 @@ export default function HmTagsPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <Link href="/hm/kanban" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+      <Link href={`${base}/kanban`} className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
         Voltar à esteira
       </Link>
 
       <div className="mb-1 flex items-center gap-2.5">
-        <MarcaPortal portal="hm" altura="h-7" comNome={false} />
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Tags · Holding Masters</h1>
+        <MarcaPortal portal={portal} altura="h-7" comNome={false} />
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Tags · {nomePortal}</h1>
       </div>
       <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
         Criar é de todos; renomear, recolorir e excluir propagam para todos os cards — por isso são do administrador do Grupo Participa.

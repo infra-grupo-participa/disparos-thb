@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 // GET /api/hm/contato/[id]/export — baixa a ficha completa do aluno em XLSX.
 // Lê exatamente a mesma ficha que a tela mostra (lib/services/hm-ficha), então a
 // planilha nunca diverge do drawer.
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: { id: string } }) {
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
@@ -24,7 +24,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
 
-  const ficha = await fichaHm(params.id);
+  // 0164: mesmo recorte de produto do GET da ficha. Sem isso o XLSX de um card do
+  // Aurum podia exportar a ficha do HM (a mesma pessoa tem card nos dois boards).
+  const pExp = (new URL(req.url).searchParams.get("produto") || "").toUpperCase();
+  const ficha = await fichaHm(params.id, pExp === "AURUM" || pExp === "ETHB" || pExp === "HM" ? pExp : null);
   if (!ficha) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
   const agora = new Date();

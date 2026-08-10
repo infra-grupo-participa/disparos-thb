@@ -72,7 +72,9 @@ export function AtividadeColaboradores({
         d.setDate(d.getDate() + 1);
         p.set("ate", d.toISOString().slice(0, 10));
       }
-      const r = await fetch(`${endpoint}?${p.toString()}`);
+      // `endpoint` pode já trazer query (?produto=AURUM, 0164) — respeita isso em vez
+      // de concatenar um segundo "?" e produzir uma URL inválida.
+      const r = await fetch(`${endpoint}${endpoint.includes("?") ? "&" : "?"}${p.toString()}`);
       const d = await r.json();
       if (d.ok) setLinhas(d.colaboradores);
       else {

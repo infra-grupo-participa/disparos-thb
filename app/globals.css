@@ -4,7 +4,54 @@
 
 :root {
   color-scheme: light;
+
+  /* ---------------------------------------------------------------------
+     Tema da marca por portal.
+
+     A paleta `brand` do Tailwind lê estas variáveis (ver tailwind.config.ts).
+     Os valores são triplas RGB sem vírgula de propósito: é o formato que o
+     `rgb(var(--brand-N) / <alpha-value>)` exige para que bg-brand/5,
+     ring-brand/40 e bg-brand-400/15 continuem funcionando.
+
+     O DEFAULT abaixo é EXATAMENTE o laranja que o sistema já usava
+     (paleta orange do Tailwind) — HT, SEM, HM, CNHF e ETHB não mudam nada.
+     Cada portal que quiser outra identidade declara um bloco
+     [data-tema="<id>"] logo abaixo; o atributo é posto no <html> pelo script
+     anti-flash do app/layout.tsx e mantido em sincronia pelo TopNav.
+     -------------------------------------------------------------------- */
+  --brand-50: 255 247 237;   /* #fff7ed */
+  --brand-100: 255 237 213;  /* #ffedd5 */
+  --brand-200: 254 215 170;  /* #fed7aa */
+  --brand-300: 253 186 116;  /* #fdba74 */
+  --brand-400: 251 146 60;   /* #fb923c */
+  --brand-500: 249 115 22;   /* #f97316 */
+  --brand-600: 234 88 12;    /* #ea580c */
+  --brand-700: 194 65 12;    /* #c2410c */
+  --brand-800: 154 52 18;    /* #9a3412 */
+  --brand-900: 124 45 18;    /* #7c2d12 */
+  --brand-DEFAULT: 234 88 12; /* #ea580c */
+  --brand-light: 249 115 22;  /* #f97316 */
 }
+
+/* Aurum — o portal premium é dourado, não laranja. Escala yellow/amber do
+   Tailwind, ancorada em #CA8A04 (yellow-600), a cor declarada para o portal
+   em lib/marcas.ts. Os degraus altos puxam para amber para não virar mostarda
+   apagada no modo escuro. */
+[data-tema="aurum"] {
+  --brand-50: 254 252 232;   /* #fefce8 */
+  --brand-100: 254 249 195;  /* #fef9c3 */
+  --brand-200: 254 240 138;  /* #fef08a */
+  --brand-300: 253 224 71;   /* #fde047 */
+  --brand-400: 250 204 21;   /* #facc15 */
+  --brand-500: 234 179 8;    /* #eab308 */
+  --brand-600: 202 138 4;    /* #ca8a04 */
+  --brand-700: 161 98 7;     /* #a16207 */
+  --brand-800: 133 77 14;    /* #854d0e */
+  --brand-900: 113 63 18;    /* #713f12 */
+  --brand-DEFAULT: 202 138 4; /* #ca8a04 — âncora da marca Aurum */
+  --brand-light: 234 179 8;   /* #eab308 */
+}
+
 .dark {
   color-scheme: dark;
 }

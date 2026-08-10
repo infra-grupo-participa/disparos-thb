@@ -2,6 +2,7 @@
 
 import { MarcaPortal } from "@/app/_components/marca";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { useMe } from "@/app/_components/use-me";
 import { AtividadeColaboradores } from "@/app/_components/atividade-colaboradores";
 
@@ -14,14 +15,15 @@ import { AtividadeColaboradores } from "@/app/_components/atividade-colaboradore
 export default function HmAtividadePage() {
   // podeDistribuir → a aba "Equipes" do alternador aparece para master e gestor.
   const { podeDistribuir } = useMe();
+  const { produto, portal, nome: nomePortal } = useProdutoHm(); // board, marca e título
 
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
-            <MarcaPortal portal="hm" altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Atividade · Holding Masters</h1>
+            <MarcaPortal portal={portal} altura="h-7" comNome={false} />
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Atividade · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             O que cada colaborador fez na esteira — movimentações, notas, disparos e as demais ações assinadas.
@@ -30,7 +32,9 @@ export default function HmAtividadePage() {
         <HmVisao atual="atividade" filtros={{}} podeConfig={podeDistribuir()} />
       </div>
 
-      <AtividadeColaboradores endpoint="/api/hm/atividade" />
+      {/* O board vai no endpoint (0164): sem `?produto=`, a Atividade do Aurum
+          mostrava o movimento do HM — esta tela não usa o useFetchHm. */}
+      <AtividadeColaboradores endpoint={produto === "HM" ? "/api/hm/atividade" : `/api/hm/atividade?produto=${produto}`} />
     </div>
   );
 }
