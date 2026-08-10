@@ -28,6 +28,21 @@ type Contato = {
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 type Formulario = { tipo: string; respostas: Record<string, string> | null; pontuacao: number | string | null; respondido_em: string | null };
 type Estagio = { chave: string; nome: string; aba: string | null };
+// Saldo do Aurum ETHB SP (0158). `saldo_a_pagar` vem null nas exceções
+// (gratuidade/cancelado/em revisão) — nesse caso mostra-se o rótulo, nunca um valor.
+type AurumSaldo = {
+  credito: number | string | null;
+  situacao: string;
+  excecao: boolean;
+  excecao_motivo: string | null;
+  obs: string | null;
+  ultima_oferta: string | null;
+  pacote_cheio: number | string;
+  entrada_paga: number | string;
+  base_saldo: number | string;
+  saldo_a_pagar: number | string | null;
+  rotulo_operador: string;
+};
 
 function fmt(iso: string | null) {
   return iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
@@ -49,6 +64,15 @@ function fromLocalInput(v: string): string | null {
 function numOu0(v: string | number | null | undefined): number {
   const n = typeof v === "string" ? Number(v) : v ?? 0;
   return Number.isFinite(n) ? (n as number) : 0;
+}
+
+// Valor em reais. Null vira travessão em vez de "R$ 0,00": no saldo do Aurum a
+// ausência de valor é informação (exceção / sem crédito), não zero.
+function brl(v: string | number | null | undefined): string {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = typeof v === "string" ? Number(v) : v;
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 const TL_ICONE: Record<string, { path: string; wrap: string }> = {
@@ -79,6 +103,9 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   const [pgParcelas, setPgParcelas] = useState(12);
   const [pgTotal, setPgTotal] = useState("");
   const [pgPago, setPgPago] = useState("");
+  // Saldo do Aurum ETHB SP (0158). Só vem preenchido para quem está na planilha do
+  // Victor — para o board HM fica null e o bloco nem aparece.
+  const [aurum, setAurum] = useState<AurumSaldo | null>(null);
 
   const recarregar = useCallback(async () => {
     const r = await fetch(`/api/hm/contato/${compradorId}`);
@@ -91,6 +118,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
       setFormularios(d.formularios ?? []);
       setReuniaoLocal(toLocalInput(d.contato.reuniao_em));
       setEntrevistaLocal(toLocalInput(d.contato.entrevista_em));
+      setAurum(d.aurumSaldo ?? null);
       // Sugestão do servidor para o bloco financeiro (15.000 quando a entrada
       // foi o sinal). O operador confere antes de confirmar.
       const sugestao = numOu0(d.financeiro?.valor_total) || numOu0(d.financeiro?.sugestao_valor_total);
@@ -268,6 +296,37 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
               )}
             </div>
           </Secao>
+
+          {/* Saldo do Aurum ETHB SP (0158) — só aparece para quem está na planilha do
+              Victor. É outra conta que a do HM: pacote de 60k com a entrada de 1k já
+              paga, menos o crédito pró-rata calculado fora do banco. */}
+          {aurum && (
+            <Secao titulo="Situação de saldo — Aurum ETHB SP">
+              {aurum.excecao ? (
+                // Exceção não tem número: cobrar aqui seria erro grave (a Iara ganhou
+                // gratuidade do Marcio; o Marcelo cancelou). Mostra o motivo e para.
+                <div className="rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                  <p className="font-medium">{aurum.rotulo_operador}</p>
+                  {aurum.obs && <p className="mt-1 text-amber-700/80 dark:text-amber-300/80">{aurum.obs}</p>}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-lg bg-slate-50 px-3 py-2.5 dark:bg-slate-800/50">
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Saldo a pagar</p>
+                    <p className="text-2xl font-semibold text-slate-800 dark:text-slate-100">{brl(aurum.saldo_a_pagar)}</p>
+                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{aurum.rotulo_operador}</p>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-4">
+                    <div><dt className="text-xs text-slate-500 dark:text-slate-400">Pacote</dt><dd className="text-slate-700 dark:text-slate-200">{brl(aurum.pacote_cheio)}</dd></div>
+                    <div><dt className="text-xs text-slate-500 dark:text-slate-400">Entrada paga</dt><dd className="text-slate-700 dark:text-slate-200">− {brl(aurum.entrada_paga)}</dd></div>
+                    <div><dt className="text-xs text-slate-500 dark:text-slate-400">Crédito pró-rata</dt><dd className="text-slate-700 dark:text-slate-200">− {brl(aurum.credito)}</dd></div>
+                    <div><dt className="text-xs text-slate-500 dark:text-slate-400">Base</dt><dd className="text-slate-700 dark:text-slate-200">{brl(aurum.base_saldo)}</dd></div>
+                  </dl>
+                  {aurum.obs && <p className="text-xs text-slate-500 dark:text-slate-400">{aurum.obs}</p>}
+                </div>
+              )}
+            </Secao>
+          )}
 
           {/* Pagamento do saldo (14.700) */}
           <Secao titulo={`Pagamento do saldo — ${SALDO_VALOR} (de R$ 15.000)`}>

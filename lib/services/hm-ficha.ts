@@ -14,6 +14,8 @@ export type FichaHm = {
   timeline: Record<string, unknown>[];
   formularios: Record<string, unknown>[];
   financeiro: Record<string, unknown> | null;
+  /** Saldo do Aurum ETHB SP (0158) — overlay por documento. Null se não for do Aurum. */
+  aurumSaldo: Record<string, unknown> | null;
   /** Todas as marcações de reunião/entrevista — inclusive as que foram remarcadas. */
   agendamentos: Record<string, unknown>[];
   /** O histórico de versões da ficha (0097) — como a planilha: ver e recuperar. */
@@ -112,6 +114,23 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
     [compradorId],
   );
 
+  // Saldo do AURUM ETHB SP (0158). Vem de outra fonte que o financeiro do HM: o
+  // pró-rata do Aurum é calculado fora do banco (planilha do Victor) e ingerido —
+  // por isso é um overlay por DOCUMENTO, não os campos valor_total/valor_pago do
+  // card, que pertencem ao pacote de 15k do HM. Null para quem não é do Aurum.
+  // `saldo_a_pagar` já vem NULL nas exceções (gratuidade/cancelado/revisar): a tela
+  // deve mostrar `rotulo_operador`, nunca cobrar um número que não existe.
+  const aurumSaldo = await queryOne(
+    `select a.nome, a.credito, a.situacao, a.excecao, a.excecao_motivo, a.obs,
+            a.ultima_oferta, a.ultima_compra_em, a.valor_pago as pago_na_compra_base,
+            a.pacote_cheio, a.entrada_paga, a.base_saldo, a.saldo_a_pagar, a.rotulo_operador
+       from cs.vw_aurum_saldo a
+       join public.compradores co
+         on regexp_replace(coalesce(co.documento,''), '[^0-9]', '', 'g') = a.documento
+      where co.id = $1`,
+    [compradorId],
+  );
+
   // Histórico de marcações (0064). A data vigente está no card; aqui está a
   // trilha — inclusive as marcações que caíram, que é o que revela o aluno que
   // remarca sem parar.
@@ -135,5 +154,5 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
     [compradorId],
   );
 
-  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, agendamentos, versoes };
+  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, aurumSaldo, agendamentos, versoes };
 }
