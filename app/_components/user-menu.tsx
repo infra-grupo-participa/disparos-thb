@@ -41,7 +41,7 @@ export default function UserMenu() {
   }
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative shrink-0" ref={ref}>
       <button
         onClick={() => setAberto((v) => !v)}
         className="flex items-center gap-2 rounded-lg p-1 pr-2 text-sm transition hover:bg-slate-100 dark:hover:bg-slate-800"

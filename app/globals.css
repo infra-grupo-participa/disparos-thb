@@ -101,6 +101,23 @@ h1, h2, h3 {
   @apply bg-brand-400/25 text-brand-100;
 }
 
+/* Barra de rolagem oculta, para tiras que rolam na horizontal (navegação do
+   topo, régua de canais). A rolagem continua existindo — só o traço some, que
+   no celular só ocupa altura útil. Não use em área de leitura longa: sem o
+   traço, o usuário perde a noção de que há mais conteúdo. */
+.rolagem-oculta {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rolagem-oculta::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Alvo de toque mínimo. O sistema é usado no celular pelo comercial em pé no
+   evento: botão de 20px de altura erra o dedo. Só vale onde NÃO há mouse — no
+   desktop os controles compactos continuam compactos. */
+@media (hover: none) and (pointer: coarse) {
+  .alvo-toque { min-height: 2.25rem; }
+}
+
 /* Scrollbar discreta */
 * {
   scrollbar-width: thin;

@@ -23,6 +23,11 @@ export type ProdutoBoard = "HM" | "AURUM" | "ETHB";
 
 const CANAIS_POR_PRODUTO: Record<ProdutoBoard, readonly string[]> = {
   HM: [
+    // As DUAS edições do pitch da entrada de R$697 (mesma oferta na Hotmart,
+    // lives de 09/08 e 10/08). Quem separa uma da outra é a janela de compra —
+    // ver migration 0167. Ficam lado a lado de propósito: a pergunta da operação
+    // hoje é "qual das duas lives converteu mais?".
+    "HT30 - 10-08",
     "HT30 - 09-08",
     "HT29 - 26-07",
     "Live Direto ao Ponto",
@@ -88,7 +93,9 @@ export function HmCanaisFixos({ contagem, ativos, onToggle, produto }: Props) {
             onClick={() => onToggle(canal)}
             title={`${canal} — ${n} venda(s); clique para ${eleAtivo ? "tirar do filtro" : "somar ao filtro"}`}
             className={cn(
-              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium transition",
+              // alvo-toque: no celular a régua é a forma mais rápida de filtrar
+              // o board, e um alvo de 20px de altura errava o dedo.
+              "alvo-toque inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium transition",
               eleAtivo
                 ? "bg-brand/10 text-brand dark:bg-brand-400/15 dark:text-brand-300"
                 : n > 0
