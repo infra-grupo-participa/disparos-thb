@@ -267,12 +267,12 @@ export default function CentralAjuda() {
     {
       id: "comecando",
       titulo: "Começando: portais e navegação",
-      busca: "portal portais trocar login senha sair menu busca ctrl k holding total seminario curso hm masters",
+      busca: "portal portais trocar login senha sair menu busca ctrl k holding total seminario hm masters aurum ethb",
       corpo: (
         <>
           <P>
             O sistema é dividido em <B>portais</B>, um para cada evento: <B>Holding Total (HT)</B>,{" "}
-            <B>Seminário</B>, <B>Curso de Holding (CNHF)</B> e <B>Holding Masters (HM)</B>. Cada portal é um
+            <B>Seminário</B>, <B>Holding Masters (HM)</B>, <B>Aurum</B> e <B>ETHB</B>. Cada portal é um
             espaço separado, com seus próprios contatos e telas — você está agora no portal <B>{nome}</B>.
           </P>
           <ul className="mt-3 space-y-1.5">
