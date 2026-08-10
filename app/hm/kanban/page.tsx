@@ -644,7 +644,10 @@ export default function HmKanbanPage() {
             {totalComercial + totalAtivacao} lead(s) — arraste os cards entre as etapas e para cima/baixo para ordenar a fila.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Wrap aqui também: são até 5 botões e, sem quebra, no celular eles
+            saíam pela direita da tela — "Disparo inteligente" e "Selecionar
+            todos" ficavam inalcançáveis. */}
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {/* Cadastrar à mão — só o master (admin do GP). Card é reflexo da Hotmart;
               colaborador não cria card à mão (30/07). */}
           {ehMaster() && (
@@ -818,7 +821,10 @@ export default function HmKanbanPage() {
                     <a
                       href={`/api/hm/kanban/export?${paramsFiltro.toString()}${paramsFiltro.toString() ? "&" : ""}estagio=${col.chave}`}
                       title={`Baixar o relatório de "${col.nome}"`}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-700 focus:opacity-100 group-hover/col:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                      // Sem mouse não existe hover: no celular este botão nunca
+                      // aparecia e o relatório da etapa era inacessível. Em tela
+                      // de toque ele nasce visível; no desktop segue discreto.
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-slate-200 hover:text-slate-700 focus:opacity-100 sm:opacity-0 sm:group-hover/col:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                     >
                       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>
                     </a>
