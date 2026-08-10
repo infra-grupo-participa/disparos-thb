@@ -662,12 +662,17 @@ export function HmDrawer({
                   três colunas de texto solto que ninguém conseguia filtrar. */}
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                  {jaPagou ? "Acordo do saldo (histórico)" : "Acordo do saldo"}
+                  {jaPagou && fin?.saldo_a_pagar_manual == null ? "Acordo do saldo (histórico)" : "Acordo do saldo"}
                 </p>
 
                 {/* Saldo e link só para quem ainda deve. Para quem já quitou, o
-                    pró-rata é história: mostrar "saldo a pagar" seria mentir. */}
-                {jaPagou ? (
+                    pró-rata é história: mostrar "saldo a pagar" seria mentir.
+                    EXCEÇÃO (0159): saldo informado à mão VENCE o "quitado". `jaPagou`
+                    é só `apto_ativacao`, e quem paga parcelado entra na Ativação
+                    DEVENDO — foi o caso da Quelen, cujo saldo pago em duas ofertas o
+                    cálculo automático dava como quitado. Esconder o valor informado
+                    faria o operador parar de cobrar as parcelas restantes. */}
+                {jaPagou && fin?.saldo_a_pagar_manual == null ? (
                   <p className="mb-2 rounded bg-emerald-50 px-2 py-1.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                     Saldo quitado{c.pagamento_em ? ` em ${fmt(c.pagamento_em)}` : ""}.
                   </p>
