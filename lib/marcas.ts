@@ -7,10 +7,18 @@
 // nenhuma marca é redesenhada ou imitada aqui — ou é o arquivo oficial, ou é a
 // sigla. Para ativar a logo de um evento, basta soltar o SVG em public/marcas/ e
 // apontar `logo` (e `logoRatio`, a proporção do desenho) para ele.
-export type PortalId = "ht" | "seminario" | "hm" | "curso" | "aurum" | "ethb";
+// O portal do CNHF (Curso Nacional de Formação em Holding Familiar) saiu do ar
+// em 10/08/2026, a pedido do Marcio: o time não trabalhava por ele e a tela só
+// pesava. Foi removida a SUPERFÍCIE — seleção de portal, whitelist e navegação.
+// Os dados e os jobs que alimentam os contatos do CNHF continuam intactos: são
+// 12.228 contatos, quase todos escritos na última semana, e a operação do evento
+// depende deles. Para reviver a tela, basta devolver "curso" aqui, em
+// EVENTO_DO_SLUG (app/page.tsx e app/[portal]/layout.tsx), no enum de
+// UsuarioPortaisSchema e na lista de app/usuarios.
+export type PortalId = "ht" | "seminario" | "hm" | "aurum" | "ethb";
 
 export type Marca = {
-  evento: "HT" | "SEM" | "HM" | "CNHF" | "AURUM" | "ETHB";
+  evento: "HT" | "SEM" | "HM" | "AURUM" | "ETHB";
   nome: string;
   sigla: string;
   cor: string;
@@ -55,16 +63,6 @@ export const PORTAIS: Record<PortalId, Marca> = {
     logoRatio: [1686, 840],
     logoNegativa: true,
   },
-  curso: {
-    evento: "CNHF",
-    nome: "Curso de Holding",
-    sigla: "CNHF",
-    cor: "#7C3AED",
-    desc: "Curso Nacional de Formação em Holding Familiar — jornada dos inscritos, do lead à matrícula.",
-    gradiente: "from-violet-600 to-purple-400",
-    logo: null, // → public/marcas/curso.svg (enquanto não houver, cai no monograma "CFH")
-    logoRatio: null,
-  },
   aurum: {
     evento: "AURUM",
     nome: "Aurum",
@@ -100,7 +98,6 @@ export function portalDoPath(pathname: string | null | undefined): PortalId {
   const seg = (pathname || "").split("/").filter(Boolean)[0];
   if (seg === "seminario") return "seminario";
   if (seg === "hm") return "hm";
-  if (seg === "curso") return "curso";
   if (seg === "aurum") return "aurum";
   if (seg === "ethb") return "ethb";
   return "ht";

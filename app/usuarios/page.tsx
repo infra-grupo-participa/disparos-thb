@@ -7,7 +7,7 @@ import { PageFade } from "@/app/_components/anim";
 import { LegendaNiveis, SeloNivel } from "@/app/_components/selo-nivel";
 
 type Papel = "admin" | "disparador" | "operador";
-type Portal = "HT" | "SEM" | "CNHF" | "HM" | "AURUM" | "ETHB";
+type Portal = "HT" | "SEM" | "HM" | "AURUM" | "ETHB";
 type Usuario = {
   id: string; nome: string; email: string; papel: Papel; ativo: boolean; criado_em: string; portais: Portal[];
   // Campos de equipe que o NÍVEL efetivo (lib/papeis.nivelDe) precisa. O GET
@@ -24,7 +24,7 @@ type Usuario = {
 const PORTAIS: { id: Portal; label: string }[] = [
   { id: "HT", label: "Holding Total" },
   { id: "SEM", label: "Seminário" },
-  { id: "CNHF", label: "Curso" },
+  // "Curso" (CNHF) saiu em 10/08/2026 — ver o cabeçalho de lib/marcas.ts.
   { id: "HM", label: "Holding Masters" },
   { id: "AURUM", label: "Aurum" },
   { id: "ETHB", label: "ETHB" },

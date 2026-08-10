@@ -7,7 +7,10 @@ export type Papel = "admin" | "disparador" | "operador";
 // Eventos de ativação tocados por SDR: nesses, o operador comum TAMBÉM dispara —
 // a abordagem outbound é o trabalho dele. Nos demais (HT carro-chefe, HM), o
 // disparo segue restrito a admin/disparador.
-export const EVENTOS_SDR: readonly string[] = ["SEM", "CNHF"];
+// CNHF saiu daqui em 10/08/2026 junto com o portal (ver lib/marcas.ts). Ficou
+// só o Seminário: sem tela, ninguém dispara pelo CNHF de qualquer forma, e
+// deixar o evento na lista prometeria um direito que não tem mais porta.
+export const EVENTOS_SDR: readonly string[] = ["SEM"];
 
 // Fonte única de "pode efetuar disparos", usada pelo backend (/api/send) e pelo
 // gating de UI. admin/disparador disparam em tudo; operador só nos eventos de SDR.

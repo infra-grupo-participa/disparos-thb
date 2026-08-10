@@ -63,7 +63,10 @@ export const UsuarioPatchSchema = z.object({
 
 // Portais que a conta pode acessar (0145) — a whitelist inteira de uma vez.
 export const UsuarioPortaisSchema = z.object({
-  portais: z.array(z.enum(["HT", "SEM", "CNHF", "HM", "AURUM", "ETHB"])),
+  // "CNHF" saiu do enum em 10/08/2026 (ver lib/marcas.ts). A migration 0170
+  // limpou a whitelist das 16 contas que o tinham — sem isso, salvar qualquer
+  // uma delas passaria a ser recusado aqui.
+  portais: z.array(z.enum(["HT", "SEM", "HM", "AURUM", "ETHB"])),
 });
 
 // Cor em hex (#rrggbb) — usada por equipes (0140) e pelo catálogo de tags.
