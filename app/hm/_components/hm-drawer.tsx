@@ -81,6 +81,22 @@ type Prorata = {
   consumido: string | null; credito: string | null; saldo_a_pagar: string | null;
 };
 type LinkSaldo = { codigo: string; valor: string; recorrente: boolean; link: string };
+// Saldo do Aurum ETHB SP (0158): crédito pró-rata calculado FORA do banco (planilha
+// do Victor) e ingerido. `saldo_a_pagar` vem null nas exceções (gratuidade,
+// cancelado, em revisão) — nesse caso mostra-se o rótulo, nunca um valor.
+type AurumSaldoDrawer = {
+  credito: string | null;
+  situacao: string;
+  excecao: boolean;
+  excecao_motivo: string | null;
+  obs: string | null;
+  ultima_oferta: string | null;
+  pacote_cheio: string;
+  entrada_paga: string;
+  base_saldo: string;
+  saldo_a_pagar: string | null;
+  rotulo_operador: string;
+};
 // O sócio tem checklist próprio — ele também é ativado, pendurado no titular.
 // `aluno_id` preenchido = já foi provisionado na base THB.
 type Socio = {
@@ -195,6 +211,9 @@ export function HmDrawer({
   // (pagamento/valor/saldo manual removidos em 30/07: dados de transação vêm da Hotmart)
   // acordo do saldo + ativação (rascunho local; só grava no OK/blur)
   const [prorata, setProrata] = useState<Prorata | null>(null);
+  // Saldo do Aurum (0158) + saldo cheio do board (14.700 no HM, 59.000 no Aurum).
+  const [aurum, setAurum] = useState<AurumSaldoDrawer | null>(null);
+  const [saldoCheio, setSaldoCheio] = useState<string | null>(null);
   const [links, setLinks] = useState<LinkSaldo[]>([]);
   const [acordo, setAcordo] = useState("");
   const [previsao, setPrevisao] = useState("");
@@ -228,6 +247,8 @@ export function HmDrawer({
       setEntrevista(toLocalInput(d.contato.entrevista_em));
       setFin(d.financeiro ?? null);
       setProrata(d.prorata ?? null);
+      setAurum(d.aurumSaldo ?? null);
+      setSaldoCheio(d.saldoCheio ?? null);
       setLinks(d.linksSaldo ?? []);
       setSocios(d.socios ?? []);
       setAgendamentos(d.agendamentos ?? []);
@@ -684,6 +705,30 @@ export function HmDrawer({
                       (informado{fin.saldo_a_pagar_manual_por ? ` por ${fin.saldo_a_pagar_manual_por}` : ""}{fin.saldo_a_pagar_manual_em ? ` em ${fmt(fin.saldo_a_pagar_manual_em)}` : ""})
                     </span>
                   </p>
+                ) : aurum ? (
+                  // AURUM (0158): o crédito vem da planilha do Victor, já ingerido —
+                  // o comercial abre o card com a conta pronta, sem consultar planilha.
+                  // Exceção (gratuidade/cancelado/revisar) não tem valor: mostra o motivo.
+                  aurum.excecao ? (
+                    <p className="mb-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                      {aurum.rotulo_operador}
+                      {aurum.obs ? <><br /><span className="font-normal">{aurum.obs}</span></> : null}
+                    </p>
+                  ) : (
+                    <p className="mb-2 rounded bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+                      {num(aurum.credito) > 0 ? (
+                        <>Crédito pró-rata: <strong>{brl(num(aurum.credito))}</strong>{" · "}</>
+                      ) : (
+                        <>Sem crédito a abater{" · "}</>
+                      )}
+                      saldo a pagar: <strong>{brl(num(aurum.saldo_a_pagar))}</strong>
+                      <br />
+                      <span className="text-slate-400 dark:text-slate-500">
+                        Pacote {brl(num(aurum.pacote_cheio))} − entrada {brl(num(aurum.entrada_paga))} = {brl(num(aurum.base_saldo))}
+                        {aurum.ultima_oferta ? ` · crédito sobre: ${aurum.ultima_oferta}` : ""}
+                      </span>
+                    </p>
+                  )
                 ) : prorata?.saldo_a_pagar ? (
                   <p className="mb-2 rounded bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
                     Crédito pró-rata: <strong>{brl(num(prorata.credito))}</strong> ({prorata.dias_restantes} dias não usados)
@@ -694,7 +739,8 @@ export function HmDrawer({
                     </span>
                   </p>
                 ) : (
-                  <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">Saldo cheio: {brl(14700)}</p>
+                  // Saldo cheio do BOARD, não 14.700 fixo: no Aurum são 59.000 (0158).
+                  <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">Saldo cheio: {brl(num(saldoCheio) || 14700)}</p>
                 )}
 
                 {/* Saldo a pagar manual removido (30/07): o saldo é calculado pelo
@@ -1148,7 +1194,9 @@ export function HmDrawer({
 
               {!jaPagou && !somenteLeitura && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Saldo — R$ 14.700</p>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                    Saldo — {brl(num(aurum?.saldo_a_pagar) || num(saldoCheio) || 14700)}
+                  </p>
                   {/* Pagamento NÃO é mais lançado à mão (30/07): quem confirma a venda é a
                       Hotmart. Ao aprovar o pagamento do saldo, o card entra sozinho na
                       Ativação. Aqui só o link do checkout e a orientação. */}
@@ -1158,7 +1206,17 @@ export function HmDrawer({
                       do saldo ao aluno; assim que ele pagar, o card vai sozinho para a Ativação
                       (Pendente de Liberação) e o aluno é criado na base. Não há lançamento manual.
                     </p>
-                    <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
+                    {/* O checkout fixo é a oferta do HM (2vibw97m). No card do AURUM
+                        ele mandaria o aluno pagar o saldo ERRADO — some até o Aurum
+                        ter link próprio cadastrado (o comercial combina o pagamento
+                        pelo valor que o card já mostra). */}
+                    {aurum ? (
+                      <p className="text-[11px] text-amber-800/80 dark:text-amber-200/80">
+                        O Aurum ainda não tem link de checkout próprio — combine o pagamento pelo valor acima.
+                      </p>
+                    ) : (
+                      <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
+                    )}
                   </div>
                 </div>
               )}

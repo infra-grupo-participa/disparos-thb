@@ -16,6 +16,8 @@ export type FichaHm = {
   financeiro: Record<string, unknown> | null;
   /** Saldo do Aurum ETHB SP (0158) — overlay por documento. Null se não for do Aurum. */
   aurumSaldo: Record<string, unknown> | null;
+  /** Saldo cheio do BOARD, em reais (10/08): 59.000 no Aurum, 14.700 no HM. */
+  saldoCheio: string | null;
   /** Todas as marcações de reunião/entrevista — inclusive as que foram remarcadas. */
   agendamentos: Record<string, unknown>[];
   /** O histórico de versões da ficha (0097) — como a planilha: ver e recuperar. */
@@ -43,13 +45,25 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
             k.hotmart_status, k.hotmart_status_em, k.canal_aquisicao,
             k.rev_searchie, k.rev_comunidade, k.rev_grupo, k.rev_pesquisa,
             k.acessos_revogados_em, k.acessos_revogados_por, k.acessos_a_remover, k.aluno_id,
-            k.tags, k.observacoes, k.criado_em
+            k.tags, k.observacoes, k.criado_em, ch.produto
        from cs.contatos_hm_kanban k
        join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
       where k.comprador_id = $1`,
     [compradorId],
   );
   if (!contato) return null;
+
+  // SALDO CHEIO DO BOARD (10/08). Era 14.700 fixo no front — número do HM, que o
+  // card do AURUM exibia errado (lá o pacote é 60.000 com 1.000 de entrada, logo
+  // 59.000 de saldo). Agora vem do banco por produto: cs.aurum_parametros para o
+  // Aurum (0158), e a regra histórica do HM (15.000 − sinal de 300) para o resto.
+  const produtoCard = (contato as unknown as { produto?: string | null }).produto ?? "HM";
+  const saldoCheio = produtoCard === "AURUM"
+    ? await queryOne<{ valor: string }>(
+        `select ((select valor from cs.aurum_parametros where chave='pacote_cheio')
+               - (select valor from cs.aurum_parametros where chave='entrada'))::text as valor`,
+      )
+    : { valor: "14700" };
 
   // Sócios convidados (aba "SÓCIOS T39"). `aluno_id` preenchido = já está na base.
   const socios = await query(
@@ -74,7 +88,7 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
   // Link de saldo sugerido: cada valor de saldo tem sua própria oferta na Hotmart
   // (o desconto do pró-rata vem embutido no valor — 0049). Sabendo o saldo, o
   // sistema escolhe o link certo em vez de o operador procurar numa aba de planilha.
-  const alvo = (prorata as { saldo_a_pagar?: string } | null)?.saldo_a_pagar ?? "14700";
+  const alvo = (prorata as { saldo_a_pagar?: string } | null)?.saldo_a_pagar ?? saldoCheio?.valor ?? "14700";
   const linksSaldo = await query(
     `select distinct on (recorrente) codigo, valor, recorrente, link
        from cs.hm_ofertas_saldo
@@ -154,5 +168,6 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
     [compradorId],
   );
 
-  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, aurumSaldo, agendamentos, versoes };
+  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, aurumSaldo,
+           saldoCheio: saldoCheio?.valor ?? null, agendamentos, versoes };
 }

@@ -328,8 +328,12 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
             </Secao>
           )}
 
-          {/* Pagamento do saldo (14.700) */}
-          <Secao titulo={`Pagamento do saldo — ${SALDO_VALOR} (de R$ 15.000)`}>
+          {/* Pagamento do saldo. O título é do BOARD (10/08): no Aurum são 59.000 de
+              saldo sobre um pacote de 60.000 — exibir "14.700 de 15.000" ali é número
+              de outro produto. */}
+          <Secao titulo={aurum
+            ? `Pagamento do saldo — ${brl(aurum.base_saldo)} (de ${brl(aurum.pacote_cheio)})`
+            : `Pagamento do saldo — ${SALDO_VALOR} (de R$ 15.000)`}>
             {jaPagou ? (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
