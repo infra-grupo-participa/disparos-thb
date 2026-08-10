@@ -66,11 +66,25 @@ export async function GET(req: Request) {
             -- o comercial não decide quanto cobrar, o card avisa em vez de mentir.
             (cd.comprador_id is not null) as conferir_saldo,
             um.descricao as ultima_msg,
-            me.criado_em as entrou_estagio_em
+            me.criado_em as entrou_estagio_em,
+            -- A MESMA pessoa nos OUTROS boards (0164): o operador do Aurum precisa
+            -- saber que ela já está em "Acesso Liberado" no HM antes de abordar como
+            -- se fosse contato novo. Vem como texto pronto ("HM: Entrevista
+            -- Finalizada") porque o card só tem espaço para um selo.
+            op.resumo as outros_portais
        from cs.contatos_hm_kanban k
-       join cs.contatos_hm ch2 on ch2.comprador_id = k.comprador_id
-       left join cs.vw_hm_financeiro fin on fin.comprador_id = k.comprador_id
+       -- 0163: com card por PESSOA × PRODUTO, casar por comprador_id multiplica as
+       -- linhas (quem tem card no HM e no Aurum voltava 2x, com o financeiro do board
+       -- errado). O join é pelo CARD.
+       join cs.contatos_hm ch2 on ch2.id = k.contato_hm_id
+       left join cs.vw_hm_financeiro fin on fin.contato_hm_id = k.contato_hm_id
        left join cs.vw_hm_credito_duplo cd on cd.comprador_id = k.comprador_id
+       left join lateral (
+         select string_agg(o.outro_produto || ': ' || coalesce(o.outro_estagio, '?'), ' · '
+                           order by o.outro_produto) as resumo
+           from cs.vw_card_outros_portais o
+          where o.contato_hm_id = k.contato_hm_id
+       ) op on true
        left join lateral (
          select i.descricao from cs.interacoes i
           where i.contato_hm_id = k.contato_hm_id

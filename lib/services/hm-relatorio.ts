@@ -261,11 +261,14 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             coalesce(dup.cpf_confere, false) as duplicado_cpf_confere,
             coalesce(dup.outros_emails, '{}'::text[]) as duplicado_emails
        from cs.contatos_hm_kanban k
-       join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
+       -- 0163/0164: card é por PESSOA × PRODUTO. Casar por comprador_id duplicaria a
+       -- linha de quem tem card no HM e no Aurum — e traria o financeiro do outro
+       -- board. Junta-se pelo CARD.
+       join cs.contatos_hm ch on ch.id = k.contato_hm_id
        left join cs.estagios est on est.id = k.estagio_id
        left join cs.vw_compradores_duplicados dup on dup.comprador_id = k.comprador_id
        left join lateral cs.fn_hm_prorata(k.comprador_id) pr on true
-       left join cs.vw_hm_financeiro fin on fin.comprador_id = k.comprador_id
+       left join cs.vw_hm_financeiro fin on fin.contato_hm_id = k.contato_hm_id
        left join lateral (
          select count(*)::int as qtd from cs.hm_socios s where s.contato_hm_id = ch.id
        ) so on true

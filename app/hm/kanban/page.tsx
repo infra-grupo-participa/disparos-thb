@@ -61,6 +61,9 @@ type Card = {
   conferir_saldo: boolean;
   ultima_msg: string | null;
   entrou_estagio_em: string | null;
+  /** A MESMA pessoa nos outros boards (0164), pronto para exibir:
+   *  "HM: Entrevista Finalizada". Null = ela só existe neste portal. */
+  outros_portais: string | null;
 };
 type Coluna = { chave: string; nome: string; cor: string; aba: string | null };
 
@@ -1559,6 +1562,18 @@ function CardItem({
             >
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
               conferir saldo
+            </span>
+          )}
+          {/* A MESMA pessoa em outro board (0164). O operador do Aurum precisa saber
+              que ela já está em "Acesso Liberado" no HM antes de abordar como contato
+              novo — e vice-versa. Indigo para não competir com os alertas (âmbar). */}
+          {card.outros_portais && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"
+              title={`A mesma pessoa em outro board — ${card.outros_portais}`}
+            >
+              <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12 19" /></svg>
+              <span className="truncate">{card.outros_portais}</span>
             </span>
           )}
           {/* Recompra, categoria de entrada e parcela/pago são contexto, não

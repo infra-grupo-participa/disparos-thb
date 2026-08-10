@@ -6,6 +6,7 @@ import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial, Avatar } from "@/app/_components/avatar";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { origemRecompra, SeloRecompra } from "@/app/hm/_components/card-sinais";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 // Checkout Hotmart do saldo do HM (R$ 14.700 de 15.000) — oferta 2vibw97m.
 // No próprio checkout o cliente escolhe à vista ou parcelado.
@@ -85,6 +86,7 @@ const TL_ICONE: Record<string, { path: string; wrap: string }> = {
 export default function HmFichaPage({ params }: { params: { id: string } }) {
   const compradorId = params.id;
   const { me, podeDistribuir, ehCardDeColega } = useMe();
+  const { produto: produtoBoard } = useProdutoHm(); // 0164: qual card abrir
   const [c, setC] = useState<Contato | null>(null);
   // 403 no GET (ex.: link direto para um card cancelado — só o master acessa):
   // guarda o MOTIVO para a tela não mentir "aluno não encontrado".
@@ -108,7 +110,8 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   const [aurum, setAurum] = useState<AurumSaldo | null>(null);
 
   const recarregar = useCallback(async () => {
-    const r = await fetch(`/api/hm/contato/${compradorId}`);
+    // 0164: sem o produto, quem tem card em 2 boards abriria um deles ao acaso.
+    const r = await fetch(`/api/hm/contato/${compradorId}?produto=${produtoBoard}`);
     const d = await r.json().catch(() => ({}));
     if (!d.ok) setErroAcesso(msgErroPermissao(d?.reason));
     if (d.ok) {
@@ -128,7 +131,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
       }
     }
     setCarregando(false);
-  }, [compradorId]);
+  }, [compradorId, produtoBoard]);
 
   useEffect(() => { recarregar(); }, [recarregar]);
   useEffect(() => {

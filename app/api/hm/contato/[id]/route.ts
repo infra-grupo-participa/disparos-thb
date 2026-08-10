@@ -12,6 +12,10 @@ export const runtime = "nodejs";
 // em lib/services/hm-ficha — o mesmo lugar de onde sai o XLSX exportado, para a
 // planilha e a tela nunca contarem histórias diferentes.
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  // 0164: a mesma pessoa pode ter card em HM e AURUM — sem o produto a ficha abriria
+  // um dos dois ao acaso. O front manda ?produto= (useFetchHm) nos boards novos.
+  const pRaw = (new URL(_req.url).searchParams.get("produto") || "").toUpperCase();
+  const produtoFicha = pRaw === "AURUM" || pRaw === "ETHB" || pRaw === "HM" ? pRaw : null;
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
@@ -28,7 +32,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
 
-  const ficha = await fichaHm(params.id);
+  const ficha = await fichaHm(params.id, produtoFicha);
   if (!ficha) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
   return NextResponse.json({ ok: true, ...ficha });

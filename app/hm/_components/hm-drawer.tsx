@@ -11,6 +11,7 @@ import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import { origemRecompra, SeloRecompra } from "@/app/hm/_components/card-sinais";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
 
@@ -197,6 +198,8 @@ export function HmDrawer({
 }) {
   const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
+  // 0164: a mesma pessoa pode ter card em 2 boards — a ficha precisa saber QUAL abrir.
+  const { produto: produtoBoard } = useProdutoHm();
   const [c, setC] = useState<Contato | null>(null);
   // O GET pode ser RECUSADO (403 cancelamento_so_admin_gp num link colado, sessão
   // caída…). Sem este estado o drawer ficava no "Carregando…" para sempre.
@@ -233,7 +236,7 @@ export function HmDrawer({
   const rascunhoIniciado = useRef<string | null>(null);
 
   const recarregar = useCallback(async () => {
-    const r = await fetch(`/api/hm/contato/${compradorId}`);
+    const r = await fetch(`/api/hm/contato/${compradorId}?produto=${produtoBoard}`);
     const d = await r.json().catch(() => ({}));
     if (!d.ok) {
       setErroCarga(msgErroPermissao(d?.reason) ?? "Não foi possível abrir esta ficha. Tente de novo.");
@@ -266,7 +269,7 @@ export function HmDrawer({
         rascunhoIniciado.current = compradorId;
       }
     }
-  }, [compradorId]);
+  }, [compradorId, produtoBoard]);
   useEffect(() => { setC(null); setErroCarga(null); recarregar(); }, [recarregar]);
   useEffect(() => {
     fetch("/api/hm/tags").then((r) => r.json()).then((d) => { if (d.ok) setCatalogoTags(d.tags); }).catch(() => {});

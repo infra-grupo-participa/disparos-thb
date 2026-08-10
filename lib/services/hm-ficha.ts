@@ -25,7 +25,12 @@ export type FichaHm = {
 };
 
 // Retorna null quando o comprador não tem card HM.
-export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
+//
+// `produto` (0164): desde a 0163 a mesma pessoa pode ter card em HM e AURUM. A ficha
+// é aberta por comprador_id, então SEM o produto o queryOne devolveria um card ao
+// acaso — clicar no card do Aurum podia abrir a ficha do HM. Quando o produto não vem
+// (rotas antigas), cai no card mais antigo, que é o comportamento histórico.
+export async function fichaHm(compradorId: string, produto?: string | null): Promise<FichaHm | null> {
   // `responsavel_id` (+ equipe, da view 0140) e `atribuicao_admin` (0142, só na
   // tabela — a view do kanban não a expõe) entram na ficha porque o front
   // decide com eles entre "Assumir", leitura e o cadeado da trava do admin.
@@ -48,8 +53,11 @@ export async function fichaHm(compradorId: string): Promise<FichaHm | null> {
             k.tags, k.observacoes, k.criado_em, ch.produto
        from cs.contatos_hm_kanban k
        join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
-      where k.comprador_id = $1`,
-    [compradorId],
+      where k.comprador_id = $1
+        and ($2::text is null or ch.produto = $2)
+      order by ch.criado_em asc
+      limit 1`,
+    [compradorId, produto ?? null],
   );
   if (!contato) return null;
 
