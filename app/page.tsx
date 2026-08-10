@@ -42,13 +42,18 @@ export default async function SelecaoPortal({ searchParams }: { searchParams: { 
         </p>
       ) : (
       <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
-        {visiveis.map((id) => {
+        {visiveis.map((id, i) => {
           const p = PORTAIS[id];
+          // Contagem ímpar deixava o último card sozinho em meia largura, com um
+          // buraco ao lado. Ele passa a ocupar a linha inteira. Vale para
+          // qualquer número: o operador que só enxerga um portal vê um card
+          // cheio, e não um card torto.
+          const orfao = visiveis.length % 2 === 1 && i === visiveis.length - 1;
           return (
             <Link
               key={id}
               href={`/${id}/kanban`}
-              className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:shadow-pop dark:border-slate-800 dark:bg-slate-900"
+              className={`group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-card transition hover:-translate-y-0.5 hover:shadow-pop dark:border-slate-800 dark:bg-slate-900${orfao ? " sm:col-span-2" : ""}`}
             >
               <span className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${p.gradiente}`} aria-hidden />
               {/* A marca do evento é o rosto do card: com logo oficial, ela ocupa
