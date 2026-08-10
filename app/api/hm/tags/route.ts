@@ -6,10 +6,14 @@ import { listarTagsHm, criarTagHm } from "@/lib/services/hm-tags";
 export const runtime = "nodejs";
 
 // GET /api/hm/tags — o catálogo (nome, cor, tipo, quantos cards usam).
-export async function GET() {
+export async function GET(req: Request) {
   const g = await guard({ portal: "HM" });
   if (!g.ok) return g.res;
-  return NextResponse.json({ ok: true, tags: await listarTagsHm() });
+  // Board do produto (0155/10-08): o catálogo é único, mas cada portal só lista as
+  // tags que valem NELE — senão o Aurum mostra "HT ATM", "Origem T35" etc.
+  const p = (new URL(req.url).searchParams.get("produto") || "HM").toUpperCase();
+  const produto = p === "AURUM" || p === "ETHB" ? (p as "AURUM" | "ETHB") : "HM";
+  return NextResponse.json({ ok: true, tags: await listarTagsHm(produto) });
 }
 
 // POST /api/hm/tags — cria uma tag livre. Qualquer papel: criar tag é gesto do

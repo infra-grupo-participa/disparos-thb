@@ -21,13 +21,28 @@ export type TagCatalogo = {
   usos: number;
 };
 
-export async function listarTagsHm(): Promise<TagCatalogo[]> {
+// `produto` recorta o CATÁLOGO ao board (10/08): o catálogo `cs.tags` é único para
+// HM/Aurum/ETHB (todos com evento='HM'), então sem recorte o portal do Aurum listava
+// tag que só existe no HM — e com a contagem de usos do HM inteiro.
+//
+// Regra: a tag entra se estiver em uso NESTE board (usos > 0) ou se for 'livre' e
+// ainda não usada em lugar nenhum (tag recém-criada precisa aparecer para ser usada).
+// Tag de sistema em uso só no OUTRO board fica de fora — é o vazamento.
+export async function listarTagsHm(produto: "HM" | "AURUM" | "ETHB" = "HM"): Promise<TagCatalogo[]> {
   return query<TagCatalogo>(
-    `select t.id, t.nome, t.cor, t.tipo,
-            (select count(*)::int from cs.contatos_hm ch where t.nome = any(ch.tags)) as usos
-       from cs.tags t
-      where t.evento = 'HM'
-      order by t.tipo desc, t.nome`,
+    `with c as (
+       select t.id, t.nome, t.cor, t.tipo,
+              (select count(*)::int from cs.contatos_hm ch
+                where ch.produto = $1 and t.nome = any(ch.tags)) as usos,
+              (select count(*)::int from cs.contatos_hm ch2
+                where t.nome = any(ch2.tags)) as usos_global
+         from cs.tags t
+        where t.evento = 'HM'
+     )
+     select id, nome, cor, tipo, usos from c
+      where usos > 0 or (tipo = 'livre' and usos_global = 0)
+      order by tipo desc, nome`,
+    [produto],
   );
 }
 

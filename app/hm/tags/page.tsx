@@ -6,6 +6,7 @@ import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { TagChip } from "@/app/_components/tags";
 import { useMe } from "@/app/_components/use-me";
 import { MarcaPortal } from "@/app/_components/marca";
+import { useFetchHm } from "@/app/hm/_components/api-produto";
 
 // Gestão do catálogo de tags do HM (cs.tags, 0067). Criar é de todos; renomear,
 // recolorir e excluir são de admin, porque propagam para TODOS os cards — o
@@ -26,6 +27,7 @@ export default function HmTagsPage() {
   // do MASTER — admin de equipe comum não gere catálogo global. Criar é de todos.
   const { ehMaster } = useMe();
   const admin = ehMaster();
+  const fetchHm = useFetchHm(); // anexa ?produto= — o catálogo é recortado por board
   const [tags, setTags] = useState<Tag[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [novoNome, setNovoNome] = useState("");
@@ -37,13 +39,13 @@ export default function HmTagsPage() {
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const r = await fetch("/api/hm/tags");
+      const r = await fetchHm("/api/hm/tags");
       const d = await r.json();
       if (d.ok) setTags(d.tags);
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [fetchHm]);
   useEffect(() => { carregar(); }, [carregar]);
 
   async function criar() {

@@ -714,7 +714,7 @@ export default function HmKanbanPage() {
           <MultiSelect rotulo="Operador" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
         )}
         {canais.length > 0 && (
-          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
+          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais, produto)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
         )}
         {turmas.length > 0 && (
           <MultiSelect rotulo="Turma" grupos={[{ label: null, itens: turmas }]} selecionadas={filtroTurma} onChange={setFiltroTurma} />
@@ -736,6 +736,7 @@ export default function HmKanbanPage() {
         contagem={canaisQtd}
         ativos={filtroCanal}
         onToggle={(c) => setFiltroCanal((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
+        produto={produto}
       />
 
       {/* Recarga falhou COM cards na tela (ex.: logo após mover um card): o

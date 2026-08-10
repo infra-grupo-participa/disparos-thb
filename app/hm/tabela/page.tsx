@@ -10,12 +10,13 @@ import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { HmDrawer } from "@/app/hm/_components/hm-drawer";
 import { HmCadastroModal } from "@/app/hm/_components/hm-cadastro";
 import { HmVisao } from "@/app/hm/_components/hm-visao";
-import { CANAIS_FIXOS, gruposCanal, HmCanaisFixos } from "@/app/hm/_components/hm-canais";
+import { canaisFixosDo, gruposCanal, HmCanaisFixos, type ProdutoBoard } from "@/app/hm/_components/hm-canais";
 import { MultiSelect } from "@/app/_components/multi-select";
 import { ContatoDoNome } from "@/app/_components/copiavel";
 import { DisparoModal } from "@/app/_components/disparo";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
@@ -55,7 +56,12 @@ const RESULTADOS = ["Aguardando retorno", "Agendada", "Realizada", "Realizada/pa
 // A "Origem" da linha exibe SÓ os 5 eventos fixados (decisão de 14/07 — Imersão
 // POA, HT26 etc. ficam de fora). A tag continua no card (o popup de tags e a
 // coluna Tags mostram tudo); aqui é a leitura de negócio, não o inventário.
-const canalDe = (tags: string[]) => tags.filter((t) => (CANAIS_FIXOS as readonly string[]).includes(t));
+// Recebe o produto (10/08): a lista de canais é POR BOARD — no Aurum, "Origem" só
+// pode mostrar canal do Aurum, nunca HT29/HT ATM (que são do HM).
+const canalDe = (tags: string[], produto?: ProdutoBoard | null) => {
+  const fixos = canaisFixosDo(produto);
+  return tags.filter((t) => fixos.includes(t));
+};
 
 // O checklist com as MESMAS palavras do board (lib/services/hm) — quando a trava
 // recusar a entrada em "Ativação Realizada", o que falta se lê igual nas duas telas.
@@ -393,6 +399,7 @@ const PRESETS: Record<VisaoId, string[]> = {
 // --------------------------------------------------------------------- página
 export default function HmTabelaPage() {
   const fetchHm = useFetchHm(); // esteira multi-produto (0155)
+  const { produto } = useProdutoHm(); // board atual: recorta os canais (10/08)
   const { me, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   // Linha em Reclamada/Reembolsado é SÓ do master (o backend devolve 403 no GET
@@ -1203,9 +1210,9 @@ export default function HmTabelaPage() {
     // venda veio. É fato derivado — quem muda canal é tag, não célula.
     origem: {
       id: "origem", label: "Origem",
-      sortVal: (l) => canalDe(l.tags)[0] ?? null,
+      sortVal: (l) => canalDe(l.tags, produto)[0] ?? null,
       render: (l) => {
-        const cs = canalDe(l.tags);
+        const cs = canalDe(l.tags, produto);
         return cs.length
           ? <span className="flex max-w-[16rem] flex-wrap gap-1">{cs.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} />)}</span>
           : <span>—</span>;
@@ -1535,7 +1542,7 @@ export default function HmTabelaPage() {
           <MultiSelect rotulo="Operador" grupos={[{ label: null, itens: responsaveis }]} selecionadas={filtroResp} onChange={setFiltroResp} />
         )}
         {canais.length > 0 && (
-          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
+          <MultiSelect rotulo="Canal" grupos={gruposCanal(canais, produto)} selecionadas={filtroCanal} onChange={setFiltroCanal} />
         )}
         {turmas.length > 0 && (
           <MultiSelect rotulo="Turma" grupos={[{ label: null, itens: turmas }]} selecionadas={filtroTurma} onChange={setFiltroTurma} />
@@ -1556,6 +1563,7 @@ export default function HmTabelaPage() {
         contagem={canaisQtd}
         ativos={filtroCanal}
         onToggle={(c) => setFiltroCanal((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
+        produto={produto}
       />
 
       {/* Lentes: o que está ERRADO com as pessoas, não onde elas estão. Uma faixa

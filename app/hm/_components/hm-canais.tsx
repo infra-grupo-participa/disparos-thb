@@ -13,15 +13,37 @@ import { cn } from "@/app/_components/ui";
 // de que a migration 0066 ainda não recarimbou os cards.
 // Ordem = do mais recente para o mais antigo: o canal da campanha em curso é o que
 // a operação abre o dia perguntando, então fica na frente.
-export const CANAIS_FIXOS = [
-  "HT30 - 09-08",
-  "HT29 - 26-07",
-  "Live Direto ao Ponto",
-  "HT ATM",
-  "HT28",
-  "HM - Programa de Implementação",
-  "Ex aluno Direto ao Ponto",
-] as const;
+//
+// POR PRODUTO (10/08, pedido do Marcio): a régua era uma constante global, então o
+// board do AURUM exibia os canais do HM (HT29, HT30, HT ATM…) — eventos que não têm
+// nada a ver com ele. Cada portal agora lista só os SEUS canais. Ao criar um canal
+// novo, cadastrá-lo aqui no produto certo; senão ele cai em "Outros canais" do
+// dropdown e some da régua.
+export type ProdutoBoard = "HM" | "AURUM" | "ETHB";
+
+const CANAIS_POR_PRODUTO: Record<ProdutoBoard, readonly string[]> = {
+  HM: [
+    "HT30 - 09-08",
+    "HT29 - 26-07",
+    "Live Direto ao Ponto",
+    "HT ATM",
+    "HT28",
+    "HM - Programa de Implementação",
+    "Ex aluno Direto ao Ponto",
+  ],
+  // O Aurum nasceu no pitch do Encontro do Time Holding Brasil (São Paulo, 05/08) —
+  // hoje é o único canal dele. Ver cs.hm_origem_por_oferta: qm4lu7py → 'ETHB SP'.
+  AURUM: ["ETHB SP"],
+  // ETHB ainda não tem canal próprio mapeado; régua vazia é melhor que régua errada.
+  ETHB: [],
+};
+
+export function canaisFixosDo(produto: ProdutoBoard | null | undefined): readonly string[] {
+  return CANAIS_POR_PRODUTO[produto ?? "HM"] ?? CANAIS_POR_PRODUTO.HM;
+}
+
+/** @deprecated use canaisFixosDo(produto) — mantido só para o board do HM legado. */
+export const CANAIS_FIXOS = CANAIS_POR_PRODUTO.HM;
 
 // O filtro de canal oferece TODOS os canais de venda (27/07): os fixos ficam no
 // topo (grupo sem rótulo — o atalho do dia a dia) e o restante que a API devolve
@@ -29,13 +51,13 @@ export const CANAIS_FIXOS = [
 // "Outros canais". A API (`d.canais`) já exclui Origem/Turma/Aurum, então aqui só
 // chega o que é canal; duplicatas dos fixos são removidas. A régua acima segue
 // mostrando apenas os fixos.
-export function gruposCanal(todos: string[]): { label: string | null; itens: string[] }[] {
-  const fixos = CANAIS_FIXOS as readonly string[];
+export function gruposCanal(todos: string[], produto?: ProdutoBoard | null): { label: string | null; itens: string[] }[] {
+  const fixos = canaisFixosDo(produto);
   const outros = todos
     .filter((c) => !fixos.includes(c))
     .sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const grupos: { label: string | null; itens: string[] }[] = [{ label: null, itens: [...CANAIS_FIXOS] }];
-  if (outros.length > 0) grupos.push({ label: "Outros canais", itens: outros });
+  const grupos: { label: string | null; itens: string[] }[] = fixos.length > 0 ? [{ label: null, itens: [...fixos] }] : [];
+  if (outros.length > 0) grupos.push({ label: fixos.length > 0 ? "Outros canais" : null, itens: outros });
   return grupos;
 }
 
@@ -45,13 +67,19 @@ type Props = {
   /** canais filtrando a tela agora (o filtro aceita vários — OU entre eles) */
   ativos: string[];
   onToggle: (canal: string) => void;
+  /** board em que a régua está: define QUAIS canais aparecem (10/08) */
+  produto?: ProdutoBoard | null;
 };
 
-export function HmCanaisFixos({ contagem, ativos, onToggle }: Props) {
+export function HmCanaisFixos({ contagem, ativos, onToggle, produto }: Props) {
+  const canais = canaisFixosDo(produto);
+  // Produto sem canal mapeado (ETHB): não renderiza a régua — uma tira "canais:"
+  // vazia só ocupa espaço e sugere que o filtro está quebrado.
+  if (canais.length === 0) return null;
   return (
     <div className="mb-3 flex flex-wrap items-baseline gap-x-1 gap-y-1 px-1 text-[11px] leading-5">
       <span className="mr-0.5 font-medium text-slate-400 dark:text-slate-500">canais:</span>
-      {CANAIS_FIXOS.map((canal) => {
+      {canais.map((canal) => {
         const n = contagem[canal] ?? 0;
         const eleAtivo = ativos.includes(canal);
         return (

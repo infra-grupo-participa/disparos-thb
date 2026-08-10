@@ -67,6 +67,18 @@ export type Ator = {
   equipe_tipo: TipoEquipe | null;
   lider_equipe?: boolean | null;
   portais?: string[] | null;
+  /**
+   * GERENTE (10/08, pedido do Marcio — caso da Kelly): distribui card para
+   * QUALQUER operador, de QUALQUER equipe. É um poder cirúrgico, não um nível
+   * novo: o gerente segue com a visibilidade e os limites do nível dele
+   * (`nivelDe` continua dizendo gestor/operador). O que ele ganha é
+   * exclusivamente furar a cerca de equipe em `podeAtribuirPara`.
+   *
+   * Por que NÃO virou `Nivel`: nível governa também o que a pessoa VÊ, o que
+   * edita e o acesso a card cancelado — dar tudo isso para quem só precisa
+   * repassar aluno seria escalada de privilégio silenciosa.
+   */
+  gerente_distribuidor?: boolean | null;
 };
 
 // Ator ausente (sessão ainda não carregada, autor de sistema) = o nível mais
@@ -125,6 +137,12 @@ export function podeAtribuirPara(
   if (!destino) return false;
   const nivel = nivelDe(ator);
   if (nivel === "master") return true;
+  // GERENTE DISTRIBUIDOR (10/08): atravessa a cerca de equipe SÓ para atribuir.
+  // A Kelly recebe toda venda de HM/Aurum e repassa para o operador certo, que
+  // pode ser de outra equipe — com a regra antiga (gestor só atribui dentro da
+  // própria equipe) isso dava `destino_fora_da_equipe`. O admin segue podendo
+  // distribuir pelos caminhos de sempre (master, ou gestor dentro da equipe).
+  if (ator.gerente_distribuidor) return true;
   if (nivel === "gestor") return destino.equipe_id !== null && destino.equipe_id === ator.equipe_id;
   return destino.id === ator.id;
 }
