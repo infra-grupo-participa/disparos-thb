@@ -76,6 +76,8 @@ type Financeiro = {
   categoria_entrada: string | null; sugestao_valor_total: string | null; hotmart_bruto: string | null;
   // Saldo a pagar informado pelo Victor (0151) — vence o pró-rata quando preenchido.
   saldo_a_pagar_manual: string | null; saldo_a_pagar_manual_por: string | null; saldo_a_pagar_manual_em: string | null;
+  /** quitado · mensalidade_em_curso · oferta_enviada · saldo_parado · incalculavel · cancelado (0165) */
+  situacao: string | null;
 };
 type Prorata = {
   dias_usados: number; dias_restantes: number; valor_dia: string | null;
@@ -791,6 +793,16 @@ export function HmDrawer({
                     <span className="text-slate-400 dark:text-slate-500">
                       O crédito encolhe a cada dia — o valor vale para hoje.
                     </span>
+                  </p>
+                ) : fin?.situacao === "incalculavel" ? (
+                  // ALUNO DA BASE sem crédito calculado (0165). Antes caía no ramo do
+                  // "saldo cheio" e o card dizia R$ 14.700 — mas ele tem direito ao
+                  // desconto pró-rata/mensalidade, que o analista ainda não passou.
+                  // Mostrar o cheio faria o operador cobrar a mais; some o número.
+                  <p className="mb-2 rounded bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">
+                    <strong>Saldo a definir</strong> — é aluno da base
+                    {c.turma_origem ? ` (turma ${c.turma_origem})` : ""} e tem direito ao abatimento
+                    do que já pagou. O valor vem do analista; não cobre o cheio.
                   </p>
                 ) : (
                   // Saldo cheio do BOARD, não 14.700 fixo: no Aurum são 59.000 (0158).

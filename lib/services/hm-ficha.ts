@@ -133,11 +133,22 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
   const financeiro = await queryOne(
     `select ch.valor_total, ch.valor_pago, ch.aluno_id, ch.categoria_entrada,
             ch.saldo_a_pagar_manual, ch.saldo_a_pagar_manual_por, ch.saldo_a_pagar_manual_em,
-            s.sugestao_valor_total, s.hotmart_bruto
-       from cs.contatos_hm ch,
-            lateral cs.fn_hm_sugestao_financeira(ch.comprador_id) s
-      where ch.comprador_id = $1`,
-    [compradorId],
+            s.sugestao_valor_total, s.hotmart_bruto,
+            -- situacao (0165): o drawer precisa distinguir "não deve" de "ainda não
+            -- dá para calcular" (aluno da base sem crédito do analista) — nesse caso
+            -- exibir o saldo cheio faria o operador cobrar a mais.
+            fin.situacao
+       from cs.contatos_hm ch
+            cross join lateral cs.fn_hm_sugestao_financeira(ch.comprador_id) s
+            left join cs.vw_hm_financeiro fin on fin.contato_hm_id = ch.id
+      where ch.comprador_id = $1
+        and ($2::text is null or ch.produto = $2)
+      -- ⚠️ fn_hm_sugestao_financeira devolve MAIS DE UMA linha para quem tem várias
+      -- compras (4 no caso da Ana Paula). O limit 1 sozinho pegaria uma ao acaso —
+      -- a maior sugestão é a estável e a útil (o pacote cheio, não uma parcela).
+      order by ch.criado_em asc, s.sugestao_valor_total desc nulls last
+      limit 1`,
+    [compradorId, produto ?? null],
   );
 
   // Saldo do AURUM ETHB SP (0158). Vem de outra fonte que o financeiro do HM: o
