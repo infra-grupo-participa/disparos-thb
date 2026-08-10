@@ -758,7 +758,7 @@ export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string):
   const k = await cardEscopoHm(compradorId);
   if (!k) return "ok"; // inexistente → deixa o 404 acontecer no fluxo normal
   // Ação livre no HM para a equipe principal (03/08, pedido do Marcio): a equipe
-  // que ativa (Grupo Participa Pro Max) remaneja a esteira entre si — arrasta
+  // que ativa (Grupo Participa) remaneja a esteira entre si — arrasta
   // QUALQUER card do board, não só o pool/os seus. Continua precisando VER o card
   // (escopo de leitura); age em card de colega, nunca em card de outra equipe.
   // Espelha o Seminário (podeAgirContato via acaoLivrePorEquipeEvento).

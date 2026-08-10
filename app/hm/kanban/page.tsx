@@ -20,7 +20,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
-import { SeloEquipe, COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
+import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
 import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
@@ -1661,17 +1661,12 @@ function CardItem({
             <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
             {card.entrou_estagio_em ? `${relativo(card.entrou_estagio_em)} na etapa` : "—"}
           </span>
-          {/* Selo da equipe dona (0140) — o componente resolve cor nula (cinza
-              padrão, o selo não some) e o contraste do texto (WCAG sobre a cor
-              livre do picker — antes era branco fixo e sumia sobre cor clara).
-              Pool não mostra selo. */}
-          {card.equipe_nome && (
-            <SeloEquipe
-              nome={card.equipe_nome}
-              cor={card.equipe_cor}
-              title={`Equipe: ${card.equipe_nome}${card.responsavel_id ? "" : " (canal roteado — sem dono ainda)"}`}
-            />
-          )}
+          {/* O selo de equipe ("GP", "EQ2") saiu do card em 10/08, a pedido do
+              Marcio. O card já diz de quem é pelo avatar do operador, e a barra
+              colorida da esquerda continua marcando a equipe — a etiqueta em
+              cima disso era uma terceira repetição da mesma informação, no
+              lugar mais apertado da tela. A equipe segue visível onde tem
+              espaço: coluna "Equipe" da tabela e ficha do lead. */}
           {/* Cadeado: atribuição travada pelo admin (0142) — operador comum não mexe. */}
           {card.atribuicao_admin && (
             <span title="Atribuição travada pelo admin" className="inline-flex shrink-0 items-center text-amber-500 dark:text-amber-400">

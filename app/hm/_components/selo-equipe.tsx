@@ -14,7 +14,7 @@ import { cn } from "@/app/_components/ui";
 // Equipe sem cor cadastrada: slate-500 — neutro, legível nos dois temas.
 export const COR_EQUIPE_PADRAO = "#64748b";
 
-// Rótulo curto da equipe: "Grupo Participa (Pro Max)" → "GP"; "Equipe 2" →
+// Rótulo curto da equipe: "Grupo Participa" → "GP"; "Equipe 2" →
 // "EQ2"; nomes livres → as 2 primeiras iniciais. Curto de propósito (o card é
 // apertado); o nome inteiro vai no title.
 export function abreviaEquipe(nome: string): string {
