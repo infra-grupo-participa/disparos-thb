@@ -11,7 +11,10 @@ import { cn } from "@/app/_components/ui";
 // número é o placar do canal, não o tamanho da fatia visível. Canal com zero
 // continua na régua de propósito: "Ex aluno Direto ao Ponto" zerado é o aviso
 // de que a migration 0066 ainda não recarimbou os cards.
+// Ordem = do mais recente para o mais antigo: o canal da campanha em curso é o que
+// a operação abre o dia perguntando, então fica na frente.
 export const CANAIS_FIXOS = [
+  "HT30 - 09-08",
   "HT29 - 26-07",
   "Live Direto ao Ponto",
   "HT ATM",
