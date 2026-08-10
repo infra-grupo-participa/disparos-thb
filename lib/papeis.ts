@@ -71,15 +71,20 @@ export type Ator = {
   lider_equipe?: boolean | null;
   portais?: string[] | null;
   /**
-   * GERENTE (10/08, pedido do Marcio — caso da Kelly): distribui card para
-   * QUALQUER operador, de QUALQUER equipe. É um poder cirúrgico, não um nível
-   * novo: o gerente segue com a visibilidade e os limites do nível dele
-   * (`nivelDe` continua dizendo gestor/operador). O que ele ganha é
-   * exclusivamente furar a cerca de equipe em `podeAtribuirPara`.
+   * GERENTE (10/08, pedido do Marcio — caso da Kelly). Duas coisas, nesta ordem
+   * histórica:
+   *   · distribui card para QUALQUER operador, de QUALQUER equipe
+   *     (`podeAtribuirPara`);
+   *   · VÊ a esteira inteira, de todas as equipes (`podeVerTudo`) — ampliado no
+   *     mesmo dia, 20h30: a Kelly virou gerente com equipe própria e precisa
+   *     acompanhar também os leads da Jusy e do Jonathan, que são da equipe
+   *     principal. Sem isso ela distribuía para gente cujo trabalho não
+   *     enxergava.
    *
-   * Por que NÃO virou `Nivel`: nível governa também o que a pessoa VÊ, o que
-   * edita e o acesso a card cancelado — dar tudo isso para quem só precisa
-   * repassar aluno seria escalada de privilégio silenciosa.
+   * O que o gerente NÃO ganha, de propósito: gerir contas, portais, canais,
+   * tags e equipes (`podeGerirAcesso` segue master-only) e escrever em card de
+   * outra equipe (`escopoAcao` continua pelo nível). Ver a operação inteira é
+   * o trabalho dele; mexer no cadastro do sistema não é.
    */
   gerente_distribuidor?: boolean | null;
 };
@@ -103,8 +108,11 @@ export function ehMaster(u: Ator | null | undefined): boolean {
 // Merge 27/07: o db4dd24 (origin/main) tentava o mesmo conserto com
 // `podeVerTudo = papel === 'admin'` — descartado de propósito: reabria o admin
 // de equipe COMUM ver tudo. Aqui admin comum = gestor (só a própria equipe).
+// GERENTE (10/08, 20h30): entra aqui junto com o master. É LEITURA — enxergar a
+// esteira inteira. A escrita continua governada por `escopoAcao`/`nivelDe`, e a
+// gestão de contas/config por `podeGerirAcesso`, que segue exclusiva do master.
 export function podeVerTudo(u: Ator | null | undefined): boolean {
-  return ehMaster(u);
+  return ehMaster(u) || !!u?.gerente_distribuidor;
 }
 
 // Quem pode GERIR contas/acessos/config (portais por conta, canais, tags,
@@ -182,7 +190,9 @@ export type EscopoVisibilidade =
 // cada operador tem o seu fluxo, mas acompanha as ações dos colegas e o status
 // dos cards da mesma equipe.
 export function escopoVisibilidade(u: Ator): EscopoVisibilidade {
-  if (nivelDe(u) === "master") return { modo: "tudo" };
+  // `podeVerTudo` e não `nivelDe === master`: o GERENTE também lê a esteira
+  // inteira (10/08). A escrita segue em escopoAcao, que continua pelo nível.
+  if (podeVerTudo(u)) return { modo: "tudo" };
   // SEM equipe (equipe_id null), gestor ou operador: modo 'equipe' com equipeId
   // null DE PROPÓSITO — no predicado SQL, `k.equipe_id = $x::uuid` com $x nulo
   // não casa nada; sobra o pool + os cards do PRÓPRIO (usuarioId). Jamais

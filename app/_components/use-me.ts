@@ -26,6 +26,11 @@ export type Me = {
   equipe_id: string | null; equipe_tipo: TipoEquipe | null; equipe_nome: string | null; equipe_cor: string | null;
   // Líder/ADM da própria equipe (0143): junto com papel=admin fora do GP, define o gestor.
   lider_equipe: boolean;
+  // GERENTE (caso da Kelly): distribui para qualquer equipe e LÊ a esteira
+  // inteira. Faltava aqui — /api/me já mandava o campo, mas o tipo não o
+  // carregava, então `podeVerTudo` dava false na UI e a tela escondia da
+  // gerente o que o backend já devolvia.
+  gerente_distribuidor: boolean;
   // Portais que a conta pode acessar (0145).
   portais: string[];
 };

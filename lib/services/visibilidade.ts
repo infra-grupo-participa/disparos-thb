@@ -128,7 +128,12 @@ export async function listaResponsaveis(
   const nivel = nivelDe(sessao);
   const TEM_PORTAL = (alias: string, p: number) =>
     `exists (select 1 from cs.usuario_portais up where up.usuario_id = ${alias}.id and up.portal = $${p})`;
-  if (nivel === "master") {
+  // GERENTE entra no ramo de cima junto com o master (10/08): ele vê a esteira
+  // inteira e já podia atribuir para qualquer equipe (`podeAtribuirPara`) —
+  // faltava a lista oferecer esses destinos. Sem isto a Kelly veria o card da
+  // Jusy no board, mas não acharia a Jusy no filtro de operador nem no seletor
+  // de atribuição: a tela esconderia um direito que o backend já concede.
+  if (nivel === "master" || !!sessao.gerente_distribuidor) {
     // Placeholders dos legados vêm ANTES ($1..$n); o portal entra por último —
     // assim o SQL de cada módulo não precisa saber em que posição ele caiu.
     const params = [...(legados.params ?? []), portal];
