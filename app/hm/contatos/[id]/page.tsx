@@ -157,7 +157,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
     if (somenteLeitura) { window.alert(msgErroPermissao("card_de_outro_operador")); return; }
     setSalvando(true);
     try {
-      const r = await fetch(`/api/hm/contato/${compradorId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const r = await fetch(`/api/hm/contato/${compradorId}?produto=${produtoBoard}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!r.ok) {
         // 403 de permissão vem com reason específico — a ficha diz o MOTIVO
         // em vez de recarregar em silêncio com o valor antigo.

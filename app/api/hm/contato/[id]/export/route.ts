@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { guardProdutoOpcional } from "@/lib/produto-hm";
 import { podeVerCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 import { fichaHmParaXlsx, nomeArquivoFicha } from "@/lib/export/hm-ficha-xlsx";
@@ -10,8 +11,10 @@ export const runtime = "nodejs";
 // Lê exatamente a mesma ficha que a tela mostra (lib/services/hm-ficha), então a
 // planilha nunca diverge do drawer.
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM" });
+  // 0187: valida o portal do produto pedido (ver /api/hm/contato/[id]).
+  const g = await guardProdutoOpcional(req);
   if (!g.ok) return g.res;
+  const pExp = g.produto;
   const sessao = g.sessao;
   // Mesmo gating do drawer: não exporta a ficha de card de outra equipe.
   if (!(await podeVerCardHm(sessao, params.id))) {
@@ -26,8 +29,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   // 0164: mesmo recorte de produto do GET da ficha. Sem isso o XLSX de um card do
   // Aurum podia exportar a ficha do HM (a mesma pessoa tem card nos dois boards).
-  const pExp = (new URL(req.url).searchParams.get("produto") || "").toUpperCase();
-  const ficha = await fichaHm(params.id, pExp === "AURUM" || pExp === "ETHB" || pExp === "HM" ? pExp : null);
+  const ficha = await fichaHm(params.id, pExp);
   if (!ficha) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
   const agora = new Date();

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { sqlEscopo } from "@/lib/services/visibilidade";
@@ -10,14 +11,16 @@ export const runtime = "nodejs";
 // marcadas, com data/hora, aluno, responsável e resultado. RECORTE por equipe:
 // cada um só vê os agendamentos dos cards que enxerga (pool / própria equipe / GP).
 export async function GET(req: Request) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado e o do produto PEDIDO, nao "HM" literal — HM/AURUM/ETHB
+  // sao portais distintos em cs.usuario_portais. Vem no topo: nada pode ler g.sessao
+  // antes do gate.
+  const produto = produtoDaRequisicao(req);
+  const g = await guard({ portal: produto });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   const sp = new URL(req.url).searchParams;
   const tipo = sp.get("tipo"); // 'reuniao' | 'entrevista' | null (ambos)
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
-  const prodRaw = (sp.get("produto") || "HM").toUpperCase(); // board do produto (0155)
-  const produto = prodRaw === "AURUM" || prodRaw === "ETHB" ? prodRaw : "HM";
 
   // O modal da agenda precisa do contexto que faz a reunião valer a pena: quem é
   // a pessoa (aluno da base? lead novo?), o que foi combinado, se o link do saldo

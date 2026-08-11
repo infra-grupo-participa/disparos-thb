@@ -69,6 +69,12 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
 
   const produtoCard = (contato as unknown as { produto?: string | null }).produto ?? "HM";
 
+  // 0187: o id do CARD já resolvido acima (a query de `contato` filtra por produto).
+  // Toda sub-query da ficha ancora NELE — nunca em `comprador_id`, que é da PESSOA e
+  // casa com os cards de todos os boards dela. Sem isso, sócios/timeline/agendamentos
+  // do card do Aurum apareciam misturados na ficha do HM (e no XLSX exportado).
+  const cardId = (contato as unknown as { contato_hm_id: string }).contato_hm_id;
+
   // Bloco financeiro: o que já foi registrado + a sugestão para o formulário de
   // pagamento. A sugestão vem de cs.fn_hm_sugestao_financeira porque o papel do
   // app não lê public.compras / hm_product_catalog (RLS sem grant). Buscado aqui
@@ -123,10 +129,9 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
     `select s.id, s.nome, s.email, s.telefone, s.link_facebook,
             s.ativ_searchie, s.ativ_comunidade, s.ativ_grupo, s.aluno_id
        from cs.hm_socios s
-       join cs.contatos_hm ch on ch.id = s.contato_hm_id
-      where ch.comprador_id = $1
+      where s.contato_hm_id = $1
       order by s.criado_em`,
-    [compradorId],
+    [cardId],
   );
 
   // Crédito pró-rata: o que o aluno da base já pagou e ainda não usou. Só existe
@@ -162,11 +167,10 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
   const timeline = await query(
     `select i.tipo, i.descricao, i.autor, i.criado_em
        from cs.interacoes i
-       join cs.contatos_hm ch on ch.id = i.contato_hm_id
-      where ch.comprador_id = $1
+      where i.contato_hm_id = $1
       order by i.criado_em desc
       limit 200`,
-    [compradorId],
+    [cardId],
   );
 
   // Formulários do comprador (Respondi / HT). Mesma tabela cs.formularios.
@@ -215,10 +219,9 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
   const agendamentos = await query(
     `select a.tipo, a.quando, a.status, a.motivo, a.autor, a.criado_em, a.encerrado_em
        from cs.hm_agendamentos a
-       join cs.contatos_hm ch on ch.id = a.contato_hm_id
-      where ch.comprador_id = $1
+      where a.contato_hm_id = $1
       order by a.criado_em desc`,
-    [compradorId],
+    [cardId],
   );
 
   // O histórico de versões (0097) — a lista que a ficha mostra para ver e
@@ -226,10 +229,10 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
   // é aplicado na escrita.
   const versoes = await query<{ id: number; resumo: string; autor: string | null; criado_em: string }>(
     `select v.id, v.resumo, v.autor, v.criado_em
-       from cs.hm_versoes v join cs.contatos_hm ch on ch.id = v.contato_hm_id
-      where ch.comprador_id = $1
+       from cs.hm_versoes v
+      where v.contato_hm_id = $1
       order by v.criado_em desc, v.id desc`,
-    [compradorId],
+    [cardId],
   );
 
   return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, aurumSaldo,

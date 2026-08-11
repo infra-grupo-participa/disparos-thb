@@ -555,6 +555,9 @@ function CriarAgendamento({ slot, onClose, onCriado }: {
   onCriado: () => void;
 }) {
   const fetchHm = useFetchHm(); // esteira multi-produto (0155)
+  // 0187: o PATCH da ficha é mono-produto no servidor — `fetch` cru não passa pelo
+  // useFetchHm, então o board vai explícito na URL.
+  const { produto } = useProdutoHm();
   const [tipo, setTipo] = useState<"reuniao" | "entrevista">("reuniao");
   const [q, setQ] = useState("");
   const [cands, setCands] = useState<{ comprador_id: string; nome: string; telefone: string | null; estagio_nome: string | null; responsavel: string | null; precisa: boolean; ja_em: string | null }[]>([]);
@@ -581,7 +584,7 @@ function CriarAgendamento({ slot, onClose, onCriado }: {
     setSalvando(compradorId);
     try {
       const campo = tipo === "reuniao" ? "reuniao_em" : "entrevista_em";
-      const r = await fetch(`/api/hm/contato/${compradorId}`, {
+      const r = await fetch(`/api/hm/contato/${compradorId}?produto=${produto}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [campo]: quando.toISOString() }),

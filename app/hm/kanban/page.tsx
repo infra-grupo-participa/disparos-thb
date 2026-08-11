@@ -389,7 +389,7 @@ export default function HmKanbanPage() {
         : n === 3 ? "ativado" : n > 0 ? "em_ativacao" : "nao_iniciado";
       return { ...at, checks_feitos: n, status };
     }));
-    await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios`, {
+    await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios?produto=${produto}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ socioId: s.socio_id, [campo]: novo }),
@@ -401,7 +401,7 @@ export default function HmKanbanPage() {
   async function moverSocio(s: Socio, estagioChave: string) {
     if (colunaDoSocio(s) === estagioChave) return;
     setSocios((lista) => lista.map((x) => (x.socio_id === s.socio_id ? { ...x, estagio_chave: estagioChave } : x)));
-    const r = await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios`, {
+    const r = await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios?produto=${produto}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ socioId: s.socio_id, estagio_chave: estagioChave }),
@@ -418,7 +418,7 @@ export default function HmKanbanPage() {
   async function enviarSocioParaBase(s: Socio) {
     setEnviandoBase((atual) => new Set(atual).add(s.socio_id));
     try {
-      const r = await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios/provisionar`, { method: "POST" });
+      const r = await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios/provisionar?produto=${produto}`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) toast(`Não foi possível enviar ${s.nome} à base. Tente de novo.`, "erro");
       else if (!d.provisionados) toast(`${s.nome} não foi enviado: o titular precisa estar como aluno na base primeiro.`, "erro");
@@ -528,7 +528,7 @@ export default function HmKanbanPage() {
         "Marca o aluno como cancelado na base (cadastro e histórico ficam) e avisa no Slack para removerem os acessos.",
     );
     if (!ok) { await carregar(); return; }
-    await fetch(`/api/hm/contato/${card.comprador_id}`, {
+    await fetch(`/api/hm/contato/${card.comprador_id}?produto=${produto}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ confirmar_cancelamento: true }),
@@ -573,7 +573,7 @@ export default function HmKanbanPage() {
   // Desfazer o último movimento (o miss-click do arrasto).
   async function desfazerMovimento(card: Card) {
     try {
-      const r = await fetch(`/api/hm/contato/${card.comprador_id}`, {
+      const r = await fetch(`/api/hm/contato/${card.comprador_id}?produto=${produto}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reverter: true }),
@@ -1055,7 +1055,7 @@ export default function HmKanbanPage() {
             if (definitivo) {
               // O FATO: confirmar_cancelamento já leva o card para "Reembolsado"
               // e marca o aluno na base — não passa por "Reclamada".
-              await fetch(`/api/hm/contato/${card.comprador_id}`, {
+              await fetch(`/api/hm/contato/${card.comprador_id}?produto=${produto}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ confirmar_cancelamento: true, cancelamento_motivo: motivo || null }),
@@ -1064,7 +1064,7 @@ export default function HmKanbanPage() {
               // O PEDIDO: só move para "Reclamada". O acesso continua valendo.
               await patchMover(card, COL_CANCELAMENTO, antesDe);
               if (motivo) {
-                await fetch(`/api/hm/contato/${card.comprador_id}`, {
+                await fetch(`/api/hm/contato/${card.comprador_id}?produto=${produto}`, {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ cancelamento_motivo: motivo }),
@@ -1263,12 +1263,14 @@ function SocioCard({ socio: s, onAbrir, onToggle, onEnviarBase, enviandoBase, ar
 function AddSocioModal({ compradorId, titularNome, onClose, onSalvo }: {
   compradorId: string; titularNome: string; onClose: () => void; onSalvo: () => void;
 }) {
+  // 0187: a rota de sócios é mono-produto no servidor.
+  const { produto } = useProdutoHm();
   const [f, setF] = useState({ nome: "", email: "", telefone: "" });
   const [salvando, setSalvando] = useState(false);
   async function salvar() {
     setSalvando(true);
     try {
-      await fetch(`/api/hm/contato/${compradorId}/socios`, {
+      await fetch(`/api/hm/contato/${compradorId}/socios?produto=${produto}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nome: f.nome.trim(), email: f.email.trim() || null, telefone: f.telefone.trim() || null }),

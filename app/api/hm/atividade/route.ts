@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { guardProdutoOpcional } from "@/lib/produto-hm";
 import { nivelDe } from "@/lib/papeis";
 import { parsePeriodo } from "@/lib/validators";
 import { atividadeHm, type EscopoAtividade } from "@/lib/services/hm-atividade";
@@ -14,8 +15,11 @@ export const runtime = "nodejs";
 // tela de Atividade mostra o trabalho do time, decisão do Marcio); quem NÃO tem
 // equipe vê só a própria linha (equipe nula jamais casa com "todo mundo").
 export async function GET(req: Request) {
-  const g = await guard({ portal: "HM" });
+  // 0187: quando o produto vem explícito, é ELE que o guard valida — HM/AURUM/ETHB
+  // são portais distintos. Sem produto (visão consolidada), cai no "HM" histórico.
+  const g = await guardProdutoOpcional(req);
   if (!g.ok) return g.res;
+  const pAtv = g.produto;
   const sessao = g.sessao;
 
   const escopo: EscopoAtividade =
@@ -30,9 +34,8 @@ export async function GET(req: Request) {
   if (!periodo.ok) return periodo.res;
 
   // Board do produto (0164): sem isso a Atividade do Aurum somava o movimento do HM.
-  const pAtv = (new URL(req.url).searchParams.get("produto") || "").toUpperCase();
   const r = await atividadeHm(
-    { de: periodo.de, ate: periodo.ate, produto: pAtv === "AURUM" || pAtv === "ETHB" || pAtv === "HM" ? pAtv : null },
+    { de: periodo.de, ate: periodo.ate, produto: pAtv },
     escopo,
   );
   return NextResponse.json({ ok: true, ...r });

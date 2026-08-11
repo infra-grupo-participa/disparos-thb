@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { filaInboxHm } from "@/lib/services/inbox-fila";
 
 export const runtime = "nodejs";
@@ -15,11 +16,13 @@ export const runtime = "nodejs";
 // board. A montagem da fila (colunas, ordenação, recorte) vive em
 // lib/services/inbox-fila.ts, compartilhada com POST /api/inbox/sync?fila=1.
 export async function GET(req: Request) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado e o do produto PEDIDO, nao "HM" literal — HM/AURUM/ETHB
+  // sao portais distintos em cs.usuario_portais. Vem no topo: nada pode ler g.sessao
+  // antes do gate.
+  const produto = produtoDaRequisicao(req);
+  const g = await guard({ portal: produto });
   if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
-  const prodRaw = (sp.get("produto") || "HM").toUpperCase(); // board do produto (0155)
-  const produto = prodRaw === "AURUM" || prodRaw === "ETHB" ? prodRaw : "HM";
 
   const { conversas, pendentes } = await filaInboxHm(g.sessao, {
     status: sp.get("status"),      // pendente | resolvido

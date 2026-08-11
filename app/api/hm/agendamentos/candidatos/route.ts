@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { sqlEscopo } from "@/lib/services/visibilidade";
@@ -21,7 +22,11 @@ const PRECISA: Record<string, string[]> = {
 };
 
 export async function GET(req: Request) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado e o do produto PEDIDO, nao "HM" literal — HM/AURUM/ETHB
+  // sao portais distintos em cs.usuario_portais. Vem no topo: nada pode ler g.sessao
+  // antes do gate.
+  const produto = produtoDaRequisicao(req);
+  const g = await guard({ portal: produto });
   if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
   const q = (sp.get("q") ?? "").trim();
@@ -30,8 +35,6 @@ export async function GET(req: Request) {
   // Escopo padrão do board: só sugere quem o ator VÊ (pool / a equipe dele /
   // os dele). Sem isso, a busca por nome vazava a carteira das outras equipes.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
-  const prodRaw = (sp.get("produto") || "HM").toUpperCase(); // board do produto (0155)
-  const produto = prodRaw === "AURUM" || prodRaw === "ETHB" ? prodRaw : "HM";
 
   // `precisa` no topo (a fila do dia), depois o resto por nome. Sem busca, só a fila.
   const rows = await query(

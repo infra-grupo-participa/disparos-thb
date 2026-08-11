@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { listaResponsaveis } from "@/lib/services/visibilidade";
@@ -16,7 +17,11 @@ const RE_TURMA = "^(Origem|Turma|Aurum) ";
 // função do XLSX (relatorioHm): a tabela e a planilha saem da mesma leitura por
 // construção — se contarem histórias diferentes, é bug.
 export async function GET(req: Request) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado e o do produto PEDIDO, nao "HM" literal — HM/AURUM/ETHB
+  // sao portais distintos em cs.usuario_portais. Vem no topo: nada pode ler g.sessao
+  // antes do gate.
+  const produto = produtoDaRequisicao(req);
+  const g = await guard({ portal: produto });
   if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
 
@@ -24,8 +29,6 @@ export async function GET(req: Request) {
   // pool + os dele. Idêntico à rota do kanban por construção.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
   // Board do produto (0155): mesma esteira, recorte por produto (default HM).
-  const prodRaw = (sp.get("produto") || "HM").toUpperCase();
-  const produto = (prodRaw === "AURUM" || prodRaw === "ETHB" ? prodRaw : "HM") as "HM" | "AURUM" | "ETHB";
 
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
   // do filtro a leitura é OU, entre filtros é E.

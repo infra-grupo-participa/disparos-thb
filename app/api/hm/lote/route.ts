@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { query } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { parseBody, HmLoteSchema } from "@/lib/validators";
@@ -22,7 +23,17 @@ type Falha = { compradorId: string; nome: string; motivo: string; faltando?: str
 // um lote que corrompe a base em escala. A resposta diz quem passou e quem não
 // (`falhas`, com o `faltando` do checklist), para a tela mostrar nominalmente.
 export async function POST(req: Request) {
-  const g = await guard({ portal: "HM" });
+  // ⚠️ 0187 — ESCRITA EM MASSA, cross-produto. O lote recebe `compradorIds` no body
+  // e escrevia por `where comprador_id = $1` SEM filtro de produto: quem tem card no
+  // HM e no Aurum (15 pessoas hoje) tinha os DOIS cards marcados de uma vez —
+  // checklist de ativação e o carimbo `link_saldo_enviado_em`, que é o que sustenta
+  // a cobrança. E `moverEstagioHm` sem produto cai no card do Aurum quando a pessoa
+  // não tem card HM (20 cards hoje nessa situação).
+  //
+  // Agora o lote é MONO-PRODUTO: herda o board de quem chamou (?produto=), valida
+  // ESSE portal e escopa todas as escritas nele.
+  const produto = produtoDaRequisicao(req);
+  const g = await guard({ portal: produto });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   const operador = sessao.nome || "cs";
@@ -38,8 +49,9 @@ export async function POST(req: Request) {
   const nomes = new Map(
     (
       await query<{ comprador_id: string; nome: string }>(
-        `select comprador_id, nome from cs.contatos_hm_kanban where comprador_id = any($1::uuid[])`,
-        [b.compradorIds],
+        `select comprador_id, nome from cs.contatos_hm_kanban
+          where comprador_id = any($1::uuid[]) and produto = $2`,
+        [b.compradorIds, produto],
       )
     ).map((r) => [r.comprador_id, r.nome]),
   );
@@ -124,15 +136,20 @@ export async function POST(req: Request) {
         }
       }
       if (sets.length) {
+        // 0187: `and produto = ...` — sem ele este UPDATE atingia TODAS as linhas do
+        // comprador, marcando o checklist do card do Aurum junto com o do HM.
         await query(
-          `update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now() where comprador_id = $1`,
-          [compradorId, ...vals],
+          `update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now()
+            where comprador_id = $1 and produto = $${vals.length + 2}`,
+          [compradorId, ...vals, produto],
         );
       }
       // A etapa por último: um lote "marca o checklist E move para Ativação
       // Realizada" só faz sentido se os itens contarem antes da trava.
       if (b.estagio_chave) {
-        const r = await moverEstagioHm(compradorId, b.estagio_chave, operador);
+        // 0187: 5º argumento — sem ele, quem não tem card HM tinha o card do
+        // Aurum movido por um lote autorizado só para HM.
+        const r = await moverEstagioHm(compradorId, b.estagio_chave, operador, undefined, produto);
         if (!r.ok) {
           falhas.push({
             compradorId,

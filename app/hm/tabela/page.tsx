@@ -580,7 +580,7 @@ export default function HmTabelaPage() {
     }
     setSalvando(compradorId);
     try {
-      const r = await fetch(`/api/hm/contato/${compradorId}`, {
+      const r = await fetch(`/api/hm/contato/${compradorId}?produto=${produto}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -606,7 +606,9 @@ export default function HmTabelaPage() {
       setSalvando(null);
       await carregar(true);
     }
-  }, [carregar, linhas, ehMaster, ehCardDeColega]);
+  // `produto` nas deps: o PATCH manda ?produto=, e sem a dep a closure guardaria o
+  // board anterior ao trocar de portal (0187).
+  }, [carregar, linhas, ehMaster, ehCardDeColega, produto]);
 
   // Os mesmos avisos do board ao cruzar de esteira: entrar na Ativação é dizer
   // "pagou" (provisiona o aluno na base THB); voltar ao Comercial desfaz a marca.
@@ -673,7 +675,10 @@ export default function HmTabelaPage() {
     setAplicandoLote(true);
     setResultadoLote(null);
     try {
-      const r = await fetch("/api/hm/lote", {
+      // 0187: o lote é MONO-PRODUTO no servidor — sem ?produto= ele agiria sobre o
+      // card do HM mesmo com o board do Aurum aberto. `fetch` cru não passa pelo
+      // useFetchHm, então o parâmetro vai explícito.
+      const r = await fetch(`/api/hm/lote?produto=${produto}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ compradorIds: ids, ...payload }),
@@ -685,7 +690,9 @@ export default function HmTabelaPage() {
       await carregar(true);
       carregarTags();
     }
-  }, [marcados, carregar, carregarTags]);
+  // `produto` entra nas deps porque o lote agora manda ?produto= — sem ele, trocar de
+  // board deixaria a closure com o produto antigo e o lote agiria no board errado.
+  }, [marcados, carregar, carregarTags, produto]);
 
   const loteMover = useCallback((chave: string) => {
     const destino = estagios.find((e) => e.chave === chave);

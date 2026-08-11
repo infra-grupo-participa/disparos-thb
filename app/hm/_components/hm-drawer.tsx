@@ -304,7 +304,8 @@ export function HmDrawer({
     if (cardDeColega) { window.alert(msgErroPermissao("card_de_outro_operador")); return; }
     setSalvando(true);
     try {
-      await fetch("/api/hm/lote", {
+      // 0187: ver comentário gêmeo em app/hm/tabela/page.tsx — o lote é mono-produto.
+      await fetch(`/api/hm/lote?produto=${produtoBoard}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ compradorIds: [compradorId], ...payload }),
@@ -334,7 +335,7 @@ export function HmDrawer({
     if (cardDeColega) { window.alert(msgErroPermissao("card_de_outro_operador")); return; }
     setSalvando(true);
     try {
-      const r = await fetch(`/api/hm/contato/${compradorId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const r = await fetch(`/api/hm/contato/${compradorId}?produto=${produtoBoard}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         if (d?.reason === "checklist_incompleto") {
@@ -385,7 +386,8 @@ export function HmDrawer({
     if (cardDeColega) { window.alert(msgErroPermissao("card_de_outro_operador")); return; }
     setSalvando(true);
     try {
-      const url = `/api/hm/contato/${compradorId}/socios${socioId ? `?socioId=${socioId}` : ""}`;
+      // 0187: o produto vai SEMPRE; o socioId, quando houver (por isso o & no 2o caso).
+      const url = `/api/hm/contato/${compradorId}/socios?produto=${produtoBoard}${socioId ? `&socioId=${socioId}` : ""}`;
       await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -1559,6 +1561,8 @@ function AdminEdicao({ compradorId, atual, onSalvo }: {
   };
   onSalvo: () => Promise<void>;
 }) {
+  // 0187: a rota /admin é mono-produto no servidor.
+  const { produto: produtoBoard } = useProdutoHm();
   const [aberto, setAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -1585,7 +1589,7 @@ function AdminEdicao({ compradorId, atual, onSalvo }: {
     setSalvando(true);
     setErro(null);
     try {
-      const r = await fetch(`/api/hm/contato/${compradorId}/admin`, {
+      const r = await fetch(`/api/hm/contato/${compradorId}/admin?produto=${produtoBoard}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

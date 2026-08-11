@@ -1,0 +1,92 @@
+-- 0187 — o gate de portal passa a validar o PRODUTO pedido, não "HM" literal.
+--
+-- ⚠️ Esta migration NÃO tem DDL: a correção é toda em TypeScript (rotas + serviços).
+-- Fica versionada aqui porque o número 0187 é citado nos comentários do código e
+-- porque a REGRA é de domínio, não de implementação.
+--
+-- ── A CLASSE DE BUG ──────────────────────────────────────────────────────────────
+-- HM, AURUM e ETHB compartilham a mesma esteira (cs.contatos_hm), recortada por
+-- `produto` — mas são PORTAIS distintos em cs.usuario_portais, concedidos um a um
+-- (0153, sem backfill). `guard({ portal: "HM" })` literal + query filtrando por
+-- ?produto=AURUM = conta sem AURUM lendo/escrevendo no board do Aurum.
+--
+-- O padrão tem DUAS metades, e corrigir só a primeira deixa um "gate decorativo":
+--   1. GATE   — guard({ portal: produtoDaRequisicao(req) }), antes de qualquer uso
+--               de g.sessao (resolver depois dá TS2448: `g` usado antes da
+--               declaração — o tsc é rede de proteção aqui).
+--   2. ÂNCORA — a query que resolve QUAL card: `and produto = $N`, ou melhor,
+--               ancorar no contato_hm_id já validado.
+--
+-- ── EXPOSIÇÃO REAL (medida em produção, não estimada) ────────────────────────────
+--   0 contas com HM sem AURUM hoje ....... nenhum achado era explorável AGORA
+--   15 compradores com card em 2 produtos  o UPDATE em massa do lote os atingia
+--   20 cards sem par no HM ............... moverEstagioHm sem produto caía neles
+-- Passaria a ser explorável no primeiro usuário com um portal só — que é o desenho
+-- previsto pela 0153.
+--
+-- ── O QUE FOI CORRIGIDO (lib/produto-hm.ts + 20 handlers) ────────────────────────
+-- Gate por produto OBRIGATÓRIO: kanban GET/PATCH · tabela · inbox · tags GET ·
+--   agendamentos · agendamentos/candidatos · kanban/export · financeiro/export ·
+--   lote · contato/[id] PATCH · socios (3) · socios/provisionar · admin ·
+--   inbox/[id] (3)
+-- Gate por produto OPCIONAL (guardProdutoOpcional — exige os TRÊS portais quando o
+--   parâmetro não vem, porque aí a query cruza os três): atividade ·
+--   contato/[id] GET · contato/[id]/export
+-- Âncoras: cardDo (socios) · atual (contato PATCH, admin) · carregarContatoHm e os
+--   UPDATE de inbox_status (inbox/[id]) · o UPDATE em massa do lote
+-- Ficha (lib/services/hm-ficha.ts): socios, timeline, agendamentos e versoes passam
+--   a ancorar no contato_hm_id já resolvido, em vez de re-resolver por comprador.
+--   PROVA: o card AURUM do Eduardo Fassheber exibia 17 interações (16 eram do HM);
+--   agora exibe 1, que é o que ele tem. Ia junto no XLSX da ficha.
+--
+-- ⚠️ Front: 15 chamadas usavam `fetch` cru sem ?produto= — useFetchHm() só anexa em
+-- fetch, e <a href> / fetch direto passam por fora. Sem corrigir, o gate novo faria
+-- o board do Aurum agir sobre o HM. Duas closures obsoletas (useCallback sem
+-- `produto` nas deps) foram pegas pelo lint — causariam o mesmo bug que a correção
+-- pretende evitar.
+--
+-- ── PENDÊNCIA PRIORIZADA (decisão do Marcio: tratar em sessão dedicada) ───────────
+-- 6 funções `security definer` de cs.* resolvem cs.contatos_hm por comprador_id SEM
+-- produto e SEM LIMIT — a mesma classe, dentro do banco, onde a correção em
+-- TypeScript não alcança:
+--     fn_hm_versao_restaurar   (⚠️ ESCRITA DESTRUTIVA: sobrescreve o card com um
+--                               snapshot; pode cair no card do outro board)
+--     fn_hm_admin_editar · fn_hm_cancelar · fn_hm_descancelar
+--     fn_hm_liberar_acesso · fn_hm_recalcular_financeiro
+--
+-- Query que as encontra:
+--   select p.proname
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'cs'
+--      and pg_get_functiondef(p.oid) ~* 'update cs[.]contatos_hm|insert into cs[.]contatos_hm'
+--      and pg_get_functiondef(p.oid) ~* 'comprador_id[[:space:]]*=[[:space:]]*p_comprador'
+--      and pg_get_functiondef(p.oid) !~* 'ch[.]produto|and produto';
+--
+-- Não corrigidas nesta leva por decisão do Marcio: são security definer e tocam
+-- cancelamento, liberação de acesso e financeiro — exigem teste caso a caso.
+--
+-- Dívida menor: funções de lib/services/hm.ts que resolvem comprador_id → id sem
+-- produto (atribuirResponsavelHm, addTagHm, removeTagHm, reverterEstagioHm,
+-- agendarHm, fecharAgendamentoHm, addNotaHm, confirmar/desfazerCancelamentoHm).
+-- Risco = card errado DENTRO de portal já autorizado: integridade, não autorização.
+--
+-- ── COMO VERIFICAR QUE A CLASSE SEGUE FECHADA (rodar ao mexer no módulo) ─────────
+-- 1) GATE AUSENTE — rota com portal literal que toca card por id:
+--      for f in $(grep -rl 'guard({ portal: "' app/api/hm --include=route.ts); do
+--        a=$(grep -cE 'params[.]id|compradorId' "$f")
+--        b=$(grep -cE 'produtoDaRequisicao|guardProdutoOpcional|guardProduto[(]' "$f")
+--        c=$(grep -cE 'cs[.]contatos_hm|cs[.]hm_socios|contatos_hm_kanban' "$f")
+--        [ "$a" -gt 0 ] && [ "$b" -eq 0 ] && [ "$c" -gt 0 ] && echo "*** $f"
+--      done
+-- 2) GATE DECORATIVO — em rota COM produto, template literal tocando cs.contatos_hm
+--    com `comprador_id = $1` e sem `produto` na mesma query.
+-- 3) SUB-QUERY DE SERVIÇO — em hm-ficha.ts, query nas tabelas do card por
+--    comprador_id sem `contato_hm_id`.
+--
+-- ⚠️ o regex das varreduras 2 e 3 tem de aceitar `from X v join Y ch on ...` na
+-- MESMA linha — a primeira versão do detector deu falso negativo em `versoes`
+-- exatamente por isso.
+--
+-- Auditado pelo security-pentester em 9 rodadas de cross-review adversarial.
+-- Ele discordou de mim 4 vezes e estava certo nas 4 — inclusive quando afirmei
+-- que o PATCH do kanban não lia `produto` (lia, e direcionava a escrita com ele).

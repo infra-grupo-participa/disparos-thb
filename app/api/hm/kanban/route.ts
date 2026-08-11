@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { ehMaster, escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
@@ -22,7 +23,16 @@ const RE_TURMA = "^(Origem|Turma|Aurum) ";
 // Os totais das colunas NÃO vêm daqui: um card pago aparece em duas colunas
 // (espelho do pagamento no Comercial), e só a tela sabe dessa regra.
 export async function GET(req: Request) {
-  const g = await guard({ portal: "HM" });
+  // Produto/board (0155): a MESMA esteira serve HM, Aurum e ETHB — o board é
+  // recortado por produto. Default 'HM' (o board histórico); os boards novos
+  // chamam esta rota com ?produto=AURUM|ETHB. Isola os cards entre os boards.
+  //
+  // 0187: o portal validado é o do produto PEDIDO, não "HM" literal. Com o literal,
+  // uma conta com HM e sem AURUM passava pelo gate e lia o board do Aurum — o
+  // `guard` tem de cobrir o que a query VAI ler. Vem no topo: nada pode usar
+  // g.sessao antes do gate.
+  const produto = produtoDaRequisicao(req);
+  const g = await guard({ portal: produto });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   const sp = new URL(req.url).searchParams;
@@ -33,13 +43,6 @@ export async function GET(req: Request) {
   // pool + todos os cards da equipe dele; operador comum vê o pool + só os
   // cards atribuídos a ele. O filtro por responsável (abaixo) é conveniência.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
-  // Produto/board (0155): a MESMA esteira serve HM, Aurum e ETHB — o board é
-  // recortado por produto. Default 'HM' (o board histórico); os boards novos
-  // chamam esta rota com ?produto=AURUM|ETHB. Isola os cards entre os boards.
-  const produto = ((): "HM" | "AURUM" | "ETHB" => {
-    const p = (sp.get("produto") || "HM").toUpperCase();
-    return p === "AURUM" || p === "ETHB" ? p : "HM";
-  })();
   const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId, produto];
 
   const colunas = await query(
@@ -168,7 +171,20 @@ export async function GET(req: Request) {
 // abaixo dele (null = fim da coluna, ausente = topo). Arrastar só na vertical é
 // um PATCH com o mesmo estagioChave: o serviço reordena e não mexe na timeline.
 export async function PATCH(req: Request) {
-  const g = await guard({ portal: "HM" });
+  // O board que pediu o movimento (0174). O GET já recorta os cards por produto;
+  // o PATCH não passava essa informação adiante, então arrastar um card no board
+  // do Aurum movia o card do HM da mesma pessoa — silenciosamente, porque as duas
+  // operações "deram certo". Mesma família da 0163: card por pessoa × produto.
+  //
+  // ⚠️ 0187 — ESCRITA cross-produto. Este handler direciona a escrita por
+  // `?produto=`, então o `guard` TEM de validar esse mesmo produto. Com "HM"
+  // literal, `PATCH /api/hm/kanban?produto=AURUM` era aceito por uma conta sem o
+  // portal AURUM e movia de fato o card do board do Aurum: o gate de ação
+  // (podeAgirCardHm → cardEscopoHm) casa só por comprador_id, SEM filtro de
+  // produto, então podia aprovar avaliando o card do HM enquanto a query real
+  // mexia no do Aurum. Resolver o produto ANTES do guard fecha isso.
+  const produtoDoBoard = produtoDaRequisicao(req);
+  const g = await guard({ portal: produtoDoBoard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   const p = await parseBody(req, HmMoverSchema);
@@ -189,14 +205,6 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
   const posicao = antesDe === undefined ? undefined : { antesDe };
-  // O board que pediu o movimento (0174). O GET já recorta os cards por produto;
-  // o PATCH não passava essa informação adiante, então arrastar um card no board
-  // do Aurum movia o card do HM da mesma pessoa — silenciosamente, porque as duas
-  // operações "deram certo". Mesma família da 0163: card por pessoa × produto.
-  const produtoDoBoard = ((): "HM" | "AURUM" | "ETHB" => {
-    const p = (new URL(req.url).searchParams.get("produto") || "HM").toUpperCase();
-    return p === "AURUM" || p === "ETHB" ? p : "HM";
-  })();
   const r = await moverEstagioHm(compradorId, estagioChave, sessao.nome || "cs", posicao, produtoDoBoard);
   // `faltando` são os itens do checklist que barraram a entrada em "Ativação
   // Realizada" — o board mostra a lista em vez de um erro genérico.

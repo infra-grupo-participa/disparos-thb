@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmSocioCriarSchema, HmSocioPatchSchema } from "@/lib/validators";
 import { addNotaHm, provisionarSociosHm, podeAgirCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
@@ -11,18 +12,23 @@ export const runtime = "nodejs";
 // titular já é aluno, gravar um sócio o provisiona na base (mesma turma, mesma
 // validade, vinculado ao titular).
 
-async function cardDo(compradorId: string) {
+async function cardDo(compradorId: string, produto: string) {
   return queryOne<{ id: string; nome: string }>(
+    // 0187: `and ch.produto = $2` — é esta seleção que ancora a escrita em
+    // cs.hm_socios; sem ela, o sócio ia parar no card de outro board.
     `select ch.id, cmp.nome
        from cs.contatos_hm ch join public.compradores cmp on cmp.id = ch.comprador_id
-      where ch.comprador_id = $1`,
-    [compradorId],
+      where ch.comprador_id = $1 and ch.produto = $2`,
+    [compradorId, produto],
   );
 }
 
 // POST — adiciona um sócio ao card.
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado é o do produto PEDIDO. Com "HM" literal, quem tem
+  // só HM agia sobre o card do AURUM/ETHB de quem não tem card no HM.
+  const produtoCard = produtoDaRequisicao(req);
+  const g = await guard({ portal: produtoCard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): mexer nos sócios é ESCRITA no card —
@@ -35,7 +41,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const p = await parseBody(req, HmSocioCriarSchema);
   if (!p.ok) return p.res;
 
-  const card = await cardDo(params.id);
+  const card = await cardDo(params.id, produtoCard);
   if (!card) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
   await query(
@@ -52,7 +58,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
 // PATCH — edita o sócio (checklist, contato, Facebook). body: { socioId, ... }
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado é o do produto PEDIDO. Com "HM" literal, quem tem
+  // só HM agia sobre o card do AURUM/ETHB de quem não tem card no HM.
+  const produtoCard = produtoDaRequisicao(req);
+  const g = await guard({ portal: produtoCard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): mexer nos sócios é ESCRITA no card —
@@ -64,7 +73,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!p.ok) return p.res;
   const b = p.data;
 
-  const card = await cardDo(params.id);
+  const card = await cardDo(params.id, produtoCard);
   if (!card) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
   const sets: string[] = [];
@@ -103,7 +112,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 // DELETE ?socioId= — remove o convite. Não apaga o aluno na base: se o sócio já
 // foi provisionado, quem desfaz isso é a base mestre, não o kanban.
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado é o do produto PEDIDO. Com "HM" literal, quem tem
+  // só HM agia sobre o card do AURUM/ETHB de quem não tem card no HM.
+  const produtoCard = produtoDaRequisicao(req);
+  const g = await guard({ portal: produtoCard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): mexer nos sócios é ESCRITA no card —
@@ -114,7 +126,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   const socioId = new URL(req.url).searchParams.get("socioId");
   if (!socioId) return NextResponse.json({ ok: false, reason: "socioId ausente" }, { status: 400 });
 
-  const card = await cardDo(params.id);
+  const card = await cardDo(params.id, produtoCard);
   if (!card) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
   const s = await queryOne<{ nome: string; aluno_id: string | null }>(

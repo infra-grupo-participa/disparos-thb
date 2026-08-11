@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { provisionarSociosHm, podeAgirCardHm, cancelamentoBloqueado } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
@@ -11,7 +12,10 @@ export const runtime = "nodejs";
 // o titular quitar). Idempotente e blindada: se o titular ainda não é aluno,
 // devolve 0 e nada acontece. [id] = comprador_id do TITULAR.
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado é o do produto PEDIDO. Com "HM" literal, quem tem
+  // só HM agia sobre o card do AURUM/ETHB de quem não tem card no HM.
+  const produtoCard = produtoDaRequisicao(_req);
+  const g = await guard({ portal: produtoCard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): provisionar na base THB é efeito de

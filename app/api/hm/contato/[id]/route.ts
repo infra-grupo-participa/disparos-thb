@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { guardProdutoOpcional, produtoDaRequisicao } from "@/lib/produto-hm";
 import { ehMaster } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
@@ -14,10 +15,14 @@ export const runtime = "nodejs";
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   // 0164: a mesma pessoa pode ter card em HM e AURUM — sem o produto a ficha abriria
   // um dos dois ao acaso. O front manda ?produto= (useFetchHm) nos boards novos.
-  const pRaw = (new URL(_req.url).searchParams.get("produto") || "").toUpperCase();
-  const produtoFicha = pRaw === "AURUM" || pRaw === "ETHB" || pRaw === "HM" ? pRaw : null;
-  const g = await guard({ portal: "HM" });
+  //
+  // 0187: por isso o gate não pode ser "HM" literal nem "produto ?? HM". Com produto
+  // explícito valida aquele portal; SEM produto a ficha pode devolver o card do
+  // AURUM/ETHB, então exige-se os três — senão uma conta só-HM lia a ficha completa
+  // (telefone, financeiro, observações) de um board alheio só omitindo o parâmetro.
+  const g = await guardProdutoOpcional(_req);
   if (!g.ok) return g.res;
+  const produtoFicha = g.produto;
   const sessao = g.sessao;
   // Gating de equipe: uma equipe comum não abre a ficha de um card de outra
   // equipe (nem do GP). O pool e os próprios cards seguem abertos.
@@ -40,7 +45,14 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
 // PATCH: atualiza estágio / campos da ficha HM / pagamento do saldo / nota.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM" });
+  // ⚠️ 0187 — mesma correção do GET irmão, e pelo mesmo motivo. Este handler edita
+  // um card resolvido por `comprador_id` SEM filtro de produto: com `guard({portal:
+  // "HM"})` literal, uma conta sem AURUM editava o card do Aurum de quem não tem
+  // card no HM (20 cards hoje nessa situação) — observações, tags, cancelamento e
+  // revogação de acesso. Aqui o produto é OBRIGATÓRIO (o PATCH sempre age sobre um
+  // card concreto, nunca sobre visão consolidada), então `produtoDaRequisicao`.
+  const produtoCard = produtoDaRequisicao(req);
+  const g = await guard({ portal: produtoCard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   const operador = sessao.nome || "cs";
@@ -58,10 +70,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   const atual = await queryOne<{ id: string; estagio_chave: string | null; reuniao_em: string | null; responsavel_id: string | null; atribuicao_admin: boolean }>(
+    // 0187: `and ch.produto = $2` — sem isso, `atual.id` (usado no UPDATE lá
+    // embaixo) podia ser o card de OUTRO board. É aqui que a escrita é ancorada.
     `select ch.id, est.chave as estagio_chave, ch.reuniao_em, ch.responsavel_id, ch.atribuicao_admin
        from cs.contatos_hm ch left join cs.estagios est on est.id = ch.estagio_id
-      where ch.comprador_id = $1`,
-    [compradorId],
+      where ch.comprador_id = $1 and ch.produto = $2`,
+    [compradorId, produtoCard],
   );
   if (!atual) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
@@ -224,13 +238,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     await agendarHm(compradorId, "reuniao", b.reuniao_em || null, b.agendamento_motivo ?? null, operador);
     // Agendou estando em "Contato Inicial" → avança para "Reunião Agendada".
     if (b.reuniao_em && atual.estagio_chave === "hm_comprou") {
-      await moverEstagioHm(compradorId, "hm_reuniao_agendada", operador);
+      await moverEstagioHm(compradorId, "hm_reuniao_agendada", operador, undefined, produtoCard);
     }
   }
   if (b.entrevista_em !== undefined) {
     await agendarHm(compradorId, "entrevista", b.entrevista_em || null, b.agendamento_motivo ?? null, operador);
     if (b.entrevista_em && atual.estagio_chave && ["hm_pendente_liberacao", "hm_apto_ativacao", "hm_acesso_liberado", "hm_pagamento_realizado", "hm_comprou", "hm_reuniao_agendada", "hm_reuniao_finalizada", "hm_ativacao_contato"].includes(atual.estagio_chave)) {
-      await moverEstagioHm(compradorId, HM_STAGE_ENTREVISTA, operador);
+      await moverEstagioHm(compradorId, HM_STAGE_ENTREVISTA, operador, undefined, produtoCard);
     }
   }
 
@@ -249,7 +263,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // cancelamento sem mover deixaria a coluna contando uma história e a base, outra.
   if (b.confirmar_cancelamento) {
     if (atual.estagio_chave !== HM_STAGE_REEMBOLSADO) {
-      await moverEstagioHm(compradorId, HM_STAGE_REEMBOLSADO, operador);
+      await moverEstagioHm(compradorId, HM_STAGE_REEMBOLSADO, operador, undefined, produtoCard);
     }
     const r = await confirmarCancelamentoHm(compradorId, b.cancelamento_motivo ?? null, operador);
     if (!r.ok) return NextResponse.json({ ok: false, reason: "falha_ao_cancelar" }, { status: 500 });
@@ -271,7 +285,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Realizada" vale igual em qualquer tela, e a tela diz O QUE falta em vez de
   // recarregar com o card no mesmo lugar sem explicação.
   if (b.estagio_chave) {
-    const mov = await moverEstagioHm(compradorId, b.estagio_chave, operador);
+    // 0187: o movimento tem de cair no card DESTE board.
+    const mov = await moverEstagioHm(compradorId, b.estagio_chave, operador, undefined, produtoCard);
     if (!mov.ok) {
       return NextResponse.json({ ok: false, reason: mov.reason, faltando: mov.faltando }, { status: 400 });
     }

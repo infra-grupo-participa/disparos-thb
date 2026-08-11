@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { query, queryOne } from "@/lib/db";
 import { createContact, getContactMessages, sendMessage, type CanalCfg } from "@/lib/unnichat";
 import { getCanal } from "@/lib/services/canais";
@@ -23,7 +24,7 @@ type ContatoHm = { comprador_id: string; nome: string; telefone: string | null }
 // (índice da 0148) → createContact (idempotente pelo telefone). O resultado é
 // persistido no cache: antes, contato sem disparo gerava um createContact na
 // Unnichat a CADA poll da thread, e o lookup era um seq scan por abertura.
-async function resolverContactId(c: ContatoHm, cfg: CanalCfg): Promise<string | null> {
+async function resolverContactId(c: ContatoHm, cfg: CanalCfg, produto: string): Promise<string | null> {
   // Deploy é automático no push, migration é aplicada à mão: enquanto a 0147
   // não estiver em produção a coluna não existe e o select estoura (42703),
   // quebrando a ABERTURA da conversa — não só o cache. Sem cache o fluxo segue
@@ -31,14 +32,18 @@ async function resolverContactId(c: ContatoHm, cfg: CanalCfg): Promise<string | 
   let cache: { unnichat_contact_id: string | null } | null = null;
   try {
     cache = await queryOne<{ unnichat_contact_id: string | null }>(
-      `select unnichat_contact_id from cs.contatos_hm where comprador_id = $1`,
-      [c.comprador_id],
+      `select unnichat_contact_id from cs.contatos_hm
+        where comprador_id = $1 and produto = $2`,
+      [c.comprador_id, produto],
     );
   } catch {
     cache = null;
   }
   if (cache?.unnichat_contact_id) return cache.unnichat_contact_id;
 
+  // 0187: esta NÃO leva filtro de produto de propósito — cs.disparo_contatos não
+  // tem a coluna, e não deveria: o contact_id do WhatsApp é da PESSOA, não do
+  // board. Quem decide de qual card é a conversa é carregarContatoHm, que filtra.
   const existente = await queryOne<{ unnichat_contact_id: string }>(
     `select unnichat_contact_id from cs.disparo_contatos
       where comprador_id = $1 and unnichat_contact_id is not null
@@ -57,17 +62,22 @@ async function resolverContactId(c: ContatoHm, cfg: CanalCfg): Promise<string | 
     // conversa de abrir (mesma razão do try/catch acima).
     await query(
       `update cs.contatos_hm set unnichat_contact_id = $2
-        where comprador_id = $1 and unnichat_contact_id is distinct from $2`,
-      [c.comprador_id, contactId],
+        where comprador_id = $1 and unnichat_contact_id is distinct from $2
+          and produto = $3`,
+      [c.comprador_id, contactId, produto],
     ).catch(() => {});
   }
   return contactId;
 }
 
-async function carregarContatoHm(id: string): Promise<ContatoHm | null> {
+async function carregarContatoHm(id: string, produto: string): Promise<ContatoHm | null> {
+  // 0187: `and produto = $2` — é esta seleção que decide de QUEM é a conversa e
+  // para quem o POST manda WhatsApp. Sem o filtro, o card de outro board podia ser
+  // resolvido e a mensagem sair por um portal não autorizado.
   return queryOne<ContatoHm>(
-    `select comprador_id, nome, telefone from cs.contatos_hm_kanban where comprador_id = $1`,
-    [id],
+    `select comprador_id, nome, telefone from cs.contatos_hm_kanban
+      where comprador_id = $1 and produto = $2`,
+    [id, produto],
   );
 }
 
@@ -75,8 +85,11 @@ async function carregarContatoHm(id: string): Promise<ContatoHm | null> {
 // PAYLOAD enxuto (polling): { ok, mensagens, janela[, aviso] } — sem `contato`
 // (o cliente já tem a linha da fila) e sem `senderBy` cru por mensagem (a UI só
 // lê `de`/`origem`). Mesmo contrato do inbox genérico.
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM" });
+export async function GET(req: Request, { params }: { params: { id: string } }) {
+  // 0187: o portal validado é o do produto PEDIDO. Com "HM" literal, quem tem
+  // só HM lia o card do AURUM/ETHB de quem não tem card no HM.
+  const produtoCard = produtoDaRequisicao(req);
+  const g = await guard({ portal: produtoCard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) {
@@ -89,11 +102,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
 
-  const c = await carregarContatoHm(params.id);
+  const c = await carregarContatoHm(params.id, produtoCard);
   if (!c) return NextResponse.json({ ok: false, reason: "contato não encontrado" }, { status: 404 });
 
   const canal = await getCanal("HM");
-  const contactId = await resolverContactId(c, canal);
+  const contactId = await resolverContactId(c, canal, produtoCard);
   if (!contactId) {
     return NextResponse.json({ ok: true, mensagens: [], aviso: "Contato sem registro na Unnichat ainda." });
   }
@@ -131,7 +144,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
 // POST — envia texto livre ao contato (dentro da janela de 24h).
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado é o do produto PEDIDO. Com "HM" literal, quem tem
+  // só HM agia sobre o card do AURUM/ETHB de quem não tem card no HM.
+  const produtoCard = produtoDaRequisicao(req);
+  const g = await guard({ portal: produtoCard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): responder é ESCRITA — a conversa do
@@ -150,13 +166,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!p.ok) return p.res;
   const texto = p.data.texto.trim();
 
-  const c = await carregarContatoHm(params.id);
+  const c = await carregarContatoHm(params.id, produtoCard);
   if (!c) return NextResponse.json({ ok: false, reason: "contato não encontrado" }, { status: 404 });
 
   // Opt-out do overlay HM: quem pediu para parar, parou.
   const bloqueado = await queryOne<{ opt_out: boolean }>(
-    `select opt_out from cs.contatos_hm where comprador_id = $1`,
-    [c.comprador_id],
+    `select opt_out from cs.contatos_hm where comprador_id = $1 and produto = $2`,
+    [c.comprador_id, produtoCard],
   );
   if (bloqueado?.opt_out) {
     return NextResponse.json(
@@ -178,14 +194,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   // Resposta do CS: fecha a pendência do inbox HM e registra na timeline (contato_hm_id).
   await query(
+    // 0187: `and produto = $2` — este UPDATE não passa por um id intermediário,
+    // então sem o filtro ele resolvia a conversa nos DOIS cards de uma vez.
     `update cs.contatos_hm set inbox_status = 'resolvido', aguardando_desde = null, atualizado_em = now()
-      where comprador_id = $1`,
-    [c.comprador_id],
+      where comprador_id = $1 and produto = $2`,
+    [c.comprador_id, produtoCard],
   );
   await query(
     `insert into cs.interacoes (contato_hm_id, tipo, descricao, autor)
-     select id, 'nota', $2, $3 from cs.contatos_hm where comprador_id = $1`,
-    [c.comprador_id, `CS respondeu: ${texto.slice(0, 200)}`, atendente],
+     select id, 'nota', $2, $3 from cs.contatos_hm
+      where comprador_id = $1 and produto = $4`,
+    [c.comprador_id, `CS respondeu: ${texto.slice(0, 200)}`, atendente, produtoCard],
   );
 
   return NextResponse.json({ ok: true });
@@ -193,7 +212,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
 // PATCH — muda o status da conversa sem enviar (resolver / reabrir).
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM" });
+  // 0187: o portal validado é o do produto PEDIDO. Com "HM" literal, quem tem
+  // só HM agia sobre o card do AURUM/ETHB de quem não tem card no HM.
+  const produtoCard = produtoDaRequisicao(req);
+  const g = await guard({ portal: produtoCard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07): resolver/reabrir muda o estado da conversa — escrita.
@@ -213,8 +235,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         set inbox_status = $2,
             aguardando_desde = case when $2 = 'pendente' then coalesce(aguardando_desde, now()) else null end,
             atualizado_em = now()
-      where comprador_id = $1`,
-    [params.id, novo],
+      where comprador_id = $1 and produto = $3`,
+    [params.id, novo, produtoCard],
   );
   return NextResponse.json({ ok: true });
 }

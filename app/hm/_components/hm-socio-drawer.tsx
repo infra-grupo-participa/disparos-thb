@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial } from "@/app/_components/avatar";
 import { ContatoDoNome } from "@/app/_components/copiavel";
@@ -48,6 +49,8 @@ export function HmSocioDrawer({ socio, onClose, onChanged }: {
   onClose: () => void;
   onChanged: () => void;
 }) {
+  // 0187: as rotas de sócio são mono-produto no servidor — o board vai na URL.
+  const { produto: produtoBoard } = useProdutoHm();
   // Cópia local para refletir as edições na hora (otimista); o board recarrega no fechar.
   const [s, setS] = useState<SocioFicha>(socio);
   const [salvando, setSalvando] = useState(false);
@@ -59,7 +62,7 @@ export function HmSocioDrawer({ socio, onClose, onChanged }: {
   async function req(method: "PATCH" | "DELETE" | "POST", body?: Record<string, unknown>, socioId?: string) {
     setSalvando(true);
     try {
-      const url = `/api/hm/contato/${s.titular_comprador_id}/socios${socioId ? `?socioId=${socioId}` : ""}`;
+      const url = `/api/hm/contato/${s.titular_comprador_id}/socios?produto=${produtoBoard}${socioId ? `&socioId=${socioId}` : ""}`;
       await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -85,7 +88,7 @@ export function HmSocioDrawer({ socio, onClose, onChanged }: {
   async function enviarBase() {
     setEnviando(true);
     try {
-      const r = await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios/provisionar`, { method: "POST" });
+      const r = await fetch(`/api/hm/contato/${s.titular_comprador_id}/socios/provisionar?produto=${produtoBoard}`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.ok) window.alert(`Não foi possível enviar ${s.nome} à base. Tente de novo.`);
       else if (!d.provisionados) window.alert(`${s.nome} não foi enviado: o titular precisa estar como aluno na base primeiro.`);

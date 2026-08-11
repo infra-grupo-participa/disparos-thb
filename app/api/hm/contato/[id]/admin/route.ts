@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
+import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmAdminEditSchema } from "@/lib/validators";
 import { podeVerCardHm } from "@/lib/services/hm";
@@ -14,7 +15,11 @@ export const runtime = "nodejs";
 // timeline: a maleabilidade não pode custar a auditoria. Um admin de equipe
 // comum NÃO edita dados de aluno — é do admin do Grupo Participa, e só em card visível.
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const g = await guard({ portal: "HM", nivel: "master" });
+  // 0187: master NAO implica ter todos os portais — ehMaster vem de papel×equipe,
+  // e a 0153 concede AURUM/ETHB um a um. O portal do produto pedido tem de ser
+  // validado mesmo para o admin do GP.
+  const produtoCard = produtoDaRequisicao(req);
+  const g = await guard({ portal: produtoCard, nivel: "master" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
@@ -35,10 +40,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     id: string; nome: string; email: string | null; telefone: string | null;
     turma_origem: string | null;
   }>(
+    // 0187: `and ch.produto = $2`. Corrigir só o guard deixaria o gate DECORATIVO:
+    // `atual.id` ancora todos os UPDATE seguintes (pagamento_em, cancelamento_em,
+    // turma_origem) e a cs.fn_hm_admin_editar, que mexe em nome/e-mail/telefone.
     `select ch.id, cmp.nome, cmp.email, cmp.telefone, ch.turma_origem
        from cs.contatos_hm ch join public.compradores cmp on cmp.id = ch.comprador_id
-      where ch.comprador_id = $1`,
-    [compradorId],
+      where ch.comprador_id = $1 and ch.produto = $2`,
+    [compradorId, produtoCard],
   );
   if (!atual) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
