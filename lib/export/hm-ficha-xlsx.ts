@@ -90,17 +90,37 @@ export async function fichaHmParaXlsx(f: FichaHm, agora: Date): Promise<Buffer> 
       if (formato === "simnao") {
         cel.value = simNao(bruto);
       } else if (formato === "dinheiro") {
+        // O numFmt monetário só faz sentido em célula numérica. Aplicá-lo antes de
+        // testar o null deixava a célula com valor "—" e formato de moeda — o Excel
+        // mostra o traço mas trata o campo como número mal-formado.
         const v = n(bruto);
-        cel.value = v;
-        cel.numFmt = 'R$ #,##0.00;[Red]-R$ #,##0.00';
-        if (v === null) cel.value = "—";
+        if (v === null) {
+          cel.value = "—";
+        } else {
+          cel.value = v;
+          cel.numFmt = 'R$ #,##0.00;[Red]-R$ #,##0.00';
+        }
       } else if (formato === "data") {
         const v = d(bruto);
         cel.value = v ?? "—";
         if (v) cel.numFmt = "dd/mm/yyyy hh:mm";
       } else {
+        // Ficha é bloco rótulo/valor (vertical), não coluna somável: aqui o "—" é
+        // legível e não contamina soma nenhuma.
+        // O cast antigo (`as string | number`) mentia para o TS: um objeto/JSONB
+        // passava direto e virava "[object Object]" na célula. Agora o que não for
+        // primitivo é serializado explicitamente.
         const v = Array.isArray(bruto) ? bruto.join(", ") : bruto;
-        cel.value = v === null || v === undefined || v === "" ? "—" : (v as string | number);
+        if (v === null || v === undefined || v === "") {
+          cel.value = "—";
+        } else if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+          cel.value = v;
+        } else if (v instanceof Date) {
+          cel.value = v;
+          cel.numFmt = "dd/mm/yyyy hh:mm";
+        } else {
+          cel.value = JSON.stringify(v);
+        }
       }
     }
   };

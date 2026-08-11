@@ -522,6 +522,10 @@ export default function HmTabelaPage() {
   for (const v of filtroResp) paramsFiltro.append("responsavel", v);
   for (const v of filtroCanal) paramsFiltro.append("canal", v);
   for (const v of filtroTurma) paramsFiltro.append("turma", v);
+  // O produto tem de ir explícito porque os exports são <a href> — não passam pelo
+  // useFetchHm(), que é quem anexa ?produto= nos fetch. Sem isto, o botão de export
+  // no board do Aurum baixava a esteira do HM.
+  if (produto !== "HM") paramsFiltro.set("produto", produto);
 
   // responsavel/canal/turma vão ao SERVIDOR — a mesma query do board e do XLSX.
   // Lentes e busca ficam no cliente, sobre as linhas já carregadas (~130).

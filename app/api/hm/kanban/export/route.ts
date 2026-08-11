@@ -11,9 +11,23 @@ export const runtime = "nodejs";
 // Os filtros são os mesmos do board; o RECORTE de equipe também (a planilha só
 // traz o que a pessoa vê — GP/admin tudo, operador o pool+os dele, líder a equipe).
 export async function GET(req: Request) {
-  const g = await guard({ portal: "HM" });
-  if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
+
+  // O board é por produto (0155) e o export TAMBÉM precisa ser: sem repassar
+  // `produto`, relatorioHm caía no default "HM" e o botão "Exportar" do board do
+  // Aurum baixava a esteira do HM (249 cards em vez dos 35 do Aurum). Mesma
+  // normalização de /api/hm/tabela — whitelist, nunca o valor cru.
+  const prodRaw = (sp.get("produto") || "HM").toUpperCase();
+  const produto = (prodRaw === "AURUM" || prodRaw === "ETHB" ? prodRaw : "HM") as "HM" | "AURUM" | "ETHB";
+
+  // ⚠️ O portal validado é o RESOLVIDO, não "HM" literal — é a diretriz do próprio
+  // lib/guard.ts ("a whitelist da conta tem de cobrir o que a query VAI ler").
+  // Com "HM" fixo, uma conta com portal HM e sem AURUM baixaria a esteira do Aurum
+  // só passando ?produto=AURUM: o guard aprovava e a query filtrava pelo produto
+  // pedido. Hoje ninguém tem HM sem AURUM, então não houve exposição — mas passa a
+  // haver no dia em que alguém receber só um dos portais.
+  const g = await guard({ portal: produto });
+  if (!g.ok) return g.res;
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
 
   // Filtros multi-valor: o mesmo parâmetro repetido (?canal=A&canal=B) — dentro
@@ -23,12 +37,12 @@ export async function GET(req: Request) {
     canal: sp.getAll("canal"),
     turma: sp.getAll("turma"),
     estagio: sp.get("estagio"),
-    verTudo, equipeId, usuarioId,
+    verTudo, equipeId, usuarioId, produto,
   });
 
   const agora = new Date();
   const buf = await relatorioHmParaXlsx(relatorio, agora);
-  const arquivo = nomeArquivoRelatorio(sp.get("estagio") ? relatorio.colunas[0] ?? null : null, agora);
+  const arquivo = nomeArquivoRelatorio(sp.get("estagio") ? relatorio.colunas[0] ?? null : null, agora, produto);
 
   return new Response(new Uint8Array(buf), {
     headers: {
