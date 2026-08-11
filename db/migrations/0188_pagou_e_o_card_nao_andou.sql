@@ -1,0 +1,79 @@
+-- 0188/0189/0190 — "pagou e o card não andou": a causa, o conserto e a trava.
+--
+-- ⚠️ APLICADAS EM PRODUÇÃO em 11/08/2026:
+--   0188_cataloga_saldo_14303_e_alerta_oferta_orfa
+--   0189_detecta_oferta_orfa_na_hora_do_pagamento
+--   0190_alerta_oferta_orfa_se_fecha_ao_catalogar
+--
+-- ── O CASO ───────────────────────────────────────────────────────────────────────
+-- Mauricio Soares da Silva pagou R$ 14.303 por PIX em 11/08 17:23 e o card continuou
+-- em "Aguardando Retorno", mostrando que ele devia os 14.303 que acabara de quitar.
+--
+-- A compra ESTAVA em public.compras, aprovada. O que faltava era a oferta `s8i8edv7`
+-- estar em public.hm_product_catalog:
+--   · cs.fn_seed_contato_hm  → `if v_cat is null then return new`      (não move o card)
+--   · cs.fn_hm_lancar_compra → `if v_cat not in (sinal, diferenca,
+--                                 compra_cheia) then return null`      (não lança no razão)
+-- Oferta fora do catálogo = pagamento aprovado que o sistema ignora inteiro.
+--
+-- `s8i8edv7` é o saldo de quem entrou pela oferta de R$ 697 (15.000 − 697 = 14.303),
+-- criada na live de 09/08. Catalogaram a oferta de ENTRADA e esqueceram a de SALDO.
+--
+-- ── NÃO ERA CASO ISOLADO — ERA A 4ª VEZ ──────────────────────────────────────────
+-- O próprio catálogo registra a repetição, nos comentários das ofertas:
+--   "catalogado 16/07 (estava fora do catálogo)"
+--   "catalogado 30/07 (estava fora do catálogo, caso Nelci)"
+--   "catalogado 30/07 (estava fora do catálogo, caso Vanessa Melo)"
+--   "catalogado 10/08 (estava fora do catalogo, caso Quelen)"
+-- Sempre o mesmo roteiro: criam a oferta na Hotmart → ninguém cataloga → o aluno paga
+-- → o sistema ignora → alguém reclama → cataloga-se à mão. Nunca o sistema avisando.
+--
+-- ── ATINGIDOS (4 pessoas, R$ 57.211,97 — todos corrigidos) ───────────────────────
+--   Antonio Aster Filho ..... 14.303,03  cartão 10x   10/08 21:25
+--   Priscila Oliveira Lyra .. 14.302,98  cartão  9x   11/08 16:05
+--   Joaquim Rosas ........... 14.302,96  cartão 12x   11/08 17:02
+--   Mauricio Soares da Silva  14.303,00  PIX          11/08 17:23
+-- ⚠️ 3 dos 4 eram CARTÃO PARCELADO. A oferta é a mesma para à vista e parcelado
+-- (o `numero_cobranca` conta as parcelas, 0088), então catalogá-la resolve os dois.
+--
+-- ── ⚠️ UM DIAGNÓSTICO MEU QUE ESTAVA ERRADO (fica registrado) ────────────────────
+-- Concluí que "o monitor de reconciliação nunca rodava" e cheguei a criar uma
+-- cs.fn_hm_health_check_com_monitor() para ligá-lo ao cron. Estava errado:
+--   · cs.fn_hm_health_check() JÁ gera o alerta `oferta_orfa` — o detector está
+--     dentro dele, não numa função separada;
+--   · o cron jobid 19 rodou com SUCESSO todos os dias (cron.job_run_details).
+-- A função redundante foi descartada e o cron devolvido ao comando original.
+-- 🔑 Lição: conferir cron.job_run_details ANTES de afirmar que um job não roda.
+--
+-- ── A FALHA REAL ERA DE TIMING ───────────────────────────────────────────────────
+-- O health check roda 1×/dia às 07:00. Mauricio pagou 17:23 — o alerta só nasceria
+-- quase 14h depois. Nesse intervalo o operador cobra quem já pagou, e quem descobre
+-- é o aluno. Detecção existia; o que faltava era ser na hora.
+--
+-- ── O QUE FOI FEITO ──────────────────────────────────────────────────────────────
+-- 0188  · cataloga `s8i8edv7` (hm_product_catalog + cs.hm_ofertas_saldo, com link)
+--       · reprocessa as 4 compras via cs.fn_hm_lancar_compra (idempotente)
+--       · move os 4 quitados para "Pendente de Liberação" com apto_ativacao = true
+--         e registra a mudança na timeline de cada card
+-- 0189  · TRIGGER em public.compras: compra aprovada do HM em oferta fora do
+--         catálogo gera alerta `oferta_orfa` NA HORA, com nome, valor e transação.
+--         Não-fatal por construção: alerta nunca derruba o webhook da Hotmart.
+--         O ciclo diário continua como rede de segurança (pega carga manual).
+-- 0190  · o alerta se FECHA sozinho quando a oferta é catalogada (trigger em
+--         hm_product_catalog) + baixa dos 6 que estavam abertos indevidamente.
+--         Os 6 já tinham sido resolvidos e ninguém fechou: um painel com 6
+--         "críticos" falsos é o que faz o time parar de olhar o painel.
+--
+-- ── VERIFICADO ───────────────────────────────────────────────────────────────────
+--   4 cards: "Aguardando Retorno"/"Reunião Finalizada" → "Pendente de Liberação",
+--     apto_ativacao = true, situação `quitado`, saldo ~0 (centavos de arredondamento
+--     da Hotmart: 14.302,96 a 14.303,03)
+--   teste do trigger: compra sintética em oferta inexistente → alerta imediato,
+--     com nome e valor; dado de teste removido (0 resíduos)
+--   alertas `oferta_orfa` abertos: 6 → 0
+--   board 285 cards · vw_aluno_360 1.813 · pacote cravado desrespeitado 0
+--
+-- ── FICA ABERTO (não é desta leva) ───────────────────────────────────────────────
+-- O painel tem 62 alertas `sem_canal` e 14 `reembolso_sem_baixa` abertos, que
+-- ninguém está olhando. Reembolso sem baixa é dinheiro que voltou e o sistema
+-- ainda conta como recebido — merece uma passada própria.
