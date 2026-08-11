@@ -1,0 +1,47 @@
+-- 0191 — pró-rata do T40 atualizado (planilha do Victor, foto de 11/08/2026).
+--
+-- ⚠️ APLICADA EM PRODUÇÃO em 11/08/2026 (supabase_migrations: 0191_prorata_t40_atualizado_11_08).
+-- Sucede a 0185, que importou a foto de 26/07 com 12 linhas calculadas; agora são 24.
+--
+-- FONTE: "HM - CONTROLE DE ATIVAÇÃO.xlsx", aba "Pró rata - T40" (25 linhas).
+--
+-- ── CONFERÊNCIA ANTES DE GRAVAR (24 de 24 fecham) ────────────────────────────────
+--   valor/dia = valor_pago / dias_totais · consumido = valor/dia × dias_usados
+--   crédito   = valor_pago − consumido   · saldo     = pacote − crédito
+-- Zero divergência aritmética. Os pacotes implícitos (saldo + crédito) dão 14.700
+-- (entrada de 300) ou 14.303 (entrada de 697) — os dois valores corretos.
+--
+-- `credito_compra_em` DERIVADO: data_da_foto (11/08/2026) − dias_usados.
+-- ⚠️ A planilha traz a Adreiza DUAS vezes (207 e 221 dias — foto velha e nova).
+-- Regra: fica a linha de MAIOR dias_usados, que é a leitura mais recente.
+--
+-- ── ENTRARAM (14 cards) ──────────────────────────────────────────────────────────
+-- NOVOS (estavam sem crédito, exibindo o pacote cheio de 14.303/14.700):
+--   Rosângela Jeronymo Gerato · Domingos Geraldo Costa Dias · Roseli Doretto
+--   Sebastiao Jose da Silva · José Maria Gonçalves · Eduardo Canedo · André Assunção
+-- ATUALIZADOS (o pró-rata correu desde 26/07 e os dias mudaram):
+--   Adreiza (207→221 dias) · Armando · Rogério · Manuel · Maysa · Vania · Rodrigo
+--
+-- ── FICARAM DE FORA (e por quê) ──────────────────────────────────────────────────
+--   Leandro Bulhões, Nelci, Vanessa Melo, Priscila Lyra . `quitado` + pacote cravado
+--     à mão. Mexer no crédito de quem já pagou reabriria saldo fechado.
+--   Eliane Lobato ....................................... `cancelado` (Reembolsado).
+--   Patrícia Zupiroli ................................... a planilha não traz
+--     dias_usados, então não há como derivar a data da compra anterior.
+--   Valter, Noelia, Luigi, Mauricio de Oliveira ......... sem crédito na planilha.
+--
+-- Guardas no UPDATE: só onde `valor_total is null` (pacote cravado continua vencendo)
+-- e `situacao not in ('quitado','cancelado')`. Cada card tocado ganhou interação
+-- 'sistema' na timeline.
+--
+-- ── VERIFICAÇÃO PÓS-IMPORTAÇÃO (14 de 14 batem com a planilha) ───────────────────
+--   Adreiza .......... 12.726,10     Rosângela ........ 13.041,35
+--   André Assunção ... 12.726,10     Domingos ......... 9.701,18
+--   Armando .......... 12.715,15     Roseli ........... 9.742,27
+--   Canedo ........... 12.726,10     Sebastião ........ 13.218,88
+--   José Maria ....... 12.726,10     Rogério .......... 9.742,27
+--   Manuel ........... 12.969,80     Maysa ............ 12.969,80
+--   Vania ............ 12.969,80     Rodrigo .......... 7.072,61
+-- As diferenças de R$ 0,01 em 4 linhas são arredondamento (o banco recalcula por dia;
+-- a planilha é foto). Board: 285 cards · `incalculavel` 29 → 23 ·
+-- pacote cravado desrespeitado 0 · vw_aluno_360 1.813.
