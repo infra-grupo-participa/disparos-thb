@@ -96,8 +96,10 @@ const STATUS_HM: Record<string, string> = {
 
 type Col<T> = { header: string; width: number; get: (x: T) => unknown; fmt?: "data" | "datahora" | "dinheiro" | "pct" };
 
-export function nomeArquivoFinanceiro(agora: Date): string {
-  return `Financeiro-HM-${agora.toISOString().slice(0, 10)}.xlsx`;
+// `produto` no nome: o arquivo circula solto e "Financeiro-HM" para dados do Aurum
+// é armadilha para quem abrir depois.
+export function nomeArquivoFinanceiro(agora: Date, produto = "HM"): string {
+  return `Financeiro-${produto}-${agora.toISOString().slice(0, 10)}.xlsx`;
 }
 
 export async function financeiroHmParaXlsx(r: RelatorioFinanceiroHm, agora: Date): Promise<Buffer> {
@@ -399,7 +401,9 @@ const COLS_PAGAMENTOS: Col<PagamentoHm>[] = [
   { header: "Categoria", width: 14, get: (p) => CATEGORIA[p.categoria ?? ""] ?? txt(p.categoria) },
   { header: "Valor", width: 14, get: (p) => n(p.valor), fmt: "dinheiro" },
   { header: "Método", width: 14, get: (p) => txt(p.metodo_pagamento) },
-  { header: "Parcela", width: 9, get: (p) => p.parcela ?? "" },
+  // `?? ""` misturava número e string na mesma coluna (quebra ordenação e filtro
+  // numérico). null vira célula vazia, que é o comportamento certo.
+  { header: "Parcela", width: 9, get: (p) => p.parcela ?? null },
   { header: "Origem", width: 12, get: (p) => txt(p.origem) },
   { header: "Transação", width: 20, get: (p) => txt(p.transacao) },
   { header: "Oferta", width: 14, get: (p) => txt(p.oferta_codigo) },

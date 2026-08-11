@@ -221,6 +221,10 @@ async function notifySlack(channel: string, payload: {
   cidade: string | null;
   estado: string | null;
   markPortoAlegre: boolean;
+  // Compra gerada mas ainda não paga (boleto emitido / carrinho abandonado). Muda o
+  // texto do card: anunciar boleto impresso como "Nova compra" faz o comercial
+  // comemorar dinheiro que ainda não entrou — e pode nunca entrar.
+  aguardandoPagamento?: boolean;
 }) {
   const webhookUrl = SLACK_WEBHOOKS[channel];
   if (!webhookUrl) {
@@ -253,17 +257,24 @@ async function notifySlack(channel: string, payload: {
     ? `\n\n:round_pushpin: *Cliente de Porto Alegre* — <@${SLACK_USER_ISABELA}>`
     : "";
 
+  const titulo = payload.aguardandoPagamento
+    ? `:hourglass_flowing_sand: Boleto gerado (ainda NÃO pago): ${payload.produto}`
+    : `Nova compra: ${payload.produto}`;
+  const avisoPendente = payload.aguardandoPagamento
+    ? "\n\n:warning: *Aguardando compensação* — a venda só conta quando a Hotmart aprovar."
+    : "";
+
   const response = await fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      text: `Nova compra: ${payload.produto}`,
+      text: titulo,
       blocks: [
         {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Origem:* ${origemLabel}\n*Região:* ${regiaoLabel}\n*Data da compra:* ${dataFormatada}${linhaAprovacao}${mencaoIsabela}`,
+            text: `${payload.aguardandoPagamento ? `*${titulo}*\n\n` : ""}*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Origem:* ${origemLabel}\n*Região:* ${regiaoLabel}\n*Data da compra:* ${dataFormatada}${linhaAprovacao}${avisoPendente}${mencaoIsabela}`,
           },
         },
         { type: "divider" },
@@ -337,6 +348,10 @@ async function persistPurchase(args: {
   taxaProcessamento: number | null;
   canalVenda: string | null;
   codigoAssinante: string | null;
+  // O evento que originou a gravação. Vai para `compras.hotmart_event` — antes era
+  // "PURCHASE_APPROVED" cravado, o que apagava a diferença entre compra aprovada e
+  // boleto apenas impresso.
+  evento: string;
 }): Promise<void> {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error("[DB] SUPABASE_URL/SERVICE_ROLE_KEY ausentes — persistência ignorada");
@@ -432,7 +447,10 @@ async function persistPurchase(args: {
           parcelas: args.parcelas,
           data_compra: args.dataCompraIso,
           data_aprovacao: args.dataAprovacaoIso,
-          hotmart_event: "PURCHASE_APPROVED",
+          // Era "PURCHASE_APPROVED" cravado: toda compra ficava marcada como aprovada
+          // no campo de auditoria, mesmo quando o evento era outro. Agora vai o evento
+          // real — é o que distingue um boleto impresso de uma compra aprovada.
+          hotmart_event: args.evento,
           // O extrato completo (0088). O upsert por transação continua — o que muda
           // é que a recobrança agora atualiza `numero_cobranca`, e o gatilho do razão
           // lança a parcela nova em vez de perdê-la.
@@ -596,6 +614,40 @@ const EVENTO_LABEL: Record<string, string> = {
   PURCHASE_CANCELED: "Compra cancelada",
   SUBSCRIPTION_CANCELLATION: "Assinatura cancelada",
 };
+
+// ---------------------------------------------------------------------------
+// COMPRA GERADA MAS AINDA NÃO PAGA (boleto/PIX aguardando compensação).
+//
+// Até aqui o webhook só entendia PURCHASE_APPROVED. Um boleto emitido dispara
+// PURCHASE_BILLET_PRINTED, que caía no guard de evento e sumia — não ia para
+// public.compras nem para cs.hotmart_eventos, e o webhook respondia 200, então a
+// Hotmart considerava entregue e nunca retentava. Resultado: quem gerou boleto era
+// invisível para o sistema inteiro (caso Francisco, HP4238924170).
+//
+// O banco já estava pronto para esse dado e ninguém tinha percebido:
+//   · cs.contatos_hm_kanban.hotmart_status lê a compra mais recente de QUALQUER status
+//   · hm-financeiro-xlsx.ts já tem rótulo para PRINTED_BILLET / WAITING_PAYMENT
+//   · cs.hm_alertas tem o alerta 'boleto_preso' (>10 dias sem aprovar), que nunca
+//     disparou — não por falta de boleto preso, mas porque nenhum chegava.
+//
+// O status vai gravado como BILLET_PRINTED, que é o que essas peças já esperam.
+const EVENTOS_AGUARDANDO_PAGAMENTO: Record<string, string> = {
+  PURCHASE_BILLET_PRINTED: "BILLET_PRINTED",
+  PURCHASE_OUT_OF_SHOPPING_CART: "WAITING_PAYMENT",
+};
+
+// PURCHASE_COMPLETE também era ignorado: é o evento que a Hotmart manda quando a
+// compra conclui o ciclo (garantia vencida). Sem ele, uma compra aprovada e depois
+// concluída ficava com o status desatualizado.
+const EVENTOS_APROVACAO = new Set(["PURCHASE_APPROVED", "PURCHASE_COMPLETE"]);
+
+// A Hotmart manda o meio de pagamento em payment.type, com nomes variados por
+// método. Normalizar aqui evita que cada consumidor tenha de conhecer todos.
+function ehBoleto(tipo: string | null): boolean {
+  if (!tipo) return false;
+  const t = tipo.toUpperCase();
+  return t.includes("BILLET") || t.includes("BOLETO") || t.includes("BANKSLIP");
+}
 
 // Este aviso é INFORMATIVO, para o canal de vendas do produto: "fulano pediu
 // reembolso". Ele NÃO chama o Thomas.
@@ -802,7 +854,31 @@ serve(async (req) => {
 
   const event = (body.event as string) ?? "";
   const statusCancelamento = EVENTOS_CANCELAMENTO[event];
-  if (event !== "PURCHASE_APPROVED" && !statusCancelamento) {
+  const statusAguardando = EVENTOS_AGUARDANDO_PAGAMENTO[event];
+
+  // ⚠️ O log do evento CRU vem ANTES de qualquer guard, de propósito.
+  //
+  // Antes, logEventoHotmart() só era chamado depois de todos os filtros, então o
+  // evento descartado não deixava rastro nenhum — nem em compras, nem no log. Com o
+  // webhook devolvendo 200, a Hotmart nunca retentava e o dado se perdia para
+  // sempre. Foi assim que o boleto do Francisco (HP4238924170) sumiu sem deixar
+  // pista, e por isso a investigação teve de partir do print do painel da Hotmart.
+  //
+  // Registrar primeiro custa um insert e transforma "sumiu" em "está aqui, e o
+  // sistema decidiu ignorar por este motivo" — que é uma pergunta respondível.
+  {
+    const dataCru = body.data as Record<string, unknown> | undefined;
+    const compraCru = dataCru?.purchase as Record<string, unknown> | undefined;
+    const compradorCru = dataCru?.buyer as Record<string, unknown> | undefined;
+    await logEventoHotmart(
+      event || "(sem evento)",
+      compraCru?.transaction ? String(compraCru.transaction) : null,
+      compradorCru?.email ? String(compradorCru.email) : null,
+      body,
+    );
+  }
+
+  if (!EVENTOS_APROVACAO.has(event) && !statusCancelamento && !statusAguardando) {
     return new Response(JSON.stringify({ ok: true, reason: "event_ignored" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -992,6 +1068,7 @@ serve(async (req) => {
     cidade,
     estado,
     markPortoAlegre,
+    aguardandoPagamento: Boolean(statusAguardando),
   });
 
   // [ADICIONADO] Persiste a compra aprovada no banco (compradores/compras).
@@ -1032,7 +1109,12 @@ serve(async (req) => {
     offerCode: offer?.code ? String(offer.code) : null,
     moeda: (price?.currency_code as string) ?? "BRL",
     valor: (price?.value as number) ?? null,
-    status: String(purchase.status ?? "APPROVED"),
+    // Em evento de compra não paga (boleto impresso / carrinho abandonado), o status
+    // é ditado pelo EVENTO, não pelo campo `purchase.status` — a Hotmart às vezes
+    // manda "APPROVED" no payload de um boleto que só foi emitido. Confiar no campo
+    // faria um boleto não pago entrar como compra aprovada, criando card e saldo de
+    // dinheiro que nunca entrou.
+    status: statusAguardando ?? String(purchase.status ?? "APPROVED"),
     isAssinatura: purchase.is_subscription === true,
     numeroRecorrencia: num(purchase.recurrency_number),
     metodoPagamento: payment?.type ? String(payment.type) : null,
@@ -1051,6 +1133,7 @@ serve(async (req) => {
     canalVenda: origem ?? null,
     codigoAssinante: (purchase.subscription as Record<string, unknown> | undefined)?.subscriber_code
       ? String((purchase.subscription as Record<string, unknown>).subscriber_code) : null,
+    evento: event,
   });
 
   // O evento CRU, inteiro. Sem isto, todo bug de integração vira arqueologia: foi

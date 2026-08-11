@@ -29,6 +29,13 @@ function d(v: unknown): Date | null {
 const sn = (v: unknown) => (v === true ? "Sim" : v === false ? "Não" : "—");
 const txt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : Array.isArray(v) ? v.join(", ") : (v as string));
 
+// ⚠️ Célula de dinheiro e de data é NÚMERO/DATA ou VAZIA — nunca "—".
+// Um traço numa coluna de valor faz o Excel tratar a coluna inteira como texto:
+// SOMA() devolve total parcial em silêncio, a ordenação fica alfabética e o
+// AutoFilter oferece filtro de texto. Era por isso que o Resumo (que usa números
+// limpos) não batia com as abas de detalhe. `null` vira célula vazia no ExcelJS,
+// que é o que soma e ordena certo. Mesma regra que hm-financeiro-xlsx.ts já segue.
+
 // A ordem das colunas segue a da ficha: quem é → onde está → o que foi combinado
 // → quanto → o que falta ativar. Ninguém deveria caçar o telefone no meio do
 // financeiro.
@@ -38,40 +45,42 @@ const COLUNAS: Col[] = [
   { header: "E-mail", width: 28, get: (l) => txt(l.email) },
   { header: "Etapa", width: 22, get: (l) => txt(l.estagio_nome) },
   { header: "Esteira", width: 12, get: (l) => (l.estagio_aba === "ativacao" ? "Ativação" : "Comercial") },
-  { header: "Dias na etapa", width: 13, get: (l) => n(l.dias_na_etapa) ?? "—" },
+  { header: "Dias na etapa", width: 13, get: (l) => n(l.dias_na_etapa) },
   { header: "Responsável", width: 18, get: (l) => txt(l.responsavel) },
   { header: "Entrada", width: 14, get: (l) => (l.categoria_entrada === "sinal" ? "Sinal" : l.categoria_entrada === "compra_cheia" ? "Compra cheia" : txt(l.categoria_entrada)) },
-  { header: "Sinal pago em", width: 17, get: (l) => d(l.sinal_pago_em) ?? "—", fmt: "data" },
-  { header: "Valor do sinal", width: 13, get: (l) => n(l.sinal_valor) ?? "—", fmt: "dinheiro" },
+  { header: "Sinal pago em", width: 17, get: (l) => d(l.sinal_pago_em), fmt: "data" },
+  { header: "Valor do sinal", width: 13, get: (l) => n(l.sinal_valor), fmt: "dinheiro" },
   { header: "Turma de origem", width: 15, get: (l) => txt(l.turma_origem) },
-  { header: "Reunião", width: 17, get: (l) => d(l.reuniao_em) ?? "—", fmt: "data" },
+  { header: "Reunião", width: 17, get: (l) => d(l.reuniao_em), fmt: "data" },
   { header: "Resultado da reunião", width: 20, get: (l) => txt(l.reuniao_resultado) },
   // Quem remarca sem parar e quem não aparece: o sinal que a planilha antiga não
   // guardava, porque a nova data simplesmente apagava a anterior.
   { header: "Reuniões remarcadas", width: 14, get: (l) => n(l.reunioes_remarcadas) ?? 0 },
-  { header: "Entrevista", width: 17, get: (l) => d(l.entrevista_em) ?? "—", fmt: "data" },
+  { header: "Entrevista", width: 17, get: (l) => d(l.entrevista_em), fmt: "data" },
   { header: "Resultado da entrevista", width: 20, get: (l) => txt(l.entrevista_resultado) },
   { header: "Entrevistas remarcadas", width: 15, get: (l) => n(l.entrevistas_remarcadas) ?? 0 },
   { header: "Não compareceu (vezes)", width: 15, get: (l) => n(l.nao_comparecimentos) ?? 0 },
   { header: "Meio de pagamento", width: 18, get: (l) => txt(l.pagamento_meio) },
-  { header: "Previsão de pagamento", width: 18, get: (l) => d(l.pagamento_previsto_em) ?? "—", fmt: "data" },
+  { header: "Previsão de pagamento", width: 18, get: (l) => d(l.pagamento_previsto_em), fmt: "data" },
   { header: "Acordo", width: 40, get: (l) => txt(l.acordo) },
-  { header: "Link do saldo enviado em", width: 18, get: (l) => d(l.link_saldo_enviado_em) ?? "—", fmt: "data" },
+  { header: "Link do saldo enviado em", width: 18, get: (l) => d(l.link_saldo_enviado_em), fmt: "data" },
   // O saldo que ainda falta: pacote − TUDO o que já foi pago (inclusive as
   // mensalidades). Cobre lead novo e aluno da base — antes só saía para quem tinha
   // crédito pró-rata, e o lead novo vinha em branco na planilha do financeiro.
-  { header: "Saldo a pagar", width: 14, get: (l) => n(l.saldo_a_perseguir) ?? n(l.saldo_a_pagar) ?? "—", fmt: "dinheiro" },
+  { header: "Saldo a pagar", width: 14, get: (l) => n(l.saldo_a_perseguir) ?? n(l.saldo_a_pagar), fmt: "dinheiro" },
   { header: "Situação", width: 20, get: (l) => txt(l.situacao_financeira) },
-  // "3/12": pagas (fato, do razão) sobre contratadas (o que a pessoa assinou). A
-  // diferença entre as duas é a inadimplência — por isso vão juntas, nunca só o total.
-  { header: "Parcelas pagas", width: 13, get: (l) => (l.parcelas_pagas || l.parcelas_contratadas)
-      ? `${l.parcelas_pagas ?? 0}/${l.parcelas_contratadas ?? "?"}` : "—" },
-  { header: "Valor da parcela", width: 14, get: (l) => n(l.valor_parcela) ?? "—", fmt: "dinheiro" },
-  { header: "Último pagamento", width: 18, get: (l) => d(l.ultimo_pagamento_em) ?? "—", fmt: "data" },
-  { header: "Crédito pró-rata", width: 14, get: (l) => n(l.credito) ?? "—", fmt: "dinheiro" },
-  { header: "Valor total", width: 13, get: (l) => n(l.valor_total) ?? "—", fmt: "dinheiro" },
-  { header: "Valor pago", width: 13, get: (l) => n(l.valor_pago) ?? "—", fmt: "dinheiro" },
-  { header: "Pagamento em", width: 17, get: (l) => d(l.pagamento_em) ?? "—", fmt: "data" },
+  // Pagas (fato, do razão) sobre contratadas (o que a pessoa assinou). A diferença
+  // entre as duas é a inadimplência — por isso vão juntas, nunca só o total.
+  // Eram uma coluna de texto "3/12", que o Excel não soma nem filtra por faixa;
+  // viraram duas colunas numéricas, como já fazia hm-financeiro-xlsx.ts.
+  { header: "Parcelas pagas", width: 13, get: (l) => n(l.parcelas_pagas) },
+  { header: "Parcelas contratadas", width: 15, get: (l) => n(l.parcelas_contratadas) },
+  { header: "Valor da parcela", width: 14, get: (l) => n(l.valor_parcela), fmt: "dinheiro" },
+  { header: "Último pagamento", width: 18, get: (l) => d(l.ultimo_pagamento_em), fmt: "data" },
+  { header: "Crédito pró-rata", width: 14, get: (l) => n(l.credito), fmt: "dinheiro" },
+  { header: "Valor total", width: 13, get: (l) => n(l.valor_total), fmt: "dinheiro" },
+  { header: "Valor pago", width: 13, get: (l) => n(l.valor_pago), fmt: "dinheiro" },
+  { header: "Pagamento em", width: 17, get: (l) => d(l.pagamento_em), fmt: "data" },
   { header: "Apto à ativação", width: 14, get: (l) => sn(l.apto_ativacao) },
   { header: "Searchie", width: 10, get: (l) => sn(l.ativ_searchie) },
   { header: "Comunidade", width: 12, get: (l) => sn(l.ativ_comunidade) },
@@ -81,17 +90,19 @@ const COLUNAS: Col[] = [
   { header: "Não contatar", width: 13, get: (l) => sn(l.nao_contatar) },
   { header: "Revisar", width: 10, get: (l) => sn(l.revisar) },
   { header: "Sócios", width: 8, get: (l) => n(l.socios) ?? 0 },
-  { header: "Cancelamento", width: 17, get: (l) => d(l.cancelamento_em) ?? "—", fmt: "data" },
+  { header: "Cancelamento", width: 17, get: (l) => d(l.cancelamento_em), fmt: "data" },
   { header: "Motivo do cancelamento", width: 32, get: (l) => txt(l.cancelamento_motivo) },
   { header: "Na base THB", width: 12, get: (l) => (l.aluno_id ? "Sim" : "Não") },
   { header: "Tags", width: 34, get: (l) => txt(l.tags) },
 ];
 
-export function nomeArquivoRelatorio(coluna: ColunaHm | null, agora: Date): string {
+// `produto` entra no nome porque o arquivo circula solto (WhatsApp, e-mail): sem
+// isso, a esteira do Aurum e a do HM baixam com nome idêntico e se confundem.
+export function nomeArquivoRelatorio(coluna: ColunaHm | null, agora: Date, produto = "HM"): string {
   const alvo = coluna
     ? coluna.nome.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9 ]/g, "").trim().replace(/\s+/g, "-")
     : "Geral";
-  return `Esteira-HM-${alvo}-${agora.toISOString().slice(0, 10)}.xlsx`;
+  return `Esteira-${produto}-${alvo}-${agora.toISOString().slice(0, 10)}.xlsx`;
 }
 
 export async function relatorioHmParaXlsx(r: RelatorioHm, agora: Date): Promise<Buffer> {

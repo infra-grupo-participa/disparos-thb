@@ -13,9 +13,18 @@ export const runtime = "nodejs";
 // filtros valiam — uma planilha filtrada que não se declara filtrada é uma
 // armadilha para quem a abrir depois.
 export async function GET(req: Request) {
-  const g = await guard({ portal: "HM" });
-  if (!g.ok) return g.res;
   const sp = new URL(req.url).searchParams;
+
+  // Mesmo bug da rota do kanban: sem repassar `produto`, o financeiro do board do
+  // Aurum saía com os dados do HM. Whitelist, nunca o valor cru.
+  const prodRaw = (sp.get("produto") || "HM").toUpperCase();
+  const produto = (prodRaw === "AURUM" || prodRaw === "ETHB" ? prodRaw : "HM") as "HM" | "AURUM" | "ETHB";
+
+  // ⚠️ Valida o portal RESOLVIDO, não "HM" literal: com o literal, uma conta sem
+  // AURUM baixaria o financeiro do Aurum via ?produto=AURUM. Ver comentário gêmeo
+  // em /api/hm/kanban/export.
+  const g = await guard({ portal: produto });
+  if (!g.ok) return g.res;
   // A planilha sai RECORTADA pelo escopo de quem exporta (mesmo predicado do
   // board): um export sem recorte era a carteira inteira vazando com outra roupa.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
@@ -25,7 +34,7 @@ export async function GET(req: Request) {
     canal: sp.getAll("canal"),
     turma: sp.getAll("turma"),
     estagio: sp.get("estagio"),
-    verTudo, equipeId, usuarioId,
+    verTudo, equipeId, usuarioId, produto,
   });
 
   const agora = new Date();
@@ -34,7 +43,7 @@ export async function GET(req: Request) {
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${nomeArquivoFinanceiro(agora)}"`,
+      "Content-Disposition": `attachment; filename="${nomeArquivoFinanceiro(agora, produto)}"`,
       "Content-Length": String(buf.length),
       "Cache-Control": "no-store",
     },
