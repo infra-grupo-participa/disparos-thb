@@ -189,7 +189,15 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
   const posicao = antesDe === undefined ? undefined : { antesDe };
-  const r = await moverEstagioHm(compradorId, estagioChave, sessao.nome || "cs", posicao);
+  // O board que pediu o movimento (0174). O GET já recorta os cards por produto;
+  // o PATCH não passava essa informação adiante, então arrastar um card no board
+  // do Aurum movia o card do HM da mesma pessoa — silenciosamente, porque as duas
+  // operações "deram certo". Mesma família da 0163: card por pessoa × produto.
+  const produtoDoBoard = ((): "HM" | "AURUM" | "ETHB" => {
+    const p = (new URL(req.url).searchParams.get("produto") || "HM").toUpperCase();
+    return p === "AURUM" || p === "ETHB" ? p : "HM";
+  })();
+  const r = await moverEstagioHm(compradorId, estagioChave, sessao.nome || "cs", posicao, produtoDoBoard);
   // `faltando` são os itens do checklist que barraram a entrada em "Ativação
   // Realizada" — o board mostra a lista em vez de um erro genérico.
   if (!r.ok) return NextResponse.json({ ok: false, reason: r.reason, faltando: r.faltando }, { status: 400 });

@@ -992,7 +992,39 @@ migration, `fn_hm_prorata` (CONFLITO 1) nem `fn_hm_valores_derivados` (CONFLITO 
   mantém o fallback `"14700"` para escolher o LINK sugerido em `cs.hm_ofertas_saldo` — é o
   CONFLITO 1 do arquiteto (fora de escopo, depende de `fn_hm_prorata`).
 
-### Fable — veredito (a preencher)
+### Fable — veredito (10/08/2026, ~23h50 — Fable, trava final)
+
+**VEREDITO: REPROVADO** — reprovação de PROVA, não de defeito: não encontrei erro novo no código, mas duas verificações obrigatórias não foram executadas por ninguém e eu não tenho como executá-las deste assento (o MCP Supabase só existe no contexto do orquestrador; confirmei: ToolSearch vazio, sem CLI logada, sem credencial no repo — o que, aliás, está certo).
+
+| Critério | Resultado |
+|---|---|
+| Segurança | **REPROVADO** — `hm_product_catalog` passou a precificar a dívida de cada aluno e a auditoria de escrita (RLS/grants/policies) que o próprio plano marcou como **obrigatória** nunca rodou; a única evidência é o cabeçalho da 0044 ("RLS e sem grant"), que é documento de 2 meses atrás, não medição. Idem `security_invoker` da view e grants de `cs.hm_financeiro_marco`. |
+| Escalabilidade | APROVADO — lateral com `LIMIT 1` + ordem total (`pago_em, oferta_codigo, id`) fecha a família 0168/0169 na view; catálogo ~80 linhas com PK; e a escala que importa (oferta nova = INSERT, zero migration) está provada pelo ensaio ZZTESTE497 → 14.503. |
+| Solidificação | RESSALVA — os 2 CHECKs são bons, o marco `pre-0174` é o instrumento certo e o rollback está descrito; mas (a) `vw_hm_entradas_sem_pacote` é alarme órfão — view que ninguém consulta é silêncio com outro nome — e (b) 0174 escolhe a entrada em `cs.hm_pagamentos` e 0175 em `public.compras`: compra aprovada sem lançamento no razão (buraco 0157) faz card e `thb_alunos` divergirem sem erro. |
+| UX | RESSALVA — fallbacks `|| 14700` removidos certo (card quitado não mostra mais 14.700), "saldo a definir" consistente com a 0165; mas o título "(de R$ 15.000)" (`page.tsx:350`) e — achado meu, fora da lista de CONFLITOs — `cs.fn_hm_sugestao_financeira` (0044) cravando `15000` no formulário que ESCREVE `valor_total` mentirão no dia em que existir porta com pacote ≠ 15.000. |
+| Otimização | APROVADO — remove 3 fósseis, extingue a classe "migration por oferta", mata 2 bugs latentes (cruzamento HM×Aurum na busca da entrada; `ERROR 21000` no `faltam` de `moverEstagioHm`) e só adiciona instrumento. Sistema melhor do que achou. |
+
+**VERIFICADO (por mim, nesta máquina)**
+- `npm run typecheck` → limpo · `npm run lint` → ✔ sem erros · `npm run build` → sucesso.
+- `git diff main...feat/saldo-pela-entrada` lido integral (8 arquivos); 0174/0175/0176 lidas por inteiro; 0168/0171 lidas (o padrão de falha).
+- Varredura de literais em SQL+TS/TSX: todos os 15000/14700/300 remanescentes são os documentados (fallback histórico da view, coluna deprecada `saldo_regra`, coalesce da 0175, `hm-ficha.ts:140` = CONFLITO 1) **mais um não mapeado**: `fn_hm_sugestao_financeira` (0044).
+- Cardinalidade (ataque 4): a view está blindada; `hm-ficha.ts` e `hm.ts` ganharam ordem total + filtro de produto. A PRÓXIMA da família: **`moverEstagioHm` (`lib/services/hm.ts:148`) segue por PESSOA, sem parâmetro de produto** — o novo `order by (ch.produto='HM') desc` faz quem tem card em HM **e** Aurum ter SEMPRE o card HM movido, mesmo arrastando no board do Aurum (`app/api/hm/kanban/route.ts:192` não passa produto). Pré-existente (antes era sorteio), agora determinístico-mas-enviesado.
+
+**NÃO VERIFICADO (é o que reprova)**
+- Neutralidade contra `cs.hm_financeiro_marco` (`pre-0174`): os números do orquestrador (274 cards, 0/0/0, delta R$ 0,00) estão colados acima, mas não re-medi de fonte independente.
+- Quem pode escrever `public.hm_product_catalog` e ler `cs.hm_financeiro_marco`, no banco de hoje.
+
+**PENDENTE (destrava o APROVADO — 3 consultas, só leitura)**
+1. [orquestrador, MCP Supabase] colar a saída de: RLS + grants + policies de `public.hm_product_catalog` e de `cs.hm_financeiro_marco` (`pg_class.relrowsecurity`, `information_schema.role_table_grants`, `pg_policies`) e o `reloptions`/`security_invoker` de `cs.vw_hm_financeiro`.
+2. [orquestrador] re-diff da view atual contra o marco `pre-0174`, com cada linha divergente explicada por pagamento/venda posterior ao `tirado_em` — a live está caindo, diferença legítima existe e precisa de nome.
+3. [security-pentester] ler as duas saídas e declarar "nenhum finding crítico/alto" (exigência do pipeline para mudança que toca dado financeiro; a etapa foi pulada).
+
+**RISCO RESIDUAL (não bloqueia, o João lê)**
+- `moverEstagioHm` sem produto (acima) — rotear ao backend: a função ganha `p_produto` vindo das rotas, que sabem o board.
+- Alarme `entrada_sem_pacote` órfão: ligar a `cs.fn_hm_health_check` (tarefa aberta declarada) ou exibir a view em tela de admin.
+- Literais que mentirão com pacote ≠ 15.000: `page.tsx:350` e `fn_hm_sugestao_financeira` (0044) — este último ESCREVE `valor_total` via operador.
+- 29 `thb_alunos` com `valor_total` divergente (R$ 196.500, histórico) — pendente com o Marcio, registrado na 0175.
+- BLOQUEIOs B1 (`nz3ob9r2`) e B2 (flip da `z391kxd9`) continuam abertos com o Marcio — corretamente fora desta série.
 
 ### Backend / Orquestrador (10/08/2026, 21h30 — executado pelo orquestrador; o subagente backend não tinha MCP Supabase)
 
@@ -1049,3 +1081,311 @@ caracteres no meio da noite de vendas.
 
 **CONFLITO 1 (`cs.fn_hm_prorata` crava 14700 em `saldo_a_pagar`)**: mantido fora do escopo,
 como o arquiteto recomendou. Ainda escolhe o link de checkout sugerido.
+
+### Pentester (10/08/2026 -- auditoria adversarial, producao viva)
+
+Nota de metodo, igual a do Fable. O MCP Supabase (plugin:supabase:supabase) esta conectado
+na sessao do orquestrador (claude mcp list), mas nao foi exposto a este subagente --
+ToolSearch com select:mcp__supabase__* e buscas por palavra-chave (supabase, execute_sql,
+RLS policy grant advisors) devolveram "No matching deferred tools found" em todas as
+tentativas. Ferramentas MCP nao fazem parte do toolset declarado do agente
+security-pentester. Nenhuma query rodou contra o banco. Tudo abaixo e auditoria estatica
+(repo sistema-disparos-participa + sistema-grupo-participa completos, migrations 0001-0176
+lidas). Os itens 1 e 3 do pedido do orquestrador continuam PENDENTES de verificacao em banco
+-- e a mesma lacuna que reprovou o Fable, e eu nao consegui fechar deste assento.
+
+---
+
+#### [ALTO -- NAO VERIFICADO] gp_is_admin() e a policy de hm_product_catalog nao existem em nenhum repositorio (CWE-1059 / A08 Integridade de Software e Dados)
+
+Onde: public.gp_is_admin() e a policy hm_product_catalog_admin_write so existem no banco de
+producao (mbvybujpkwuorhtdzcde). Busquei a definicao da funcao em texto completo em
+sistema-disparos-participa (todo db/migrations/) e em sistema-grupo-participa
+(db/schema.sql, infra/scripts/*.sql, todo o app/): zero CREATE FUNCTION ou CREATE OR REPLACE
+FUNCTION gp_is_admin em disco. O nome so aparece USADO (nunca definido) em
+infra/scripts/db_migrate_ht_ativacao.sql linhas 169-255, num padrao repetido --
+compradores_ht_write, compras_ht_write, ht_editions_admin_write,
+ht_product_catalog_admin_write -- todos "to authenticated using/with check" chamando
+public.gp_is_admin(). Isso confirma que o padrao tabela_admin_write com gp_is_admin() e
+real e consistente com o que o orquestrador relatou para hm_product_catalog, mas o corpo da
+funcao nunca foi commitado em lugar nenhum.
+
+Impacto: nao da para revisar em codigo se gp_is_admin() e falsificavel -- se ela confia num
+claim de JWT que uma sessao comprometida forjaria, se consulta uma tabela de admins que tem
+sua propria RLS fraca, se trata NULL/usuario anonimo como falso corretamente, se e SECURITY
+DEFINER com search_path fixo (o padrao que toda funcao deste projeto segue, mas nao posso
+confirmar para esta). Como a policy dela e o unico freio documentado contra um UPDATE de uma
+linha em hm_product_catalog que reprecifica cerca de R$ 441 mil (a regua da z391kxd9,
+BLOQUEIO B2 do arquiteto), uma falha nessa funcao e o caminho mais direto para reprecificar
+um grupo inteiro de alunos sem passar por este pipeline.
+
+Reproducao: nao reproduzida -- depende de acesso ao banco.
+
+Evidencia: grep -rn gp_is_admin fora dos dois repos do projeto nao retornou nenhuma CREATE
+FUNCTION; so usos em infra/scripts/*.sql do sistema-grupo-participa.
+
+Remediacao:
+- Para o orquestrador (tem o MCP): rodar e colar em algum lugar versionado -- a definicao
+  completa da funcao gp_is_admin via pg_get_functiondef, a listagem de pg_policies para
+  public.hm_product_catalog, e relrowsecurity/relforcerowsecurity de pg_class para essa
+  tabela.
+- Para backend-engineer: depois de capturado, criar um arquivo em infra/scripts/ ou
+  db/migrations/ do sistema-grupo-participa so com CREATE OR REPLACE FUNCTION
+  public.gp_is_admin() (idempotente, sem efeito se ja existe igual) -- funcao que autoriza
+  escrita de preco de programa nao pode ser codigo que so existe clicado no SQL Editor do
+  Supabase.
+- Para mim (security-pentester), reconvocar com o MCP carregado (ou com o corpo da funcao
+  colado em texto) para revisar a logica linha a linha antes de fechar este item.
+
+---
+
+#### [ALTO] cs.hm_financeiro_marco -- o instrumento de prova financeira nao tem REVOKE versionado; herda INSERT/UPDATE/DELETE por default privilege (CWE-284 Improper Access Control)
+
+Onde: db/migrations/0001_cs_workspace_init.sql linha 194, que faz
+alter default privileges in schema cs grant select, insert, update, delete on tables to
+disparos_app -- versus db/migrations/0174_o_pacote_vem_da_entrada.sql linha 133, que so faz
+grant select on cs.hm_financeiro_marco to disparos_app. Nenhum revoke acompanha. Busquei
+revoke em todas as 176 migrations: as unicas ocorrencias sao revoke em FUNCTION (0029, 0032,
+0034, 0071, 0091, 0113) -- nenhuma toca em tabela, e nenhuma toca em cs.hm_financeiro_marco.
+
+Impacto: cs.hm_financeiro_marco e a tabela criada nesta mesma migration para provar, com
+fotografia pre-0174, que nenhum aluno mudou de saldo em silencio -- e literalmente o
+instrumento anti-adulteracao que o plano do arquiteto promete (nunca sobrescreve, um marco
+por evento). Como ALTER DEFAULT PRIVILEGES IN SCHEMA cs foi setado (pela role que roda as
+migrations) uma vez em 0001 e se aplica a toda tabela FUTURA criada em cs por essa mesma
+role, cs.hm_financeiro_marco nasceu, por padrao, com INSERT/UPDATE/DELETE concedidos a
+disparos_app -- a role que o app Next.js usa em producao (DATABASE_URL do
+.env.local.example, disparos_app, NUNCA service_role). O grant select explicito da 0174 e
+redundante (select ja vinha por default) e nao revoga nada.
+
+O pedido do orquestrador diz que ele acabou de revogar UPDATE/DELETE de disparos_app --
+aceito que isso foi feito diretamente no banco, fora deste repositorio, porque nao ha commit
+nenhum que corresponda. Duas consequencias, mesmo aceitando que o revoke manual existe agora:
+1. Nao sobrevive a um rebuild do schema. Qualquer replay das migrations do zero (staging,
+   ambiente de teste, disaster recovery, um novo projeto Supabase) recria
+   cs.hm_financeiro_marco com INSERT/UPDATE/DELETE abertos de novo -- o revoke manual nao
+   esta em lugar nenhum que se repete.
+2. INSERT nao foi mencionado como revogado. Se so UPDATE/DELETE sairam, disparos_app ainda
+   pode INSERT no marco. A PK marco+contato_hm_id impede sobrescrever a linha pre-0174 de um
+   contato ja registrado, mas nao impede inserir linhas novas sob um marco ja existente para
+   um contato_hm_id que ainda nao tinha entrado (ex.: os cards que a live acrescentou entre a
+   medicao e agora) nem impede inserir um marco com nome fabricado -- nada na tabela ou no
+   schema impede um bug (ou um acesso indevido a DATABASE_URL) de plantar uma fotografia
+   falsa que prove neutralidade que nao houve.
+
+Reproducao: nao testada contra o banco (sem MCP). Verificavel por codigo-fonte: os dois
+trechos citados acima sao suficientes para confirmar a lacuna sem precisar de acesso ao banco.
+
+Remediacao:
+- Para backend-engineer: nova migration (proximo numero livre) com
+  revoke insert, update, delete on cs.hm_financeiro_marco from disparos_app
+  -- explicita, versionada, idempotente. Conferir depois via
+  information_schema.role_table_grants filtrando table_schema=cs e table_name=hm_financeiro_marco
+  que sobra so SELECT.
+- Considerar revisitar o alter default privileges in schema cs ... to disparos_app de 0001:
+  toda tabela nova em cs nasce com CRUD total para a role da aplicacao por desenho --
+  correto para tabelas operacionais (e o modelo do projeto), mas errado por padrao para uma
+  tabela de auditoria/prova. Registrar essa convencao (CLAUDE.md ou AGENTS.md do repo):
+  tabela de marco/log/auditoria em cs precisa de REVOKE explicito na mesma migration que a
+  cria.
+
+---
+
+#### [MEDIO] cs.vw_hm_financeiro roda com privilegio do dono e nao tem recorte proprio -- o recorte por equipe/operador e so na aplicacao (OWASP A01 Broken Access Control, defesa em profundidade)
+
+Onde: a view em db/migrations/0174_o_pacote_vem_da_entrada.sql (bloco D) e criada sem a
+clausula security_invoker, seguindo o padrao do resto do projeto (cs.contatos_ht, 0001,
+explicitamente com security_invoker = false). So disparos_app tem grant select nela (0174) e
+em cs.vw_hm_entradas_sem_pacote (0176).
+
+Verificado nos dois consumidores atuais (ambos corretos, nenhum e regressao desta serie):
+- app/api/hm/kanban/route.ts linhas 35, 43, 104 -- aplica paramsEscopo(escopoVisibilidade(sessao))
+  e sqlEscopo(...) no WHERE do SELECT que faz LEFT JOIN cs.vw_hm_financeiro fin. O recorte e
+  sobre k.responsavel_id / k.equipe_id (o card do kanban), nao sobre fin -- mas como o fin so
+  entra para linhas que ja passaram no filtro do card, o efeito pratico hoje e correto.
+- app/api/hm/contato/[id]/route.ts linha 24 -- chama podeVerCardHm(sessao, params.id) antes
+  de fichaHm(), que e quem le a mesma view. Tambem correto.
+
+Impacto: a view em si nao tem trava nenhuma -- qualquer SELECT contra cs.vw_hm_financeiro
+usando a credencial disparos_app devolve saldo e pacote de todos os alunos, de todas as
+equipes. Como so existe uma credencial de banco para todo o app (disparos_app, compartilhada
+por toda rota), a unica coisa que impede um vazamento horizontal (operador de uma equipe
+vendo o financeiro de aluno de outra) e lembrar de chamar podeVerCardHm / aplicar sqlEscopo
+em toda rota nova que toque a view -- exatamente a classe de bug que ja derrubou este board
+varias vezes por outro motivo (card por pessoa x produto, migrations 0163/0164/0168/0169/0172,
+todos esqueceram um filtro em um consumidor novo). Hoje nao achei nenhuma rota que esqueca --
+mas e checagem manual, nao e garantida pelo banco.
+
+Achado a parte: cs.vw_hm_entradas_sem_pacote (0176) tem grant select para disparos_app mas
+nenhum consumidor no repo -- nem rota, nem tela, nem o health check (o proprio plano ja
+registra isso como tarefa aberta). Ela lista nome, e-mail e valor dos alunos do nz3ob9r2
+(BLOQUEIO B1) sem nenhum recorte por equipe embutido -- quando alguem a ligar a uma tela,
+essa tela precisa nascer master-only, porque a view nao vai proteger sozinha.
+
+Reproducao: leitura de codigo; nao executei contra o banco.
+
+Remediacao:
+- Para backend-engineer: ao ligar cs.vw_hm_entradas_sem_pacote ao health check ou a uma tela
+  (tarefa ja aberta no plano), garantir que o consumidor seja master-only via ehMaster(sessao),
+  nao uma tela de operador comum.
+- Sugestao de processo, nao bloqueante: qualquer PR futuro que adicione uma rota nova
+  consumindo cs.vw_hm_financeiro deveria, por convencao do time, citar explicitamente qual
+  gate de escopo protege aquele acesso (podeVerCardHm, sqlEscopo, ou ehMaster) -- vale virar
+  item de checklist do backend-engineer neste tipo de mudanca.
+
+---
+
+#### [BAIXO] cs.fn_hm_pagamento_do_produto marcada IMMUTABLE lendo tabela, agora decide dinheiro (nao e regressao desta serie, mas o raio de efeito cresceu)
+
+Onde: db/migrations/0168_pagamento_do_produto_uma_linha_so.sql linhas 36-49. A propria
+migration documenta a divida: volatilidade mantida em IMMUTABLE, como estava; e incorreto (a
+funcao le tabela), mas mudar para STABLE agora invalidaria os planos e o indice funcional que
+dependem dela -- divida registrada, nao paga no meio do incidente.
+
+O que mudou aqui: ate a 0166, essa funcao so filtrava (que pagamentos contam para pago no
+ciclo). Na cs.vw_hm_financeiro da 0174 ela tambem decide qual e a entrada, dentro do LATERAL
+que resolve entrada_pacote e entrada_fechada (bloco D, comentario: nao cruza board, card do
+HM nao pesca entrada do AURUM). Uma funcao marcada IMMUTABLE autoriza o planner a tratar o
+resultado como constante e potencialmente cachear/dobrar em planos -- incorreto para uma
+funcao que le cs.hm_origem_por_oferta, uma tabela que muda (a 0167 mexeu nela via
+UPDATE/janela).
+
+Risco medido: busquei por indice funcional dependente dela em todas as migrations -- nao
+encontrei nenhum, o que contradiz a razao dada em 0168 para nao corrigir agora (pelo menos
+nao neste repositorio; pode existir um indice criado direto no banco, fora de migration --
+nao verificavel sem MCP). O app conecta com prepare:false (documentado em
+.env.local.example), o que reduz o risco de plano preparado ficar obsoleto entre requests na
+mesma conexao pooled.
+
+Impacto: baixo hoje (mitigado por prepare:false e, aparentemente, ausencia de indice
+funcional), mas incorreto por natureza -- uma funcao que decide de qual oferta vem o pacote
+de um aluno nao deveria depender de o planner nunca reavaliar.
+
+Remediacao:
+- Para backend-engineer: confirmar no banco (via MCP, quando disponivel) que nao ha indice
+  funcional sobre fn_hm_pagamento_do_produto; se nao houver, trocar immutable por stable e
+  seguro e barato -- faz o marcador bater com a realidade antes que alguem construa um indice
+  em cima dela e o bug fique caro de desfazer.
+
+---
+
+#### [INFO -- controle confirmado] Nenhum caminho de escrita em public.hm_product_catalog a partir do app hoje
+
+Busca completa (app/, lib/, db/migrations/) nos dois repositorios
+(sistema-disparos-participa e sistema-grupo-participa) por INSERT/UPDATE/DELETE contra
+hm_product_catalog: so aparecem dentro de arquivos de migration, sempre rodados manualmente
+(via MCP/psql pelo desenvolvedor), nunca a partir de uma rota HTTP. A unica rota que toca o
+card financeiro (app/api/hm/contato/[id]/route.ts linhas 68-75) rejeita no servidor qualquer
+tentativa de o cliente mandar valor_total, valor_pago ou forma de pagamento -- dados de
+transacao so entram pela Hotmart, por decisao registrada do Marcio (30/07). disparos_app nao
+tem select em hm_product_catalog (reafirmado em dois comentarios independentes: 0044 linhas
+6-8 e hm-ficha.ts linha 74), so le por funcao SECURITY DEFINER
+(cs.fn_hm_sugestao_financeira). Nao achei nenhuma tela em sistema-grupo-participa que
+referencie hm_product_catalog, pacote_cheio ou entrada_condicao_fechada -- o catalogo de
+preco do HM parece nao ter UI de edicao em lugar nenhum ainda, so migration manual. Confirma
+que a superficie de escrita real hoje e quem tem credencial de Postgres com privilegio
+suficiente para rodar migration, nao um endpoint HTTP -- mas por isso mesmo o freio real e a
+policy gp_is_admin() (item Alto 1 acima) no dia em que essa tela existir, e HOJE, quem quer
+que rode migrations direto (dono do banco / MCP) ja bypassa RLS por ser dono da tabela --
+isso e esperado e nao e uma falha, e como toda migration deste projeto funciona.
+
+Tambem confirmado, fora do escopo pedido mas relevante para tranquilizar: este app nunca usa
+service_role (documentado e reforcado em .env.local.example: NUNCA service_role); as unicas
+ocorrencias da string em todo o repo sao as Supabase Edge Functions
+(supabase/functions webhooks), contexto separado, nao tocado por esta serie de migrations.
+
+---
+
+#### Injecao (item 5 do pedido) -- VERIFICADO, sem achado
+
+app/api/hm/kanban/route.ts (novo parametro produto na query string) e
+app/hm/kanban/page.tsx (que o envia): o valor vem de searchParams.get, passa por um ternario
+fechado que so aceita AURUM ou ETHB, caindo em HM por default, antes de virar argumento de
+moverEstagioHm(...), e dentro de lib/services/hm.ts os dois lugares que o usam (ch.produto no
+primeiro queryOne, produto ou null no segundo) sao bind parameters (posicao 2 do array),
+nunca concatenacao de string. Migrations 0174/0175: todo dado (comprador_id uuid, offer_code
+em updates com literal fixo escrito pelo desenvolvedor, nao input externo) e parametrizado ou
+constante controlada. Nenhuma injecao encontrada.
+
+---
+
+### Veredito
+
+NAO aprovo "nenhum finding critico/alto pendente" -- ha dois achados Altos, ambos por lacuna
+de verificacao que eu nao consegui fechar (MCP indisponivel neste assento), nao por exploit
+confirmado:
+1. gp_is_admin() e a RLS de hm_product_catalog -- corpo da funcao e policies nao existem em
+   nenhum repositorio; nao posso atestar que nao sao falsificaveis.
+2. cs.hm_financeiro_marco -- sem REVOKE versionado; depende de um ajuste manual nao commitado
+   que nao sobrevive a um rebuild do schema.
+
+Nenhum dos dois e um exploit confirmado agora -- nao achei rota, RPC nem funcao que um
+usuario sem credencial de banco consiga usar para escrever em hm_product_catalog hoje, e a
+migration 0174 em si e neutra (portao 0/0/0 medido pelo backend). Mas o pedido original do
+Fable era exatamente fechar essas duas lacunas antes do APROVADO, e eu nao tenho como.
+
+Severidade: Alto 2 (nao verificado) - Medio 2 (cs.vw_hm_financeiro sem recorte proprio;
+achado colateral: mesma lacuna em cs.vw_hm_entradas_sem_pacote orfa) - Baixo 1
+(fn_hm_pagamento_do_produto IMMUTABLE) - Info 2 (nenhum caminho de escrita hoje; injecao
+checada e limpa).
+
+Prioridade para o orquestrador:
+1. Rodar as consultas do item Alto 1 (function def, policies, relrowsecurity) via MCP e colar
+   aqui -- sem isso o Fable nao pode fechar.
+2. Nova migration revogando INSERT/UPDATE/DELETE de disparos_app em cs.hm_financeiro_marco
+   (item Alto 2) -- corrige sozinho, nao depende de banco para escrever, so para confirmar o
+   estado atual antes/depois.
+3. Reconvocar-me com o MCP carregado (ou os resultados colados) para eu revisar a logica de
+   gp_is_admin() e fechar o item 1 de verdade.
+
+Nao verificado (explicito):
+- Estado real de RLS/grants/policies em public.hm_product_catalog e cs.hm_financeiro_marco
+  no banco de producao agora.
+- Corpo de public.gp_is_admin().
+- security_invoker e reloptions reais de cs.vw_hm_financeiro (assumi o padrao do resto do
+  projeto por nao haver clausula explicita na migration, mas nao confirmei no banco).
+- Se existe algum indice funcional sobre fn_hm_pagamento_do_produto criado fora de migration.
+
+### Fechamento do orquestrador (10/08, 22h) — os dois Altos do pentester
+
+**Alto 1 — `gp_is_admin()` não auditável em disco: RESOLVIDO, sem correção necessária.**
+Lida no banco:
+
+```sql
+CREATE OR REPLACE FUNCTION public.gp_is_admin() RETURNS boolean
+ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$ SELECT EXISTS (SELECT 1 FROM public.perfis p
+  WHERE p.id = auth.uid() AND p.status = 'ativo' AND p.cargo IN ('dev','admin')) $function$
+```
+
+Não é falsificável pelo cliente: `auth.uid()` sai do JWT já verificado pelo GoTrue, e o
+cargo vive em `public.perfis`, que é a tabela da EQUIPE (não a de alunos). A escrita em
+`public.hm_product_catalog` — a superfície que agora precifica dívida — está atrás dessa
+policy, com RLS ligado. Os grants amplos para `anon` são inertes: sem policy para `anon`,
+sob RLS não se lê nem se escreve.
+
+**Alto 2 — revoke fora de migration: CORRIGIDO.** O pentester estava certo — eu havia
+aplicado o revoke direto no banco e o repo não o continha, então um rebuild de schema
+devolveria o privilégio (o `alter default privileges` da 0001 continua valendo).
+Agora existe `db/migrations/0177_marco_financeiro_append_only.sql`, e a 0178 estende a
+mesma correção às duas views financeiras, que também tinham escrita por inércia.
+
+Estado verificado depois:
+
+| objeto | grants de `disparos_app` |
+|---|---|
+| `cs.hm_financeiro_marco` | SELECT, INSERT |
+| `cs.vw_hm_financeiro` | SELECT |
+| `cs.vw_hm_entradas_sem_pacote` | SELECT |
+
+**Médio do Fable — `moverEstagioHm` movia o card errado: CORRIGIDO.** Era regressão
+introduzida por mim nesta mesma branch: o `order by (ch.produto='HM') desc` que eu pus para
+matar o não-determinismo fazia o arraste no board do Aurum mexer no card do HM. Agora o
+board manda `?produto=` no PATCH (`app/hm/kanban/page.tsx`), a rota resolve
+(`app/api/hm/kanban/route.ts`) e `moverEstagioHm` recebe e filtra (`lib/services/hm.ts`).
+O parâmetro é opcional: chamada antiga cai no card do HM, o comportamento de antes.
+
+**Pendências reconhecidas, não fechadas hoje** (todas registradas acima): ligar
+`cs.vw_hm_entradas_sem_pacote` ao health check; `fn_hm_prorata` e `fn_hm_sugestao_financeira`
+ainda cravam 14.700/15.000; `fn_hm_pagamento_do_produto` é IMMUTABLE lendo tabela; os 29
+`thb_alunos` com valor histórico divergente; e os BLOQUEIOS B1 e B2, que são do Marcio.

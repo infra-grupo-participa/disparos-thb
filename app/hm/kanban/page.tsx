@@ -479,7 +479,9 @@ export default function HmKanbanPage() {
   // conversa com a API de mover — o arrasto e o menu passam os dois por aqui.
   async function patchMover(card: Card, estagioChave: string, antesDe: string | null) {
     try {
-      const r = await fetch("/api/hm/kanban", {
+      // `?produto=` (0174): o servidor precisa saber de QUAL board veio o arraste.
+      // Sem isso, mover um card no Aurum mexia no card do HM da mesma pessoa.
+      const r = await fetch(`/api/hm/kanban?produto=${encodeURIComponent(produto)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ compradorId: card.comprador_id, estagioChave, antesDe }),

@@ -1,0 +1,21 @@
+-- 0177_marco_financeiro_append_only.sql
+-- O livro de marcos do financeiro vira append-only.
+--
+-- Achado da auditoria do Fable + do pentester (10/08): `cs.hm_financeiro_marco`
+-- nasceu na 0174 com INSERT, UPDATE **e DELETE** para `disparos_app` — não por
+-- decisão, mas herdado do `alter default privileges in schema cs` da 0001. A 0174
+-- só fez `grant select` por cima, o que não tira nada.
+--
+-- Por que importa: essa tabela é a PROVA de quem devia quanto antes de cada
+-- mudança de régua. Se o app pode reescrever a prova, ela não prova nada — e o
+-- portão "ninguém muda de valor em silêncio", que é a razão de a tabela existir,
+-- vira decoração.
+--
+-- Escrever e ler, sim; apagar e reescrever, não.
+--
+-- ⚠️ Nota do pentester que vale guardar: a correção precisa viver AQUI, em
+-- migration, e não num comando avulso. `alter default privileges` continua
+-- valendo para tabelas futuras do schema `cs` — um rebuild de schema devolveria os
+-- privilégios. Toda tabela nova de auditoria em `cs` precisa do mesmo revoke.
+revoke update, delete on cs.hm_financeiro_marco from disparos_app;
+grant select, insert on cs.hm_financeiro_marco to disparos_app;

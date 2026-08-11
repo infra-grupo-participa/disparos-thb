@@ -145,11 +145,17 @@ async function reposicionarNaColuna(contatoHmId: string, estagioId: number, posi
 // da Ativação), limpa apto_ativacao/pagamento — mantém o estado consistente
 // tanto no seletor livre quanto no "desfazer" (evita card pago no Comercial).
 // Retorna false se a etapa/contato não existem.
+// `produto` (0174): QUAL board pediu o movimento. Desde a 0163 a mesma pessoa tem
+// um card por produto, e mover "o card do comprador" virou pergunta ambígua — o
+// arraste no board do Aurum estava mexendo no card do HM. Opcional para não
+// quebrar chamadas antigas: sem ele, o desempate cai no card do HM (o board
+// histórico), que é o comportamento de antes.
 export async function moverEstagioHm(
   compradorId: string,
   chave: string,
   autor = "cs",
   posicao?: PosicaoHm,
+  produto?: string | null,
 ): Promise<MoverResultado> {
   const novo = await estagioPorChave(chave);
   if (!novo) return { ok: false, reason: "estagio_invalido" };
@@ -163,9 +169,10 @@ export async function moverEstagioHm(
     `select ch.id, ch.estagio_id, ch.apto_ativacao, ch.produto, e.chave as estagio_chave
        from cs.contatos_hm ch left join cs.estagios e on e.id = ch.estagio_id
       where ch.comprador_id = $1
+        and ($2::text is null or ch.produto = $2)
       order by (ch.produto = 'HM') desc, ch.criado_em asc
       limit 1`,
-    [compradorId],
+    [compradorId, produto ?? null],
   );
   if (!ch) return { ok: false, reason: "estagio_invalido" };
   // Mesma coluna: o arrasto foi só vertical — reordena e pronto, sem timeline.
