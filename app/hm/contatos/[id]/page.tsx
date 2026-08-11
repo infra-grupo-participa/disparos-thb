@@ -8,10 +8,11 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { origemRecompra, SeloRecompra } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
-// Checkout Hotmart do saldo do HM (R$ 14.700 de 15.000) — oferta 2vibw97m.
-// No próprio checkout o cliente escolhe à vista ou parcelado.
+// Checkout Hotmart do saldo do HM — oferta 2vibw97m. É um link ÚNICO por trás de
+// qualquer valor (o cliente escolhe à vista ou parcelado no próprio checkout);
+// o VALOR exibido ao lado não é mais cravado aqui (0174) — vem de `saldoCheio`,
+// que o servidor calcula pela oferta de entrada que a pessoa pagou.
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
-const SALDO_VALOR = "R$ 14.700";
 
 type Contato = {
   comprador_id: string; nome: string; email: string | null; telefone: string | null;
@@ -108,6 +109,11 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   // Saldo do Aurum ETHB SP (0158). Só vem preenchido para quem está na planilha do
   // Victor — para o board HM fica null e o bloco nem aparece.
   const [aurum, setAurum] = useState<AurumSaldo | null>(null);
+  // Saldo cheio do BOARD (0174): pacote da oferta de ENTRADA que a pessoa pagou,
+  // menos o pago no ciclo — nunca mais um "R$ 14.700" cravado no componente.
+  // Null quando a régua ainda não sabe calcular (aluno da base sem crédito
+  // pró-rata) — a tela diz "saldo a definir" (vocabulário da 0165).
+  const [saldoCheio, setSaldoCheio] = useState<string | null>(null);
 
   const recarregar = useCallback(async () => {
     // 0164: sem o produto, quem tem card em 2 boards abriria um deles ao acaso.
@@ -122,6 +128,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
       setReuniaoLocal(toLocalInput(d.contato.reuniao_em));
       setEntrevistaLocal(toLocalInput(d.contato.entrevista_em));
       setAurum(d.aurumSaldo ?? null);
+      setSaldoCheio(d.saldoCheio ?? null);
       // Sugestão do servidor para o bloco financeiro (15.000 quando a entrada
       // foi o sinal). O operador confere antes de confirmar.
       const sugestao = numOu0(d.financeiro?.valor_total) || numOu0(d.financeiro?.sugestao_valor_total);
@@ -336,7 +343,11 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
               de outro produto. */}
           <Secao titulo={aurum
             ? `Pagamento do saldo — ${brl(aurum.base_saldo)} (de ${brl(aurum.pacote_cheio)})`
-            : `Pagamento do saldo — ${SALDO_VALOR} (de R$ 15.000)`}>
+            // 0174: nada de "R$ 14.700" cravado — o valor vem da oferta de entrada
+            // que a pessoa pagou. Sem dado (aluno da base sem crédito pró-rata
+            // calculado), o título diz o que a 0165 já estabeleceu para o resto da
+            // ficha, em vez de mentir um número.
+            : `Pagamento do saldo — ${saldoCheio != null ? `${brl(saldoCheio)} (de R$ 15.000)` : "saldo a definir"}`}>
             {jaPagou ? (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
