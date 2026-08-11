@@ -23,10 +23,11 @@ export type ProdutoBoard = "HM" | "AURUM" | "ETHB";
 
 const CANAIS_POR_PRODUTO: Record<ProdutoBoard, readonly string[]> = {
   HM: [
-    // As DUAS edições do pitch da entrada de R$697 (mesma oferta na Hotmart,
-    // lives de 09/08 e 10/08). Quem separa uma da outra é a janela de compra —
-    // ver migration 0167. Ficam lado a lado de propósito: a pergunta da operação
-    // hoje é "qual das duas lives converteu mais?".
+    // As TRÊS edições do pitch da entrada de R$697 (mesma oferta na Hotmart,
+    // lives de 09/08, 10/08 e 11/08). Quem separa uma da outra é a janela de
+    // compra — ver migrations 0167 e 0179. Ficam lado a lado de propósito: a
+    // pergunta da operação hoje é "qual das lives converteu mais?".
+    "HT30 - 11-08",
     "HT30 - 10-08",
     "HT30 - 09-08",
     "HT29 - 26-07",
