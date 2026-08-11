@@ -993,3 +993,59 @@ migration, `fn_hm_prorata` (CONFLITO 1) nem `fn_hm_valores_derivados` (CONFLITO 
   CONFLITO 1 do arquiteto (fora de escopo, depende de `fn_hm_prorata`).
 
 ### Fable — veredito (a preencher)
+
+### Backend / Orquestrador (10/08/2026, 21h30 — executado pelo orquestrador; o subagente backend não tinha MCP Supabase)
+
+**Aplicado em produção, nesta ordem:**
+
+- **0174** `db/migrations/0174_o_pacote_vem_da_entrada.sql` — blocos A (colunas
+  `pacote_cheio` + `entrada_condicao_fechada` e as duas CHECK), B (semeadura das 5 portas),
+  C (`cs.hm_financeiro_marco`, marco `pre-0174` tirado com a view AINDA na 0166) e D (a view).
+- **0175** `db/migrations/0175_valores_derivados_pela_entrada.sql` — CONFLITO 4.
+- **0176** `db/migrations/0176_entrada_sem_pacote_tem_onde_aparecer.sql` — bloco E virou view.
+- **CONFLITO 5** — `lib/services/hm.ts:157` e `:181`: o `select` do card ganhou `produto` +
+  ordem total, e o subquery escalar do `faltam` ganhou o filtro de produto. Era `ERROR 21000`
+  esperando a primeira pessoa com card em HM e Aurum passar por `moverEstagioHm`.
+
+**PORTÃO DE NEUTRALIDADE — 0174**
+
+| | |
+|---|---|
+| cards conferidos | **274** (o board cresceu de 265 para 274 durante o trabalho: a live converteu) |
+| mudam de saldo | **0** |
+| mudam de pacote | **0** |
+| mudam de situação | **0** |
+| delta em reais | **R$ 0,00** |
+
+**PORTÃO DE NEUTRALIDADE — 0175**: 259 compradores, **0** mudam de `valor_total` vs a lógica
+antiga, delta R$ 0,00.
+
+**Ensaio da capacidade nova** (transação revertida, resíduo zero — 274 antes e depois):
+
+| cenário | pacote | pago | saldo | esperado |
+|---|---|---|---|---|
+| oferta NOVA `ZZTESTE497` R$497, cadastrada só dentro da transação | 15.000 | 497 | **14.503,00** | 14.503 ✅ |
+| entrada R$697 (`rlgjsrul`) | 15.000 | 697 | **14.303,00** | 14.303 ✅ |
+| entrada R$300 (`z391kxd9`) | 15.000 | 300 | **14.700,00** | 14.700 ✅ |
+
+A oferta de R$497 não existia em lugar nenhum do código — só no catálogo. É a prova do pedido.
+
+**Comportamento das duas naturezas de porta, conferido nos cards reais:**
+
+| porta | público | cards | com crédito pró-rata | incalculável |
+|---|---|---|---|---|
+| 300 (ABERTA) | aluno_base | 110 | 84 | 10 |
+| 300 (ABERTA) | lead_novo | 96 | 0 | 0 |
+| 697 (FECHADA) | aluno_base | 8 | **0** | **0** |
+| 697 (FECHADA) | lead_novo | 21 | 0 | 0 |
+
+**Achado colateral, não causado por esta série:** 29 compradores têm
+`public.thb_alunos.valor_total` divergente do que `fn_hm_valores_derivados` calcula hoje
+(delta R$ 196.500). É histórico. Registrado na 0175; corrigir mexe em dinheiro de aluno.
+
+**Tarefa aberta:** ligar `cs.vw_hm_entradas_sem_pacote` a `cs.fn_hm_health_check` como alerta
+`entrada_sem_pacote`. Não foi feito hoje porque exigiria reescrever uma função de 7 mil
+caracteres no meio da noite de vendas.
+
+**CONFLITO 1 (`cs.fn_hm_prorata` crava 14700 em `saldo_a_pagar`)**: mantido fora do escopo,
+como o arquiteto recomendou. Ainda escolhe o link de checkout sugerido.
