@@ -1,0 +1,71 @@
+-- 0193/0194/0195 — cancelamento no board certo, compra grande fora do razao,
+-- e o card cancelado em vermelho.
+--
+-- APLICADAS EM PRODUCAO em 11/08/2026.
+--
+-- ============================================================================
+-- 0193 — o cancelamento da Hotmart cai no board DA COMPRA reembolsada
+-- ============================================================================
+-- CASO Iara Celia Batista de Castro: comprou o sinal antigo do HM (R$ 300, 08/07)
+-- e depois a taxa do AURUM (R$ 1.000, 06/08). Pediu reembolso do HM — a Hotmart
+-- mandou PURCHASE_REFUNDED da transacao HP3485117132, do produto Holding Masters.
+-- O sistema cancelou o card do AURUM. O board que ela deixou ficou sem registro e
+-- o board em que ela SEGUE PAGANDO foi para "Reembolsado".
+--
+-- Causa: cs.fn_hm_compra_cancelada resolvia
+--     where ch.comprador_id = v_dono
+-- sem filtro de produto — mesmo padrao "resolve o card pela pessoa" ja corrigido
+-- nas rotas (0187), agora dentro do trigger de cancelamento.
+--
+-- Correcao: o card e o do produto da compra cancelada
+--     and cs.fn_hm_pagamento_do_produto(new.oferta_codigo, ch.produto)
+-- Sem card daquele produto, nao faz nada — cancelar o de outro board e pior que
+-- nao fazer nada.
+--
+-- ALCANCE MEDIDO: 13 cards com cancelamento vindo da Hotmart; em 12 a compra E do
+-- board do card (corretos). So a Iara estava cruzada. Card do Aurum revertido para
+-- "Contato Inicial", ativo, cobrando o saldo; no HM ela nao deve mais nada.
+--
+-- ============================================================================
+-- 0194 — Anderson Silva Resende: compra cheia de R$ 15.000 fora do razao
+-- ============================================================================
+-- Ele pagou a compra CHEIA do HM (R$ 15.000,02, oferta 9pp8f8th, 04/05, COMPLETE),
+-- mas o card do HM estava em "Aguardando Retorno", incalculavel, com pago = 999,97
+-- (a taxa do AURUM, de 05/08).
+--
+-- Causa: a compra e ANTERIOR ao cutoff da esteira (25/06). Quando caiu, o seed nao
+-- criou card (cutoff) e fn_hm_lancar_compra saiu no "sem card do dono, sem razao".
+-- O card do HM so nasceu em 05/08 pela compra do Aurum — por isso levava o plano
+-- "Taxa de inscricao Aurum" num card de HM.
+--
+-- LEVANTAMENTO: 14 compras grandes (>= 7.000) do HM sem lancamento no razao. 12 nao
+-- tem card nenhum (anteriores ao cutoff, a pessoa nunca entrou na esteira) — nao sao
+-- erro. Sobram 2 com card: Rodrigo (ja tratado, virou credito pro-rata na 0185/0191)
+-- e o Anderson.
+--
+-- Feito: compra lancada no razao, card movido para "Pendente de Liberacao" com
+-- apto_ativacao, plano corrigido, e pacote CRAVADO em 15.000,02 (a regua nao sabe
+-- calcular quem entrou pagando o pacote inteiro, sem oferta de entrada). QUITADO.
+--
+-- ============================================================================
+-- 0195 — card cancelado fica VERMELHO (front)
+-- ============================================================================
+-- Pedido do Marcio: "pessoas que cancelaram diretamente na Hotmart, pra gente ja
+-- coloca como vermelho, coloca uma tonalidade vermelha e coloca como cancelar".
+--
+-- app/api/hm/kanban/route.ts passa a devolver `cancelado`, `cancelado_na_hotmart` e
+-- `cancelamento_motivo`; app/hm/kanban/page.tsx pinta fundo e borda de rose e mostra
+-- selo solido. O vermelho VENCE o verde de quitado: quem cancelou nao e cliente,
+-- mesmo tendo pago tudo antes. O selo entra PRIMEIRO na lista de extras, para nao
+-- colapsar no "+N".
+--
+-- Dois rotulos, porque sao coisas diferentes:
+--   "cancelou na Hotmart" — a propria pessoa cancelou por la (reembolso/chargeback)
+--   "cancelado"           — cancelamento registrado pelo comercial
+--
+-- Estado: 13 cards ficam vermelhos, todos com selo "cancelou na Hotmart".
+--
+-- PENDENCIA ANOTADA: 4 desses 13 tem motivo "Cancelado na Hotmart (PURCHASE_APPROVED)"
+-- — evento contraditorio (aprovado nao e cancelamento). Provavel heranca de quando o
+-- hotmart_event era cravado como PURCHASE_APPROVED (corrigido na 0181). Nao afeta a
+-- marcacao visual; vale conferir se esses 4 cancelaram mesmo.

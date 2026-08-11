@@ -60,6 +60,11 @@ type Card = {
   /** Falso-verde: o saldo zerou por dupla contagem do crédito pró-rata (0112),
    *  não por quitação. O card avisa em vez de mentir; quanto cobrar é do comercial. */
   conferir_saldo: boolean;
+  /** 0195: cancelado. `cancelado_na_hotmart` = a própria Hotmart confirmou
+   *  (reembolso/chargeback); sem ela, é cancelamento registrado pelo comercial. */
+  cancelado: boolean;
+  cancelado_na_hotmart: boolean;
+  cancelamento_motivo: string | null;
   ultima_msg: string | null;
   entrou_estagio_em: string | null;
   /** A MESMA pessoa nos outros boards (0164), pronto para exibir:
@@ -1447,6 +1452,10 @@ function CardItem({
   // Verde é "não deve mais nada". Quem está em conferência não entra: ali o zero é
   // aritmética, não quitação — e um verde errado faz o time parar de cobrar.
   const verde = card.quitado && !card.conferir_saldo;
+  // 0195: cancelado pinta o card de VERMELHO e vence o verde do quitado — quem
+  // cancelou nao e cliente, mesmo que tenha pago tudo antes. `cancelado_na_hotmart`
+  // e o caso do Marcio: a pessoa cancelou direto na Hotmart e o board tem de gritar.
+  const cancelado = card.cancelado || card.cancelado_na_hotmart;
   const wa = waLink(card.telefone);
   // Recompra (27/07, "por ora"): já era aluno antes de comprar — tag "Origem Txx"
   // ou "Aluno THB"/"Aluno Aurum" (nunca "Turma T39", que todo mundo ganha).
@@ -1463,6 +1472,22 @@ function CardItem({
   // Selos SÓ informativos → colapsam no "+N" (ver SelosExtras). Recompra segue
   // sinalizada pela borda superior vermelha mesmo com o selo colapsado.
   const extras: { key: string; rotulo: string; el: React.ReactNode }[] = [];
+  // 0195: CANCELADO vem PRIMEIRO — os extras colapsam no "+N" por ordem, e este é o
+  // selo que nao pode sumir. "na Hotmart" e o caso em que a propria pessoa cancelou
+  // direto por la: o board tem de dizer isso, nao so pintar de vermelho.
+  if (cancelado) extras.push({
+    key: "cancelado",
+    rotulo: card.cancelamento_motivo || (card.cancelado_na_hotmart ? "Cancelado na Hotmart" : "Cancelado"),
+    el: (
+      <span
+        className="inline-flex items-center gap-0.5 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-rose-500"
+        title={card.cancelamento_motivo || (card.cancelado_na_hotmart ? "Cancelou direto na Hotmart (reembolso/chargeback)" : "Cancelamento registrado pelo comercial")}
+      >
+        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+        {card.cancelado_na_hotmart ? "cancelou na Hotmart" : "cancelado"}
+      </span>
+    ),
+  });
   if (recompra) extras.push({ key: "recompra", rotulo: `Recompra (${recompra})`, el: <SeloRecompra origem={recompra} /> });
   if (cat) extras.push({
     key: "cat", rotulo: `Entrada: ${cat.txt}`,
@@ -1536,11 +1561,15 @@ function CardItem({
         // da marca vence) nem sobrescreve o anel de seleção.
         // `conferir_saldo` TIRA o verde: nesses o saldo zerou por dupla contagem do
         // crédito (0112), não por quitação — pintar de verde seria o board mentindo.
-        verde
-          ? "bg-emerald-50/50 dark:bg-emerald-500/5"
-          : "bg-white dark:bg-slate-900",
+        cancelado
+          ? "bg-rose-50 dark:bg-rose-500/10"
+          : verde
+            ? "bg-emerald-50/50 dark:bg-emerald-500/5"
+            : "bg-white dark:bg-slate-900",
         marcado
           ? "border-brand ring-1 ring-brand dark:border-brand-400 dark:ring-brand-400"
+          : cancelado
+            ? "border-rose-300 dark:border-rose-500/40"
           : verde
             ? "border-emerald-200 dark:border-emerald-500/25"
             : card.conferir_saldo

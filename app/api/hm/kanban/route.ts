@@ -68,6 +68,13 @@ export async function GET(req: Request) {
             -- dá zero por coincidência aritmética, não por quitação (0112). Enquanto
             -- o comercial não decide quanto cobrar, o card avisa em vez de mentir.
             (cd.comprador_id is not null) as conferir_saldo,
+            -- 0195: cancelamento. cancelado_na_hotmart = a propria Hotmart
+            -- confirmou (reembolso/chargeback), que e o vermelho forte do card.
+            -- Sem confirmacao da Hotmart, e cancelamento registrado pelo comercial:
+            -- mesmo vermelho, rotulo diferente.
+            (ch2.cancelamento_efetivado_em is not null) as cancelado,
+            (ch2.hotmart_cancelado_em is not null) as cancelado_na_hotmart,
+            ch2.cancelamento_motivo,
             um.descricao as ultima_msg,
             me.criado_em as entrou_estagio_em,
             -- A MESMA pessoa nos OUTROS boards (0164): o operador do Aurum precisa
