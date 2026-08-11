@@ -1,0 +1,52 @@
+-- 0192 — crédito duplo: o pagamento DESTE curso lançado como "crédito do anterior".
+--
+-- ⚠️ APLICADA EM PRODUÇÃO em 11/08/2026 (supabase_migrations: 0192_credito_duplo_naiara_e_detector_sem_cravado).
+-- Achada numa auditoria da conta do pró-rata, depois da importação da 0191.
+--
+-- ── O CASO (Naiara Dias Fiuza Silvestre) ─────────────────────────────────────────
+-- Ela pagou:  compra cheia HM R$ 15.000,02 em 15/06  +  sinal R$ 299,99 em 07/07
+--             = R$ 15.300,01 num pacote de R$ 15.000. NÃO DEVE NADA.
+-- O card dizia que ela ainda devia R$ 2.042,48, parada em "Reunião Agendada".
+--
+-- Causa: `credito_valor_pago = 15.000` com `credito_compra_em = 2026-06-15` — que é
+-- exatamente a data e o valor da COMPRA CHEIA DO PRÓPRIO HM. O mesmo dinheiro estava
+-- contado duas vezes: como pagamento (cs.hm_pagamentos) e como crédito de curso
+-- anterior. Como o crédito abate o PACOTE (15.000 − 12.657,53 = 2.342,47) e o
+-- `pago_no_ciclo` só conta o que entrou depois do crédito (R$ 299,99), sobrou uma
+-- dívida fantasma de R$ 2.042,48.
+--
+-- ⚠️ É o INVERSO do "falso-verde" da 0112: lá o crédito duplo fazia o saldo dar zero
+-- por coincidência aritmética; aqui faz COBRAR de quem já quitou.
+--
+-- ── POR QUE A DETECÇÃO EXISTENTE NÃO PEGOU ───────────────────────────────────────
+-- cs.vw_hm_credito_duplo (0112) exige `pacote_cravado is not null` — só enxerga quem
+-- tem pacote cravado à mão. A Naiara não tem, então passava batido: era o ângulo
+-- cego do detector.
+--
+-- ── O QUE FOI FEITO ──────────────────────────────────────────────────────────────
+-- 1. Zerado o crédito da Naiara (o dinheiro já está no razão como pagamento; não pode
+--    ALÉM disso abater o pacote) + interação na timeline explicando.
+-- 2. Card movido para "Pendente de Liberação" com apto_ativacao e quitado_em — o
+--    mesmo destino que o trigger daria a uma compra cheia paga.
+-- 3. Nova view cs.vw_hm_credito_espelhado: crédito cujo VALOR bate com uma compra do
+--    PRÓPRIO HM já lançada no razão, COM OU SEM pacote cravado. `mesma_data = true`
+--    é o sinal forte (mesmo valor E mesma data).
+--
+-- ── NÃO MEXIDOS, de propósito ────────────────────────────────────────────────────
+--   Rodrigo Alexandre Assis Silva — crédito 12.000 em 31/03 vs. compra cheia de
+--     12.000,02 em 15/03. Datas DIFERENTES, e o crédito veio validado na planilha do
+--     Victor (0185/0191), onde a conta fecha. É o modelo legítimo "comprou o HM 12k
+--     antes e migrou para o pacote novo".
+--   Pedro Henrique dos Santos Simoes — mesmo padrão e já `quitado` com saldo 0.
+--   Ambos aparecem na view nova para conferência humana, sem alteração.
+--
+-- ── AUDITORIA COMPLETA DO PRÓ-RATA APÓS A CORREÇÃO (97 cards com crédito) ────────
+--   conta exata (pacote = pago_no_ciclo + saldo) ....... 54
+--   quitados (a sobra é o crédito, não erro) ........... 27
+--   parcelando (mensalidade em curso) .................. 19
+--   SUSPEITOS REAIS ....................................  0
+--   saldo negativo .....................................  0
+--   pagou mais que o pacote e ainda deve ...............  0
+--   falso-verde da 0112 ................................  0
+--   crédito espelhado com mesma data ...................  1  (Pedro, quitado)
+-- Board: 285 cards · `incalculavel` 23 · vw_aluno_360 1.813.
