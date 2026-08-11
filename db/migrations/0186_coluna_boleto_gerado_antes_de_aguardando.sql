@@ -1,0 +1,40 @@
+-- 0186 — coluna "Boleto Gerado", ANTES de "Aguardando Pagamento".
+--
+-- ⚠️ APLICADA EM PRODUÇÃO em 11/08/2026
+-- (supabase_migrations: 0186_coluna_boleto_gerado_antes_de_aguardando).
+-- É um `insert` em cs.estagios + `create or replace function cs.fn_seed_contato_hm`;
+-- o corpo canônico está no banco (pg_get_functiondef). Aqui fica o PORQUÊ.
+--
+-- Pedido do Marcio: "quando ele gerar o boleto ele fica numa coluna antes de
+-- aguardando pagamento, chamada Boleto Gerado".
+--
+-- ── AS DUAS COLUNAS SIGNIFICAM COISAS DIFERENTES ─────────────────────────────────
+--   ordem 3  "Boleto Gerado"        → ENTRADA AUTOMÁTICA. A Hotmart emitiu o boleto/
+--                                      PIX e o webhook põe o card aqui. Ninguém do
+--                                      comercial falou com a pessoa ainda.
+--   ordem 5  "Aguardando Pagamento" → JÁ EM COBRANÇA. O operador ARRASTA o card para
+--                                      cá depois de falar com o aluno e ele prometer
+--                                      pagar. É movimento humano, nunca do sistema.
+--
+-- Vira fila de trabalho: o que está em "Boleto Gerado" é o que ninguém tocou ainda.
+--
+-- ── A GUARDA QUE IMPORTA ─────────────────────────────────────────────────────────
+-- Um boleto novo NÃO puxa de volta um card que já saiu da fila. O `estagio_id` só é
+-- sobrescrito quando o card ainda não tem entrada paga, NÃO está em "Aguardando
+-- Pagamento" e ainda não tinha marcador de espera. Sem isso, um evento automático
+-- apagaria o trabalho do comercial.
+--
+-- Ao PAGAR, o card sai de qualquer uma das duas colunas para "Contato Inicial", e
+-- `aguardando_pagamento_em` é zerado. Em ambas as colunas o dinheiro NÃO entrou — a
+-- trava da 0183 continua impedindo pagamento de compra não paga.
+--
+-- ── TESTE EXECUTADO EM PRODUÇÃO (comprador sintético, removido; 5/5) ─────────────
+--   1. boleto gerado ....................... coluna "Boleto Gerado"      ✅
+--   2. não gera pagamento .................. 0 em cs.hm_pagamentos       ✅
+--   3. comercial move p/ "Aguardando" e chega OUTRO boleto:
+--      o card NÃO regride .................. segue em "Aguardando"       ✅
+--   4. pagou → sai da fila ................. "Contato Inicial"           ✅
+--   5. pagou → vira pagamento .............. 1 em cs.hm_pagamentos       ✅
+--
+-- Board após aplicar: Boleto Gerado (3) → Aguardando Pagamento (5) →
+-- Contato Inicial (10) → Aguardando Retorno (15) · 285 cards · vw_aluno_360 1.813.
