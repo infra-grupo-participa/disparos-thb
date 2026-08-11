@@ -1,0 +1,55 @@
+-- 0185 — importa o crédito pró-rata do T40 (planilha do Victor) para o card do aluno.
+--
+-- ⚠️ APLICADA EM PRODUÇÃO em 11/08/2026
+-- (supabase_migrations: 0185_importa_credito_prorata_t40_victor). Depende da 0184.
+--
+-- FONTE: "HM - T40 CONTROLE DE ATIVAÇÃO.xlsx", aba "VICTOR PRÓ-RATA ALUNOS",
+-- foto de 26/07/2026 (25 linhas; 12 com pró-rata calculado).
+--
+-- ── POR QUE ──────────────────────────────────────────────────────────────────────
+-- O valor pago no curso ANTERIOR não existe em public.compras (veio de HT/turma
+-- antiga, fora da Hotmart do HM). Sem ele, cs.fn_hm_prorata não tem base e o card
+-- fica `situacao='incalculavel'` — 14 cards do HM estavam assim, TODOS por falta de
+-- `credito_valor_pago`. A planilha do Victor tem exatamente esse dado.
+--
+-- ── A CONTA (conferida linha a linha antes de importar) ───────────────────────────
+--   valor/dia = valor_pago / dias_totais · consumido = valor/dia × dias_usados
+--   crédito   = valor_pago − consumido   · saldo     = pacote − entrada − crédito
+-- 10 das 12 linhas fecham exatamente. As 2 "divergentes" (Armando e Rogério) usam
+-- pacote 14.303 em vez de 14.700 — é a entrada de R$ 697, NÃO erro do Victor.
+--
+-- `credito_compra_em` foi DERIVADO: data_da_foto (26/07/2026) − dias_usados. Cai em
+-- 31/12/2025 ≈ 01/01/2026 para a maioria, que é exatamente o `credito_compra_em` que
+-- a Eliane já tinha no banco — valida a derivação. Para o Rodrigo dá 15/03/2026, e a
+-- compra dele de R$ 12.000,02 está em public.compras com data_aprovacao 15/03/2026.
+--
+-- ── OS 8 IMPORTADOS (email · pago antes · compra em) ─────────────────────────────
+--   vaniakirzner@gmail.com                3997  2025-12-31
+--   manuel@dgr.com.br                     3997  2025-12-31
+--   advmaysavirginia@gmail.com            3997  2025-12-31
+--   elianelpborges@gmail.com              2997  2025-12-31
+--   rodrigodiguere@gmail.com             12000  2026-03-15
+--   adreizza@gmail.com                    3997  2025-12-31
+--   varroni.neto@gmail.com                3997  2025-12-18
+--   ribeirocellino@rcdadvogados.com.br   14997  2025-11-14
+-- (credito_dias_totais = 365 em todos; só onde ch.valor_total is null — pacote
+--  cravado à mão continua vencendo. Cada card recebeu uma interação 'sistema'.)
+--
+-- ── QUEM FICOU DE FORA (decisão do Marcio) ───────────────────────────────────────
+-- Leandro Bulhões, Nelci Akemi Fujii Tsutsumi e Vanessa Melo: o banco os dá como
+-- QUITADOS (pagaram 13.269,79 / 13.702,67 / 13.269,76) e são de turmas antigas
+-- (T27/T31/T17). A planilha ainda os cobra; o banco está certo, não se mexe.
+--
+-- ── RESULTADO (11/08/2026) ───────────────────────────────────────────────────────
+--   Adreiza  pacote 13.445,00 − pago  997,00 − créd 1.555,00 → deve 12.748,00
+--   Armando  pacote 13.587,36 − pago  697,00 − créd 1.412,64 → deve 12.890,36
+--   Manuel   pacote 13.445,00 − pago 1.300,02 − créd 1.555,00 → deve 13.145,01
+--   Maysa    pacote 13.445,00 − pago  299,99 − créd 1.555,00 → deve 13.145,01
+--   Rodrigo  pacote  7.898,63 − pago  299,99 − créd 7.101,37 → deve  7.598,64
+--   Rogério  pacote 11.096,67 − pago  697,00 − créd 3.903,33 → deve 10.399,67
+--   Vania    pacote 13.445,00 − pago  299,99 − créd 1.555,00 → deve 13.145,01
+--   Eliane   (cancelada) pacote 13.834,04 − pago 600,00 → 13.234,04
+--
+-- ⚠️ O saldo NÃO é idêntico ao da planilha, e isso é ESPERADO: a planilha é uma FOTO
+-- de 26/07 e o pró-rata corre por dia. Diferença de R$ 175 a R$ 526 nos casos
+-- medidos. O banco recalcula a cada consulta — é a fonte viva.

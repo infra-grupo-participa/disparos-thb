@@ -85,7 +85,11 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
             -- saldo_a_perseguir (0174): pacote_regra − pago_no_ciclo, com o valor_total
             -- cravado tendo precedência — é a MESMA conta que o board persegue. Vira o
             -- saldo cheio do card não-Aurum, abaixo.
-            fin.saldo_a_perseguir
+            fin.saldo_a_perseguir,
+            -- 0185: a conta ABERTA no card. O Marcio pediu o pro-rata explicito: nao
+            -- basta o total, o operador tem de conseguir dizer ao aluno de onde saiu
+            -- (pacote da oferta de entrada - o que ja pagou - credito pro-rata).
+            fin.pacote_regra, fin.pago, fin.credito
        from cs.contatos_hm ch
             cross join lateral cs.fn_hm_sugestao_financeira(ch.comprador_id) s
             left join cs.vw_hm_financeiro fin on fin.contato_hm_id = ch.id
@@ -137,7 +141,16 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
   // Link de saldo sugerido: cada valor de saldo tem sua própria oferta na Hotmart
   // (o desconto do pró-rata vem embutido no valor — 0049). Sabendo o saldo, o
   // sistema escolhe o link certo em vez de o operador procurar numa aba de planilha.
-  const alvo = (prorata as { saldo_a_pagar?: string } | null)?.saldo_a_pagar ?? saldoCheio?.valor ?? "14700";
+  //
+  // ⚠️ A ORDEM IMPORTA. `saldo_a_perseguir` (vw_hm_financeiro) vem primeiro porque é
+  // a régua viva: pacote da oferta de entrada − entrada paga − crédito pró-rata, com
+  // o cravado tendo precedência. `fn_hm_prorata.saldo_a_pagar` ainda tem o 14700
+  // cravado (assume entrada de 300) e por isso é só fallback — antes ele vinha
+  // primeiro e mandava o operador para o link errado em quem entrou pela oferta de
+  // R$ 697: o Rogério tem saldo 10.399,67 e o pró-rata sozinho diria 10.796,67.
+  const alvo = saldoCheio?.valor
+    ?? (prorata as { saldo_a_pagar?: string } | null)?.saldo_a_pagar
+    ?? "14700";
   const linksSaldo = await query(
     `select distinct on (recorrente) codigo, valor, recorrente, link
        from cs.hm_ofertas_saldo

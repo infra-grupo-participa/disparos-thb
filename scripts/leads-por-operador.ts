@@ -266,7 +266,7 @@ async function main() {
   ].filter(Boolean).join("-");
   const arquivo = `Leads-por-operador-${sufixo}-${agora.toISOString().slice(0, 10)}.xlsx`;
   const buf = await wb.xlsx.writeBuffer();
-  fs.writeFileSync(arquivo, Buffer.from(buf));
+  fs.writeFileSync(arquivo, new Uint8Array(buf as ArrayBuffer));
 
   console.log(`\n${arquivo}`);
   console.log(`${rows.length} leads · ${porOperador.size} operadores\n`);

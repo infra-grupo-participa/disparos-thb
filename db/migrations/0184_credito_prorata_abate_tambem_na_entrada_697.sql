@@ -1,0 +1,36 @@
+-- 0184 — o crédito pró-rata passa a abater TAMBÉM em quem entrou pela oferta de 697.
+--
+-- ⚠️ APLICADA EM PRODUÇÃO em 11/08/2026
+-- (supabase_migrations: 0184_credito_prorata_abate_tambem_na_entrada_697).
+-- É um `create or replace view cs.vw_hm_financeiro`; o corpo canônico está no banco
+-- (pg_get_viewdef). Aqui fica o PORQUÊ.
+--
+-- ── O QUE MUDA ───────────────────────────────────────────────────────────────────
+-- `hm_product_catalog.entrada_condicao_fechada = true` (hoje só a oferta `rlgjsrul`,
+-- a entrada de R$ 697) fazia DUAS coisas ao mesmo tempo:
+--   1. definia o pacote pela oferta (15.000), e
+--   2. ZERAVA o crédito pró-rata do curso anterior.
+-- A decisão de 10/08 ("os 697 já são a condição fechada, não há pró-rata por cima")
+-- vinha do item 2.
+--
+-- Marcio reviu em 11/08 ao conferir a planilha do Victor (HM - T40 CONTROLE DE
+-- ATIVAÇÃO): quem já pagou um curso anterior tem o crédito, e ele abate sobre o
+-- pacote da entrada nova. Ou seja: saldo = pacote_da_oferta − entrada_paga − crédito.
+--
+-- O CASO que expôs a divergência — Rogério Ribeiro Cellino: pagou R$ 14.997 no curso
+-- anterior. Pela regra antiga devia R$ 14.303; pela planilha, R$ 9.742,27.
+-- Depois desta migration + 0185: R$ 10.399,67 (a diferença para a planilha é o
+-- pró-rata correndo desde 26/07, data da foto).
+--
+-- Na prática, o `CASE` de `credito`, `pacote_regra` e `saldo_regra` deixou de testar
+-- `b.entrada_fechada` — só `publico = 'lead_novo'` continua sem crédito (não há curso
+-- anterior a creditar). `entrada_condicao_fechada` CONTINUA mandando no PACOTE.
+--
+-- ── IMPACTO MEDIDO ANTES DE APLICAR ──────────────────────────────────────────────
+-- 40 cards entraram pela oferta `rlgjsrul` e NENHUM tinha `credito_valor_pago`
+-- preenchido. Logo esta migration, sozinha, NÃO alterou o saldo de ninguém — ela só
+-- muda o resultado para quem tiver crédito informado (a 0185 e daqui em diante).
+-- Sem ela, importar o crédito desses alunos seria silenciosamente inútil: o valor
+-- entraria no banco e a régua o descartaria.
+--
+-- Board após aplicar: 285 cards · cravado desrespeitado 0 · vw_aluno_360 1.813.

@@ -78,6 +78,12 @@ type Financeiro = {
   saldo_a_pagar_manual: string | null; saldo_a_pagar_manual_por: string | null; saldo_a_pagar_manual_em: string | null;
   /** quitado · mensalidade_em_curso · oferta_enviada · saldo_parado · incalculavel · cancelado (0165) */
   situacao: string | null;
+  // 0185: a conta aberta do saldo. `saldo_a_perseguir` e a regua VIVA (pacote da
+  // oferta de entrada - entrada paga - credito pro-rata, com o cravado tendo
+  // precedencia) e deve vencer `prorata.saldo_a_pagar`, que ainda tem o 14.700
+  // cravado e erra em quem entrou pela oferta de R$ 697.
+  saldo_a_perseguir: string | null; pacote_regra: string | null;
+  pago: string | null; credito: string | null;
 };
 type Prorata = {
   dias_usados: number; dias_restantes: number; valor_dia: string | null;
@@ -786,12 +792,29 @@ export function HmDrawer({
                     </p>
                   )
                 ) : prorata?.saldo_a_pagar ? (
+                  // O QUE O ALUNO AINDA DEVE, com a conta aberta.
+                  // ⚠️ O valor exibido é `fin.saldo_a_perseguir` (régua viva: pacote da
+                  // oferta de entrada − entrada paga − crédito pró-rata, com o cravado
+                  // tendo precedência), NÃO `prorata.saldo_a_pagar` — este último ainda
+                  // tem o 14.700 cravado, que assume entrada de R$ 300 e erra em quem
+                  // entrou pela oferta de R$ 697.
                   <p className="mb-2 rounded bg-slate-50 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
                     Crédito pró-rata: <strong>{brl(num(prorata.credito))}</strong> ({prorata.dias_restantes} dias não usados)
-                    {" · "}saldo a pagar: <strong>{brl(num(prorata.saldo_a_pagar))}</strong>
+                    {" · "}ainda deve:{" "}
+                    <strong className="text-slate-900 dark:text-slate-100">
+                      {brl(num(fin?.saldo_a_perseguir ?? prorata.saldo_a_pagar))}
+                    </strong>
                     <br />
                     <span className="text-slate-400 dark:text-slate-500">
-                      O crédito encolhe a cada dia — o valor vale para hoje.
+                      {num(fin?.pacote_regra) > 0 ? (
+                        <>
+                          Pacote {brl(num(fin?.pacote_regra))}
+                          {num(fin?.pago) > 0 ? <> − já pago {brl(num(fin?.pago))}</> : null}
+                          {" = "}{brl(num(fin?.saldo_a_perseguir))}
+                          {" · "}
+                        </>
+                      ) : null}
+                      o crédito encolhe a cada dia — o valor vale para hoje.
                     </span>
                   </p>
                 ) : fin?.situacao === "incalculavel" ? (
