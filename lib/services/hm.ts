@@ -145,20 +145,34 @@ async function reposicionarNaColuna(contatoHmId: string, estagioId: number, posi
 // da Ativação), limpa apto_ativacao/pagamento — mantém o estado consistente
 // tanto no seletor livre quanto no "desfazer" (evita card pago no Comercial).
 // Retorna false se a etapa/contato não existem.
+// `produto` (0174): QUAL board pediu o movimento. Desde a 0163 a mesma pessoa tem
+// um card por produto, e mover "o card do comprador" virou pergunta ambígua — o
+// arraste no board do Aurum estava mexendo no card do HM. Opcional para não
+// quebrar chamadas antigas: sem ele, o desempate cai no card do HM (o board
+// histórico), que é o comportamento de antes.
 export async function moverEstagioHm(
   compradorId: string,
   chave: string,
   autor = "cs",
   posicao?: PosicaoHm,
+  produto?: string | null,
 ): Promise<MoverResultado> {
   const novo = await estagioPorChave(chave);
   if (!novo) return { ok: false, reason: "estagio_invalido" };
 
-  const ch = await queryOne<{ id: string; estagio_id: number | null; apto_ativacao: boolean; estagio_chave: string | null }>(
-    `select ch.id, ch.estagio_id, ch.apto_ativacao, e.chave as estagio_chave
+  // `produto` entra na seleção (0174): o saldo conferido logo abaixo é do BOARD
+  // deste card, não "o saldo da pessoa". Desde a 0163 a mesma pessoa pode ter
+  // card no HM e no Aurum, com financeiro diferente em cada um.
+  // O `order by` existe pelo mesmo motivo: sem ele, quem tem card nos dois boards
+  // caía num sorteio silencioso — a lição da 0169.
+  const ch = await queryOne<{ id: string; estagio_id: number | null; apto_ativacao: boolean; estagio_chave: string | null; produto: string | null }>(
+    `select ch.id, ch.estagio_id, ch.apto_ativacao, ch.produto, e.chave as estagio_chave
        from cs.contatos_hm ch left join cs.estagios e on e.id = ch.estagio_id
-      where ch.comprador_id = $1`,
-    [compradorId],
+      where ch.comprador_id = $1
+        and ($2::text is null or ch.produto = $2)
+      order by (ch.produto = 'HM') desc, ch.criado_em asc
+      limit 1`,
+    [compradorId, produto ?? null],
   );
   if (!ch) return { ok: false, reason: "estagio_invalido" };
   // Mesma coluna: o arrasto foi só vertical — reordena e pronto, sem timeline.
@@ -173,10 +187,21 @@ export async function moverEstagioHm(
   // virou apto. Não trava o resto do board: só a entrada no estado de "pago".
   const vaiFinalizar = chave === HM_STAGE_PAGAMENTO || (novo.aba === "ativacao" && !ch.apto_ativacao);
   if (vaiFinalizar) {
+    // O `faltam` é subquery ESCALAR: desde a 0163 (card por pessoa × produto) a
+    // mesma pessoa pode ter card no HM e no Aurum, e sem o filtro de produto isto
+    // devolve 2 linhas → `ERROR 21000: more than one row returned by a subquery`.
+    // É a mesma família do incidente que derrubou o board em 10/08 (ver 0168):
+    // não é hipótese, é a primeira pessoa com card nos dois boards passando por
+    // aqui. `limit 1` sozinho não bastaria — escolheria o saldo do board errado.
     const g = await queryOne<{ pode: boolean; faltam: number | null }>(
       `select cs.fn_hm_pode_finalizar($1) as pode,
-              (select greatest(coalesce(f.saldo_a_perseguir,0),0) from cs.vw_hm_financeiro f where f.comprador_id=$1) as faltam`,
-      [compradorId],
+              (select greatest(coalesce(f.saldo_a_perseguir,0),0)
+                 from cs.vw_hm_financeiro f
+                 join cs.contatos_hm ch2 on ch2.id = f.contato_hm_id
+                where f.comprador_id = $1 and ch2.produto = $2
+                order by ch2.criado_em asc
+                limit 1) as faltam`,
+      [compradorId, ch.produto ?? "HM"],
     );
     if (!g?.pode) return { ok: false, reason: "saldo_em_aberto", faltam: g?.faltam ?? undefined };
   }

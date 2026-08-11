@@ -16,7 +16,9 @@ export type FichaHm = {
   financeiro: Record<string, unknown> | null;
   /** Saldo do Aurum ETHB SP (0158) — overlay por documento. Null se não for do Aurum. */
   aurumSaldo: Record<string, unknown> | null;
-  /** Saldo cheio do BOARD, em reais (10/08): 59.000 no Aurum, 14.700 no HM. */
+  /** Saldo do BOARD, em reais (0174): pacote da OFERTA DE ENTRADA menos o pago no ciclo
+   *  (59.000 no Aurum, `pacote_regra − pago_no_ciclo` no HM). Null quando ainda não dá
+   *  para calcular (aluno da base sem crédito pró-rata, situação `incalculavel`). */
   saldoCheio: string | null;
   /** A mesma pessoa nos OUTROS boards (0164) — vazio se ela só existe neste. */
   outrosPortais: Record<string, unknown>[];
@@ -65,17 +67,52 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
   );
   if (!contato) return null;
 
-  // SALDO CHEIO DO BOARD (10/08). Era 14.700 fixo no front — número do HM, que o
+  const produtoCard = (contato as unknown as { produto?: string | null }).produto ?? "HM";
+
+  // Bloco financeiro: o que já foi registrado + a sugestão para o formulário de
+  // pagamento. A sugestão vem de cs.fn_hm_sugestao_financeira porque o papel do
+  // app não lê public.compras / hm_product_catalog (RLS sem grant). Buscado aqui
+  // (mais cedo que antes) porque o SALDO CHEIO do card não-Aurum (abaixo) passa a
+  // sair de `fin.saldo_a_perseguir` — mesma consulta, sem abrir outra.
+  const financeiro = await queryOne(
+    `select ch.valor_total, ch.valor_pago, ch.aluno_id, ch.categoria_entrada,
+            ch.saldo_a_pagar_manual, ch.saldo_a_pagar_manual_por, ch.saldo_a_pagar_manual_em,
+            s.sugestao_valor_total, s.hotmart_bruto,
+            -- situacao (0165): o drawer precisa distinguir "não deve" de "ainda não
+            -- dá para calcular" (aluno da base sem crédito do analista) — nesse caso
+            -- exibir o saldo cheio faria o operador cobrar a mais.
+            fin.situacao,
+            -- saldo_a_perseguir (0174): pacote_regra − pago_no_ciclo, com o valor_total
+            -- cravado tendo precedência — é a MESMA conta que o board persegue. Vira o
+            -- saldo cheio do card não-Aurum, abaixo.
+            fin.saldo_a_perseguir
+       from cs.contatos_hm ch
+            cross join lateral cs.fn_hm_sugestao_financeira(ch.comprador_id) s
+            left join cs.vw_hm_financeiro fin on fin.contato_hm_id = ch.id
+      where ch.comprador_id = $1
+        and ($2::text is null or ch.produto = $2)
+      -- ⚠️ fn_hm_sugestao_financeira devolve MAIS DE UMA linha para quem tem várias
+      -- compras (4 no caso da Ana Paula). O limit 1 sozinho pegaria uma ao acaso —
+      -- a maior sugestão é a estável e a útil (o pacote cheio, não uma parcela).
+      order by ch.criado_em asc, s.sugestao_valor_total desc nulls last
+      limit 1`,
+    [compradorId, produto ?? null],
+  );
+
+  // SALDO CHEIO DO BOARD (0174). Era 14.700 fixo no front — número do HM, que o
   // card do AURUM exibia errado (lá o pacote é 60.000 com 1.000 de entrada, logo
   // 59.000 de saldo). Agora vem do banco por produto: cs.aurum_parametros para o
-  // Aurum (0158), e a regra histórica do HM (15.000 − sinal de 300) para o resto.
-  const produtoCard = (contato as unknown as { produto?: string | null }).produto ?? "HM";
+  // Aurum (0158); para o resto, `saldo_a_perseguir` da mesma vw_hm_financeiro que
+  // o board lê — pacote da OFERTA DE ENTRADA menos o pago no ciclo, com o cravado
+  // tendo precedência. Fica null quando a régua ainda não sabe calcular (aluno da
+  // base sem crédito pró-rata, situação `incalculavel`) — a tela mostra "saldo a
+  // definir", nunca um número chutado.
   const saldoCheio = produtoCard === "AURUM"
     ? await queryOne<{ valor: string }>(
         `select ((select valor from cs.aurum_parametros where chave='pacote_cheio')
                - (select valor from cs.aurum_parametros where chave='entrada'))::text as valor`,
       )
-    : { valor: "14700" };
+    : { valor: (financeiro as { saldo_a_perseguir?: string | null } | null)?.saldo_a_perseguir ?? null };
 
   // Sócios convidados (aba "SÓCIOS T39"). `aluno_id` preenchido = já está na base.
   const socios = await query(
@@ -90,7 +127,7 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
 
   // Crédito pró-rata: o que o aluno da base já pagou e ainda não usou. Só existe
   // se alguém preencheu os insumos (oferta anterior, data e valor) — sem eles o
-  // saldo é o cheio (14.700). Ver cs.fn_hm_prorata (0056).
+  // saldo é o cheio (saldoCheio, acima). Ver cs.fn_hm_prorata (0056).
   const prorata = await queryOne(
     `select dias_usados, dias_restantes, valor_dia, consumido, credito, saldo_a_pagar
        from cs.fn_hm_prorata($1)`,
@@ -125,30 +162,6 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
        from cs.formularios where comprador_id = $1
       order by respondido_em desc nulls last`,
     [compradorId],
-  );
-
-  // Bloco financeiro: o que já foi registrado + a sugestão para o formulário de
-  // pagamento. A sugestão vem de cs.fn_hm_sugestao_financeira porque o papel do
-  // app não lê public.compras / hm_product_catalog (RLS sem grant).
-  const financeiro = await queryOne(
-    `select ch.valor_total, ch.valor_pago, ch.aluno_id, ch.categoria_entrada,
-            ch.saldo_a_pagar_manual, ch.saldo_a_pagar_manual_por, ch.saldo_a_pagar_manual_em,
-            s.sugestao_valor_total, s.hotmart_bruto,
-            -- situacao (0165): o drawer precisa distinguir "não deve" de "ainda não
-            -- dá para calcular" (aluno da base sem crédito do analista) — nesse caso
-            -- exibir o saldo cheio faria o operador cobrar a mais.
-            fin.situacao
-       from cs.contatos_hm ch
-            cross join lateral cs.fn_hm_sugestao_financeira(ch.comprador_id) s
-            left join cs.vw_hm_financeiro fin on fin.contato_hm_id = ch.id
-      where ch.comprador_id = $1
-        and ($2::text is null or ch.produto = $2)
-      -- ⚠️ fn_hm_sugestao_financeira devolve MAIS DE UMA linha para quem tem várias
-      -- compras (4 no caso da Ana Paula). O limit 1 sozinho pegaria uma ao acaso —
-      -- a maior sugestão é a estável e a útil (o pacote cheio, não uma parcela).
-      order by ch.criado_em asc, s.sugestao_valor_total desc nulls last
-      limit 1`,
-    [compradorId, produto ?? null],
   );
 
   // Saldo do AURUM ETHB SP (0158). Vem de outra fonte que o financeiro do HM: o

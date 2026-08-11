@@ -806,7 +806,14 @@ export function HmDrawer({
                   </p>
                 ) : (
                   // Saldo cheio do BOARD, não 14.700 fixo: no Aurum são 59.000 (0158).
-                  <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">Saldo cheio: {brl(num(saldoCheio) || 14700)}</p>
+                  // 0174: o `|| 14700` saiu. Era falsy — card QUITADO tem saldo 0 e
+                  // caía no literal, mostrando "Saldo cheio: R$ 14.700" para quem não
+                  // devia nada. E com a régua vindo da porta de entrada, 14.700 deixou
+                  // de ser um chute razoável: quem entrou pelos R$697 deve 14.303.
+                  // Sem valor, a tela diz que não sabe (vocabulário da 0165).
+                  <p className="mb-2 text-[11px] text-slate-400 dark:text-slate-500">
+                    Saldo cheio: {saldoCheio == null ? "saldo a definir" : brl(num(saldoCheio))}
+                  </p>
                 )}
 
                 {/* Saldo a pagar manual removido (30/07): o saldo é calculado pelo
@@ -1261,7 +1268,12 @@ export function HmDrawer({
               {!jaPagou && !somenteLeitura && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                    Saldo — {brl(num(aurum?.saldo_a_pagar) || num(saldoCheio) || 14700)}
+                    {/* 0174: sem `|| 14700`. O Aurum manda quando tem valor; senão o
+                        saldo do card. Nenhum dos dois → a tela assume que não sabe, em
+                        vez de inventar o número da porta antiga. */}
+                    Saldo — {aurum?.saldo_a_pagar != null ? brl(num(aurum.saldo_a_pagar))
+                             : saldoCheio != null ? brl(num(saldoCheio))
+                             : "a definir"}
                   </p>
                   {/* Pagamento NÃO é mais lançado à mão (30/07): quem confirma a venda é a
                       Hotmart. Ao aprovar o pagamento do saldo, o card entra sozinho na
