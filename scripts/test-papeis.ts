@@ -13,7 +13,8 @@
  * Sai com código 1 se algum caso falhar.
  */
 import {
-  escopoAcao, escopoDisparo, escopoVisibilidade, nivelDe, podeAtribuirPara, podeGerirAcesso,
+  ehEquipeDeAtivacao, escopoAcao, escopoDisparo, escopoVisibilidade, esteiraCompartilhada,
+  nivelDe, podeAtribuirPara, podeGerirAcesso,
   podeRemanejarTravado, podeTravarAtribuicao, podeVerTudo, semBonusDeGerente, type Ator,
 } from "@/lib/papeis";
 
@@ -75,6 +76,34 @@ ok("operador não vê tudo", podeVerTudo(operadorGP), false);
 ok("operador não gere acesso", podeGerirAcesso(operadorGP), false);
 ok("sessão ausente cai no nível mais baixo", nivelDe(null), "operador");
 ok("sessão ausente não trava", podeTravarAtribuicao(null), false);
+
+// ===== Esteira de ativação (0202, 12/08) ====================================
+// A Ana Camila VIA os 9 cards da Kelly no board e levava 403 ao arrastar. Causa:
+// `SessaoEquipe` (lib/services/hm.ts) não declarava `equipe_ativacao`, então o
+// `sessao as Ator` entregava o campo como undefined e o ramo nunca entrava — sem
+// erro de TS, sem log. O MESMO defeito que já tinha acontecido com
+// `gerente_distribuidor` em 11/08. Estes casos existem para a 3ª vez não passar.
+console.log("\n== esteira de ativação (Ana Camila e Thomas) ==");
+const anaAtivacao: Ator = { ...operadorGP, equipe_ativacao: true };
+const CARD_ATIV = { aba: "ativacao", produto: "HM" };
+
+ok("com a marca: move card da Ativação do HM",
+  esteiraCompartilhada(anaAtivacao, "HM", CARD_ATIV.aba, CARD_ATIV.produto), true);
+ok("SEM a marca: não ganha o bônus (os outros 12 do GP)",
+  esteiraCompartilhada(operadorGP, "HM", CARD_ATIV.aba, CARD_ATIV.produto), false);
+ok("a marca não vaza para o COMERCIAL (autoria da venda é sagrada)",
+  esteiraCompartilhada(anaAtivacao, "HM", "comercial", "HM"), false);
+ok("a marca não vaza para o AURUM", esteiraCompartilhada(anaAtivacao, "HM", "ativacao", "AURUM"), false);
+ok("a marca não vaza para o ETHB", esteiraCompartilhada(anaAtivacao, "HM", "ativacao", "ETHB"), false);
+ok("a marca não vale em outro evento (HT/SEM)",
+  esteiraCompartilhada(anaAtivacao, "HT", "ativacao", "HM"), false);
+// estagio_aba é NULL-able: card sem aba não pode entrar por omissão.
+ok("card SEM aba não entra (fail-closed)", esteiraCompartilhada(anaAtivacao, "HM", null, "HM"), false);
+ok("sessão ausente não ganha o bônus", esteiraCompartilhada(null, "HM", "ativacao", "HM"), false);
+ok("ehEquipeDeAtivacao lê a marca", ehEquipeDeAtivacao(anaAtivacao), true);
+ok("ehEquipeDeAtivacao é fail-closed sem o campo", ehEquipeDeAtivacao(operadorGP), false);
+// A marca é de VER/MOVER, não de disparo — mesmo corte do gerente_distribuidor.
+ok("a marca NÃO amplia o escopo de disparo", escopoDisparo(anaAtivacao).modo, escopoDisparo(operadorGP).modo);
 
 console.log(falhas === 0 ? "\nTODOS OS CASOS PASSARAM\n" : `\n${falhas} CASO(S) FALHARAM\n`);
 process.exit(falhas === 0 ? 0 : 1);

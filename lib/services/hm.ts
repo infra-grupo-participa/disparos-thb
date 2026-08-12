@@ -681,7 +681,14 @@ export async function atribuirResponsavelHm(
 // `gerente_distribuidor` entra no tipo (11/08) porque o veredicto de AÇÃO agora
 // depende dele: sem o campo aqui, o TS deixava o valor cair no cast para Ator e a
 // flag chegava como undefined — a Kelly voltaria a levar 403 no card da Jusy.
-type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null; gerente_distribuidor?: boolean | null };
+// ⚠️ `equipe_ativacao` PRECISA estar aqui (0202). As funções deste módulo fazem
+// `sessao as Ator` para chamar as regras de papeis.ts; campo ausente NESTE tipo
+// chega como `undefined` do outro lado do cast, e o TS não reclama — o ramo
+// esteira simplesmente nunca entra e a pessoa leva 403 num card que ela VÊ.
+// Foi exatamente o que aconteceu com `gerente_distribuidor` (ver o comentário
+// dele em SessaoEquipe do 11/08) e voltou a acontecer aqui em 12/08: a Ana
+// Camila via os 9 cards da Kelly no board e o arrasto recusava com 'sem_acesso'.
+type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null; gerente_distribuidor?: boolean | null; equipe_ativacao?: boolean | null };
 
 // `produto` OBRIGATÓRIO (12/08, item de otimização exigido pela esteira
 // compartilhada): antes esta função casava só por comprador_id, sem filtro de
