@@ -428,6 +428,10 @@ export default function HmTabelaPage() {
   const [busca, setBusca] = useState("");
   const [visao, setVisao] = useState<VisaoId>("comercial");
   const [lente, setLente] = useState<string | null>(null);
+  // A faixa de conferências abre resumida (só o que pede ação) — ver o bloco de
+  // render mais abaixo. Fica no estado, não na URL: é preferência de leitura do
+  // momento, não filtro que precise sobreviver a um compartilhamento de link.
+  const [verTodasLentes, setVerTodasLentes] = useState(false);
   const [sort, setSort] = useState<{ id: string; dir: 1 | -1 } | null>(null);
   const [carregando, setCarregando] = useState(true);
   // Antes uma falha de carga (rede caída, servidor fora) deixava a tabela
@@ -1492,6 +1496,15 @@ export default function HmTabelaPage() {
   const selecionaveis = visiveis.filter((l) => !linhaBloqueada(l) && !linhaColega(l));
   const todosMarcados = selecionaveis.length > 0 && selecionaveis.every((l) => marcados.has(l.comprador_id));
   const gruposLente = Array.from(new Set(LENTES.map((le) => le.grupo)));
+  // O que pede ação AGORA: lente de destaque com gente dentro. Se não há nenhuma,
+  // o resumo mostra as demais que têm alguém (até 6) — faixa curta de qualquer jeito.
+  const lentesUrgentes = LENTES.filter((le) => le.destaque && (contagemLente.get(le.id) ?? 0) > 0);
+  const lentesVisiveis = (lentesUrgentes.length > 0
+    ? lentesUrgentes
+    : LENTES.filter((le) => (contagemLente.get(le.id) ?? 0) > 0).slice(0, 6)
+  ).concat(lente && !LENTES.filter((le) => le.destaque && (contagemLente.get(le.id) ?? 0) > 0).some((le) => le.id === lente)
+    ? LENTES.filter((le) => le.id === lente)
+    : []);
 
   return (
     <div>
@@ -1600,24 +1613,32 @@ export default function HmTabelaPage() {
         produto={produto}
       />
 
-      {/* Lentes: o que está ERRADO com as pessoas, não onde elas estão. Uma faixa
-          só, discreta — a lente é um atalho, não o assunto da tela. Contagem zero
-          também é informação (ninguém travado ali), mas fala baixo. */}
+      {/* Lentes: o que está ERRADO com as pessoas, não onde elas estão.
+          11/08: eram ~20 atalhos empilhados em quatro linhas — uma parede que o
+          operador varria com o olho sem saber por onde começar. Agora aparecem
+          por padrão só as que PEDEM AÇÃO (as de destaque com gente dentro); o
+          resto fica atrás de "ver todas". Nada sumiu, mudou a ordem de chegada:
+          primeiro o que está pegando fogo, depois o inventário completo. */}
       <div className="mb-3 flex flex-wrap items-baseline gap-x-1 gap-y-1 px-1 text-[11px] leading-5">
-        {gruposLente.map((grupo, gi) => (
-          <Fragment key={grupo}>
-            {gi > 0 && <span className="mx-1.5 hidden h-3 w-px self-center bg-slate-200 dark:bg-slate-700 sm:block" />}
-            <span className="mr-0.5 font-medium text-slate-400 dark:text-slate-500">{grupo.toLowerCase()}:</span>
-            {LENTES.filter((le) => le.grupo === grupo).map((le) => {
+        {!verTodasLentes && (
+          <span className="mr-0.5 font-medium text-slate-400 dark:text-slate-500">
+            {lentesUrgentes.length > 0 ? "precisa de ação:" : "conferências:"}
+          </span>
+        )}
+        {(verTodasLentes ? gruposLente : [null]).map((grupo, gi) => (
+          <Fragment key={grupo ?? "resumo"}>
+            {verTodasLentes && gi > 0 && <span className="mx-1.5 hidden h-3 w-px self-center bg-slate-200 dark:bg-slate-700 sm:block" />}
+            {verTodasLentes && grupo && <span className="mr-0.5 font-medium text-slate-400 dark:text-slate-500">{grupo.toLowerCase()}:</span>}
+            {(verTodasLentes ? LENTES.filter((le) => le.grupo === grupo) : lentesVisiveis).map((le) => {
               const n = contagemLente.get(le.id) ?? 0;
               const ativa = lente === le.id;
               return (
                 <button
                   key={le.id}
                   onClick={() => setLente(ativa ? null : le.id)}
-                  title={le.label}
+                  title={`${le.label} — ${n} pessoa(s); clique para filtrar a tabela`}
                   className={cn(
-                    "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium transition",
+                    "alvo-toque inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium transition",
                     ativa
                       ? "bg-brand/10 text-brand dark:bg-brand-400/15 dark:text-brand-300"
                       : le.destaque && n > 0
@@ -1634,6 +1655,12 @@ export default function HmTabelaPage() {
             })}
           </Fragment>
         ))}
+        <button
+          onClick={() => setVerTodasLentes((v) => !v)}
+          className="alvo-toque ml-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-slate-500 underline decoration-dotted underline-offset-2 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800"
+        >
+          {verTodasLentes ? "ver menos" : `ver todas as conferências (${LENTES.length})`}
+        </button>
       </div>
 
       {/* Dinheiro que entrou e ninguém viu. Fica no topo até alguém abrir a ficha —

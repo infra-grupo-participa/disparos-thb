@@ -126,7 +126,11 @@ export default function TopNav() {
 
         {/* A navegação é a única parte elástica do cabeçalho: ela rola na
             horizontal quando não cabe, em vez de espremer os vizinhos. */}
-        <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto rolagem-oculta">
+        {/* 11/08: com 8 itens a 1440px o último rótulo aparecia cortado ("Templat")
+            e parecia defeito. O nav sempre rolou; faltava DIZER isso — a máscara
+            esvanece a borda direita quando há mais conteúdo, e o padding menor
+            entre lg e xl faz o menu inteiro caber na maioria dos monitores. */}
+        <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto rolagem-oculta [mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)]">
           {links.map((l) => {
             const href = `${base}${l.sub}`;
             const active = pathname.startsWith(`/${portal}${l.sub}`);
@@ -137,7 +141,7 @@ export default function TopNav() {
                 title={l.label}
                 aria-label={l.label}
                 aria-current={active ? "page" : undefined}
-                className={`alvo-toque flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium transition sm:px-3 ${
+                className={`alvo-toque flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition sm:px-2.5 xl:gap-2 xl:px-2.5 ${
                   active
                     ? "bg-brand text-white shadow-card dark:bg-brand-500"
                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
