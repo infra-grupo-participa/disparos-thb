@@ -111,11 +111,12 @@ h1, h2, h3 {
 }
 .rolagem-oculta::-webkit-scrollbar { width: 0; height: 0; }
 
-/* Alvo de toque mínimo. O sistema é usado no celular pelo comercial em pé no
-   evento: botão de 20px de altura erra o dedo. Só vale onde NÃO há mouse — no
-   desktop os controles compactos continuam compactos. */
+/* Alvo de toque mínimo (44px — WCAG 2.5.5 / guia da Apple e do Google). O
+   sistema é usado no celular pelo comercial em pé no evento: botão de 20px de
+   altura erra o dedo. Só vale onde NÃO há mouse — no desktop os controles
+   compactos continuam compactos. */
 @media (hover: none) and (pointer: coarse) {
-  .alvo-toque { min-height: 2.25rem; }
+  .alvo-toque { min-height: 2.75rem; min-width: 2.75rem; }
 }
 
 /* Scrollbar discreta */

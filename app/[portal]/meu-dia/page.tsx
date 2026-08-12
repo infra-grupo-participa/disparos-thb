@@ -6,7 +6,7 @@ import { Button, Card, EmptyState, PageHeader, Spinner, cn } from "@/app/_compon
 import { Kpi } from "@/app/_components/kpi";
 import { Reveal } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
-import { useMe } from "@/app/_components/use-me";
+import { useMe, msgErroPermissao, msgErroCarregamento } from "@/app/_components/use-me";
 import { RegistrarAtendimento } from "@/app/_components/ligacao";
 import { toast } from "@/app/_components/toast";
 
@@ -54,6 +54,7 @@ export default function MeuDiaPage() {
   const { podeVerTudo } = useMe();
   const [d, setD] = useState<Dados | null>(null);
   const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
   const [alvo, setAlvo] = useState<Item | null>(null);
   const [meus, setMeus] = useState(true);
   const [pegando, setPegando] = useState(false);
@@ -61,8 +62,12 @@ export default function MeuDiaPage() {
   const carregar = useCallback(async () => {
     try {
       const r = await fetch(`/api/meu-dia?evento=${evento}&meus=${meus ? 1 : 0}`);
+      if (!r.ok) { setErro(msgErroCarregamento(r.status)); return; }
       const j = await r.json();
-      if (j.ok) setD(j);
+      if (j.ok) { setD(j); setErro(null); }
+      else setErro(msgErroPermissao(j.reason) ?? "Não foi possível carregar o seu dia.");
+    } catch {
+      setErro(msgErroCarregamento());
     } finally {
       setCarregando(false);
     }
@@ -95,7 +100,13 @@ export default function MeuDiaPage() {
     return <div className="flex items-center justify-center gap-2 py-16 text-slate-400"><Spinner /> Carregando seu dia…</div>;
   }
   if (!d) {
-    return <EmptyState title="Não foi possível carregar" description="Recarregue a página." />;
+    return (
+      <EmptyState
+        title="Não foi possível carregar"
+        description={erro ?? "Recarregue a página."}
+        action={<Button variant="secondary" onClick={carregar}>Tentar de novo</Button>}
+      />
+    );
   }
 
   const { placar, filas } = d;

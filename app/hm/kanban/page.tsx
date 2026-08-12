@@ -362,8 +362,11 @@ export default function HmKanbanPage() {
       for (const v of filtroTurma) params.append("turma", v);
       if (produto !== "HM") params.set("produto", produto);
       const r = await fetch(`/api/hm/kanban?${params.toString()}`);
-      const d = await r.json();
-      if (d.ok) {
+      // O corpo pode não ser JSON válido (ex.: página de erro do servidor num
+      // 500) — sem este try, isso caía no catch de baixo e o board dizia "sem
+      // conexão" para uma falha que não tem nada a ver com a rede do operador.
+      const d = await r.json().catch(() => null);
+      if (d?.ok) {
         setErro(null);
         setColunas(d.colunas);
         setCards(d.cards);
@@ -372,10 +375,16 @@ export default function HmKanbanPage() {
         if (Array.isArray(d.canais)) setCanais(d.canais);
         if (Array.isArray(d.turmas)) setTurmas(d.turmas);
         if (d.canaisQtd) setCanaisQtd(d.canaisQtd);
+      } else if (r.ok) {
+        // 200 com payload inesperado — raro, mas não é "sem rede".
+        setErro(msgErroPermissao(d?.reason) ?? "Não foi possível carregar a esteira. Tente de novo.");
       } else {
-        setErro(msgErroPermissao(d.reason) ?? "Não foi possível carregar a esteira. Tente de novo.");
+        // O servidor respondeu (não é problema de rede), só que com erro —
+        // diz o motivo quando dá, e o status quando não dá.
+        setErro(msgErroPermissao(d?.reason) ?? `O servidor não conseguiu responder agora (erro ${r.status}). Tente de novo em instantes.`);
       }
     } catch {
+      // O fetch nem completou (offline, DNS, CORS) — aí sim é rede.
       setErro("Sem conexão com o servidor. Verifique a rede e tente de novo.");
     } finally {
       setCarregando(false);
@@ -831,7 +840,7 @@ export default function HmKanbanPage() {
                       // Sem mouse não existe hover: no celular este botão nunca
                       // aparecia e o relatório da etapa era inacessível. Em tela
                       // de toque ele nasce visível; no desktop segue discreto.
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-slate-200 hover:text-slate-700 focus:opacity-100 sm:opacity-0 sm:group-hover/col:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                      className="alvo-toque flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-slate-200 hover:text-slate-700 focus:opacity-100 sm:opacity-0 sm:group-hover/col:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                     >
                       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>
                     </a>
@@ -1469,49 +1478,27 @@ function CardItem({
   const dataEtapa = card.estagio_chave === "hm_reuniao_agendada" ? { label: "Reunião", quando: card.reuniao_em }
     : card.estagio_chave === "hm_entrevista_agendada" ? { label: "Entrevista", quando: card.entrevista_em }
     : null;
+  // Situação financeira: a pergunta que o operador faz o dia todo ("quanto ela
+  // deve? em que pé está?") precisa de RESPOSTA DE TEXTO sempre visível — antes
+  // só existia como cor de fundo (o "verde" abaixo), que não diz nada sozinha
+  // para quem não decorou a paleta (e nada para quem não enxerga a diferença de
+  // cor). Prioridade: quitado > parcela (atrasada/em dia) > saldo pago à vista.
+  // Sem nenhum dos três, o card não afirma nada — leads no início do comercial
+  // ainda não têm o que noticiar aqui, e inventar "deve" seria ruído.
+  const finBadge: { txt: string; cls: string; title: string; icon: "ok" | "alerta" | "relogio" } | null = verde
+    ? { txt: "Quitado", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300", title: card.pagamento_em ? `Saldo quitado — pago em ${fmtDataHora(card.pagamento_em)}` : "Saldo quitado", icon: "ok" }
+    : parcela
+      ? { txt: parcela.txt, cls: parcela.cls, title: parcela.title, icon: parcela.txt === "Parcela atrasada" ? "alerta" : "relogio" }
+      : card.apto_ativacao
+        ? { txt: "Saldo pago", cls: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300", title: "Pagamento do saldo confirmado", icon: "ok" }
+        : null;
   // Selos SÓ informativos → colapsam no "+N" (ver SelosExtras). Recompra segue
   // sinalizada pela borda superior vermelha mesmo com o selo colapsado.
   const extras: { key: string; rotulo: string; el: React.ReactNode }[] = [];
-  // 0195: CANCELADO vem PRIMEIRO — os extras colapsam no "+N" por ordem, e este é o
-  // selo que nao pode sumir. "na Hotmart" e o caso em que a propria pessoa cancelou
-  // direto por la: o board tem de dizer isso, nao so pintar de vermelho.
-  if (cancelado) extras.push({
-    key: "cancelado",
-    rotulo: card.cancelamento_motivo || (card.cancelado_na_hotmart ? "Cancelado na Hotmart" : "Cancelado"),
-    el: (
-      <span
-        className="inline-flex items-center gap-0.5 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-rose-500"
-        title={card.cancelamento_motivo || (card.cancelado_na_hotmart ? "Cancelou direto na Hotmart (reembolso/chargeback)" : "Cancelamento registrado pelo comercial")}
-      >
-        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-        {card.cancelado_na_hotmart ? "cancelou na Hotmart" : "cancelado"}
-      </span>
-    ),
-  });
   if (recompra) extras.push({ key: "recompra", rotulo: `Recompra (${recompra})`, el: <SeloRecompra origem={recompra} /> });
   if (cat) extras.push({
     key: "cat", rotulo: `Entrada: ${cat.txt}`,
     el: <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>,
-  });
-  if (parcela) extras.push({
-    key: "parcela", rotulo: parcela.txt,
-    el: (
-      <span className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", parcela.cls)} title={parcela.title}>
-        {parcela.txt === "Parcela atrasada"
-          ? <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
-          : <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4m10-10h-4M6 12H2" /></svg>}
-        {parcela.txt}
-      </span>
-    ),
-  });
-  else if (card.apto_ativacao) extras.push({
-    key: "pago", rotulo: "Saldo pago",
-    el: (
-      <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" title="Pagamento do saldo confirmado">
-        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-        pago
-      </span>
-    ),
   });
   return (
     <div
@@ -1600,6 +1587,19 @@ function CardItem({
               só admin GP
             </span>
           )}
+          {/* Cancelado é decisão crítica ("é minha ou de outro? em que pé
+              está?") — não pode ficar escondido atrás do "+N" do SelosExtras
+              (era o caso antes: um master abrindo a coluna de Reclamada só
+              via o motivo depois de clicar). Vermelho forte, sempre à vista. */}
+          {cancelado && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-rose-500"
+              title={card.cancelamento_motivo || (card.cancelado_na_hotmart ? "Cancelou direto na Hotmart (reembolso/chargeback)" : "Cancelamento registrado pelo comercial")}
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              {card.cancelado_na_hotmart ? "cancelou na Hotmart" : "cancelado"}
+            </span>
+          )}
           {/* Selo do pool (só na visão do operador): este card está livre —
               abra a ficha e clique em "Atribuir a mim". */}
           {ehPool && (
@@ -1632,6 +1632,24 @@ function CardItem({
               conferir saldo
             </span>
           )}
+          {/* Situação financeira: "quanto ela deve? em que pé está?" — a
+              pergunta do dia todo, respondida em TEXTO (não só na cor de
+              fundo do card, que sozinha não diz nada e exclui daltônico). */}
+          {finBadge && (
+            <span
+              className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", finBadge.cls)}
+              title={finBadge.title}
+            >
+              {finBadge.icon === "ok" ? (
+                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+              ) : finBadge.icon === "alerta" ? (
+                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+              ) : (
+                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4m10-10h-4M6 12H2" /></svg>
+              )}
+              {finBadge.txt}
+            </span>
+          )}
           {/* A MESMA pessoa em outro board (0164). O operador do Aurum precisa saber
               que ela já está em "Acesso Liberado" no HM antes de abordar como contato
               novo — e vice-versa. Indigo para não competir com os alertas (âmbar). */}
@@ -1649,8 +1667,8 @@ function CardItem({
               <span className="truncate">{card.outros_portais}</span>
             </Link>
           )}
-          {/* Recompra, categoria de entrada e parcela/pago são contexto, não
-              ação: moram no "+N" (hover/foco/Enter revelam; o aria-label lê tudo). */}
+          {/* Recompra e categoria de entrada são contexto, não ação: moram no
+              "+N" (hover/foco/Enter revelam; o aria-label lê tudo). */}
           <SelosExtras itens={extras} />
         </div>
         <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", corAvatar(card.nome))}>{inicial(card.nome)}</span>
@@ -1660,6 +1678,15 @@ function CardItem({
       {/* Telefone e e-mail a um clique: copiar não pode exigir abrir a ficha. */}
       <ContatoDoNome telefone={card.telefone} email={card.email} compacto className="mt-0.5" />
       {card.plano && <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">{card.plano}</p>}
+      {/* "Já falei com ela? o que ela disse?" — a última interação registrada,
+          sempre à vista (sem abrir a ficha). O dado já vinha da API sem
+          aparecer em lugar nenhum do board. */}
+      {card.ultima_msg && (
+        <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400" title="Última interação registrada na timeline deste card">
+          <svg className="h-3 w-3 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.76.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Z" /></svg>
+          <span className="truncate">{card.ultima_msg.replace(/^Respondeu:\s*/, "")}</span>
+        </p>
+      )}
 
       {espelho && (
         <p className="mt-1 inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Este card já está na esteira de Ativação — aqui ele é só o registro do pagamento">
@@ -1714,13 +1741,18 @@ function CardItem({
           )}
         </div>
         {wa && (
+          // Sem mouse não existe hover: `opacity-0 group-hover` sozinho fazia
+          // este botão nunca aparecer no celular. Visível por padrão; só
+          // esmaece e reaparece no hover a partir do desktop (sm:), como o
+          // ícone de exportar da coluna já faz. alvo-toque garante a altura
+          // mínima de toque nos aparelhos sem mouse.
           <a
             href={wa}
             onClick={(e) => e.stopPropagation()}
             target="_blank"
             rel="noreferrer"
             title="Abrir no WhatsApp"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 opacity-0 transition hover:bg-slate-100 hover:text-emerald-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-emerald-400"
+            className="alvo-toque flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-slate-100 hover:text-emerald-600 sm:opacity-0 sm:group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-emerald-400"
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.76.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Z" /></svg>
           </a>

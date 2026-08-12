@@ -7,7 +7,7 @@ import ThemeToggle from "./theme-toggle";
 import BuscaGlobal from "./busca-global";
 import UserMenu from "./user-menu";
 import { MarcaPortal } from "./marca";
-import { usePortal } from "./use-portal";
+import { usePortal, PORTAIS } from "./use-portal";
 import { useMe } from "./use-me";
 
 // Gating por NÍVEL (lib/papeis): `soMaster` esconde o link de quem não é o
@@ -57,7 +57,7 @@ const LINKS_HM: LinkDef[] = [
 
 // Botão do "?" da ajuda: mesmo tratamento dos links do menu, mas compacto.
 function cnAjuda(ativo: boolean): string {
-  return `flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition ${
+  return `alvo-toque flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition ${
     ativo
       ? "bg-brand text-white shadow-card dark:bg-brand-500"
       : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
@@ -110,14 +110,18 @@ export default function TopNav() {
           <MarcaPortal portal={portal} altura="h-8" />
         </Link>
 
-        {/* Seletor de portal — leva à tela de seleção (troca de espaço) */}
+        {/* Seletor de portal — leva à tela de seleção (troca de espaço). A cor
+            sozinha não diz qual portal é este (e exclui quem não distingue
+            cor) — a sigla vai sempre junto, texto de verdade, não só no hover. */}
         <Link
           href="/"
           title="Trocar de portal"
-          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          aria-label={`Trocar de portal — atual: ${nome}`}
+          className="alvo-toque flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
         >
-          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: cor }} />
-          <svg className="h-3.5 w-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 15 5 5 5-5M7 9l5-5 5 5" /></svg>
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: cor }} aria-hidden="true" />
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{PORTAIS[portal].sigla}</span>
+          <svg className="h-3.5 w-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m7 15 5 5 5-5M7 9l5-5 5 5" /></svg>
         </Link>
 
         {/* A navegação é a única parte elástica do cabeçalho: ela rola na
@@ -130,6 +134,9 @@ export default function TopNav() {
               <Link
                 key={l.sub}
                 href={href}
+                title={l.label}
+                aria-label={l.label}
+                aria-current={active ? "page" : undefined}
                 className={`alvo-toque flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm font-medium transition sm:px-3 ${
                   active
                     ? "bg-brand text-white shadow-card dark:bg-brand-500"
@@ -137,6 +144,10 @@ export default function TopNav() {
                 }`}
               >
                 <Icon d={l.icon} />
+                {/* Abaixo de md o rótulo some visualmente E do texto acessível
+                    (display:none tira da árvore de acessibilidade) — por isso
+                    o nome do link agora também vem do aria-label acima, não só
+                    deste texto. */}
                 <span className="hidden md:block">{l.label}</span>
               </Link>
             );

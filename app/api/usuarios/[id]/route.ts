@@ -29,9 +29,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         set nome  = coalesce($2, nome),
             papel = coalesce($3, papel),
             ativo = coalesce($4, ativo),
+            gerente_distribuidor = coalesce($5, gerente_distribuidor),
             atualizado_em = now()
       where id = $1`,
-    [params.id, b.nome ?? null, b.papel ?? null, b.ativo ?? null],
+    [params.id, b.nome ?? null, b.papel ?? null, b.ativo ?? null, b.gerente_distribuidor ?? null],
   );
   return NextResponse.json({ ok: true });
 }

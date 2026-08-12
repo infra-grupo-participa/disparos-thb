@@ -82,6 +82,19 @@ export function useMe() {
   return { me, nivel, ehMaster, podeVerTudo, podeGerirAcesso, podeDistribuir, podeAtribuirPara, podeDisparar, podeAcessarPortal, ehCardDeColega, acaoLivre };
 }
 
+// ===== Mensagem de falha ao CARREGAR uma tela (rede × servidor) =============
+// Um 500 (servidor respondeu, mas quebrou) e uma queda de rede (o fetch nem
+// completou) viravam o MESMO "Sem conexão com o servidor" — o time já perdeu
+// tempo de diagnóstico atrás disso. Passe `status` quando o fetch RESPONDEU
+// com erro HTTP (r.ok === false); deixe em branco quando o fetch lançou
+// exceção (catch) — aí é rede de verdade.
+export function msgErroCarregamento(status?: number): string {
+  if (status != null) {
+    return `O servidor respondeu com erro (${status}). Tente de novo em instantes.`;
+  }
+  return "Sem conexão com o servidor. Verifique sua internet e tente de novo.";
+}
+
 // ===== Tradução dos erros de permissão das rotas (403) ======================
 // As rotas devolvem { ok:false, reason } — a UI mostra o motivo em pt-BR em vez
 // de engolir o erro ou dar um "não foi possível" genérico.

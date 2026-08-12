@@ -22,6 +22,10 @@ export type UsuarioSeloNivel = {
   equipe_id?: string | null;
   equipe_tipo?: TipoEquipe | null;
   lider_equipe?: boolean | null;
+  // 11/08: a flag muda MUITO o que a pessoa pode (vê e age na esteira inteira,
+  // distribui para qualquer equipe). Um "gestor" com ela e outro sem são coisas
+  // diferentes — o selo tem de dizer isso, senão a tela mente por omissão.
+  gerente_distribuidor?: boolean | null;
 };
 
 const ESTILO: Record<Nivel, string> = {
@@ -46,6 +50,9 @@ const ICONE: Record<Nivel, React.ReactNode> = {
 };
 
 function tituloDe(nivel: Nivel, u: UsuarioSeloNivel): string {
+  if (u.gerente_distribuidor) {
+    return "Gerente — vê e trabalha a esteira INTEIRA (todas as equipes) e distribui card para qualquer pessoa, travando a atribuição para o operador não desfazer. NÃO gere contas, portais nem equipes.";
+  }
   if (nivel === "master") {
     return "Master — Administrador da equipe Grupo Participa (principal). Vê e gere tudo: contas, equipes, canais e todos os cards.";
   }
@@ -99,7 +106,57 @@ export function SeloNivel({ usuario, className }: { usuario: UsuarioSeloNivel; c
     equipe_tipo: usuario.equipe_tipo ?? null,
     lider_equipe: usuario.lider_equipe ?? false,
   });
+  if (usuario.gerente_distribuidor && nivel !== "master") {
+    return (
+      <span className={cn("inline-flex flex-wrap items-center gap-1", className)}>
+        <Selinho nivel={nivel} title={tituloDe(nivel, usuario)} />
+        <SeloGerente />
+      </span>
+    );
+  }
   return <Selinho nivel={nivel} title={tituloDe(nivel, usuario)} className={className} />;
+}
+
+// Selo próprio, ao lado do nível: gerente é um ACRÉSCIMO ao nível, não um nível
+// novo — quem tem a flag continua sendo gestor (ou operador) para tudo o mais.
+export function SeloGerente({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide",
+        "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
+        className,
+      )}
+      title="Gerente — vê e trabalha a esteira inteira, de todas as equipes, e distribui card para qualquer pessoa. Não gere contas, portais nem equipes."
+    >
+      <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+      gerente
+    </span>
+  );
+}
+
+// Explicação em TEXTO VISÍVEL (não só no hover do title) do que o nível desta
+// conta permite — usada junto do SeloNivel nas telas de gestão (0155, pedido
+// do Marcio: quem administra precisa bater o olho e entender "o que esta
+// pessoa consegue fazer" sem abrir o código nem passar o mouse). Reaproveita
+// tituloDe: a MESMA frase do title, só que sempre visível em vez de escondida.
+export function DescricaoNivel({ usuario, className }: { usuario: UsuarioSeloNivel; className?: string }) {
+  const completo = usuario.papel === "admin" ? usuario.equipe_tipo !== undefined : usuario.lider_equipe !== undefined;
+  if (!completo) {
+    return (
+      <p className={cn("text-xs text-slate-400 dark:text-slate-500", className)}>
+        Nível não calculado — esta lista ainda não trouxe a equipe/estrela desta conta.
+      </p>
+    );
+  }
+  const nivel = nivelDe({
+    id: usuario.id,
+    papel: usuario.papel,
+    equipe_id: usuario.equipe_id ?? null,
+    equipe_tipo: usuario.equipe_tipo ?? null,
+    lider_equipe: usuario.lider_equipe ?? false,
+  });
+  return <p className={cn("text-xs text-slate-500 dark:text-slate-400", className)}>{tituloDe(nivel, usuario)}</p>;
 }
 
 // Legenda curta de "como se produz cada nível" — para o Marcio olhar a tela de
@@ -115,6 +172,9 @@ export function LegendaNiveis({ className }: { className?: string }) {
       <span className="text-slate-300 dark:text-slate-600">·</span>
       <Selinho nivel="operador" />
       <span>= os demais (pool + os próprios cards)</span>
+      <span className="text-slate-300 dark:text-slate-600">·</span>
+      <SeloGerente />
+      <span>= acréscimo ao nível: trabalha a esteira inteira e distribui para qualquer equipe</span>
     </p>
   );
 }

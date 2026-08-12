@@ -623,128 +623,13 @@ export function HmDrawer({
                 </div>
               )}
 
-              <Campo label="Etapa">
-                <select value={c.estagio_chave ?? ""} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass} disabled={salvando || somenteLeitura}>
-                  {estagios.map((s) => <option key={s.chave} value={s.chave}>{s.aba === "ativacao" ? "Ativação · " : "Comercial · "}{s.nome}</option>)}
-                </select>
-                {temHistorico && !somenteLeitura && (
-                  <button
-                    type="button"
-                    onClick={reverter}
-                    disabled={salvando}
-                    className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 transition hover:text-brand disabled:opacity-50 dark:text-slate-400 dark:hover:text-brand-300"
-                    title="Desfazer o último movimento de etapa (miss click)"
-                  >
-                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" /></svg>
-                    Voltar ao estágio anterior
-                  </button>
-                )}
-              </Campo>
-
-              {/* Turma do programa: a atual vem sozinha ao pagar. O campo existe
-                  para a exceção — alguém que entra em outra turma.
-                  0165: o rótulo e o placeholder eram fixos do HM ("Turma no HM",
-                  "T39") e apareciam assim no board do Aurum. Agora seguem o portal. */}
-              <Campo label={`Turma no ${nomePortal}`}>
-                <div className="flex items-center gap-2">
-                  <input
-                    defaultValue={c.turma ?? ""}
-                    disabled={somenteLeitura}
-                    onBlur={(e) => { if (e.target.value.trim() && e.target.value !== (c.turma ?? "")) patch({ turma: e.target.value.trim() }); }}
-                    placeholder="turma"
-                    className={fieldClass}
-                  />
-                  {c.turma_origem && (
-                    <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Turma de onde ele veio">
-                      veio da {c.turma_origem}
-                    </span>
-                  )}
-                </div>
-              </Campo>
-
-              <Campo label="Operador">
-                {podeDistribuir() ? (
-                  // MASTER/GESTOR: o seletor distribui. A lista `responsaveis` já
-                  // vem recortada do servidor (master = todos os ativos; gestor =
-                  // só a equipe dele) — e o backend barra destino fora da equipe.
-                  <div className="flex items-center gap-2">
-                    {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
-                    <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass} disabled={salvando}>
-                      <option value="">— Sem operador —</option>
-                      {c.responsavel && !responsaveis.includes(c.responsavel) && <option value={c.responsavel}>{c.responsavel}</option>}
-                      {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  </div>
-                ) : (
-                  // OPERADOR: não há seletor — só a leitura de quem é o dono (ou
-                  // de que o card está no pool, livre para assumir).
-                  <div className="flex items-center gap-2">
-                    {c.responsavel ? (
-                      <>
-                        <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />
-                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{c.responsavel}</span>
-                      </>
-                    ) : c.atribuicao_admin ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-                        Atribuição travada pelo administrador
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-teal-400 px-2.5 py-1.5 text-xs font-medium text-teal-700 dark:border-teal-500/50 dark:text-teal-300">
-                        No pool — livre para assumir
-                      </span>
-                    )}
-                  </div>
-                )}
-                {/* Assumir: master/gestor sempre; OPERADOR só em card do POOL (sem
-                    dono e sem trava do admin). Card com dono ou travado: o operador
-                    não vê ação nenhuma de atribuição. */}
-                {me?.id && c.responsavel !== me.nome && (podeDistribuir() || (!c.responsavel && !c.atribuicao_admin)) && (
-                  <button
-                    type="button"
-                    onClick={() => patch({ responsavel_id: me.id })}
-                    disabled={salvando}
-                    className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline disabled:opacity-50 dark:text-brand-300"
-                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir este lead"}
-                  >
-                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
-                    {c.responsavel ? "Assumir para mim" : "Atribuir a mim"}
-                  </button>
-                )}
-              </Campo>
-
-              <BlocoAgendamento
-                tipo="reuniao"
-                rotulo="Reunião comercial"
-                atual={c.reuniao_em}
-                valor={reuniao}
-                onValor={setReuniao}
-                motivo={motivoAgenda}
-                onMotivo={setMotivoAgenda}
-                historico={agendamentos}
-                salvando={salvando || somenteLeitura}
-                onSalvar={(quando, motivo) => patch({ reuniao_em: quando, agendamento_motivo: motivo })}
-                onFechar={(status) => patch({ agendamento_tipo: "reuniao", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
-              >
-                <select
-                  value={c.reuniao_resultado ?? ""}
-                  onChange={(e) => patch({ reuniao_resultado: e.target.value || null })}
-                  className={cn(fieldClass, "mt-1.5")}
-                  disabled={salvando || somenteLeitura}
-                >
-                  <option value="">— Status da reunião —</option>
-                  {RESULTADOS.map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
-                <LinkGravacao
-                  atual={c.reuniao_gravacao_url}
-                  disabled={salvando || somenteLeitura}
-                  onSalvar={(v) => patch({ reuniao_gravacao_url: v })}
-                />
-              </BlocoAgendamento>
-
-              {/* ACORDO DO SALDO — o gargalo. Na planilha isto era "Como vai pagar
-                  o saldo restante?" + "Link enviado" + "pagamento agendado 17/07",
-                  três colunas de texto solto que ninguém conseguia filtrar. */}
+              {/* ACORDO DO SALDO — o gargalo. Vive logo no topo da ficha (antes
+                  de Etapa/Turma/Operador): "quanto ela deve" é uma das
+                  perguntas que o operador faz o dia todo, e antes só se
+                  respondia depois de rolar a ficha inteira. Na planilha isto
+                  era "Como vai pagar o saldo restante?" + "Link enviado" +
+                  "pagamento agendado 17/07", três colunas de texto solto que
+                  ninguém conseguia filtrar. */}
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   {jaPagou && fin?.saldo_a_pagar_manual == null ? "Acordo do saldo (histórico)" : "Acordo do saldo"}
@@ -922,6 +807,125 @@ export function HmDrawer({
                   </div>
                 )}
               </div>
+
+              <Campo label="Etapa">
+                <select value={c.estagio_chave ?? ""} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass} disabled={salvando || somenteLeitura}>
+                  {estagios.map((s) => <option key={s.chave} value={s.chave}>{s.aba === "ativacao" ? "Ativação · " : "Comercial · "}{s.nome}</option>)}
+                </select>
+                {temHistorico && !somenteLeitura && (
+                  <button
+                    type="button"
+                    onClick={reverter}
+                    disabled={salvando}
+                    className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 transition hover:text-brand disabled:opacity-50 dark:text-slate-400 dark:hover:text-brand-300"
+                    title="Desfazer o último movimento de etapa (miss click)"
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" /></svg>
+                    Voltar ao estágio anterior
+                  </button>
+                )}
+              </Campo>
+
+              {/* Turma do programa: a atual vem sozinha ao pagar. O campo existe
+                  para a exceção — alguém que entra em outra turma.
+                  0165: o rótulo e o placeholder eram fixos do HM ("Turma no HM",
+                  "T39") e apareciam assim no board do Aurum. Agora seguem o portal. */}
+              <Campo label={`Turma no ${nomePortal}`}>
+                <div className="flex items-center gap-2">
+                  <input
+                    defaultValue={c.turma ?? ""}
+                    disabled={somenteLeitura}
+                    onBlur={(e) => { if (e.target.value.trim() && e.target.value !== (c.turma ?? "")) patch({ turma: e.target.value.trim() }); }}
+                    placeholder="turma"
+                    className={fieldClass}
+                  />
+                  {c.turma_origem && (
+                    <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Turma de onde ele veio">
+                      veio da {c.turma_origem}
+                    </span>
+                  )}
+                </div>
+              </Campo>
+
+              <Campo label="Operador">
+                {podeDistribuir() ? (
+                  // MASTER/GESTOR: o seletor distribui. A lista `responsaveis` já
+                  // vem recortada do servidor (master = todos os ativos; gestor =
+                  // só a equipe dele) — e o backend barra destino fora da equipe.
+                  <div className="flex items-center gap-2">
+                    {c.responsavel && <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />}
+                    <select value={c.responsavel ?? ""} onChange={(e) => patch({ responsavel: e.target.value || null })} className={fieldClass} disabled={salvando}>
+                      <option value="">— Sem operador —</option>
+                      {c.responsavel && !responsaveis.includes(c.responsavel) && <option value={c.responsavel}>{c.responsavel}</option>}
+                      {responsaveis.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                ) : (
+                  // OPERADOR: não há seletor — só a leitura de quem é o dono (ou
+                  // de que o card está no pool, livre para assumir).
+                  <div className="flex items-center gap-2">
+                    {c.responsavel ? (
+                      <>
+                        <Avatar nome={c.responsavel} className="h-8 w-8 text-xs" />
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{c.responsavel}</span>
+                      </>
+                    ) : c.atribuicao_admin ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                        Atribuição travada pelo administrador
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-teal-400 px-2.5 py-1.5 text-xs font-medium text-teal-700 dark:border-teal-500/50 dark:text-teal-300">
+                        No pool — livre para assumir
+                      </span>
+                    )}
+                  </div>
+                )}
+                {/* Assumir: master/gestor sempre; OPERADOR só em card do POOL (sem
+                    dono e sem trava do admin). Card com dono ou travado: o operador
+                    não vê ação nenhuma de atribuição. */}
+                {me?.id && c.responsavel !== me.nome && (podeDistribuir() || (!c.responsavel && !c.atribuicao_admin)) && (
+                  <button
+                    type="button"
+                    onClick={() => patch({ responsavel_id: me.id })}
+                    disabled={salvando}
+                    className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline disabled:opacity-50 dark:text-brand-300"
+                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir este lead"}
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+                    {c.responsavel ? "Assumir para mim" : "Atribuir a mim"}
+                  </button>
+                )}
+              </Campo>
+
+              <BlocoAgendamento
+                tipo="reuniao"
+                rotulo="Reunião comercial"
+                atual={c.reuniao_em}
+                valor={reuniao}
+                onValor={setReuniao}
+                motivo={motivoAgenda}
+                onMotivo={setMotivoAgenda}
+                historico={agendamentos}
+                salvando={salvando || somenteLeitura}
+                onSalvar={(quando, motivo) => patch({ reuniao_em: quando, agendamento_motivo: motivo })}
+                onFechar={(status) => patch({ agendamento_tipo: "reuniao", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
+              >
+                <select
+                  value={c.reuniao_resultado ?? ""}
+                  onChange={(e) => patch({ reuniao_resultado: e.target.value || null })}
+                  className={cn(fieldClass, "mt-1.5")}
+                  disabled={salvando || somenteLeitura}
+                >
+                  <option value="">— Status da reunião —</option>
+                  {RESULTADOS.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+                <LinkGravacao
+                  atual={c.reuniao_gravacao_url}
+                  disabled={salvando || somenteLeitura}
+                  onSalvar={(v) => patch({ reuniao_gravacao_url: v })}
+                />
+              </BlocoAgendamento>
 
               <BlocoAgendamento
                 tipo="entrevista"

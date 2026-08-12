@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
+import { Button, cn, EmptyState, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { Avatar } from "@/app/_components/avatar";
 import { Reveal } from "@/app/_components/anim";
 import { TagChip } from "@/app/_components/tags";
@@ -430,6 +430,11 @@ export default function HmTabelaPage() {
   const [lente, setLente] = useState<string | null>(null);
   const [sort, setSort] = useState<{ id: string; dir: 1 | -1 } | null>(null);
   const [carregando, setCarregando] = useState(true);
+  // Antes uma falha de carga (rede caída, servidor fora) deixava a tabela
+  // simplesmente VAZIA — cabeçalho e filtros de pé, zero linhas, nenhuma
+  // explicação. O operador não tinha como saber se era rede ou se a esteira
+  // realmente não tinha ninguém.
+  const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState<string | null>(null);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [selecionado, setSelecionado] = useState<string | null>(null);
@@ -537,15 +542,25 @@ export default function HmTabelaPage() {
       for (const v of filtroCanal) params.append("canal", v);
       for (const v of filtroTurma) params.append("turma", v);
       const r = await fetchHm(`/api/hm/tabela?${params.toString()}`);
-      const d = await r.json();
-      if (d.ok) {
+      // O corpo pode não ser JSON (ex.: página de erro do servidor num 500) —
+      // sem este try, isso caía direto no catch e a tela dizia "sem conexão"
+      // para uma falha que não tem nada a ver com a rede do operador.
+      const d = await r.json().catch(() => null);
+      if (d?.ok) {
+        setErro(null);
         setLinhas(d.linhas);
         setEstagios(d.estagios);
         if (Array.isArray(d.responsaveis)) setResponsaveis(d.responsaveis);
         if (Array.isArray(d.canais)) setCanais(d.canais);
         if (Array.isArray(d.turmas)) setTurmas(d.turmas);
         if (d.canaisQtd) setCanaisQtd(d.canaisQtd);
+      } else if (r.ok) {
+        setErro(msgErroPermissao(d?.reason) ?? "Não foi possível carregar a esteira. Tente de novo.");
+      } else {
+        setErro(msgErroPermissao(d?.reason) ?? `O servidor não conseguiu responder agora (erro ${r.status}). Tente de novo em instantes.`);
       }
+    } catch {
+      setErro("Sem conexão com o servidor. Verifique a rede e tente de novo.");
     } finally {
       setCarregando(false);
     }
@@ -1679,10 +1694,33 @@ export default function HmTabelaPage() {
         </div>
       )}
 
+      {/* Recarga falhou COM linhas na tela: a tabela pode estar desatualizada
+          em relação ao banco — avisa em vez de ficar calada. */}
+      {erro && linhas.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" role="alert">
+          <span>{erro} A tabela pode estar desatualizada.</span>
+          <button onClick={() => carregar()} className="shrink-0 font-medium underline-offset-2 hover:underline">Recarregar</button>
+        </div>
+      )}
+
       {carregando && linhas.length === 0 ? (
         <div className="flex items-center justify-center gap-3 py-20 text-slate-400 dark:text-slate-500">
           <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando esteira…</span>
         </div>
+      ) : erro && linhas.length === 0 ? (
+        // Falhou e não há NADA na tela: sem isto a tabela parecia vazia de
+        // verdade — o operador não sabia se era rede ou se os leads sumiram.
+        <EmptyState
+          icon={
+            <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+              <path d="M12 9v4M12 17h.01" />
+            </svg>
+          }
+          title="Não foi possível carregar a esteira"
+          description={erro}
+          action={<Button variant="secondary" onClick={() => carregar()}>Tentar de novo</Button>}
+        />
       ) : (
         <Reveal>
           <div className="js-reveal overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">

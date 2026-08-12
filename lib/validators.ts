@@ -59,6 +59,11 @@ export const UsuarioPatchSchema = z.object({
   nome: z.string().trim().min(2).optional(),
   papel: z.enum(["admin", "disparador", "operador"]).optional(),
   ativo: z.boolean().optional(),
+  // GERENTE DISTRIBUIDOR (11/08): existia só como coluna, ligada na mão por SQL
+  // no dia em que a Kelly precisou. Poder que só se concede por migration não é
+  // regra do sistema — é exceção que ninguém audita. Agora é campo da tela de
+  // Contas, master-only como o resto do PATCH.
+  gerente_distribuidor: z.boolean().optional(),
 });
 
 // Portais que a conta pode acessar (0145) — a whitelist inteira de uma vez.

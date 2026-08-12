@@ -4,12 +4,12 @@ import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
-import { Button, Card, Spinner, cn, fieldClass } from "@/app/_components/ui";
+import { Button, Card, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { CardLigacoes } from "@/app/_components/ligacao";
 import { Copiavel } from "@/app/_components/copiavel";
 import { Reveal, AnimNum } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
-import { useMe, msgErroPermissao } from "@/app/_components/use-me";
+import { useMe, msgErroPermissao, msgErroCarregamento } from "@/app/_components/use-me";
 import { toast } from "@/app/_components/toast";
 
 type Estagio = { chave: string; nome: string; cor: string | null };
@@ -167,6 +167,9 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   const { ehCardDeColega } = useMe();
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [contato, setContato] = useState<Contato | null>(null);
+  // Sem catch nenhum, uma falha aqui deixava a ficha girando o spinner para
+  // sempre — sem erro, sem retomada, sem explicação de onde travou.
+  const [erro, setErro] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<Interacao[]>([]);
   const [formularios, setFormularios] = useState<Formulario[]>([]);
   const [score, setScore] = useState(0);
@@ -181,20 +184,28 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   const [acordo, setAcordo] = useState("");
 
   const carregar = useCallback(async () => {
-    const r = await fetch(`/api/contato/${id}?evento=${evento}`);
-    const d = await r.json();
-    if (d.ok) {
-      setContato(d.contato);
-      setTimeline(d.timeline);
-      setFormularios(d.formularios || []);
-      setScore(d.score ?? 0);
-      setMetricas(d.metricas ?? null);
-      setEmailAc(d.emailAc ?? null);
-      setObs(d.contato.observacoes || "");
-      setProxNota(d.contato.proxima_acao_nota || "");
-      setProxData(d.contato.proxima_acao_em ? d.contato.proxima_acao_em.slice(0, 16) : "");
-      setPrevisao(d.contato.pagamento_previsto_em ? String(d.contato.pagamento_previsto_em).slice(0, 10) : "");
-      setAcordo(d.contato.acordo ?? "");
+    try {
+      const r = await fetch(`/api/contato/${id}?evento=${evento}`);
+      if (!r.ok) { setErro(msgErroCarregamento(r.status)); return; }
+      const d = await r.json();
+      if (d.ok) {
+        setErro(null);
+        setContato(d.contato);
+        setTimeline(d.timeline);
+        setFormularios(d.formularios || []);
+        setScore(d.score ?? 0);
+        setMetricas(d.metricas ?? null);
+        setEmailAc(d.emailAc ?? null);
+        setObs(d.contato.observacoes || "");
+        setProxNota(d.contato.proxima_acao_nota || "");
+        setProxData(d.contato.proxima_acao_em ? d.contato.proxima_acao_em.slice(0, 16) : "");
+        setPrevisao(d.contato.pagamento_previsto_em ? String(d.contato.pagamento_previsto_em).slice(0, 10) : "");
+        setAcordo(d.contato.acordo ?? "");
+      } else {
+        setErro(msgErroPermissao(d.reason) ?? "Não foi possível carregar a ficha do lead.");
+      }
+    } catch {
+      setErro(msgErroCarregamento());
     }
   }, [id, evento]);
 
@@ -220,6 +231,21 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
   }
 
   if (!contato) {
+    if (erro) {
+      return (
+        <EmptyState
+          icon={
+            <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+              <path d="M12 9v4M12 17h.01" />
+            </svg>
+          }
+          title="Não foi possível carregar a ficha"
+          description={erro}
+          action={<Button variant="secondary" onClick={carregar}>Tentar de novo</Button>}
+        />
+      );
+    }
     return (
       <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500">
         <Spinner /> Carregando…
