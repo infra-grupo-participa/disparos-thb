@@ -83,7 +83,10 @@ export function sqlEscopo(
   // dois módulos divergirem exatamente no caso em que a coluna está vazia —
   // fail-closed nos dois, sempre.
   const ramoEsteira = a.aba && a.produto && p.esteira !== undefined
-    ? `\n       or ($${p.esteira}::boolean and ${a.aba} = '${ESTEIRA_COMPARTILHADA_ABA}' and ${a.produto} = '${ESTEIRA_COMPARTILHADA_PRODUTO}')`
+    // `in (...)` e não `=`: desde 12/08 16h a regra cobre DUAS abas (ativacao e
+    // comercial). A lista vem da MESMA constante que o JS usa — se um dia entrar
+    // uma terceira aba, os dois lados mudam juntos.
+    ? `\n       or ($${p.esteira}::boolean and ${a.aba} in (${ABAS_ESTEIRA_COMPARTILHADA.map((x) => `'${x}'`).join(", ")}) and ${a.produto} = '${ESTEIRA_COMPARTILHADA_PRODUTO}')`
     : "";
   return `($${p.verTudo}::boolean
        or ${sqlCardLivre(a)}

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { produtoDaRequisicao } from "@/lib/produto-hm";
-import { escopoVisibilidade, esteiraCompartilhada, paramsEscopo, ESTEIRA_COMPARTILHADA_ABA, type Ator } from "@/lib/papeis";
+import { escopoVisibilidade, esteiraCompartilhadaNoBoard, paramsEscopo, type Ator } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { listaResponsaveis } from "@/lib/services/visibilidade";
 import { relatorioHm } from "@/lib/services/hm-relatorio";
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     verTudo, equipeId, usuarioId, produto,
     // Esteira compartilhada (0202): a tabela é a MESMA leitura do board — se o
     // card aparece no kanban para a equipe de ativação, tem de aparecer aqui.
-    esteira: esteiraCompartilhada(g.sessao as Ator, "HM", ESTEIRA_COMPARTILHADA_ABA, produto),
+    esteira: esteiraCompartilhadaNoBoard(g.sessao as Ator, "HM", produto),
   });
 
   // As listas dos filtros saem da base inteira (não da fatia filtrada): um

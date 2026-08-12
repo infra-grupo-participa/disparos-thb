@@ -92,8 +92,10 @@ ok("com a marca: move card da Ativação do HM",
   esteiraCompartilhada(anaAtivacao, "HM", CARD_ATIV.aba, CARD_ATIV.produto), true);
 ok("SEM a marca: não ganha o bônus (os outros 12 do GP)",
   esteiraCompartilhada(operadorGP, "HM", CARD_ATIV.aba, CARD_ATIV.produto), false);
-ok("a marca não vaza para o COMERCIAL (autoria da venda é sagrada)",
-  esteiraCompartilhada(anaAtivacao, "HM", "comercial", "HM"), false);
+// 12/08 16h: o COMERCIAL ENTROU no escopo (caso Gabriela — ver lib/papeis.ts).
+// Este caso já testou o contrário de manhã; a inversão é intencional.
+ok("o comercial do HM ENTROU no escopo (caso Gabriela, 12/08 16h)",
+  esteiraCompartilhada(anaAtivacao, "HM", "comercial", "HM"), true);
 ok("a marca não vaza para o AURUM", esteiraCompartilhada(anaAtivacao, "HM", "ativacao", "AURUM"), false);
 ok("a marca não vaza para o ETHB", esteiraCompartilhada(anaAtivacao, "HM", "ativacao", "ETHB"), false);
 ok("a marca não vale em outro evento (HT/SEM)",
@@ -120,8 +122,13 @@ ok("predicado completo: move card da Kelly na Ativação",
   podeVerPorEscopo(escopoAcao(anaAtivacao), cardKellyAtivacao, [], true), true);
 ok("predicado completo: card SEM a chave `aba` não entra (regressão do 403)",
   podeVerPorEscopo(escopoAcao(anaAtivacao), { ...cardKellyAtivacao, aba: undefined }, [], true), false);
-ok("predicado completo: comercial da Kelly continua fechado",
-  podeVerPorEscopo(escopoAcao(anaAtivacao), { ...cardKellyAtivacao, aba: "comercial" }, [], false), false);
+ok("predicado completo: comercial da Kelly agora ABRE (com esteira=true)",
+  podeVerPorEscopo(escopoAcao(anaAtivacao), { ...cardKellyAtivacao, aba: "comercial" }, [], true), true);
+ok("predicado completo: sem o bônus, comercial da Kelly segue fechado",
+  podeVerPorEscopo(escopoAcao(operadorGP), { ...cardKellyAtivacao, aba: "comercial" }, [], false), false);
+// O que continua FORA mesmo com o comercial dentro: outro produto.
+ok("AURUM segue fora mesmo no comercial",
+  esteiraCompartilhada(anaAtivacao, "HM", "comercial", "AURUM"), false);
 
 console.log(falhas === 0 ? "\nTODOS OS CASOS PASSARAM\n" : `\n${falhas} CASO(S) FALHARAM\n`);
 process.exit(falhas === 0 ? 0 : 1);

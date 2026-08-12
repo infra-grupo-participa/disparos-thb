@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { produtoDaRequisicao } from "@/lib/produto-hm";
-import { ehMaster, escopoVisibilidade, esteiraCompartilhada, paramsEscopo, ESTEIRA_COMPARTILHADA_ABA, type Ator } from "@/lib/papeis";
+import { ehMaster, escopoVisibilidade, esteiraCompartilhadaNoBoard, paramsEscopo, type Ator } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
 import { listaResponsaveis, sqlEscopo } from "@/lib/services/visibilidade";
@@ -48,7 +48,7 @@ export async function GET(req: Request) {
   // ("esta sessão tem o bônus?"), e mandado como booleano — o SQL só compara a
   // aba e o produto do CARD. `produto` entra na conta para o bônus não vazar
   // para AURUM/ETHB quando o board pedido é outro.
-  const esteira = esteiraCompartilhada(sessao as Ator, "HM", ESTEIRA_COMPARTILHADA_ABA, produto);
+  const esteira = esteiraCompartilhadaNoBoard(sessao as Ator, "HM", produto);
   const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId, produto, esteira];
 
   const colunas = await query(

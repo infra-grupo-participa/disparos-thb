@@ -64,21 +64,42 @@ export function acaoLivrePorEquipeEvento(u: Ator | null | undefined, evento?: st
 // Mesmo espírito de `gerente_distribuidor` (0161) e `lider_equipe` (0143):
 // capacidade de PESSOA mora no usuário, não no tipo da equipe.
 //
-// O recorte é a INTERSEÇÃO de três coisas — todas têm de casar:
+// O recorte é a INTERSEÇÃO de duas coisas — as duas têm de casar:
 //   evento  'HM'        (o board é o mesmo do arraste livre acima)
-//   aba     'ativacao'  (a esteira COMERCIAL não entra — só quem já pagou)
 //   produto 'HM'        (AURUM e ETHB são o MESMO evento HM, produtos
 //                         diferentes — ficam INTACTOS. Caro de propósito: é
-//                         o predicado mais caro dos três, mas sem ele a
-//                         esteira compartilhada vazaria para os outros boards.)
-// A constante da aba e a do produto moram AQUI, e só aqui — antes estavam
-// digitadas soltas em ~10 arquivos (hm.ts, telas do board, exports, script de
-// relatório): um "ativacao" reescrito por engano num desses lugares silenciava
-// a regra sem erro nenhum. Server (SQL) e cliente (JS) importam as MESMAS
-// constantes — visibilidade.ts monta o predicado SQL com elas.
+//                         o predicado mais caro, mas sem ele a esteira
+//                         compartilhada vazaria para os outros boards.)
+// A ABA entrou e depois saiu do recorte — ver o bloco abaixo.
+//
+// ⚠️ MUDANÇA DE ESCOPO NO MESMO DIA (12/08, 16h): o COMERCIAL entrou.
+// De manhã a regra cobria só a aba 'ativacao', com a justificativa de que o
+// comercial guarda a autoria da venda ("a gente sabe que aquele card ali, quem
+// fez a venda foi tal pessoa"). À tarde apareceu o caso concreto: a Ana Camila
+// não conseguia mover a **Gabriela Cristina Gavioli Pinto**, que está em
+// "Aguardando Retorno" — aba COMERCIAL, Equipe 2 (Kelly). Ela nem via o card.
+// Decisão do Marcio: liberar o comercial também.
+//
+// Medido no momento da mudança: 57 cards de outra equipe no comercial do HM
+// (36 em "Aguardando Retorno", 10 em "Contato Inicial", 5 em "Reunião
+// Finalizada", 3 em "Boleto Gerado", 2 em "Reunião Agendada", 1 "Reembolsado").
+// Com o comercial dentro, o alcance vai de 95 para 152 cards.
+//
+// O que a mudança NÃO altera, e continua valendo:
+//   · a autoria da venda segue gravada no card (`responsavel`/`equipe_id`) —
+//     liberar o MOVIMENTO não apaga de quem o card é;
+//   · AURUM/ETHB seguem fora (o predicado de produto não mudou);
+//   · assumir o card e disparar continuam bloqueados.
+//
+// As constantes moram AQUI, e só aqui — antes estavam digitadas soltas em ~10
+// arquivos (hm.ts, telas do board, exports, script de relatório): um "ativacao"
+// reescrito por engano num desses lugares silenciava a regra sem erro nenhum.
+// Server (SQL) e cliente (JS) importam as MESMAS constantes.
 export const ESTEIRA_COMPARTILHADA_ABA = "ativacao";
 export const ESTEIRA_COMPARTILHADA_PRODUTO = "HM";
-export const ABAS_ESTEIRA_COMPARTILHADA: readonly string[] = [ESTEIRA_COMPARTILHADA_ABA];
+// Ambas as abas do board do HM. `null` (card sem estágio) segue FORA: a regra
+// nunca entra por omissão de dado — fail-closed, como o SQL e o JS espelham.
+export const ABAS_ESTEIRA_COMPARTILHADA: readonly string[] = ["ativacao", "comercial"];
 
 // O que esta regra deliberadamente NÃO cobre (decisões travadas do Marcio,
 // 12/08/2026 — não mexer sem novo pedido):
@@ -100,6 +121,25 @@ export function esteiraCompartilhada(
   return evento === "HM"
     && ehEquipeDeAtivacao(ator)
     && !!aba && ABAS_ESTEIRA_COMPARTILHADA.includes(aba)
+    && produto === ESTEIRA_COMPARTILHADA_PRODUTO;
+}
+
+/**
+ * A pergunta das LISTAGENS: "esta sessão tem o bônus neste board?" — sem um card
+ * em mãos. As rotas do kanban/tabela/export resolvem isto no JS e mandam o
+ * booleano ao SQL, que faz o recorte por aba/produto de cada CARD.
+ *
+ * Existe para as rotas não precisarem passar uma aba qualquer só para satisfazer
+ * a assinatura (era `ABAS_ESTEIRA_COMPARTILHADA[0]`, que dava a impressão errada
+ * de que a regra valia só para a primeira aba da lista).
+ */
+export function esteiraCompartilhadaNoBoard(
+  ator: Ator | null | undefined,
+  evento?: string | null,
+  produto?: string | null,
+): boolean {
+  return evento === "HM"
+    && ehEquipeDeAtivacao(ator)
     && produto === ESTEIRA_COMPARTILHADA_PRODUTO;
 }
 

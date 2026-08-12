@@ -760,9 +760,9 @@ export default function HmKanbanPage() {
             o ambiente; a permissão real está no backend (podeAgirCardHm). Só
             aparece na aba Ativação e só para quem tem a marca: para os demais
             seria ruído sobre um poder que eles não têm. */}
-        {ehEquipeDeAtivacao && aba === "ativacao" && (
+        {ehEquipeDeAtivacao && (
           <span
-            title="Você é da equipe de ativação: pode mover qualquer card desta aba, inclusive de outros operadores."
+            title="Você é da equipe de ativação: pode mover qualquer card do board do HM, inclusive de outros operadores."
             className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900"
           >
             <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
