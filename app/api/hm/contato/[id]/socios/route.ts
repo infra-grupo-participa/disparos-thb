@@ -44,13 +44,26 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const card = await cardDo(params.id, produtoCard);
   if (!card) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
-  await query(
-    `insert into cs.hm_socios (contato_hm_id, nome, email, telefone)
-     values ($1, $2, nullif(trim($3), ''), nullif(trim($4), ''))
-     on conflict do nothing`,
-    [card.id, p.data.nome.trim(), p.data.email ?? "", p.data.telefone ?? ""],
+  // 0203: UM sócio vigente por titular. O cadastro manual passa pela MESMA função
+  // do webhook do Respondi — se já existe sócio, o novo SUBSTITUI (o anterior é
+  // arquivado, não apagado). Antes isto era um insert direto com `on conflict do
+  // nothing` que nunca conflitava; hoje o índice `hm_socios_um_vigente_uniq`
+  // recusaria o segundo, e o operador veria um erro cru de banco.
+  const r = await queryOne<{ acao: string; substituiu: string | null }>(
+    `select acao, substituiu from cs.fn_hm_socio_upsert(
+       $1, $2, null, nullif(trim($3), ''), nullif(trim($4), ''),
+       null, null, null, null, null, null, null, null, null, null, $5)`,
+    [card.id, p.data.nome.trim(), p.data.email ?? "", p.data.telefone ?? "", `ficha:${sessao.nome || "cs"}`],
   );
-  await addNotaHm(params.id, `Sócio convidado: ${p.data.nome.trim()}`, sessao.nome || "cs");
+  // A troca de sócio é um evento que o comercial precisa ver na timeline —
+  // diferente de uma correção de telefone, que passa em silêncio.
+  await addNotaHm(
+    params.id,
+    r?.acao === "substituido" && r.substituiu
+      ? `Sócio trocado: ${r.substituiu} → ${p.data.nome.trim()} (o anterior fica no histórico)`
+      : `Sócio convidado: ${p.data.nome.trim()}`,
+    sessao.nome || "cs",
+  );
   await provisionarSociosHm(params.id, sessao.nome || "cs");
 
   return NextResponse.json({ ok: true });
