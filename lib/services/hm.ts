@@ -708,9 +708,16 @@ type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe
 // antigo, mesmo desempate de moverEstagioHm/fichaHm ("(produto = 'HM') desc,
 // criado_em asc"). Não é um filtro a menos — é o comportamento histórico de
 // quando não há board nenhum sendo pedido, preservado de propósito.
+// ⚠️ `estagio_aba as aba` NÃO é enfeite (12/08). O consumidor deste retorno é
+// `podeVerPorEscopo`, cujo tipo `CardVisibilidade` lê a chave **`aba`**. A coluna
+// da view chama-se `estagio_aba`, e `aba` é OPCIONAL no tipo — então devolver
+// `estagio_aba` cru compila sem uma reclamação, `c.aba` vira `undefined` e o ramo
+// da esteira NUNCA entra. Foi exatamente esse o motivo do 403 da Ana Camila num
+// card que ela via no board: `esteiraCompartilhada` devolvia true e o predicado
+// descartava, porque olhava uma chave que não existia no objeto.
 async function cardEscopoHm(compradorId: string, produto: string | null) {
-  return queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null; tags: string[] | null; estagio_aba: string | null; produto: string | null }>(
-    `select responsavel_id, equipe_id, responsavel, tags, estagio_aba, produto
+  return queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null; tags: string[] | null; aba: string | null; produto: string | null }>(
+    `select responsavel_id, equipe_id, responsavel, tags, estagio_aba as aba, produto
        from cs.contatos_hm_kanban
       where comprador_id = $1 and ($2::text is null or produto = $2)
       order by (produto = 'HM') desc, criado_em asc
@@ -742,7 +749,7 @@ export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string, p
   // continua "de outro operador" para tudo que não é este ramo específico.
   return podeVerPorEscopo(
     escopo, k, await canaisDoUsuario(sessao.id),
-    esteiraCompartilhada(sessao as Ator, "HM", k.estagio_aba, k.produto),
+    esteiraCompartilhada(sessao as Ator, "HM", k.aba, k.produto),
   );
 }
 
@@ -769,7 +776,7 @@ export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string, 
   // card de OUTRA equipe (a Kelly) — mas só quando ele está na Ativação do
   // produto HM. Fora desse recorte (comercial, AURUM/ETHB, outras equipes em
   // outros eventos), a regra de sempre continua valendo.
-  const esteira = esteiraCompartilhada(sessao as Ator, "HM", k.estagio_aba, k.produto);
+  const esteira = esteiraCompartilhada(sessao as Ator, "HM", k.aba, k.produto);
   return veredictoAcao(sessao, k, await canaisDoUsuario(sessao.id), esteira); // + canal→pessoa (0154)
 }
 

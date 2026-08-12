@@ -12,6 +12,7 @@
  * Sem banco, sem servidor, sem rede: `lib/papeis.ts` é puro de propósito.
  * Sai com código 1 se algum caso falhar.
  */
+import { podeVerPorEscopo } from "@/lib/services/visibilidade";
 import {
   ehEquipeDeAtivacao, escopoAcao, escopoDisparo, escopoVisibilidade, esteiraCompartilhada,
   nivelDe, podeAtribuirPara, podeGerirAcesso,
@@ -104,6 +105,23 @@ ok("ehEquipeDeAtivacao lê a marca", ehEquipeDeAtivacao(anaAtivacao), true);
 ok("ehEquipeDeAtivacao é fail-closed sem o campo", ehEquipeDeAtivacao(operadorGP), false);
 // A marca é de VER/MOVER, não de disparo — mesmo corte do gerente_distribuidor.
 ok("a marca NÃO amplia o escopo de disparo", escopoDisparo(anaAtivacao).modo, escopoDisparo(operadorGP).modo);
+
+// O predicado inteiro, com o objeto de card no formato que `podeVerPorEscopo`
+// espera. Este caso pega a 2ª causa do 403 da Ana Camila: `cardEscopoHm`
+// devolvia a coluna como `estagio_aba`, mas o tipo `CardVisibilidade` lê `aba` —
+// e como `aba` é OPCIONAL no tipo, o TS não reclamou, `c.aba` virou undefined e
+// o ramo foi descartado mesmo com `esteira=true`. Um teste que só chamasse
+// `esteiraCompartilhada` NÃO teria pego: aquela função devolvia true.
+const cardKellyAtivacao = {
+  responsavel_id: "kelly", equipe_id: EQ_2, responsavel: "Kelly",
+  tags: ["Aluno Aurum"], aba: "ativacao", produto: "HM",
+};
+ok("predicado completo: move card da Kelly na Ativação",
+  podeVerPorEscopo(escopoAcao(anaAtivacao), cardKellyAtivacao, [], true), true);
+ok("predicado completo: card SEM a chave `aba` não entra (regressão do 403)",
+  podeVerPorEscopo(escopoAcao(anaAtivacao), { ...cardKellyAtivacao, aba: undefined }, [], true), false);
+ok("predicado completo: comercial da Kelly continua fechado",
+  podeVerPorEscopo(escopoAcao(anaAtivacao), { ...cardKellyAtivacao, aba: "comercial" }, [], false), false);
 
 console.log(falhas === 0 ? "\nTODOS OS CASOS PASSARAM\n" : `\n${falhas} CASO(S) FALHARAM\n`);
 process.exit(falhas === 0 ? 0 : 1);
