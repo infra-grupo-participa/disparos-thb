@@ -1506,11 +1506,15 @@ export default function HmTabelaPage() {
             {linhas.length} lead(s) — a esteira em linhas: ordene, filtre, edite na célula e aja em lote.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* flex-wrap (11/08): sem ele, "+ Cadastrar" + abas + os dois botões de
+            .xlsx somavam 819px e empurravam a PÁGINA 423px para fora no celular
+            — a tabela inteira rolava de lado e o topo saía da tela. Medido no
+            Chromium a 412px. */}
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">
           {/* Cadastrar à mão — só o master (admin do GP). Card é reflexo da Hotmart;
               colaborador não cria card à mão (30/07). */}
           {ehMaster() && (
-            <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
+            <Button variant="secondary" size="sm" className="alvo-toque" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
           )}
           <HmVisao atual="tabela" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
           {/* O XLSX é o mesmo relatório desta tela — mesmos filtros, mesma função.
@@ -1522,7 +1526,7 @@ export default function HmTabelaPage() {
               ? "Baixar o relatório da esteira inteira (resumo + uma aba por etapa)"
               : "Baixar o relatório da SUA visão da esteira (o pool + os cards que você vê), resumo + uma aba por etapa"}
           >
-            <Button variant="secondary" size="sm">Esteira .xlsx</Button>
+            <Button variant="secondary" size="sm" className="alvo-toque">Esteira .xlsx</Button>
           </a>
           {/* O financeiro em planilha própria: a visão "Financeiro" desta tela cabe
               numa tabela, mas a conciliação não — ela precisa do razão de pagamentos
@@ -1540,13 +1544,16 @@ export default function HmTabelaPage() {
 
       {/* Barra de controle: visões + busca + filtros (estes vão ao servidor). */}
       <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
+        {/* 11/08: as cinco lentes somam 402px — no celular era o que ainda
+            empurrava a página para fora. Rolam sozinhas, como as abas. */}
+        <div className="rolagem-oculta -mx-1 min-w-0 max-w-full flex-1 overflow-x-auto px-1 sm:flex-none">
         <div className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800/80">
           {VISOES.map((v) => (
             <button
               key={v.id}
               onClick={() => setVisao(v.id)}
               className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition",
+                "alvo-toque rounded-md px-3 py-1.5 text-sm font-medium transition",
                 visao === v.id
                   ? "bg-white text-slate-900 shadow-card dark:bg-slate-700 dark:text-slate-100"
                   : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
@@ -1556,12 +1563,13 @@ export default function HmTabelaPage() {
             </button>
           ))}
         </div>
+        </div>
 
         <span className="mx-1 hidden h-6 w-px bg-slate-200 dark:bg-slate-700 sm:block" />
 
         <div className="relative w-52 min-w-[9rem]">
           <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar lead…" className={cn(fieldClass, "pl-8")} />
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar lead…" className={cn(fieldClass, "alvo-toque pl-8")} />
         </div>
 
         {responsaveis.length > 0 && (
@@ -1633,7 +1641,7 @@ export default function HmTabelaPage() {
           já pagou. */}
       {naoVistos.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
-          <p className="flex items-center gap-2">
+          <p className="flex flex-wrap items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />

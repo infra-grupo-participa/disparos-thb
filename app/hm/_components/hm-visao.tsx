@@ -29,11 +29,18 @@ export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tab
   const qs = params.toString();
 
   return (
-    <div className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800/80">
+    // 11/08: as cinco abas somam ~494px e a tela do celular tem 390 — como a
+    // tira não tinha scroller próprio, quem estourava era a PÁGINA: o board
+    // inteiro passava a rolar de lado e a última aba ficava inalcançável.
+    // Agora a tira rola sozinha (o traço some por `rolagem-oculta`, como no
+    // cabeçalho e na régua de canais) e a página fica quieta. Verificado no
+    // Chromium a 390px: scrollWidth da página volta a 390.
+    <div className="rolagem-oculta -mx-1 min-w-0 max-w-full flex-1 overflow-x-auto px-1 sm:flex-none">
+      <div className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800/80">
       {VISOES.filter((v) => v.id !== "equipes" || podeConfig).map((v) => {
         const ativa = v.id === atual;
         const cls = cn(
-          "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
+          "alvo-toque flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
           ativa
             ? "bg-white text-slate-900 shadow-card dark:bg-slate-700 dark:text-slate-100"
             : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
@@ -63,6 +70,7 @@ export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tab
           </Link>
         );
       })}
+      </div>
     </div>
   );
 }

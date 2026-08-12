@@ -21,3 +21,7 @@ scripts/.import-hm-relatorio.json
 Leads-por-operador-*.xlsx
 .t40-*.json
 supabase/.temp/cli-latest
+
+# Capturas da validação de UX no Chromium (tests/e2e/ux.spec.ts) — são
+# artefatos de execução, não fonte. O relatório fica no PR, não no repo.
+tests/e2e/__shots__/

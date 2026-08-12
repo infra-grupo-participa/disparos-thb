@@ -60,6 +60,10 @@ export async function GET(req: Request) {
             k.reuniao_em, k.entrevista_em, k.pagamento_em, k.pagamento_previsto_em,
             -- Saldo quitado: não deve mais nada. Colore o card de verde sutil (0099).
             (coalesce(fin.quitado, false) or coalesce(fin.saldo_a_perseguir, 1) <= 0) as quitado,
+            -- 11/08: "quanto essa pessoa ainda deve" é a pergunta que o comercial
+            -- faz o dia todo e que só existia dentro da ficha. Vai para o card.
+            -- null = o sistema não sabe (não é zero) — o card então não afirma nada.
+            fin.saldo_a_perseguir as saldo,
             -- Parcelando: pagou ≥1 parcela e ainda deve. O espelho no Comercial mostra
             -- esse card em "Pagamento Parcelado", não em "Pagamento Realizado" (0108).
             (fin.situacao = 'mensalidade_em_curso') as parcelado,

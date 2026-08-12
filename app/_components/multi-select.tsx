@@ -59,7 +59,9 @@ export function MultiSelect({ rotulo, grupos, selecionadas, onChange, className 
         onClick={() => setAberto((a) => !a)}
         className={cn(
           fieldCompactClass,
-          "flex items-center gap-1.5 text-left",
+          // 11/08: media 38px no celular — os filtros de Operador/Canal/Turma são
+          // dos controles mais usados do board. `alvo-toque` só age sem mouse.
+          "alvo-toque flex items-center gap-1.5 text-left",
           selecionadas.length > 0 && "border-brand/50 text-slate-900 dark:border-brand-400/50 dark:text-slate-100",
         )}
         title={selecionadas.length ? selecionadas.join(", ") : rotulo}
