@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { cn } from "@/app/_components/ui";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 // O alternador Kanban ⇄ Tabela. As duas telas são leituras da MESMA esteira —
 // o board responde "onde cada um está", a tabela responde "o que está
@@ -9,17 +10,22 @@ import { cn } from "@/app/_components/ui";
 // contexto: os filtros que estão valendo viajam na querystring.
 export type FiltrosVisaoHm = { responsavel?: string[]; canal?: string[]; turma?: string[] };
 
+// `sub` é o segmento — a rota completa nasce de `${base}${sub}`, com `base`
+// vindo de useProdutoHm(). Antes a rota era literal `/hm/*`: quem estava em
+// /aurum/* ou /ethb/* clicava e caía no portal HM (e levava expulsão se não
+// tivesse HM na whitelist — ver app/hm/layout.tsx).
 const VISOES = [
-  { id: "kanban", label: "Kanban", rota: "/hm/kanban" },
-  { id: "tabela", label: "Tabela", rota: "/hm/tabela" },
-  { id: "reunioes", label: "Reuniões", rota: "/hm/reunioes" },
-  { id: "atividade", label: "Atividade", rota: "/hm/atividade" },
+  { id: "kanban", label: "Kanban", sub: "/kanban" },
+  { id: "tabela", label: "Tabela", sub: "/tabela" },
+  { id: "reunioes", label: "Reuniões", sub: "/reunioes" },
+  { id: "atividade", label: "Atividade", sub: "/atividade" },
   // Equipes — aparece para master e gestor (via podeConfig = podeDistribuir()):
   // o master gere; o gestor só VÊ a própria equipe. Operador não tem a aba.
-  { id: "equipes", label: "Equipes", rota: "/hm/equipes" },
+  { id: "equipes", label: "Equipes", sub: "/equipes" },
 ] as const;
 
 export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tabela" | "atividade" | "reunioes" | "equipes"; filtros: FiltrosVisaoHm; podeConfig?: boolean }) {
+  const { base } = useProdutoHm();
   // Filtro multi-valor = parâmetro repetido (?canal=A&canal=B) — o formato que
   // as rotas leem com getAll.
   const params = new URLSearchParams();
@@ -64,7 +70,7 @@ export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tab
             {v.label}
           </span>
         ) : (
-          <Link key={v.id} href={qs ? `${v.rota}?${qs}` : v.rota} className={cls}>
+          <Link key={v.id} href={qs ? `${base}${v.sub}?${qs}` : `${base}${v.sub}`} className={cls}>
             {icone}
             {v.label}
           </Link>

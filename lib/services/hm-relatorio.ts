@@ -132,8 +132,10 @@ export type LinhaEsteira = {
   /** 0214: quitado · em_dia · atrasado · aguardando — pagamento_previsto_em
    *  RECONCILIADO com cs.hm_pagamentos (cs.vw_hm_financeiro). "atrasado" só
    *  quando a data combinada venceu e ninguém pagou nada depois dela — a
-   *  leitura correta, diferente da digitação isolada que o card pintava. */
-  status_parcela: string | null;
+   *  leitura correta, diferente da digitação isolada que o card pintava.
+   *  Opcional: campo undefined em consumidor com cache de rota antiga —
+   *  ver fallback em app/hm/tabela/page.tsx (lente previsao_vencida e coluna previsao). */
+  status_parcela?: "quitado" | "em_dia" | "atrasado" | "aguardando" | null;
   // ----- ativação -----
   ativ_searchie: boolean;
   ativ_comunidade: boolean;

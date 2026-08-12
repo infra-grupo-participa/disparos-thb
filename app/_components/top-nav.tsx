@@ -39,6 +39,10 @@ const iconeDe = (sub: string) => LINKS.find((l) => l.sub === sub)?.icon ?? "";
 const LINKS_HM: LinkDef[] = [
   { sub: "/kanban", label: "Jornada", icon: iconeDe("/kanban") },
   { sub: "/agendamentos", label: "Agendamentos", icon: "M8 2v4M16 2v4M3.5 9.09h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5ZM11.995 13.7h.009M8.294 13.7h.01M8.294 16.7h.01" },
+  // Atividade por colaborador (12/08): a tira de visões (HmVisao) já leva até
+  // ela, mas só depois de já estar dentro do board — sem link aqui, quem não
+  // conhece a tira não a encontra. Mesmo ícone da nav genérica (LINKS).
+  { sub: "/atividade", label: "Atividade", icon: iconeDe("/atividade") },
   // Inbox e Disparos (Fase 2): o HM ganhou conversa e envio como os demais portais.
   // O link fica visível a todos; as ações de disparo aparecem só p/ admin/disparador
   // (a tela genérica esconde via podeDisparar).

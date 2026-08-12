@@ -231,7 +231,7 @@ export function HmDrawer({
   compradorId: string; estagios: Estagio[]; responsaveis: string[];
   onClose: () => void; onChanged: () => void;
 }) {
-  const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
+  const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster, ehCardDeColega, ehEquipeDeAtivacao } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   // 0164: a mesma pessoa pode ter card em 2 boards — a ficha precisa saber QUAL abrir.
   const { produto: produtoBoard, nome: nomePortal } = useProdutoHm();
@@ -339,6 +339,10 @@ export function HmDrawer({
   // cor_efetiva (0206) = a cor que se DESENHA (override da tag ou herdada da
   // categoria); cai para `cor` se a API ainda não trouxer o campo novo.
   const coresTags = Object.fromEntries(catalogoTags.map((t) => [t.nome, t.cor_efetiva ?? t.cor]));
+  // 12/08: a descrição já vinha do catálogo e era descartada — vira tooltip
+  // nativo (`title`) no chip, para responder "o que significa esta tag" onde
+  // o operador de fato trabalha, não só em /hm/tags.
+  const descricoesTags = Object.fromEntries(catalogoTags.map((t) => [t.nome, t.descricao]));
   const ehGerenciada = (t: string) => /^(Origem|Turma|Aurum) /.test(t);
 
   // O servidor pode RECUSAR a edição: "Ativação Realizada" é a linha de chegada
@@ -493,10 +497,10 @@ export function HmDrawer({
                 <div className="mt-1.5 flex flex-wrap items-center gap-1">
                   {(c.tags ?? []).map((t) =>
                     ehGerenciada(t) || somenteLeitura ? (
-                      <TagChip key={t} tag={t} mini cor={coresTags[t]} />
+                      <TagChip key={t} tag={t} mini cor={coresTags[t]} titulo={descricoesTags[t]} />
                     ) : (
                       <span key={t} className="group/tag relative inline-flex">
-                        <TagChip tag={t} mini cor={coresTags[t]} />
+                        <TagChip tag={t} mini cor={coresTags[t]} titulo={descricoesTags[t]} />
                         <button
                           type="button"
                           disabled={salvando}
@@ -942,6 +946,26 @@ export function HmDrawer({
                     <span className="text-sm text-slate-400 dark:text-slate-500">—</span>
                   )}
                 </div>
+                {/* Assumir a ATIVAÇÃO (pedido de 12/08): ao sair do comercial, a
+                    pessoa da ativação assume o aluno — dois responsáveis, um por
+                    etapa. Diferente do "Assumir para mim" abaixo, que mexe no
+                    dono VIGENTE: aqui grava quem cuida da ativação.
+                    Gating só de UI — a rota revalida (403 sem_permissao_ativacao,
+                    400 fora_da_ativacao), ambos traduzidos em msgErroPermissao. */}
+                {me?.id && !somenteLeitura && c.estagio_aba === "ativacao"
+                  && c.responsavel_ativacao !== me.nome
+                  && (ehEquipeDeAtivacao || podeDistribuir()) && (
+                  <button
+                    type="button"
+                    onClick={() => patch({ responsavel_ativacao_id: me.id })}
+                    disabled={salvando}
+                    className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline disabled:opacity-50 dark:text-brand-300"
+                    title={c.responsavel_ativacao ? `Assumir a ativação de ${c.responsavel_ativacao}` : "Assumir a ativação deste aluno"}
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+                    Assumir a ativação
+                  </button>
+                )}
               </Campo>
 
               <Campo label="Operador (vigente)">

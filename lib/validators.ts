@@ -248,6 +248,13 @@ export const HmContatoPatchSchema = z.object({
   // Responsável por ID (equipes): "Assumir para mim" / devolver ao pool (null) /
   // reatribuir. Prioritário sobre `responsavel` texto quando ambos vierem.
   responsavel_id: z.string().uuid().nullable().optional(),
+  // Responsável da ATIVAÇÃO (pedido do Marcio, 12/08): "assumir a ativação" —
+  // o operador da Ativação toma posse daquele card ESPECIFICAMENTE na aba dele,
+  // sem mexer no operador vigente (`responsavel_id`) nem no comercial (imutável,
+  // trigger 0212). Distinto de `responsavel_ativacao` (texto, só leitura hoje —
+  // ver o comentário completo em app/api/hm/contato/[id]/route.ts). null limpa
+  // (devolve o card de ativação ao "sem dono de ativação").
+  responsavel_ativacao_id: z.string().uuid().nullable().optional(),
   observacoes: z.string().nullable().optional(),
   nota: z.string().optional(),
   tags: z.array(z.string()).optional(),

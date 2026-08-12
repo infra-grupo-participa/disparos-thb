@@ -74,6 +74,10 @@ export async function GET(req: Request) {
             k.reuniao_em, k.entrevista_em, k.pagamento_em, k.pagamento_previsto_em,
             -- Saldo quitado: não deve mais nada. Colore o card de verde sutil (0099).
             (coalesce(fin.quitado, false) or coalesce(fin.saldo_a_perseguir, 1) <= 0) as quitado,
+            -- 0214/board: quitado · em_dia · atrasado · aguardando — pagamento_previsto_em
+            -- RECONCILIADO com cs.hm_pagamentos (a razão), não a data crua. Mesmo join
+            -- que já lê fin acima (nenhum custo adicional): só mais uma coluna da view.
+            fin.status_parcela,
             -- 11/08: "quanto essa pessoa ainda deve" é a pergunta que o comercial
             -- faz o dia todo e que só existia dentro da ficha. Vai para o card.
             -- null = o sistema não sabe (não é zero) — o card então não afirma nada.

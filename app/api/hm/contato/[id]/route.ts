@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { guardProdutoOpcional, produtoDaRequisicao } from "@/lib/produto-hm";
-import { ehMaster } from "@/lib/papeis";
+import { ehMaster, nivelDe, temFuncao } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
 import { moverEstagioHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, podeAgirCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
@@ -69,10 +69,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
 
-  const atual = await queryOne<{ id: string; estagio_chave: string | null; reuniao_em: string | null; responsavel_id: string | null; atribuicao_admin: boolean }>(
+  const atual = await queryOne<{ id: string; estagio_chave: string | null; estagio_aba: string | null; reuniao_em: string | null; responsavel_id: string | null; atribuicao_admin: boolean; responsavel_ativacao_id: string | null }>(
     // 0187: `and ch.produto = $2` — sem isso, `atual.id` (usado no UPDATE lá
     // embaixo) podia ser o card de OUTRO board. É aqui que a escrita é ancorada.
-    `select ch.id, est.chave as estagio_chave, ch.reuniao_em, ch.responsavel_id, ch.atribuicao_admin
+    // `estagio_aba` (assumir ativação, 12/08): só se decide se o card está na
+    // aba ativação DEPOIS de ler o estágio atual — não dá para saber pelo body.
+    // `responsavel_ativacao_id` atual: para a nota da timeline dizer "assumiu de
+    // Fulano" e o resumoEdicao não confundir "vazio" com "trocou de dono".
+    `select ch.id, est.chave as estagio_chave, est.aba as estagio_aba, ch.reuniao_em, ch.responsavel_id, ch.atribuicao_admin, ch.responsavel_ativacao_id
        from cs.contatos_hm ch left join cs.estagios est on est.id = ch.estagio_id
       where ch.comprador_id = $1 and ch.produto = $2`,
     [compradorId, produtoCard],
@@ -204,7 +208,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Snapshot para o "Desfazer edição" (A2): guarda o estado ANTES de aplicar os
   // campos. Só quando há edição de campo — mudança de etapa e agendamento têm
   // desfazer próprio e não entram aqui.
-  if (sets.length || b.responsavel !== undefined || b.responsavel_id !== undefined) {
+  if (sets.length || b.responsavel !== undefined || b.responsavel_id !== undefined || b.responsavel_ativacao_id !== undefined) {
     await query(`select cs.fn_hm_undo_registrar($1, $2, $3)`, [compradorId, resumoEdicao(b), operador]);
   }
 
@@ -231,6 +235,60 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       const status = r.reason === "nao_encontrado" ? 404 : r.reason === "destino_invalido" ? 400 : 403;
       return NextResponse.json({ ok: false, reason: r.reason }, { status });
     }
+  }
+
+  // "Assumir a ativação" (pedido do Marcio, 12/08): responsavel_ativacao_id é
+  // um SEGUNDO dono, só para a aba Ativação — coexiste com `responsavel_id`
+  // (o operador VIGENTE, geralmente do comercial) em vez de substituí-lo.
+  // Ex.: Kelly vendeu (responsavel_id=Kelly, comercial), Ana Camila assume a
+  // ativação (responsavel_ativacao_id=Ana) — os dois ficam registrados.
+  //
+  // ⚠️ Distinto de `responsavel_comercial_id`: aquele é IMUTÁVEL por trigger
+  // (fn_hm_congela_comercial, 0212) — quem vendeu não se reescreve. Este campo
+  // NÃO tem trava de banco (conferido: só existe trigger de congelamento para
+  // o comercial) — a permissão de troca é só esta checagem de aplicação.
+  //
+  // REGRA DE PERMISSÃO (decisão desta implementação, documentada porque não
+  // veio pronta do pedido):
+  //   · quem tem a FUNÇÃO 'HM:ativacao' (temFuncao — hoje Ana Camila/Thomas,
+  //     lib/papeis) — é o time cujo trabalho é justamente ativar o aluno;
+  //   · OU master/gestor (nivelDe ≠ 'operador') — quem já distribui cards
+  //     também pode redistribuir a ativação;
+  //   · um operador SEM a função de ativação e sem nível de gestão NÃO assume
+  //     — senão qualquer operador do comercial poderia "roubar" a ativação de
+  //     quem realmente cuida dela. Regra frouxa (qualquer operador) foi
+  //     descartada de propósito.
+  // SÓ na aba ATIVAÇÃO do card: comercial não tem ativação para assumir — o
+  // pedido do Marcio nasceu explicitamente do momento "quando o lead vai para
+  // a ativação". Fora da aba, a rota recusa (400, não 403 — não é permissão,
+  // é o card ainda não ter chegado lá).
+  if (b.responsavel_ativacao_id !== undefined) {
+    const podeAssumirAtivacao = temFuncao(sessao, "HM", "ativacao") || nivelDe(sessao) !== "operador";
+    if (!podeAssumirAtivacao) {
+      return NextResponse.json({ ok: false, reason: "sem_permissao_ativacao" }, { status: 403 });
+    }
+    if (atual.estagio_aba !== "ativacao") {
+      return NextResponse.json({ ok: false, reason: "fora_da_ativacao" }, { status: 400 });
+    }
+    let novoDono: { id: string; nome: string } | null = null;
+    if (b.responsavel_ativacao_id !== null) {
+      novoDono = await queryOne<{ id: string; nome: string }>(
+        `select id, nome from cs.usuarios where id = $1 and ativo`,
+        [b.responsavel_ativacao_id],
+      );
+      if (!novoDono) return NextResponse.json({ ok: false, reason: "destino_invalido" }, { status: 400 });
+    }
+    await query(`update cs.contatos_hm set responsavel_ativacao_id = $2, atualizado_em = now() where id = $1`, [atual.id, b.responsavel_ativacao_id]);
+    // Timeline (alimenta o relatório e a ficha): quem assumiu, e de quem —
+    // "assumiu" só quando não havia ninguém, "reatribuiu" quando havia outro
+    // dono de ativação diferente, "devolveu" quando o novo valor é null.
+    const descricaoAtivacao = novoDono
+      ? (atual.responsavel_ativacao_id ? `Ativação reatribuída para ${novoDono.nome}` : `${novoDono.nome} assumiu a ativação deste aluno`)
+      : "Ativação devolvida (sem responsável de ativação)";
+    await query(
+      `insert into cs.interacoes (contato_hm_id, tipo, descricao, autor) values ($1, 'sistema', $2, $3)`,
+      [atual.id, descricaoAtivacao, operador],
+    );
   }
 
   // Agendar / REAGENDAR. O serviço guarda a marcação anterior e conta quantas
@@ -316,6 +374,7 @@ function resumoEdicao(b: Record<string, unknown>): string {
   if (b.tags !== undefined) p.push("tags");
   if (b.turma !== undefined) p.push("turma");
   if (b.responsavel !== undefined || b.responsavel_id !== undefined) p.push("responsável");
+  if (b.responsavel_ativacao_id !== undefined) p.push("responsável de ativação");
   if (b.reuniao_resultado !== undefined || b.entrevista_resultado !== undefined) p.push("resultado da reunião");
   if (b.reuniao_gravacao_url !== undefined || b.entrevista_gravacao_url !== undefined) p.push("gravação");
   if (b.cancelamento_motivo !== undefined) p.push("motivo do cancelamento");

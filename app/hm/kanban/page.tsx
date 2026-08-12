@@ -64,6 +64,11 @@ type Card = {
   pagamento_previsto_em: string | null;
   quitado: boolean;
   parcelado: boolean;
+  /** 0214: quitado · em_dia · atrasado · aguardando — pagamento_previsto_em
+   *  RECONCILIADO com cs.hm_pagamentos (cs.vw_hm_financeiro), não a data crua.
+   *  Opcional: rota antiga em cache/deploy parcial pode não mandar o campo — o
+   *  card cai no fallback pela data (mesma leitura de antes), nunca quebra. */
+  status_parcela?: "quitado" | "em_dia" | "atrasado" | "aguardando" | null;
   /** Quanto ainda falta receber. null = o sistema não sabe (nunca zero por
    *  omissão) — nesse caso o card fica calado em vez de inventar. */
   saldo: string | number | null;
@@ -190,19 +195,48 @@ function catLabel(cat: string | null): { txt: string; cls: string } | null {
   return null;
 }
 
-// O estado da parcela — a leitura RASA que a Ativação faz do financeiro. "Em dia"
-// (indigo) enquanto não vence a data prometida; "atrasada" (vermelho) depois — e aí
-// quem age é o Financeiro (grupoparticipa.app.br), não a ativação. Sem data
-// combinada, fica neutro: o Financeiro ainda não definiu o vencimento.
+// O estado da parcela — a leitura que a Ativação faz do financeiro. Lê
+// `status_parcela` (0214, cs.vw_hm_financeiro): a data prometida RECONCILIADA
+// com o razão real (cs.hm_pagamentos), não a data crua. Antes daqui, o card
+// gritava "atrasada" pra quem já tinha pago depois da data combinada — medido
+// em produção 12/08: 21 de 47 cards vencidos (45%) eram falso positivo.
+// FALLBACK: se `status_parcela` não vier (rota antiga em cache/deploy parcial),
+// cai na leitura antiga só pela data — pior que a reconciliada, mas nunca pior
+// que sumir o selo, e nunca volta a inventar um estado que a view não mandou.
 function parcelaStatus(card: Card): { txt: string; cls: string; title: string } | null {
   if (!card.parcelado) return null;
   const prev = card.pagamento_previsto_em ? new Date(card.pagamento_previsto_em) : null;
-  if (prev && prev.getTime() < Date.now()) {
-    return { txt: "Parcela atrasada", cls: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
-      title: `Parcela vencida em ${prev.toLocaleDateString("pt-BR")} — a cobrança é do Financeiro (grupoparticipa.app.br)` };
+  const CLS_ATRASADA = "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300";
+  const CLS_EM_DIA = "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300";
+
+  if (card.status_parcela === undefined) {
+    // Fallback (comportamento anterior à 0214): só a data, sem reconciliar com
+    // o razão. Mantido para não quebrar em deploy parcial — não é a leitura boa.
+    if (prev && prev.getTime() < Date.now()) {
+      return { txt: "Parcela atrasada", cls: CLS_ATRASADA,
+        title: `Parcela vencida em ${prev.toLocaleDateString("pt-BR")} — a cobrança é do Financeiro (grupoparticipa.app.br)` };
+    }
+    return { txt: prev ? "Parcela em dia" : "Parcelando", cls: CLS_EM_DIA,
+      title: prev ? `Próxima parcela combinada para ${prev.toLocaleDateString("pt-BR")}` : "Pagando em parcelas — sem data de vencimento combinada com o Financeiro" };
   }
-  return { txt: prev ? "Parcela em dia" : "Parcelando", cls: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
-    title: prev ? `Próxima parcela combinada para ${prev.toLocaleDateString("pt-BR")}` : "Pagando em parcelas — sem data de vencimento combinada com o Financeiro" };
+
+  if (card.status_parcela === "atrasado") {
+    return { txt: "Parcela atrasada", cls: CLS_ATRASADA,
+      title: `Parcela vencida em ${prev?.toLocaleDateString("pt-BR") ?? "?"} e nenhum pagamento caiu depois — a cobrança é do Financeiro (grupoparticipa.app.br)` };
+  }
+  if (card.status_parcela === "em_dia") {
+    // Pode ter vencido E ter pagamento depois (reconciliado) — é o caso que a
+    // 0214 existe para não gritar mais. O tooltip explica por que não é mais "atrasada".
+    const pagouDepois = prev && prev.getTime() < Date.now();
+    return { txt: "Parcela em dia", cls: CLS_EM_DIA,
+      title: pagouDepois
+        ? `Venceu em ${prev!.toLocaleDateString("pt-BR")}, mas caiu pagamento depois da data — não está atrasada`
+        : prev ? `Próxima parcela combinada para ${prev.toLocaleDateString("pt-BR")}` : "Pagando em parcelas" };
+  }
+  // aguardando (ou quitado, que nunca chega aqui — o badge de quitado tem
+  // prioridade e é decidido antes de chamar parcelaStatus, ver CardItem).
+  return { txt: "Parcelando", cls: CLS_EM_DIA,
+    title: "Pagando em parcelas — sem data de vencimento combinada com o Financeiro" };
 }
 
 // Posição onde o card cairá: entre quais dois cards da coluna o cursor está.
@@ -313,6 +347,8 @@ export default function HmKanbanPage() {
   const [canaisQtd, setCanaisQtd] = useState<Record<string, number>>({});
   // Cores do catálogo de tags (0067) — a cor é da tag, não da tela.
   const [coresTags, setCoresTags] = useState<Record<string, string | null>>({});
+  // Descrição do dicionário (0206) — vira tooltip no chip do card.
+  const [descricoesTags, setDescricoesTags] = useState<Record<string, string | null>>({});
   const [turmas, setTurmas] = useState<string[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   // Cada filtro aceita VÁRIOS valores (OU dentro do filtro, E entre filtros).
@@ -499,7 +535,13 @@ export default function HmKanbanPage() {
     fetch("/api/hm/tags").then((r) => r.json()).then((d) => {
       // cor_efetiva (0206) é a cor derivada da categoria — cai para `cor` (override
       // cru) se o payload ainda não trouxer o campo novo (API antiga em voo).
-      if (d.ok) setCoresTags(Object.fromEntries(d.tags.map((t: { nome: string; cor: string | null; cor_efetiva?: string | null }) => [t.nome, t.cor_efetiva ?? t.cor])));
+      if (!d.ok) return;
+      type TagCat = { nome: string; cor: string | null; cor_efetiva?: string | null; descricao?: string | null };
+      setCoresTags(Object.fromEntries(d.tags.map((t: TagCat) => [t.nome, t.cor_efetiva ?? t.cor])));
+      // A cor diz a FAMÍLIA; a descrição diz o SIGNIFICADO. Mesma resposta, sem
+      // fetch extra — sem isto o operador vê o chip colorido no card e continua
+      // sem saber o que a tag quer dizer, que era a queixa original.
+      setDescricoesTags(Object.fromEntries(d.tags.map((t: TagCat) => [t.nome, t.descricao ?? null])));
     }).catch(() => {});
     fetch("/api/hm/estagios").then((r) => r.json()).then((d) => { if (d.ok) setEstagios(d.estagios); }).catch(() => {});
   }, []);
@@ -967,6 +1009,7 @@ export default function HmKanbanPage() {
                             marcado={marcados.has(card.comprador_id)}
                             onToggleMarcado={() => toggleMarcado(card.comprador_id)}
                             coresTags={coresTags}
+                            descricoesTags={descricoesTags}
                           />
                         </Fragment>
                       ))
@@ -1482,12 +1525,13 @@ function SelosExtras({ itens }: { itens: { key: string; rotulo: string; el: Reac
 }
 
 function CardItem({
-  card, espelho, ehPool, bloqueado, colega, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags, destacado,
+  card, espelho, ehPool, bloqueado, colega, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags, descricoesTags, destacado,
 }: {
   card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; colega?: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
   onMenu: (x: number, y: number) => void;
   selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
   coresTags: Record<string, string | null>;
+  descricoesTags: Record<string, string | null>;
   /** Alvo do deep-link ?card= (0164): pulsa por alguns segundos para o olho achar. */
   destacado?: boolean;
 }) {
@@ -1753,7 +1797,7 @@ function CardItem({
 
       {card.tags.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1">
-          {card.tags.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} />)}
+          {card.tags.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} titulo={descricoesTags[t]} />)}
         </div>
       )}
 

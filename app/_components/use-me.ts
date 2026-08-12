@@ -182,6 +182,12 @@ export function msgErroPermissao(reason?: string | null): string | null {
       return "Valor total/pago vêm da Hotmart e não são editáveis à mão. Corrija identidade e datas normalmente.";
     case "cadastro_manual_so_admin":
       return "Cards nascem da compra na Hotmart. O cadastro manual é restrito ao administrador do Grupo Participa.";
+    case "sem_permissao_ativacao":
+      // "Assumir a ativação" (12/08): só quem tem a função HM:ativacao ou é
+      // master/gestor. Espelha a checagem de app/api/hm/contato/[id]/route.ts.
+      return "Só quem tem a função de Ativação (ou é gestor/administrador) pode assumir a ativação deste aluno.";
+    case "fora_da_ativacao":
+      return "Este card ainda não chegou na Ativação — só é possível assumir a ativação quando o aluno está nessa aba.";
     case "card_de_outro_operador":
       // Novo modelo (28/07): o operador VÊ os cards da equipe, mas só AGE no que
       // é dele ou está no pool. A ficha do colega abre em leitura.

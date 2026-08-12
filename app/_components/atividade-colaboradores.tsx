@@ -38,6 +38,9 @@ export type PorColuna = { estagio_id: number; estagio_nome: string | null; estag
 // Shape real de AtividadeAbaResumo — comercial × ativação (12/08). `estagio_aba`
 // null = estágios legados sem aba definida; nunca é somado dentro das outras duas.
 export type PorAba = { estagio_aba: string | null; total: number };
+// Shape real de AtividadeAlunoResumo (lib/services/hm-atividade.ts/porAlunoNucleo)
+// — TOP 8 alunos por colaborador no período, ordenado por nº de ações.
+export type PorAluno = { contato_hm_id: string; aluno_nome: string; total: number; tipos_distintos: number; ultima: string };
 export type LinhaAtividade = {
   colaborador: string;
   total: number; movimentacoes: number; notas: number; disparos: number; outras: number;
@@ -49,6 +52,11 @@ export type LinhaAtividade = {
   // Quanto do trabalho dele caiu no Comercial vs. na Ativação no período —
   // só na esteira HM (os genéricos não têm aba). Ver hm-atividade.ts/porAbaNucleo.
   porAba?: PorAba[];
+  // O que ele fez com CADA ALUNO no período — TOP 8 por nº de ações, só na
+  // esteira HM. `porAlunoTotal` é quantos alunos distintos ele tocou no total
+  // (para o "e mais X" quando excede o corte). Ver hm-atividade.ts/porAlunoNucleo.
+  porAluno?: PorAluno[];
+  porAlunoTotal?: number;
 };
 
 // Um bucket da série (AtividadePeriodo de lib/services/hm-atividade.ts) —
@@ -319,19 +327,24 @@ export function AtividadeColaboradores({
                   }
 
                   const { l, ehCabecalho } = linha;
-                  // "O que aquele operador realizou com cada aluno no dia": só dá
-                  // para abrir quando a API já manda `porColuna` — sem o campo, a
-                  // linha se comporta como sempre se comportou (sem regressão).
+                  // Cada bloco do painel expansível só abre quando a API já manda o
+                  // campo correspondente — sem ele, a linha se comporta como sempre
+                  // se comportou (sem regressão).
                   const temPorColuna = !!l.porColuna && l.porColuna.length > 0;
                   const temPorAba = !!l.porAba && l.porAba.length > 0;
+                  // "O que aquele operador realizou com cada aluno no período"
+                  // (pedido literal do Marcio, 12/08): TOP 8 alunos por nº de ações
+                  // — ver hm-atividade.ts/porAlunoNucleo para o corte de volume.
+                  const temPorAluno = !!l.porAluno && l.porAluno.length > 0;
                   const serieColaborador = seriePorColaborador.get(l.colaborador) ?? [];
                   // Em modo cabeçalho (semana/mês) a série já vira linhas próprias
                   // logo abaixo — repeti-la dentro do acordeão seria redundante.
                   const temSerie = !ehCabecalho && serieColaborador.length > 0;
-                  // A linha abre se houver QUALQUER detalhe (coluna, aba ou série) —
-                  // um colaborador pode ter só parte deles, dependendo do que a
-                  // rota chamada suporta (D3-a/porAba são só HM; serie é dos dois).
-                  const temDetalhe = temPorColuna || temPorAba || temSerie;
+                  // A linha abre se houver QUALQUER detalhe (coluna, aba, aluno ou
+                  // série) — um colaborador pode ter só parte deles, dependendo do
+                  // que a rota chamada suporta (D3-a/porAba/porAluno são só HM;
+                  // serie é dos dois).
+                  const temDetalhe = temPorColuna || temPorAba || temPorAluno || temSerie;
                   const aberto = temDetalhe && expandido === l.colaborador;
                   return (
                   <Fragment key={ehCabecalho ? `${l.colaborador}-cab` : l.colaborador}>
@@ -403,6 +416,32 @@ export function AtividadeColaboradores({
                                   </span>
                                 ))}
                               </div>
+                            </div>
+                          )}
+                          {temPorAluno && (
+                            <div className={temSerie ? "mb-3" : undefined}>
+                              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                O que {l.colaborador} fez com cada aluno no período
+                                {/* "e mais X": porAlunoTotal é quantos alunos DISTINTOS
+                                    o colaborador tocou — a lista abaixo é só o TOP 8
+                                    (ver hm-atividade.ts/porAlunoNucleo). */}
+                                {typeof l.porAlunoTotal === "number" && l.porAlunoTotal > l.porAluno!.length && (
+                                  <span className="ml-1 font-normal normal-case text-slate-400">
+                                    (top {l.porAluno!.length} de {l.porAlunoTotal} alunos)
+                                  </span>
+                                )}
+                              </p>
+                              <ul className="divide-y divide-slate-100 overflow-hidden rounded-lg bg-white shadow-xs ring-1 ring-inset ring-slate-200 dark:divide-slate-800 dark:bg-slate-900 dark:ring-slate-700">
+                                {l.porAluno!.map((pa) => (
+                                  <li key={pa.contato_hm_id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs">
+                                    <span className="truncate font-medium text-slate-700 dark:text-slate-200">{pa.aluno_nome}</span>
+                                    <span className="flex shrink-0 items-center gap-2 text-slate-400 dark:text-slate-500">
+                                      <span title={`${pa.tipos_distintos} tipo(s) de ação distintos`}>{pa.tipos_distintos} tipo(s)</span>
+                                      <span className="tabular-nums font-semibold text-slate-800 dark:text-slate-100">{pa.total} ação(ões)</span>
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
                           )}
                           {temSerie && (

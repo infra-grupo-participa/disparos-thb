@@ -48,6 +48,14 @@ export type AtividadeColaborador = {
    * card, não o estágio no momento da ação).
    */
   porAba?: AtividadeAbaResumo[];
+  /**
+   * "O que este colaborador fez com CADA ALUNO no período" — TOP 8 cards por
+   * nº de ações (ver TOP_ALUNOS_POR_COLABORADOR/porAlunoNucleo), só na esteira
+   * HM. `porAlunoTotal` é quantos alunos DISTINTOS ele tocou no total (para o
+   * "e mais X" quando excede o corte) — sempre presente junto de `porAluno`.
+   */
+  porAluno?: AtividadeAlunoResumo[];
+  porAlunoTotal?: number;
 };
 
 // Série por período (D1). `date_trunc` no bucket pedido — o mesmo agregado de
@@ -227,10 +235,13 @@ async function atividadeNucleo(
 // "para onde cada um moveu no período", não uma série) — E `colaboradores[].porAba`
 // (eixo comercial × ativação, pedido do Marcio 12/08): quanto o colaborador agiu
 // em cards que hoje estão em cada aba, mesmo critério de "agregado do período
-// inteiro, não série". Ausente = comportamento histórico (só `colaboradores`,
-// sem porColuna/porAba), ninguém que já consome esta função quebra — os três
-// vêm juntos porque hoje só a tela de Atividade (que já pede granularidade)
-// consome o breakdown.
+// inteiro, não série" — E `colaboradores[].porAluno`/`porAlunoTotal` (pedido
+// literal do Marcio 12/08, ver porAlunoNucleo): o que o colaborador fez com
+// CADA ALUNO — TOP 8 cards por nº de ações, mais o total de alunos distintos
+// tocados. Ausente = comportamento histórico (só `colaboradores`, sem
+// porColuna/porAba/porAluno), ninguém que já consome esta função quebra — os
+// quatro vêm juntos porque hoje só a tela de Atividade (que já pede
+// granularidade) consome o breakdown.
 export async function atividadeHm(
   f: { de?: string | null; ate?: string | null; produto?: string | null },
   escopo: EscopoAtividade = { modo: "tudo" },
@@ -268,10 +279,23 @@ export async function atividadeHm(
     porAbaPorAutor.set(it.colaborador, lista);
   }
 
+  // "O que cada operador fez com cada aluno" (pedido literal do Marcio,
+  // 12/08) — mesmo critério de porColuna/porAba: só busca quando a
+  // granularidade foi pedida, agregado do período inteiro (não é série).
+  const alunoBrk = await porAlunoNucleo(f, escopo);
+  const porAlunoPorAutor = new Map<string, AtividadeAlunoResumo[]>();
+  for (const it of alunoBrk.itens) {
+    const lista = porAlunoPorAutor.get(it.colaborador) ?? [];
+    lista.push(it);
+    porAlunoPorAutor.set(it.colaborador, lista);
+  }
+
   const colaboradoresComColuna = colaboradores.map((c) => ({
     ...c,
     porColuna: porColunaPorAutor.get(c.colaborador) ?? [],
     porAba: porAbaPorAutor.get(c.colaborador) ?? [],
+    porAluno: porAlunoPorAutor.get(c.colaborador) ?? [],
+    porAlunoTotal: alunoBrk.totalAlunosPorColaborador.get(c.colaborador) ?? 0,
   }));
 
   return { de: r.de, ate: r.ate, colaboradores: colaboradoresComColuna, ...(r.serie ? { serie: r.serie } : {}) };
@@ -411,4 +435,90 @@ async function porAbaNucleo(
   );
 
   return { de, ate, itens };
+}
+
+// ===== Atividade por ALUNO — "o que o operador fez COM CADA aluno" (pedido =
+// literal do Marcio, 12/08) ===================================================
+// porEstagioNucleo (D3-a) e porAbaNucleo respondem "para onde"/"em que aba" —
+// o ALUNO em si nunca aparecia, só o `count(*)` agregado. Aqui a granularidade
+// é (autor, contato_hm_id): nome do aluno + quantas ações + em quantos TIPOS
+// distintos de ação (nota/movimentação/disparo/outras) naquele card, no período.
+//
+// ⚠️ VOLUME: um operador ativo toca dezenas de alunos por dia — devolver a
+// lista INTEIRA por colaborador estufaria o payload e a UI (uma tabela dentro
+// de outra tabela, para cada linha expandida). Corte: TOP 8 alunos por
+// operador, ordenado por nº de ações desc, mais o contador "e mais X". O corte
+// é feito NO BANCO (row_number() + filtro), não trazendo tudo e cortando no
+// Node — evitar egress de linhas que a tela nunca mostra é a mesma régua de
+// "sem paginação full-table" das outras queries deste arquivo.
+//
+// Índice usado: `cs_interacoes_contato_hm_idx` (contato_hm_id) — o JOIN com
+// cs.contatos_hm é pela FK indexada; o agrupamento por (autor, contato_hm_id)
+// não precisa de índice novo (agregação sobre o recorte já filtrado por data).
+export type AtividadeAlunoResumo = {
+  colaborador: string;
+  contato_hm_id: string;
+  aluno_nome: string;
+  total: number;
+  /** Quantos tipos distintos de ação (nota, mudança de etapa, disparo, outras) naquele card. */
+  tipos_distintos: number;
+  ultima: string;
+};
+
+// Top N por colaborador — ver o comentário acima sobre o corte de volume.
+const TOP_ALUNOS_POR_COLABORADOR = 8;
+
+async function porAlunoNucleo(
+  f: { de?: string | null; ate?: string | null; produto?: string | null },
+  escopo: EscopoAtividade,
+): Promise<{ de: string | null; ate: string | null; itens: AtividadeAlunoResumo[]; totalAlunosPorColaborador: Map<string, number> }> {
+  const de = f.de || null;
+  const ate = f.ate || null;
+  const produto = f.produto || null;
+  const modo = escopo.modo;
+  const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
+  const nome = escopo.modo === "operador" ? escopo.nome : null;
+
+  // Duas peças: (1) o TOP 8 em si, já ordenado e limitado por operador via
+  // row_number() na CTE; (2) quantos alunos DISTINTOS cada operador tocou no
+  // total (para o "e mais X" da UI) — mesma agregação, sem o corte.
+  const itens = await query<AtividadeAlunoResumo>(
+    `with base as (
+        select
+            btrim(i.autor)                                as colaborador,
+            i.contato_hm_id                                as contato_hm_id,
+            cmp.nome                                        as aluno_nome,
+            count(*)::int                                   as total,
+            count(distinct i.tipo)::int                     as tipos_distintos,
+            max(i.criado_em)                                as ultima
+           from cs.interacoes i
+           join cs.contatos_hm ch on ch.id = i.contato_hm_id
+           join compradores cmp on cmp.id = ch.comprador_id
+          ${SQL_RECORTE_AUTOR}
+            and ($7::text is null or ch.produto = $7)
+          group by btrim(i.autor), i.contato_hm_id, cmp.nome
+     ), ranqueado as (
+        select base.*,
+               row_number() over (partition by colaborador order by total desc, ultima desc) as rn
+          from base
+     )
+     select colaborador, contato_hm_id, aluno_nome, total, tipos_distintos, ultima
+       from ranqueado
+      where rn <= ${TOP_ALUNOS_POR_COLABORADOR}
+      order by colaborador, total desc`,
+    [de, ate, ATORES_SISTEMA, modo, equipeId, nome, produto],
+  );
+
+  const totais = await query<{ colaborador: string; total_alunos: number }>(
+    `select btrim(i.autor) as colaborador, count(distinct i.contato_hm_id)::int as total_alunos
+       from cs.interacoes i
+       join cs.contatos_hm ch on ch.id = i.contato_hm_id
+      ${SQL_RECORTE_AUTOR}
+        and ($7::text is null or ch.produto = $7)
+      group by btrim(i.autor)`,
+    [de, ate, ATORES_SISTEMA, modo, equipeId, nome, produto],
+  );
+  const totalAlunosPorColaborador = new Map(totais.map((t) => [t.colaborador, t.total_alunos]));
+
+  return { de, ate, itens, totalAlunosPorColaborador };
 }

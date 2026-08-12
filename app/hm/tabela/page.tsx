@@ -194,8 +194,14 @@ const LENTES: Lente[] = [
     test: (l) => !!l.link_saldo_enviado_em && !l.pagamento_em,
   },
   {
+    // 0214: "vencida" segue `status_parcela` (reconciliado com cs.hm_pagamentos),
+    // não a data crua — sem isto a lente listava quem já tinha pago depois da
+    // previsão (medido em produção 12/08: 45% dos vencidos eram falso positivo).
+    // Fallback: sem `status_parcela` (rota antiga em cache), cai na leitura anterior.
     id: "previsao_vencida", grupo: "Cobrança do saldo", label: "Previsão vencida",
-    test: (l, hoje0) => { const d = dt(l.pagamento_previsto_em); return !!d && d.getTime() < hoje0 && !l.pagamento_em; },
+    test: (l, hoje0) => l.status_parcela === undefined
+      ? (() => { const d = dt(l.pagamento_previsto_em); return !!d && d.getTime() < hoje0 && !l.pagamento_em; })()
+      : l.status_parcela === "atrasado",
   },
   {
     // "Passou da reunião": está na etapa pós-reunião do Comercial (ou o resultado
@@ -585,6 +591,10 @@ export default function HmTabelaPage() {
   // cor_efetiva (0206) = a cor que se DESENHA (override da tag ou herdada da
   // categoria); cai para `cor` se a API ainda não trouxer o campo novo.
   const coresTags = useMemo(() => Object.fromEntries(catalogoTags.map((t) => [t.nome, t.cor_efetiva ?? t.cor])), [catalogoTags]);
+  // A cor diz a FAMÍLIA da tag; a descrição diz o que ela significa. Sem isto o
+  // operador vê o chip colorido e continua sem saber o que a tag quer dizer —
+  // que era a queixa original. O catálogo já traz `descricao`, só não era usado.
+  const descricoesTags = useMemo(() => Object.fromEntries(catalogoTags.map((t) => [t.nome, t.descricao])), [catalogoTags]);
 
   // ------------------------------------------------------------- escrita (1 linha)
   // Único ponto de escrita unitária: o MESMO PATCH da ficha. Etapa vira
@@ -1076,7 +1086,16 @@ export default function HmTabelaPage() {
       sortVal: (l) => dt(l.pagamento_previsto_em)?.getTime() ?? null,
       render: (l) => {
         const dPrev = dt(l.pagamento_previsto_em);
-        const vencida = !!dPrev && dPrev.getTime() < hoje0 && !l.pagamento_em;
+        // 0214: vermelho só quando `status_parcela` (cs.vw_hm_financeiro) diz
+        // "atrasado" — reconciliado com cs.hm_pagamentos, não a data crua. Sem
+        // isto, a coluna pintava vermelho quem já tinha pago depois da data
+        // combinada (medido em produção 12/08: 21 de 47 vencidas eram falso
+        // positivo). FALLBACK: `status_parcela` undefined (rota antiga em
+        // cache) cai na leitura anterior — só a data — para nunca quebrar.
+        const vencida = l.status_parcela === undefined
+          ? (!!dPrev && dPrev.getTime() < hoje0 && !l.pagamento_em)
+          : l.status_parcela === "atrasado";
+        const pagouDepois = l.status_parcela === "em_dia" && !!dPrev && dPrev.getTime() < hoje0;
         return (
           <input
             key={String(l.pagamento_previsto_em ?? "")}
@@ -1086,7 +1105,11 @@ export default function HmTabelaPage() {
             onClick={(e) => e.stopPropagation()}
             onBlur={(e) => { if (e.target.value !== toDateInput(l.pagamento_previsto_em)) patch(l.comprador_id, l.nome, { pagamento_previsto_em: e.target.value || null }); }}
             className={cn(celInput, "min-w-[7.5rem] tabular-nums", vencida && "text-rose-600 dark:text-rose-400")}
-            title={vencida ? "Previsão vencida — a data passou e o pagamento não veio" : undefined}
+            title={vencida
+              ? "Previsão vencida e nenhum pagamento caiu depois — atraso real"
+              : pagouDepois
+                ? "Venceu, mas caiu pagamento depois da data — não está atrasada"
+                : undefined}
           />
         );
       },
@@ -1256,7 +1279,7 @@ export default function HmTabelaPage() {
       render: (l) => {
         const cs = canalDe(l.tags, produto);
         return cs.length
-          ? <span className="flex max-w-[16rem] flex-wrap gap-1">{cs.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} />)}</span>
+          ? <span className="flex max-w-[16rem] flex-wrap gap-1">{cs.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} titulo={descricoesTags[t]} />)}</span>
           : <span>—</span>;
       },
     },
@@ -1445,7 +1468,7 @@ export default function HmTabelaPage() {
       sortVal: (l) => l.tags.join(", "),
       render: (l) => (
         <div className="flex max-w-[16rem] flex-wrap gap-1">
-          {l.tags.length ? l.tags.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} />) : "—"}
+          {l.tags.length ? l.tags.map((t) => <TagChip key={t} tag={t} mini cor={coresTags[t]} titulo={descricoesTags[t]} />) : "—"}
         </div>
       ),
     },

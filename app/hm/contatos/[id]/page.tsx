@@ -27,6 +27,10 @@ type Contato = {
   // histórico carimbado sozinho (também leitura, sem endpoint de edição
   // direta hoje). `responsavel`/`responsavel_id` acima seguem sendo o VIGENTE.
   responsavel_comercial?: string | null; responsavel_ativacao?: string | null;
+  // id de quem assumiu a ativação (0215, "assumir a ativação") — usado para
+  // decidir o rótulo do botão (assumir/reatribuir/já sou eu) e habilitar o
+  // seletor só quando o card está mesmo na aba ativação.
+  responsavel_ativacao_id?: string | null;
   reuniao_em: string | null; reuniao_resultado: string | null;
   entrevista_em: string | null; entrevista_resultado: string | null;
   pagamento_forma: string | null; pagamento_parcelas: number | null; pagamento_em: string | null;
@@ -95,7 +99,12 @@ const TL_ICONE: Record<string, { path: string; wrap: string }> = {
 
 export default function HmFichaPage({ params }: { params: { id: string } }) {
   const compradorId = params.id;
-  const { me, podeDistribuir, ehCardDeColega } = useMe();
+  const { me, nivel, podeDistribuir, ehCardDeColega } = useMe();
+  // "Assumir a ativação" (0215, pedido do Marcio 12/08): espelha a regra do
+  // backend (app/api/hm/contato/[id]/route.ts) — função HM:ativacao OU
+  // master/gestor (nivel !== 'operador'). Duplicada aqui só para GATING de UI
+  // (mostrar/esconder o botão); a permissão de verdade é sempre a da rota.
+  const podeAssumirAtivacao = !!me && (!!me.funcoes?.includes("HM:ativacao") || nivel !== "operador");
   const { produto: produtoBoard } = useProdutoHm(); // 0164: qual card abrir
   const [c, setC] = useState<Contato | null>(null);
   // 403 no GET (ex.: link direto para um card cancelado — só o master acessa):
@@ -294,7 +303,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                 </div>
               </Campo>
               <Campo label="Ativação">
-                <div className="flex items-center gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2 pt-1">
                   {c.responsavel_ativacao ? (
                     <>
                       <Avatar nome={c.responsavel_ativacao} className="h-7 w-7 text-xs" />
@@ -302,6 +311,29 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                     </>
                   ) : (
                     <span className="text-sm text-slate-400 dark:text-slate-500">—</span>
+                  )}
+                  {/* "Assumir a ativação" (0215, pedido do Marcio 12/08): SEGUNDO
+                      responsável, só da aba Ativação — coexiste com o "Operador
+                      (vigente)" abaixo, não o substitui. Só aparece quando: o
+                      card já está na aba ativação (o backend recusa fora dela),
+                      quem olha PODE assumir (função HM:ativacao ou gestor/master)
+                      e a ficha não está em modo leitura (card de colega). Quem já
+                      é o dono vê "Você" em vez do botão — nada a assumir de si
+                      mesmo. */}
+                  {!somenteLeitura && podeAssumirAtivacao && c.estagio_aba === "ativacao" && (
+                    c.responsavel_ativacao_id === me?.id ? (
+                      <span className="text-xs text-slate-400 dark:text-slate-500">(você)</span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={salvando || !me?.id}
+                        onClick={() => patch({ responsavel_ativacao_id: me!.id })}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-teal-400 px-2.5 py-1 text-xs font-medium text-teal-700 transition hover:bg-teal-50 disabled:opacity-50 dark:border-teal-500/50 dark:text-teal-300 dark:hover:bg-teal-500/10"
+                        title={c.responsavel_ativacao ? `Reatribuir a ativação de ${c.responsavel_ativacao} para você` : "Assumir a ativação deste aluno"}
+                      >
+                        {c.responsavel_ativacao ? "Assumir para mim (reatribuir)" : "Assumir a ativação"}
+                      </button>
+                    )
                   )}
                 </div>
               </Campo>
