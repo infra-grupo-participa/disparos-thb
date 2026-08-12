@@ -16,6 +16,7 @@ type Vinculo = { usuario_id: string; canal: string; usuario_nome: string };
 type Usuario = { id: string; nome: string; email: string; ativo: boolean };
 
 const ATALHOS = [
+  { href: "/admin/alertas", titulo: "Saúde do dinheiro", desc: "Pagamento que entrou e não achou card, oferta fora do catálogo, cancelamento sem board definido — e os cancelamentos vindos da Hotmart." },
   { href: "/usuarios", titulo: "Contas e portais", desc: "Quem acessa o sistema, o cargo e a quais portais (HT, HM, Aurum, ETHB…) cada conta tem acesso." },
   { href: "/hm/equipes", titulo: "Equipes", desc: "Composição das equipes, líderes, cores, rotas de canal→equipe e a equipe padrão das vendas novas." },
   { href: "/canais", titulo: "Canais de disparo", desc: "Credenciais de API (WhatsApp) por evento — o que cada portal usa para disparar." },
