@@ -50,10 +50,15 @@ grant execute on function cs.fn_hm_pagamento_do_produto(text, text) to disparos_
 comment on function cs.fn_hm_produto_da_oferta(text, text) is
   '0199: SECURITY DEFINER porque lê public.compras no fallback e a role disparos_app nao tem SELECT nessa tabela (hardening). Como INVOKER, derrubava /api/hm/kanban e /api/hm/tabela com 42501 nos boards AURUM e HM.';
 
--- ── PENDÊNCIA CONHECIDA, NÃO CORRIGIDA AQUI ─────────────────────────────────────
--- cs.vw_hm_financeiro lê public.compras DIRETAMENTE na coluna `parcelas_contratadas`
--- (subquery "select max(c.parcelas) from compras c ..."). Hoje não estoura porque o
--- planner poda esse ramo nas consultas do kanban/tabela, mas é a MESMA classe de bug:
--- se o plano mudar, o 500 volta. Corrigir passa por encapsular essa leitura numa
--- função SECURITY DEFINER (ou numa view própria) — mexe na régua financeira e merece
--- migration própria, com conferência dos números antes e depois.
+-- ── POR QUE A VIEW LÊ public.compras SEM PROBLEMA (e a função não podia) ─────────
+-- cs.vw_hm_financeiro também lê public.compras direto (coluna `parcelas_contratadas`).
+-- Isso NÃO é bug e não precisa de correção:
+--
+--   VIEW  -> roda com o privilégio do DONO (postgres), salvo security_invoker=true.
+--            vw_hm_financeiro é DEFINER padrão, dona postgres => a leitura é legítima.
+--   FUNÇÃO -> é INVOKER por PADRÃO, ou seja, roda com o privilégio de QUEM CHAMA.
+--            Era exatamente esse o defeito corrigido acima.
+--
+-- Verificado como disparos_app: `select count(parcelas_contratadas) from
+-- cs.vw_hm_financeiro` retorna normalmente, enquanto `select 1 from public.compras`
+-- dá 42501. A assimetria é a regra do Postgres, não sorte do planner.
