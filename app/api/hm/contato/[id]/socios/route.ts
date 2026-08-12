@@ -33,7 +33,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): mexer nos sócios é ESCRITA no card —
   // card de colega recusa com 403 'card_de_outro_operador' (o front traduz).
-  const acao = await podeAgirCardHm(sessao, params.id);
+  const acao = await podeAgirCardHm(sessao, params.id, produtoCard);
   if (acao !== "ok") return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   // Card cancelado: quem não é master não abre a ficha — logo também não mexe
   // nos sócios dela (era um furo da trava de escrita dos cancelados).
@@ -66,7 +66,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): mexer nos sócios é ESCRITA no card —
   // card de colega recusa com 403 'card_de_outro_operador' (o front traduz).
-  const acao = await podeAgirCardHm(sessao, params.id);
+  const acao = await podeAgirCardHm(sessao, params.id, produtoCard);
   if (acao !== "ok") return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   if (await cancelamentoBloqueado(sessao, params.id)) return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   const p = await parseBody(req, HmSocioPatchSchema);
@@ -120,7 +120,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): mexer nos sócios é ESCRITA no card —
   // card de colega recusa com 403 'card_de_outro_operador' (o front traduz).
-  const acao = await podeAgirCardHm(sessao, params.id);
+  const acao = await podeAgirCardHm(sessao, params.id, produtoCard);
   if (acao !== "ok") return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   if (await cancelamentoBloqueado(sessao, params.id)) return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   const socioId = new URL(req.url).searchParams.get("socioId");

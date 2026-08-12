@@ -272,7 +272,7 @@ function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
 }
 
 export default function HmKanbanPage() {
-  const { nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega } = useMe();
+  const { nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega, ehEquipeDeAtivacao } = useMe();
   // Produto/board (0155): a mesma tela serve HM, Aurum e ETHB pela URL.
   const { produto, portal, nome: nomePortal } = useProdutoHm();
   const qp = produto === "HM" ? "" : `produto=${produto}`; // sufixo p/ as APIs
@@ -289,7 +289,13 @@ export default function HmKanbanPage() {
   // Evento "HM": a ação livre da equipe principal (03/08) desliga o "de colega"
   // no board inteiro do HM — a equipe que ativa arrasta a esteira entre si, como
   // no Seminário. Sem o evento, o gate por operador voltaria a travar o arrasto.
-  const cardDeColega = (c: Card) => ehCardDeColega(c, "HM");
+  // `produto` (P6, 12/08): esta MESMA tela serve HM/Aurum/ETHB (URL muda o board).
+  // Passado para a esteira compartilhada dentro de ehCardDeColega não mudar nada
+  // hoje — acaoLivre("HM") já libera o board inteiro para a equipe principal,
+  // Aurum/ETHB incluídos, e esteiraCompartilhada só é consultada quando
+  // acaoLivre for false — mas evita que a checagem avalie card fora do produto
+  // certo se um dia a lista de eventos-livres mudar.
+  const cardDeColega = (c: Card) => ehCardDeColega(c, "HM", produto);
   // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
   const podeConfigEquipes = podeDistribuir();
   const [colunas, setColunas] = useState<Coluna[]>([]);
@@ -748,6 +754,23 @@ export default function HmKanbanPage() {
             );
           })}
         </div>
+
+        {/* Território da equipe de ativação (0202): quem tem a marca move QUALQUER
+            card desta aba, de qualquer dono. O selo é informativo — diz de quem é
+            o ambiente; a permissão real está no backend (podeAgirCardHm). Só
+            aparece na aba Ativação e só para quem tem a marca: para os demais
+            seria ruído sobre um poder que eles não têm. */}
+        {ehEquipeDeAtivacao && aba === "ativacao" && (
+          <span
+            title="Você é da equipe de ativação: pode mover qualquer card desta aba, inclusive de outros operadores."
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900"
+          >
+            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            Equipe de ativação
+          </span>
+        )}
 
         <span className="mx-1 hidden h-6 w-px bg-slate-200 dark:bg-slate-700 sm:block" />
 

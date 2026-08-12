@@ -1,5 +1,9 @@
 import { query } from "@/lib/db";
-import { escopoAcao, escopoVisibilidade, nivelDe, type Ator, type EscopoVisibilidade } from "@/lib/papeis";
+import {
+  escopoAcao, escopoVisibilidade, nivelDe,
+  ABAS_ESTEIRA_COMPARTILHADA, ESTEIRA_COMPARTILHADA_ABA, ESTEIRA_COMPARTILHADA_PRODUTO,
+  type Ator, type EscopoVisibilidade,
+} from "@/lib/papeis";
 
 // ===== A REGRA de visibilidade por escopo — num lugar só =====================
 // HM (cs.contatos_hm / view cs.contatos_hm_kanban) e portais genéricos
@@ -14,11 +18,20 @@ import { escopoAcao, escopoVisibilidade, nivelDe, type Ator, type EscopoVisibili
 // Ele fica visível só a master até ser reatribuído por id (decisão documentada
 // na migration 0146 — adotada também no HM em 27/07).
 //
-// Predicado padrão (verTudo OR livre OR minha equipe OR meu), nas duas formas:
+// Predicado padrão (verTudo OR livre OR minha equipe OR meu [OR esteira]), nas
+// duas formas:
 //   - sqlEscopo(...)        → fragmento SQL para o WHERE das listagens;
 //   - podeVerPorEscopo(...) → o MESMO predicado em JS, para as rotas unitárias
 //     (ficha, mover, inbox 1:1) — a lista não mostra, a ficha não abre.
 // Se um dia a regra mudar, muda AQUI — e muda para os dois módulos de uma vez.
+//
+// ESTEIRA COMPARTILHADA (12/08/2026, ver lib/papeis.ts): ramo adicional e
+// OPCIONAL — só entra quando o chamador declara as colunas `aba`/`tags` — que
+// pega o card por evento×aba×produto (não por dono), respondendo à pergunta
+// "este card está na Ativação do HM?" em vez de "é meu/da minha equipe?". Fica
+// de fora por padrão (fail-closed, mesmo padrão do ramo `tags`): omitir as
+// colunas em qualquer chamador (disparo, genéricos HT/SEM) é a forma de o ramo
+// nunca entrar lá — omissão vira o comportamento seguro, não um esquecimento.
 
 // Colunas que expõem responsavel_id, equipe_id e responsavel (texto) —
 // cs.contatos_evento / cs.contatos_ht / cs.contatos_hm_kanban; para cs.contatos
@@ -27,7 +40,15 @@ type ColunasEscopo = { rid: string; eq: string; nome: string;
   // Coluna de tags do card (ex.: 'k.tags'). Quando presente, o predicado ganha
   // o ramo canal→pessoa (0154): o operador também vê/age em cards cuja tag está
   // atribuída a ele em cs.usuario_canais. Omitir onde a tabela não tem tags.
-  tags?: string };
+  tags?: string;
+  // Colunas da esteira compartilhada (12/08, ver lib/papeis.ts): a aba e o
+  // produto do card (ex.: 'k.estagio_aba', "'HM'"/coluna literal). Presentes
+  // as DUAS → o predicado ganha o ramo esteira (equipe principal × evento HM ×
+  // aba Ativação × produto HM). Ausente qualquer uma = ramo não entra
+  // (fail-closed) — é assim que /api/send e as listagens genéricas HT/SEM ficam
+  // de fora sem precisar de um "if" próprio em cada rota.
+  aba?: string;
+  produto?: string };
 
 // O predicado de CARD LIVRE em SQL — a definição canônica, usada dentro do
 // sqlEscopo e sozinha onde a pergunta é só "está livre?" (pegar-leads).
@@ -37,10 +58,13 @@ export function sqlCardLivre(a: ColunasEscopo): string {
 
 // Fragmento SQL do predicado completo, para as rotas montarem o WHERE com os
 // MESMOS placeholders sempre (verTudo boolean, usuarioId uuid, equipeId uuid —
-// a ordem do paramsEscopo).
+// a ordem do paramsEscopo), mais o placeholder OPCIONAL `esteira` (boolean).
 // NULL-safe por construção: `eq = $x::uuid` com $x nulo é unknown e NÃO casa —
 // gestor sem equipe vê só o pool, nunca "null = null" virando vazamento.
-export function sqlEscopo(a: ColunasEscopo, p: { verTudo: number; usuario: number; equipe: number }): string {
+export function sqlEscopo(
+  a: ColunasEscopo,
+  p: { verTudo: number; usuario: number; equipe: number; esteira?: number },
+): string {
   // Ramo canal→pessoa (0154): reusa o placeholder $usuario — sem novo parâmetro.
   // Card com alguma tag atribuída a mim em cs.usuario_canais entra na minha visão.
   // `$usuario` nulo (master, que já entra por verTudo) → EXISTS falso, inócuo.
@@ -48,10 +72,23 @@ export function sqlEscopo(a: ColunasEscopo, p: { verTudo: number; usuario: numbe
     ? `\n       or exists (select 1 from cs.usuario_canais uc
                     where uc.usuario_id = $${p.usuario}::uuid and uc.canal = any(${a.tags}))`
     : "";
+  // Ramo esteira compartilhada (12/08, lib/papeis.ts): SÓ emitido quando o
+  // CHAMADOR declarou as colunas `aba`/`produto` E passou o placeholder
+  // `esteira` — as duas coisas, não uma. `$esteira` já chega calculado do JS
+  // (esteiraCompartilhada(sessao, "HM")): é "a sessão tem o bônus?", sem
+  // repetir aqui a checagem de equipe. O SQL só casa aba/produto do CARD.
+  // ⚠️ estagio_aba é NULL-able — de propósito NÃO se usa coalesce(aba,'comercial')
+  // aqui: um card sem aba (NULL) não entra no ramo esteira nem em SQL nem em JS
+  // (podeVerPorEscopo espelha isso). Colocar coalesce só de um lado faria os
+  // dois módulos divergirem exatamente no caso em que a coluna está vazia —
+  // fail-closed nos dois, sempre.
+  const ramoEsteira = a.aba && a.produto && p.esteira !== undefined
+    ? `\n       or ($${p.esteira}::boolean and ${a.aba} = '${ESTEIRA_COMPARTILHADA_ABA}' and ${a.produto} = '${ESTEIRA_COMPARTILHADA_PRODUTO}')`
+    : "";
   return `($${p.verTudo}::boolean
        or ${sqlCardLivre(a)}
        or ${a.eq} = $${p.equipe}::uuid
-       or ${a.rid} = $${p.usuario}::uuid${ramoCanal})`;
+       or ${a.rid} = $${p.usuario}::uuid${ramoCanal}${ramoEsteira})`;
 }
 
 export type CardVisibilidade = {
@@ -61,6 +98,12 @@ export type CardVisibilidade = {
   // Tags do card (canal→pessoa, 0154). Presente nas rotas unitárias que checam
   // o ramo de canais; ausente = o ramo não conta (fecha, não abre).
   tags?: string[] | null;
+  // Aba e produto do card (esteira compartilhada, 12/08 — ver lib/papeis.ts).
+  // Presentes os DOIS + o parâmetro `esteira=true` no chamador → o card da
+  // Ativação/HM de OUTRA equipe entra na visão. Ausente/null = ramo não conta
+  // (fail-closed) — as rotas unitárias fora do HM simplesmente não preenchem.
+  aba?: string | null;
+  produto?: string | null;
 };
 
 // O predicado de "card livre" em JS — o espelho EXATO do ramo pool do
@@ -72,16 +115,33 @@ export function ehCardLivre(c: CardVisibilidade): boolean {
   return c.responsavel_id === null && c.equipe_id === null && (c.responsavel ?? "") === "";
 }
 
-// O predicado completo (verTudo OR livre OR minha equipe OR meu OR meu-canal)
-// sobre um card já carregado — usado por podeVerCardHm (hm.ts) e podeVerContato
-// (contato.ts). `canais` = as tags que o usuário cuida (cs.usuario_canais, 0154);
-// espelha EXATO o ramo canal do sqlEscopo. Omitido/[] = ramo não conta.
-export function podeVerPorEscopo(escopo: EscopoVisibilidade, c: CardVisibilidade, canais?: string[]): boolean {
+// O predicado completo (verTudo OR livre OR minha equipe OR meu OR meu-canal
+// [OR esteira]) sobre um card já carregado — usado por podeVerCardHm (hm.ts) e
+// podeVerContato (contato.ts). `canais` = as tags que o usuário cuida
+// (cs.usuario_canais, 0154); espelha EXATO o ramo canal do sqlEscopo.
+// Omitido/[] = ramo não conta.
+// `esteira` = o CHAMADOR já decidiu "esta sessão tem o bônus?" (tipicamente
+// `esteiraCompartilhada(sessao, "HM")`, lib/papeis.ts) — espelha `$esteira` do
+// SQL: aqui só se casa aba/produto do CARD contra as constantes, sem repetir a
+// checagem de equipe. Omitido/false = ramo não conta (fail-closed, igual ao SQL).
+export function podeVerPorEscopo(
+  escopo: EscopoVisibilidade,
+  c: CardVisibilidade,
+  canais?: string[],
+  esteira?: boolean,
+): boolean {
   if (escopo.modo === "tudo") return true;
   if (ehCardLivre(c)) return true;
   // Ramo canal→pessoa: card com alguma tag que EU cuido entra na minha visão
   // (mesma regra do SQL). fail-closed: sem canais ou sem tags, não abre nada.
   if (canais && canais.length && c.tags && c.tags.some((t) => canais.includes(t))) return true;
+  // Ramo esteira compartilhada: mesma ordem do SQL (depois do canal, antes do
+  // ramo de equipe/próprio) — casar a ORDEM não muda o resultado (é um OR),
+  // mas divergir a ordem entre os dois lados é o tipo de coisa que confunde
+  // quem lê os dois módulos lado a lado depois.
+  // ⚠️ estagio_aba é NULL-able: `c.aba` null/undefined não casa
+  // `ABAS_ESTEIRA_COMPARTILHADA.includes(...)` — sem coalesce, espelhando o SQL.
+  if (esteira && c.aba && ABAS_ESTEIRA_COMPARTILHADA.includes(c.aba) && c.produto === ESTEIRA_COMPARTILHADA_PRODUTO) return true;
   // `equipe_id !== null` de propósito: ator sem equipe (equipeId null) não
   // pode casar com card de equipe nula — "null === null" viraria vazamento.
   // O ramo `responsavel_id === usuarioId` cobre o card do PRÓPRIO usuário
@@ -103,11 +163,16 @@ export function podeVerPorEscopo(escopo: EscopoVisibilidade, c: CardVisibilidade
 // perguntas saem do MESMO card carregado, uma query só.
 export type VeredictoAcao = "ok" | "card_de_outro_operador" | "sem_acesso";
 
-export function veredictoAcao(sessao: Ator, c: CardVisibilidade, canais?: string[]): VeredictoAcao {
+// `esteira` (12/08): mesmo booleano de podeVerPorEscopo, entra nos DOIS lados
+// (ação e visibilidade) — a esteira compartilhada não separa leitura de
+// escrita como o resto da regra: quem ganha o ramo pode ver E mover o card.
+// Card de OUTRA equipe que caiu aqui só pelo ramo esteira nunca vira
+// "card_de_outro_operador": ele É a esteira compartilhada, não um card de colega.
+export function veredictoAcao(sessao: Ator, c: CardVisibilidade, canais?: string[], esteira?: boolean): VeredictoAcao {
   // Canal→pessoa (0154): quem cuida do canal AGE no card como se fosse dele —
   // o ramo entra tanto na ação quanto na leitura, então nunca vira "card de colega".
-  if (podeVerPorEscopo(escopoAcao(sessao), c, canais)) return "ok";
-  return podeVerPorEscopo(escopoVisibilidade(sessao), c, canais) ? "card_de_outro_operador" : "sem_acesso";
+  if (podeVerPorEscopo(escopoAcao(sessao), c, canais, esteira)) return "ok";
+  return podeVerPorEscopo(escopoVisibilidade(sessao), c, canais, esteira) ? "card_de_outro_operador" : "sem_acesso";
 }
 
 // Lista de responsáveis para os seletores de atribuição, RECORTADA por nível

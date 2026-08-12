@@ -23,6 +23,9 @@ export type Usuario = {
   lider_equipe: boolean;
   // Gerente distribuidor (0161): atribui para operador de QUALQUER equipe.
   gerente_distribuidor: boolean;
+  // Equipe de ativação (0202): vê e move todo card da aba Ativação do HM,
+  // inclusive de outra equipe. Marca por pessoa — ver lib/papeis.ts.
+  equipe_ativacao: boolean;
   // Portais que esta conta pode acessar (0145). Vazio = nenhum (conta restrita).
   portais: string[];
 };
@@ -75,6 +78,7 @@ export async function getSessao(): Promise<Usuario | null> {
   if (!userId) return null;
   const u = await queryOne<Usuario>(
     `select u.id, u.nome, u.email, u.papel, u.ativo, u.telefone, u.lider_equipe, u.gerente_distribuidor,
+            u.equipe_ativacao,
             u.equipe_id, e.tipo as equipe_tipo, e.nome as equipe_nome, e.cor as equipe_cor,
             coalesce((select array_agg(up.portal) from cs.usuario_portais up where up.usuario_id = u.id), '{}') as portais
        from cs.usuarios u

@@ -87,7 +87,7 @@ export async function POST(req: Request) {
     // Gate de AÇÃO por item (28/07, leitura ≠ ação): o lote é ESCRITA — operador
     // só aplica no pool e nos cards DELE; o card do colega (que ele VÊ no board)
     // e o de outra equipe são pulados nominalmente (não bloqueiam o lote).
-    const acao = await podeAgirCardHm(sessao, compradorId);
+    const acao = await podeAgirCardHm(sessao, compradorId, produto);
     if (acao !== "ok") {
       falhas.push({ compradorId, nome, motivo: acao === "card_de_outro_operador" ? "card de outro operador" : "sem acesso a este card" });
       continue;

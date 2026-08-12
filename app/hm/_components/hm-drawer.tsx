@@ -416,7 +416,11 @@ export function HmDrawer({
   // é dele ou no pool — a ficha do colega abre em leitura, e a API recusa
   // escrita com 403 `card_de_outro_operador`. A regra é o escopoAcao de
   // lib/papeis (via useMe.ehCardDeColega), a MESMA do backend.
-  const cardDeColega = ehCardDeColega(c);
+  // Evento "HM" (P6, 12/08): faltava aqui — o drawer abria a ficha da Ana em
+  // leitura mesmo quando o board (kanban/page.tsx) já deixava arrastar o mesmo
+  // card. Mesma divergência de app/hm/tabela/page.tsx, corrigida junto.
+  // `produtoBoard`: mesmo drawer serve HM/Aurum/ETHB (0164).
+  const cardDeColega = ehCardDeColega(c, "HM", produtoBoard);
   // O MESMO padrão do card cancelado: um único flag de leitura desliga toda
   // escrita da ficha (campos, etapa, sócios, pagamento) — timeline e histórico
   // continuam abertos, que é o ponto de ver o card do colega.

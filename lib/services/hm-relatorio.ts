@@ -24,6 +24,13 @@ export type FiltrosHm = {
   equipeId?: string | null;
   /** Board do produto (0155): 'HM' (default), 'AURUM' ou 'ETHB'. Isola a esteira. */
   produto?: "HM" | "AURUM" | "ETHB";
+  /**
+   * Esteira compartilhada (0202): a sessão é da equipe de ativação e o board
+   * pedido é o HM. Já vem resolvido da rota (esteiraCompartilhada em papeis.ts)
+   * — aqui é só "aplica o ramo?". Omitido/false = ramo não entra (fail-closed):
+   * é assim que o XLSX e a tabela não ganham o bônus por engano.
+   */
+  esteira?: boolean;
 };
 
 // Datas: o driver pg entrega Date no servidor (o XLSX as recebe assim), mas a
@@ -210,7 +217,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
   const lista = (v?: string[] | null) => (v && v.length ? v : null);
   const p = [lista(f.responsavel), lista(f.canal), lista(f.turma), f.estagio || null,
              f.verTudo ?? false, f.usuarioId ?? null, f.equipeId ?? null,
-             HM_ESTAGIOS_CANCELAMENTO, f.produto ?? "HM"];
+             HM_ESTAGIOS_CANCELAMENTO, f.produto ?? "HM", f.esteira ?? false];
 
   const colunas = await query<ColunaHm>(
     `select e.chave, e.nome, e.cor, e.aba, e.ordem
@@ -285,7 +292,10 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
         -- Escopo (predicado único, visibilidade.ts — igual à rota do kanban):
         -- vejo tudo OU é card LIVRE OU é MEU ($6) OU é da minha equipe ($7).
         and k.produto = $9                       -- board do produto (0155)
-        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags" }, { verTudo: 5, usuario: 6, equipe: 7 })}
+        and ${sqlEscopo(
+          { rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags", aba: "k.estagio_aba", produto: "k.produto" },
+          { verTudo: 5, usuario: 6, equipe: 7, esteira: 10 },
+        )}
         -- Cancelados (Reclamada/Reembolsado, $8) são acesso SÓ do master, como
         -- nas rotas unitárias (403 na ficha): quem não vê tudo não recebe a
         -- LINHA — financeiro, motivo e reembolso não saem em XLSX nem na tabela.

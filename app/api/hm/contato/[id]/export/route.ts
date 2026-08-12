@@ -17,7 +17,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const pExp = g.produto;
   const sessao = g.sessao;
   // Mesmo gating do drawer: não exporta a ficha de card de outra equipe.
-  if (!(await podeVerCardHm(sessao, params.id))) {
+  if (!(await podeVerCardHm(sessao, params.id, pExp))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }
   // Card cancelado (Reclamada/Reembolsado) não abre para quem não é master — e o

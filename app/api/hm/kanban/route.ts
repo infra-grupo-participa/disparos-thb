@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { produtoDaRequisicao } from "@/lib/produto-hm";
-import { ehMaster, escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
+import { ehMaster, escopoVisibilidade, esteiraCompartilhada, paramsEscopo, ESTEIRA_COMPARTILHADA_ABA, type Ator } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
 import { listaResponsaveis, sqlEscopo } from "@/lib/services/visibilidade";
@@ -43,7 +43,13 @@ export async function GET(req: Request) {
   // pool + todos os cards da equipe dele; operador comum vê o pool + só os
   // cards atribuídos a ele. O filtro por responsável (abaixo) é conveniência.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
-  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId, produto];
+  // Esteira compartilhada (0202): a equipe de ativação vê TODO card da aba
+  // Ativação deste board, inclusive de outra equipe. Resolvido aqui, no JS
+  // ("esta sessão tem o bônus?"), e mandado como booleano — o SQL só compara a
+  // aba e o produto do CARD. `produto` entra na conta para o bônus não vazar
+  // para AURUM/ETHB quando o board pedido é outro.
+  const esteira = esteiraCompartilhada(sessao as Ator, "HM", ESTEIRA_COMPARTILHADA_ABA, produto);
+  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId, produto, esteira];
 
   const colunas = await query(
     `select e.chave, e.nome, e.cor, e.aba
@@ -115,7 +121,10 @@ export async function GET(req: Request) {
         and k.produto = $7                       -- board do produto (0155)
         -- Escopo (predicado único, visibilidade.ts): vejo tudo OU é card LIVRE
         -- (sem id, sem equipe E sem texto órfão) OU é MEU OU é da minha equipe.
-        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags" }, { verTudo: 4, usuario: 5, equipe: 6 })}
+        and ${sqlEscopo(
+          { rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags", aba: "k.estagio_aba", produto: "k.produto" },
+          { verTudo: 4, usuario: 5, equipe: 6, esteira: 8 },
+        )}
       order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
   );
@@ -141,9 +150,15 @@ export async function GET(req: Request) {
          or exists (
               select 1 from cs.contatos_hm_kanban tk
                where tk.comprador_id = s.titular_comprador_id
-                 and ${sqlEscopo({ rid: "tk.responsavel_id", eq: "tk.equipe_id", nome: "tk.responsavel", tags: "tk.tags" }, { verTudo: 1, usuario: 2, equipe: 3 })})
+                 and ${sqlEscopo(
+                   { rid: "tk.responsavel_id", eq: "tk.equipe_id", nome: "tk.responsavel", tags: "tk.tags", aba: "tk.estagio_aba", produto: "tk.produto" },
+                   { verTudo: 1, usuario: 2, equipe: 3, esteira: 5 },
+                 )})
       order by s.titular_nome, s.nome`,
-    [verTudo, usuarioId, equipeId, produto],
+    // O sócio herda a visibilidade do TITULAR — inclusive pelo ramo esteira: os
+    // sócios vivem justamente na Ativação, então sem $5 aqui o card do titular
+    // apareceria no board e os sócios dele sumiriam.
+    [verTudo, usuarioId, equipeId, produto, esteira],
   );
 
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já
@@ -204,7 +219,7 @@ export async function PATCH(req: Request) {
   // Gate de AÇÃO (28/07, leitura ≠ ação): mover é ESCRITA — operador só no pool
   // e nos cards DELE. O card do colega aparece no board (escopo de leitura),
   // mas o arrasto recusa com 403 'card_de_outro_operador' (o front traduz).
-  const acao = await podeAgirCardHm(sessao, compradorId);
+  const acao = await podeAgirCardHm(sessao, compradorId, produtoDoBoard);
   if (acao !== "ok") {
     return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }

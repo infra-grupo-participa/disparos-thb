@@ -150,7 +150,11 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   // formulários e histórico, mas não altera (a API recusa com 403
   // `card_de_outro_operador`). A regra é o escopoAcao de lib/papeis (via
   // useMe.ehCardDeColega), a MESMA do backend.
-  const somenteLeitura = ehCardDeColega(c);
+  // Evento "HM" (P6, 12/08): mesma divergência de app/hm/tabela/page.tsx e
+  // hm-drawer.tsx — sem o evento, esta ficha (rota /hm/contatos/[id]) travava
+  // em leitura um card que o board já liberava para a equipe principal.
+  // `produtoBoard`: mesma ficha serve HM/Aurum/ETHB (0164).
+  const somenteLeitura = ehCardDeColega(c, "HM", produtoBoard);
 
   async function patch(payload: Record<string, unknown>) {
     // Toda escrita da ficha passa por aqui — barrar no ponto único.

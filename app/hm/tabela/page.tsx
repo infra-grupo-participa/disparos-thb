@@ -410,7 +410,12 @@ export default function HmTabelaPage() {
   // é dele ou está no pool — a ficha abre em leitura (o drawer cuida) e as
   // células/lote não escrevem (a API recusa com 403 `card_de_outro_operador`).
   // A regra é o escopoAcao de lib/papeis (via useMe.ehCardDeColega).
-  const linhaColega = (l: LinhaEsteira) => ehCardDeColega(l);
+  // Evento "HM" (P6, 12/08): faltava aqui — o board (kanban/page.tsx) já passava
+  // "HM" e liberava o arrasto da equipe principal na Ativação, mas a TABELA
+  // chamava sem evento e a MESMA linha virava somente-leitura. Divergência
+  // desde 03/08, que ficaria mais visível com os 9 cards da Kelly entrando na
+  // esteira compartilhada. `produto`: mesma tela serve HM/Aurum/ETHB.
+  const linhaColega = (l: LinhaEsteira) => ehCardDeColega(l, "HM", produto);
   // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
   const podeConfigEquipes = podeDistribuir();
   const [linhas, setLinhas] = useState<LinhaEsteira[]>([]);
@@ -593,7 +598,10 @@ export default function HmTabelaPage() {
       return;
     }
     // Linha de colega: mesma barreira no ponto único — o motivo aparece na hora.
-    if (linha && ehCardDeColega(linha)) {
+    // Evento "HM" (P6, 12/08): mesmo bug de linhaColega acima — sem o evento, o
+    // patch da célula recusava por conta própria um card que o board já deixava
+    // arrastar (a API confirmaria, mas o alerta disparava antes, sem necessidade).
+    if (linha && ehCardDeColega(linha, "HM", produto)) {
       window.alert(msgErroPermissao("card_de_outro_operador"));
       return;
     }

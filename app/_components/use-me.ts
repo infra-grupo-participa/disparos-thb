@@ -12,6 +12,7 @@ import {
   podeAtribuirPara as regraPodeAtribuirPara,
   escopoAcao as regraEscopoAcao,
   acaoLivrePorEquipeEvento as regraAcaoLivre,
+  esteiraCompartilhada as regraEsteiraCompartilhada,
   type Papel,
   type TipoEquipe,
   type Nivel,
@@ -33,6 +34,11 @@ export type Me = {
   gerente_distribuidor: boolean;
   // Portais que a conta pode acessar (0145).
   portais: string[];
+  // EQUIPE DE ATIVAÇÃO (0202, Ana Camila e Thomas): move qualquer card da aba
+  // Ativação do HM, de qualquer dono. Opcional no tipo porque uma sessão antiga
+  // em cache pode não trazer o campo — e `!!undefined` é false, que é o
+  // fail-closed certo: na dúvida, sem o bônus.
+  equipe_ativacao?: boolean;
 };
 
 // Usuário logado para gating de UI. Os três NÍVEIS efetivos (decisão 27/07):
@@ -74,12 +80,32 @@ export function useMe() {
   // vale, nenhum card é "de colega" — a equipe principal arrasta a fila do
   // Seminário inteira. Espelha o backend (podeAgirContato via acaoLivrePorEquipeEvento).
   const acaoLivre = (evento?: string | null) => !!me && regraAcaoLivre(me, evento);
-  const ehCardDeColega = (card: { responsavel_id?: string | null } | null | undefined, evento?: string | null) => {
+  // Esteira compartilhada (P6, 12/08, pedido do Marcio): equipe principal +
+  // evento HM + aba/produto Ativação-HM. Espelha o backend (lib/papeis) para o
+  // dia em que a lista de eventos/abas mudar — hoje, no HM, `acaoLivre("HM")`
+  // já cobre a equipe principal na aba inteira, então este predicado sozinho
+  // não muda o board da Ana; ele existe para não deixar a UI e o backend
+  // divergirem quando o critério deixar de ser "evento inteiro".
+  // Mesma ordem de parâmetros de lib/papeis: (evento, aba, produto).
+  const esteiraCompartilhada = (evento?: string | null, aba?: string | null, produto?: string | null) =>
+    !!me && regraEsteiraCompartilhada(me, evento, aba, produto);
+  const ehCardDeColega = (
+    card: { responsavel_id?: string | null; estagio_aba?: string | null } | null | undefined,
+    evento?: string | null,
+    produto?: string | null,
+  ) => {
     if (!me || !card?.responsavel_id) return false;
     if (acaoLivre(evento)) return false; // ação livre no evento → arrasta/edita tudo
+    // 9 cards da Kelly na Ativação-HM (P6): mesmo sem o evento HM na chamada
+    // (telas antigas), a esteira compartilhada já os libera pela aba+produto.
+    if (esteiraCompartilhada(evento, card.estagio_aba, produto)) return false;
     return regraEscopoAcao(me).modo === "operador" && card.responsavel_id !== me.id;
   };
-  return { me, nivel, ehMaster, podeVerTudo, podeGerirAcesso, podeDistribuir, podeAtribuirPara, podeDisparar, podeAcessarPortal, ehCardDeColega, acaoLivre };
+  // Marca de pessoa (0202): "esta conta é da equipe de ativação?". A UI usa para
+  // sinalizar que a aba Ativação é o território dela — o selo é informativo, a
+  // permissão de verdade está no backend.
+  const ehEquipeDeAtivacao = !!me?.equipe_ativacao;
+  return { me, nivel, ehMaster, podeVerTudo, podeGerirAcesso, podeDistribuir, podeAtribuirPara, podeDisparar, podeAcessarPortal, ehCardDeColega, acaoLivre, esteiraCompartilhada, ehEquipeDeAtivacao };
 }
 
 // ===== Mensagem de falha ao CARREGAR uma tela (rede × servidor) =============
@@ -107,7 +133,14 @@ export function msgErroPermissao(reason?: string | null): string | null {
     case "destino_fora_da_equipe":
       return "Você só pode atribuir para alguém da sua equipe.";
     case "atribuicao_travada":
-      return "A atribuição deste card foi travada pelo administrador — só o Grupo Participa pode alterá-la.";
+      // Dois motivos caem no MESMO reason (o backend não distingue, 12/08):
+      //   1. o admin/gerente travou a atribuição (0142) — ninguém abaixo remaneja.
+      //   2. esteira compartilhada (P6): você MOVE e EDITA o card de outra
+      //      equipe (ex.: os 9 da Kelly aparecendo na Ativação-HM para o Grupo
+      //      Participa), mas ASSUMIR — reatribuir para si — continua bloqueado
+      //      de propósito ("ver/mover ≠ tomar posse", lib/papeis). Texto cobre
+      //      os dois sem inventar reason novo — é território do backend.
+      return "Não é possível assumir este card para você — ele é de outra equipe (ou a atribuição foi travada pelo administrador). Você pode movê-lo e editá-lo normalmente; só a reatribuição para si é que fica bloqueada. Fale com o administrador do Grupo Participa se precisar mudar o dono.";
     case "cancelamento_so_admin_gp":
       return "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.";
     case "pagamento_so_hotmart":

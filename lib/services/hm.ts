@@ -1,6 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
-import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, podeRemanejarTravado, podeTravarAtribuicao, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
+import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, esteiraCompartilhada, nivelDe, podeAtribuirPara, podeRemanejarTravado, podeTravarAtribuicao, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
 import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 
 const log = logger("hm");
@@ -683,10 +683,32 @@ export async function atribuirResponsavelHm(
 // flag chegava como undefined — a Kelly voltaria a levar 403 no card da Jusy.
 type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null; gerente_distribuidor?: boolean | null };
 
-async function cardEscopoHm(compradorId: string) {
-  return queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null; tags: string[] | null }>(
-    `select responsavel_id, equipe_id, responsavel, tags from cs.contatos_hm_kanban where comprador_id = $1`,
-    [compradorId],
+// `produto` OBRIGATÓRIO (12/08, item de otimização exigido pela esteira
+// compartilhada): antes esta função casava só por comprador_id, sem filtro de
+// produto — defeito já denunciado no comentário de app/api/hm/kanban/route.ts
+// (0187 tratou só o guard, não o gate por card). Enquanto o gate de leitura
+// era exclusivo do dono/equipe do próprio card, o furo era teórico (o card do
+// AURUM tem outro responsavel_id/equipe_id — só coincidiria por acidente). Com
+// a ABA virando vetor de autorização (esteira compartilhada, lib/papeis.ts), o
+// furo vira real: sem o filtro, `comprador_id` casaria o card do AURUM/ETHB da
+// mesma pessoa, e este teria `estagio_aba`/`produto` de OUTRO board avaliados
+// contra a ação pedida no board do HM — card do AURUM autorizado pela aba do
+// card do HM. Todo chamador (podeVerCardHm/podeAgirCardHm) e toda rota que os
+// invoca precisam repassar o produto RESOLVIDO da requisição (produtoDaRequisicao/
+// guardProdutoOpcional) — nunca "HM" literal, pelo mesmo motivo da 0187.
+// `produto` null = visão CONSOLIDADA (guardProdutoOpcional sem ?produto=, que
+// já exige os TRÊS portais do ator — ver produto-hm.ts): cai no card mais
+// antigo, mesmo desempate de moverEstagioHm/fichaHm ("(produto = 'HM') desc,
+// criado_em asc"). Não é um filtro a menos — é o comportamento histórico de
+// quando não há board nenhum sendo pedido, preservado de propósito.
+async function cardEscopoHm(compradorId: string, produto: string | null) {
+  return queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null; tags: string[] | null; estagio_aba: string | null; produto: string | null }>(
+    `select responsavel_id, equipe_id, responsavel, tags, estagio_aba, produto
+       from cs.contatos_hm_kanban
+      where comprador_id = $1 and ($2::text is null or produto = $2)
+      order by (produto = 'HM') desc, criado_em asc
+      limit 1`,
+    [compradorId, produto],
   );
 }
 
@@ -697,35 +719,51 @@ async function canaisDoUsuario(usuarioId: string): Promise<string[]> {
   return r.map((x) => x.canal);
 }
 
-export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string): Promise<boolean> {
+// `produto`: o board de quem chama (produtoDaRequisicao/guardProdutoOpcional
+// resolvido na rota) — nunca "HM" literal. Ver o comentário de cardEscopoHm.
+export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string, produto: string | null): Promise<boolean> {
   const escopo = escopoVisibilidade(sessao);
   if (escopo.modo === "tudo") return true;
-  const k = await cardEscopoHm(compradorId);
+  const k = await cardEscopoHm(compradorId, produto);
   if (!k) return true; // inexistente → deixa o 404 acontecer no fluxo normal
   // O MESMO predicado do sqlEscopo das listagens e do podeVerContato dos
   // genéricos (visibilidade.ts). Inclui a regra do texto órfão: card cujo dono
   // existe só como TEXTO (id null, texto preenchido) NÃO é pool — o HM tratava
   // como livre e o card ficava visível a todo mundo (divergência corrigida 27/07).
-  // + ramo canal→pessoa (0154): os canais que a pessoa cuida.
-  return podeVerPorEscopo(escopo, k, await canaisDoUsuario(sessao.id));
+  // + ramo canal→pessoa (0154) + ramo esteira compartilhada (12/08, lib/papeis.ts):
+  // Ativação/HM de outra equipe entra pela MESMA porta que o canal — o card
+  // continua "de outro operador" para tudo que não é este ramo específico.
+  return podeVerPorEscopo(
+    escopo, k, await canaisDoUsuario(sessao.id),
+    esteiraCompartilhada(sessao as Ator, "HM", k.estagio_aba, k.produto),
+  );
 }
 
 // Gate de AÇÃO das rotas de escrita (PATCH da ficha, mover no board, lote,
 // inbox POST/PATCH, sócios). As rotas respondem 403 com o próprio veredicto
 // como reason ('card_de_outro_operador' | 'sem_acesso').
-export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string): Promise<VeredictoAcao> {
+// `produto`: idem podeVerCardHm — o board de quem chama.
+export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string, produto: string): Promise<VeredictoAcao> {
   if (ehMaster(sessao)) return "ok";
-  const k = await cardEscopoHm(compradorId);
+  const k = await cardEscopoHm(compradorId, produto);
   if (!k) return "ok"; // inexistente → deixa o 404 acontecer no fluxo normal
   // Ação livre no HM para a equipe principal (03/08, pedido do Marcio): a equipe
   // que ativa (Grupo Participa) remaneja a esteira entre si — arrasta
   // QUALQUER card do board, não só o pool/os seus. Continua precisando VER o card
-  // (escopo de leitura); age em card de colega, nunca em card de outra equipe.
-  // Espelha o Seminário (podeAgirContato via acaoLivrePorEquipeEvento).
+  // (escopo de leitura); age em card de colega da PRÓPRIA equipe. Espelha o
+  // Seminário (podeAgirContato via acaoLivrePorEquipeEvento).
   if (acaoLivrePorEquipeEvento(sessao as Ator, "HM")) {
-    return (await podeVerCardHm(sessao, compradorId)) ? "ok" : "sem_acesso";
+    return (await podeVerCardHm(sessao, compradorId, produto)) ? "ok" : "sem_acesso";
   }
-  return veredictoAcao(sessao, k, await canaisDoUsuario(sessao.id)); // + canal→pessoa (0154)
+  // Esteira compartilhada (12/08): mesmo ramo da leitura, entra também na
+  // escrita — quem ganha o bônus vê E move. Isto NÃO é "age em card de outra
+  // equipe" no sentido antigo (a frase abaixo, de 03/08, ficaria falsa sem
+  // este parágrafo): a Ana e a equipe de ativação passam a poder, sim, agir em
+  // card de OUTRA equipe (a Kelly) — mas só quando ele está na Ativação do
+  // produto HM. Fora desse recorte (comercial, AURUM/ETHB, outras equipes em
+  // outros eventos), a regra de sempre continua valendo.
+  const esteira = esteiraCompartilhada(sessao as Ator, "HM", k.estagio_aba, k.produto);
+  return veredictoAcao(sessao, k, await canaisDoUsuario(sessao.id), esteira); // + canal→pessoa (0154)
 }
 
 // Colunas de cancelamento — Reclamada (pedido) e Reembolsado (fato).

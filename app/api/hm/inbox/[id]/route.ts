@@ -92,7 +92,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const g = await guard({ portal: produtoCard });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
-  if (!(await podeVerCardHm(sessao, params.id))) {
+  if (!(await podeVerCardHm(sessao, params.id, produtoCard))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }
   // Card cancelado (Reclamada/Reembolsado): quem não é master não abre a ficha —
@@ -152,7 +152,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): responder é ESCRITA — a conversa do
   // card de um colega ABRE (GET), mas não se responde por ela (403 traduzido).
-  const acao = await podeAgirCardHm(sessao, params.id);
+  const acao = await podeAgirCardHm(sessao, params.id, produtoCard);
   if (acao !== "ok") {
     return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
@@ -219,7 +219,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!g.ok) return g.res;
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07): resolver/reabrir muda o estado da conversa — escrita.
-  const acao = await podeAgirCardHm(sessao, params.id);
+  const acao = await podeAgirCardHm(sessao, params.id, produtoCard);
   if (acao !== "ok") {
     return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }

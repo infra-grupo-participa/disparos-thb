@@ -84,7 +84,10 @@ const MSG = {
   sem_portal: "Sua conta não tem acesso a este portal. Peça a liberação a um administrador do Grupo Participa.",
   sem_permissao: "Você não tem permissão para esta ação.",
   destino_fora_da_equipe: "Você só pode atribuir para alguém da sua equipe.",
-  atribuicao_travada: "A atribuição deste card foi travada pelo administrador — só o Grupo Participa pode alterá-la.",
+  // Texto atualizado no P6 (12/08) — espelha use-me.ts: o mesmo reason cobre
+  // "admin travou" (0142) e "card de outra equipe na esteira compartilhada",
+  // que antes tinha uma mensagem críptica para o segundo caso.
+  atribuicao_travada: "Não é possível assumir este card para você — ele é de outra equipe (ou a atribuição foi travada pelo administrador). Você pode movê-lo e editá-lo normalmente; só a reatribuição para si é que fica bloqueada. Fale com o administrador do Grupo Participa se precisar mudar o dono.",
   cancelamento_so_admin_gp: "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.",
   card_de_outro_operador: "Este card é de outro operador da sua equipe — você pode ver a ficha e o histórico, mas não alterar. Fale com seu gestor para redistribuir.",
   unauthorized: "Sua sessão expirou — entre de novo.",
@@ -134,6 +137,11 @@ const PERGUNTAS: Pergunta[] = [
           Quando o administrador do Grupo Participa atribui um card, ele pode <B>travar</B> essa atribuição
           (a ficha mostra um aviso âmbar com cadeado). A partir daí, nem gestor troca o operador — a
           alteração é só com o administrador do GP.
+        </P>
+        <P>
+          O mesmo aviso aparece na <B>Ativação do HM</B> quando você tenta <B>assumir</B> um card de outra
+          equipe (ex.: um card da Equipe 2 aparecendo para o Grupo Participa). Ali você pode mover e editar
+          normalmente — só assumir para si é que fica bloqueado, de propósito.
         </P>
       </>
     ),

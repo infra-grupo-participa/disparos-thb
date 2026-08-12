@@ -22,7 +22,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const g = await guard({ portal: produtoCard, nivel: "master" });
   if (!g.ok) return g.res;
   const sessao = g.sessao;
-  if (!(await podeVerCardHm(sessao, params.id))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
+  if (!(await podeVerCardHm(sessao, params.id, produtoCard))) return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   const p = await parseBody(req, HmAdminEditSchema);
   if (!p.ok) return p.res;
   const b = p.data;

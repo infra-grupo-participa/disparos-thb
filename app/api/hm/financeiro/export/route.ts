@@ -35,6 +35,11 @@ export async function GET(req: Request) {
     turma: sp.getAll("turma"),
     estagio: sp.get("estagio"),
     verTudo, equipeId, usuarioId, produto,
+    // `esteira` OMITIDO de propósito (0202): a equipe de ativação ganhou VER e
+    // MOVER card da Ativação, não o RAZÃO FINANCEIRO de card de outra equipe.
+    // Este XLSX traz pagamentos, saldo e pró-rata — é dado de dinheiro, escopo
+    // que o pedido do Marcio não incluiu. Mesmo corte do disparo. Omitir é o
+    // fail-closed do sqlEscopo: sem o parâmetro, o ramo não entra.
   });
 
   const agora = new Date();

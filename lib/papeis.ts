@@ -33,10 +33,80 @@ export function podeDisparar(papel: Papel | null | undefined, evento?: string | 
 // principal remaneja a esteira de ativação entre si igual ao Seminário — então HM
 // entra na lista. Equipe comum e demais eventos (HT) seguem com o gate normal.
 const EVENTOS_ACAO_LIVRE_PRINCIPAL: readonly string[] = ["SEM", "HM"];
+// Critério de equipe reusado pelas duas esteiras compartilhadas (arraste livre
+// por evento e a esteira compartilhada por aba/produto, abaixo): equipe
+// PRINCIPAL, e só ela — nunca por papel. Extraído para não duplicar a mesma
+// checagem em dois lugares (a duplicação É o tipo de furo que já aconteceu
+// aqui: duas funções respondendo à mesma pergunta de jeitos que divergem).
+function ehEquipeGrupoParticipa(u: Ator | null | undefined): boolean {
+  return u?.equipe_tipo === "principal";
+}
+
 export function acaoLivrePorEquipeEvento(u: Ator | null | undefined, evento?: string | null): boolean {
   return !!evento
     && EVENTOS_ACAO_LIVRE_PRINCIPAL.includes(evento)
-    && u?.equipe_tipo === "principal";
+    && ehEquipeGrupoParticipa(u);
+}
+
+// ===== Esteira compartilhada: aba Ativação do HM (12/08/2026, pedido do Marcio) ===
+// A equipe de ativação (hoje Ana Camila e Thomas) precisa VER e MOVER todo card
+// da aba Ativação do produto HM — inclusive os que hoje são só da Kelly
+// (Equipe 2, equipe_tipo 'comum') e que hoje nem aparecem para elas. O card cai
+// atribuído a UMA pessoa (webhook/pagamento), mas a ativação é trabalho de equipe.
+//
+// ⚠️ QUEM tem o bônus é `usuario.equipe_ativacao` (migration 0202), NÃO
+// `equipe_tipo = 'principal'`. A diferença importa: o Grupo Participa tem 14
+// pessoas ativas e o pedido nomeia 2. "Equipe de ativação" é um SUBCONJUNTO da
+// equipe principal — e um subconjunto que muda (entra e sai gente) sem que o
+// tipo da equipe mude. Como marca por pessoa, incluir a 3ª é um UPDATE em
+// cs.usuarios; como tipo de equipe, seria migration + deploy, e daria o bônus a
+// 12 pessoas que não o pediram.
+// Mesmo espírito de `gerente_distribuidor` (0161) e `lider_equipe` (0143):
+// capacidade de PESSOA mora no usuário, não no tipo da equipe.
+//
+// O recorte é a INTERSEÇÃO de três coisas — todas têm de casar:
+//   evento  'HM'        (o board é o mesmo do arraste livre acima)
+//   aba     'ativacao'  (a esteira COMERCIAL não entra — só quem já pagou)
+//   produto 'HM'        (AURUM e ETHB são o MESMO evento HM, produtos
+//                         diferentes — ficam INTACTOS. Caro de propósito: é
+//                         o predicado mais caro dos três, mas sem ele a
+//                         esteira compartilhada vazaria para os outros boards.)
+// A constante da aba e a do produto moram AQUI, e só aqui — antes estavam
+// digitadas soltas em ~10 arquivos (hm.ts, telas do board, exports, script de
+// relatório): um "ativacao" reescrito por engano num desses lugares silenciava
+// a regra sem erro nenhum. Server (SQL) e cliente (JS) importam as MESMAS
+// constantes — visibilidade.ts monta o predicado SQL com elas.
+export const ESTEIRA_COMPARTILHADA_ABA = "ativacao";
+export const ESTEIRA_COMPARTILHADA_PRODUTO = "HM";
+export const ABAS_ESTEIRA_COMPARTILHADA: readonly string[] = [ESTEIRA_COMPARTILHADA_ABA];
+
+// O que esta regra deliberadamente NÃO cobre (decisões travadas do Marcio,
+// 12/08/2026 — não mexer sem novo pedido):
+//   · DISPARO — /api/send e /api/disparos/elegiveis continuam SEM o ramo
+//     esteira (escopoDisparo passa por semBonusDeGerente e não por aqui).
+//     Precedente: o mesmo corte que já existe para gerente_distribuidor —
+//     "gerência sobre o card" ≠ "permissão de mandar campanha para a base".
+//   · ASSUMIR (reatribuir para si) — atribuicao_travada de hm.ts continua
+//     bloqueando. Ver/mover ≠ tomar posse do card de outra equipe.
+//   · AURUM/ETHB — mesmo evento HM, produto diferente do predicado: intactos.
+//   · Aba COMERCIAL do HM — só a Ativação entra; o comercial é território da
+//     equipe dona do card, como sempre foi.
+export function esteiraCompartilhada(
+  ator: Ator | null | undefined,
+  evento?: string | null,
+  aba?: string | null,
+  produto?: string | null,
+): boolean {
+  return evento === "HM"
+    && ehEquipeDeAtivacao(ator)
+    && !!aba && ABAS_ESTEIRA_COMPARTILHADA.includes(aba)
+    && produto === ESTEIRA_COMPARTILHADA_PRODUTO;
+}
+
+// A marca por pessoa (0202). Fail-closed: sem o campo na sessão (undefined) o
+// bônus não entra — quem não tem a marca segue com o escopo normal.
+export function ehEquipeDeAtivacao(u: Ator | null | undefined): boolean {
+  return !!u?.equipe_ativacao;
 }
 
 // ===== Equipes / níveis de acesso ==========================================
@@ -87,6 +157,19 @@ export type Ator = {
    * o trabalho dele; mexer no cadastro do sistema não é.
    */
   gerente_distribuidor?: boolean | null;
+  /**
+   * EQUIPE DE ATIVAÇÃO (12/08, pedido do Marcio — Ana Camila e Thomas): vê e
+   * MOVE todo card que chega na aba Ativação do produto HM, inclusive de outra
+   * equipe. Coluna `cs.usuarios.equipe_ativacao` (migration 0202).
+   *
+   * É marca por PESSOA, não por equipe, porque a equipe de ativação é um
+   * subconjunto do Grupo Participa (2 de 14) que muda sem o tipo da equipe
+   * mudar — incluir alguém é um UPDATE, não um deploy.
+   *
+   * NÃO dá posse do card (assumir segue travado) nem permissão de disparo —
+   * mesmo corte do `gerente_distribuidor`.
+   */
+  equipe_ativacao?: boolean | null;
 };
 
 // Ator ausente (sessão ainda não carregada, autor de sistema) = o nível mais

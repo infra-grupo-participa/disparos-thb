@@ -11,5 +11,9 @@ export async function GET() {
     id: u.id, nome: u.nome, email: u.email, papel: u.papel, telefone: u.telefone,
     equipe_id: u.equipe_id, equipe_tipo: u.equipe_tipo, equipe_nome: u.equipe_nome, equipe_cor: u.equipe_cor,
     lider_equipe: u.lider_equipe, gerente_distribuidor: u.gerente_distribuidor, portais: u.portais,
+    // 0202: sem este campo aqui, a UI não sabe que a conta é da equipe de
+    // ativação — o selo não aparece e o predicado do cliente (use-me) trata
+    // como "não tem o bônus", divergindo do backend.
+    equipe_ativacao: u.equipe_ativacao,
   } });
 }

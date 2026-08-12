@@ -26,7 +26,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const sessao = g.sessao;
   // Gating de equipe: uma equipe comum não abre a ficha de um card de outra
   // equipe (nem do GP). O pool e os próprios cards seguem abertos.
-  if (!(await podeVerCardHm(sessao, params.id))) {
+  if (!(await podeVerCardHm(sessao, params.id, produtoFicha))) {
     return NextResponse.json({ ok: false, reason: "sem_acesso" }, { status: 403 });
   }
   // Trava dos cancelados (27/07, decisão do Marcio): card em Reclamada/Reembolsado
@@ -64,7 +64,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Gate de AÇÃO (28/07, leitura ≠ ação): editar é ESCRITA — operador só no
   // pool e nos cards DELE. Card de colega da equipe ABRE (GET, escopo de
   // leitura) mas recusa escrita: 403 'card_de_outro_operador' (o front traduz).
-  const acao = await podeAgirCardHm(sessao, compradorId);
+  const acao = await podeAgirCardHm(sessao, compradorId, produtoCard);
   if (acao !== "ok") {
     return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }

@@ -20,7 +20,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   const sessao = g.sessao;
   // Gate de AÇÃO (28/07, leitura ≠ ação): provisionar na base THB é efeito de
   // escrita — card de colega recusa com 403 'card_de_outro_operador'.
-  const acao = await podeAgirCardHm(sessao, params.id);
+  const acao = await podeAgirCardHm(sessao, params.id, produtoCard);
   if (acao !== "ok") return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   // Card cancelado: só o master abre/mexe — provisionar sócio de reembolsado na
   // base THB é exatamente o tipo de efeito colateral que a trava existe pra impedir.
