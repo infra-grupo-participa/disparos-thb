@@ -1,5 +1,5 @@
 import { guard } from "@/lib/guard";
-import { escopoVisibilidade, esteiraCompartilhadaNoBoard, paramsEscopo, type Ator } from "@/lib/papeis";
+import { escopoVisibilidade, abasDaEsteira, paramsEscopo, type Ator } from "@/lib/papeis";
 import { relatorioHm } from "@/lib/services/hm-relatorio";
 import { relatorioHmParaXlsx, nomeArquivoRelatorio } from "@/lib/export/hm-esteira-xlsx";
 
@@ -38,9 +38,9 @@ export async function GET(req: Request) {
     turma: sp.getAll("turma"),
     estagio: sp.get("estagio"),
     verTudo, equipeId, usuarioId, produto,
-    // Esteira compartilhada (0202): o XLSX é a MESMA leitura do board por outra
-    // porta — se o card aparece no kanban, tem de sair no export.
-    esteira: esteiraCompartilhadaNoBoard(g.sessao as Ator, "HM", produto),
+    // Esteira compartilhada (0210/0212): o XLSX é a MESMA leitura do board por
+    // outra porta — se o card aparece no kanban, tem de sair no export.
+    abas: abasDaEsteira(g.sessao as Ator, "HM", produto),
   });
 
   const agora = new Date();

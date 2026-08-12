@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial, Avatar } from "@/app/_components/avatar";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
-import { origemRecompra, SeloRecompra } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 // Checkout Hotmart do saldo do HM — oferta 2vibw97m. É um link ÚNICO por trás de
@@ -22,10 +22,19 @@ type Contato = {
   // Dono por id + trava do admin (0142) — gating do operador. Opcionais: a rota
   // pode ainda não devolvê-los (em voo).
   responsavel_id?: string | null; atribuicao_admin?: boolean;
+  // DUPLO RESPONSÁVEL (0211/0212): dono POR ABA — ver o comentário completo em
+  // hm-drawer.tsx. Comercial é imutável (leitura sempre); Ativação é
+  // histórico carimbado sozinho (também leitura, sem endpoint de edição
+  // direta hoje). `responsavel`/`responsavel_id` acima seguem sendo o VIGENTE.
+  responsavel_comercial?: string | null; responsavel_ativacao?: string | null;
   reuniao_em: string | null; reuniao_resultado: string | null;
   entrevista_em: string | null; entrevista_resultado: string | null;
   pagamento_forma: string | null; pagamento_parcelas: number | null; pagamento_em: string | null;
   apto_ativacao: boolean; tags: string[] | null; observacoes: string | null; criado_em: string | null;
+  // Motivo do crédito pró-rata (cs.contatos_hm.credito_obs, novo campo) — o
+  // porquê daquele valor calculado à mão. Opcional: a rota pode ainda não
+  // devolvê-lo (backend subindo em paralelo).
+  credito_obs?: string | null;
 };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
 type Formulario = { tipo: string; respostas: Record<string, string> | null; pontuacao: number | string | null; respondido_em: string | null };
@@ -213,8 +222,9 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
             {c.turma && <Badge cls="bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">{c.turma}</Badge>}
             {c.estagio_nome && <Badge cls="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{c.estagio_nome}</Badge>}
             {c.apto_ativacao && <Badge cls="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Saldo pago</Badge>}
-            {/* Recompra (27/07): o mesmo selo do board/tabela/drawer. */}
+            {/* Recompra (27/07) e aluno antigo (0213): os mesmos selos do board/tabela/drawer. */}
             {origemRecompra(c.tags) && <SeloRecompra origem={origemRecompra(c.tags)!} />}
+            {ehAlunoAntigo(c.tags) && <SeloAlunoAntigo />}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -260,7 +270,42 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                   {estagios.map((s) => <option key={s.chave} value={s.chave}>{s.aba === "ativacao" ? "Ativação · " : "Comercial · "}{s.nome}</option>)}
                 </select>
               </Campo>
-              <Campo label="Operador">
+              {/* DUPLO RESPONSÁVEL (0211/0212) — mesmo tratamento do drawer:
+                  Comercial é histórico IMUTÁVEL (sempre leitura, com cadeado);
+                  Ativação é histórico carimbado sozinho (leitura, sem endpoint
+                  de edição direta hoje); "Operador (vigente)" é o campo de
+                  sempre, inalterado. Nulo mostra "—", nunca some. */}
+              <Campo label="Comercial">
+                <div
+                  className="flex items-center gap-2 pt-1"
+                  title="Quem fechou a venda — é estrutural: não muda nem para o administrador do Grupo Participa. Corrigido só por migration pontual, fora da aplicação."
+                >
+                  <svg aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  {c.responsavel_comercial ? (
+                    <>
+                      <Avatar nome={c.responsavel_comercial} className="h-7 w-7 text-xs" />
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{c.responsavel_comercial}</span>
+                    </>
+                  ) : (
+                    <span className="text-sm text-slate-400 dark:text-slate-500">—</span>
+                  )}
+                </div>
+              </Campo>
+              <Campo label="Ativação">
+                <div className="flex items-center gap-2 pt-1">
+                  {c.responsavel_ativacao ? (
+                    <>
+                      <Avatar nome={c.responsavel_ativacao} className="h-7 w-7 text-xs" />
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{c.responsavel_ativacao}</span>
+                    </>
+                  ) : (
+                    <span className="text-sm text-slate-400 dark:text-slate-500">—</span>
+                  )}
+                </div>
+              </Campo>
+              <Campo label="Operador (vigente)">
                 {podeDistribuir() ? (
                   // MASTER/GESTOR distribuem pelo seletor (o backend barra destino
                   // fora da equipe do gestor e devolve o motivo).
@@ -352,6 +397,23 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
             // calculado), o título diz o que a 0165 já estabeleceu para o resto da
             // ficha, em vez de mentir um número.
             : `Pagamento do saldo — ${saldoCheio != null ? `${brl(saldoCheio)} (de R$ 15.000)` : "saldo a definir"}`}>
+            {/* Motivo do crédito pró-rata (cs.contatos_hm.credito_obs, novo
+                campo): o valor é calculado à mão (planilha/analista) — este
+                texto é o PORQUÊ, o mesmo padrão do `obs`/`excecao_motivo` já
+                usados na ficha do Aurum. Fica sempre visível (com ou sem
+                Aurum, pago ou não) porque o motivo é história, não some
+                quando o card muda de estado. */}
+            <Campo label="Motivo do crédito (pró-rata)">
+              <textarea
+                defaultValue={c.credito_obs ?? ""}
+                disabled={somenteLeitura}
+                onBlur={(e) => e.target.value !== (c.credito_obs ?? "") && patch({ credito_obs: e.target.value || null })}
+                rows={2}
+                placeholder="Ex.: dias não usados na turma anterior, desconto combinado…"
+                className={cn(fieldClass, "mt-1")}
+              />
+            </Campo>
+            <div className="mt-3">
             {jaPagou ? (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
@@ -415,6 +477,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                 </p>
               </div>
             )}
+            </div>
           </Secao>
 
           {/* Reunião (Comercial) */}

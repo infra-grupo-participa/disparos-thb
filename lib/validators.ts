@@ -40,6 +40,31 @@ export function parsePeriodo(
   return { ok: true, de, ate };
 }
 
+// ----- Granularidade (?granularidade=) das rotas de atividade (D1) -----
+// FONTE ÚNICA da whitelist dia/semana/mês — antes vivia triplicada (aqui,
+// lib/services/hm-atividade.ts e app/_components/atividade-colaboradores.tsx);
+// as três listavam os mesmos 3 valores por conta própria, e nada garantia que
+// continuassem casando se um dia alguém adicionasse um bucket (ex.: 'ano') só
+// num lado. Backend e front importam `GRANULARIDADES`/`Granularidade` daqui.
+export const GRANULARIDADES = ["dia", "semana", "mes"] as const;
+export type Granularidade = (typeof GRANULARIDADES)[number];
+
+// Mesma régua do parsePeriodo: valida ANTES de chegar no service — um valor
+// fora da lista vira 400 aqui, não interpolação livre num date_trunc lá
+// embaixo (lib/services/hm-atividade.ts). Ausente = default 'dia' (o service
+// já cobre isso, mas validar aqui barra "?granularidade=lixo" de virar 'dia'
+// silenciosamente — o cliente erra e é avisado, não mascarado).
+export function parseGranularidade(
+  sp: URLSearchParams,
+): { ok: true; granularidade: Granularidade | null } | { ok: false; res: NextResponse } {
+  const g = sp.get("granularidade");
+  if (!g) return { ok: true, granularidade: null };
+  if (!GRANULARIDADES.includes(g as Granularidade)) {
+    return { ok: false, res: NextResponse.json({ ok: false, reason: "granularidade_invalida" }, { status: 400 }) };
+  }
+  return { ok: true, granularidade: g as Granularidade };
+}
+
 export const AuthSchema = z.object({
   email: z.string().trim().min(1).email(),
   senha: z.string().min(1),
@@ -282,6 +307,11 @@ export const HmContatoPatchSchema = z.object({
   credito_compra_em: z.string().nullable().optional(),
   credito_valor_pago: z.number().nonnegative().nullable().optional(),
   credito_dias_totais: z.number().int().positive().nullable().optional(),
+  // Motivo do pró-rata manual (F4) — por que este valor/data, em texto livre. O
+  // crédito em si é CALCULADO (fn_hm_prorata); isto é só a justificativa que o
+  // operador digita para o número não ficar "confia em mim" (mesmo padrão de
+  // cs.aurum_pagamento_aluno.obs/excecao_motivo, lidos em hm-ficha.ts).
+  credito_obs: z.string().nullable().optional(),
   // atalho de pagamento do saldo (14.700) — dispara a ida para a Ativação e o
   // provisionamento do aluno na base THB (os valores viram o bloco financeiro)
   pagamento_forma: z.enum(["avista", "parcelado"]).optional(),
@@ -352,10 +382,35 @@ export const HmTagCriarSchema = z.object({
   cor: corHex.nullable().optional(),
 });
 
-// Renomear/recolorir. Renomear propaga para todos os cards — a rota exige admin.
+// As 6 categorias do CHECK de cs.tags/cs.tag_categoria (migration 0206) — a
+// MESMA lista, literal, dos dois lados. Nunca aceitar string crua aqui: um
+// valor fora da whitelist passaria no parseBody e estouraria o CHECK do
+// Postgres lá na frente, virando 500 (erro interno vazando) em vez do 400
+// que a validação deveria ter barrado antes de chegar no banco.
+const categoriaTagHm = z.enum(["publico", "canal", "turma", "origem_base", "produto", "operacional"]);
+
+// Renomear/recolorir/descrever/recategorizar. Renomear propaga para todos os
+// cards — a rota exige admin.
+//
+// ⚠️ z.object (não-strict) DESCARTA chave desconhecida em vez de rejeitar —
+// foi exatamente isso que perdeu o dado do usuário nesta leva: o front mandava
+// `descricao`, o schema só conhecia `nome`/`cor`, a chave sumia no parse, o
+// handler não entrava em nenhum `if`, e a rota respondia {ok:true} para um
+// PATCH que não tinha feito NADA. Sucesso mentiroso — a lição é que todo campo
+// editável pela tela precisa ter uma linha aqui, senão o parse é quem apaga
+// silenciosamente o que o usuário digitou.
 export const HmTagPatchSchema = z.object({
   nome: z.string().trim().min(2).max(40).optional(),
   cor: corHex.nullable().optional(),
+  // Limpar a descrição é gesto legítimo (o admin quer remover uma explicação
+  // desatualizada) — string vazia é normalizada para null no service, não
+  // fica sobrando "" no banco. Teto de 500: é texto de apoio para quem olha o
+  // card sem contexto, não um campo de redação.
+  descricao: z.string().trim().max(500).nullable().optional(),
+  // Editável pela tela (decisão do usuário, 12/08): tag nova nasce
+  // 'operacional' em criarTagHm, e o admin recategoriza na hora se precisar —
+  // sem depender de deploy/migration para corrigir a família de uma tag.
+  categoria: categoriaTagHm.nullable().optional(),
 });
 
 // ----- Edição administrativa (só admin) -----

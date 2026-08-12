@@ -1,7 +1,6 @@
 import { query } from "@/lib/db";
 import {
   escopoAcao, escopoVisibilidade, nivelDe,
-  ABAS_ESTEIRA_COMPARTILHADA, ESTEIRA_COMPARTILHADA_ABA, ESTEIRA_COMPARTILHADA_PRODUTO,
   type Ator, type EscopoVisibilidade,
 } from "@/lib/papeis";
 
@@ -28,10 +27,23 @@ import {
 // ESTEIRA COMPARTILHADA (12/08/2026, ver lib/papeis.ts): ramo adicional e
 // OPCIONAL — só entra quando o chamador declara as colunas `aba`/`tags` — que
 // pega o card por evento×aba×produto (não por dono), respondendo à pergunta
-// "este card está na Ativação do HM?" em vez de "é meu/da minha equipe?". Fica
-// de fora por padrão (fail-closed, mesmo padrão do ramo `tags`): omitir as
-// colunas em qualquer chamador (disparo, genéricos HT/SEM) é a forma de o ramo
-// nunca entrar lá — omissão vira o comportamento seguro, não um esquecimento.
+// "este card está numa aba que esta sessão alcança no HM?" em vez de "é
+// meu/da minha equipe?". Fica de fora por padrão (fail-closed, mesmo padrão do
+// ramo `tags`): omitir as colunas em qualquer chamador (disparo, genéricos
+// HT/SEM) é a forma de o ramo nunca entrar lá — omissão vira o comportamento
+// seguro, não um esquecimento.
+//
+// ⚠️ (12/08, virada 0210→0212) O parâmetro deixou de ser um booleano único
+// `esteira` e virou uma LISTA `abas` — a lista de abas que ESTA SESSÃO
+// alcança (`abasDaEsteira`, lib/papeis.ts), resolvida por FUNÇÃO
+// (`cs.usuario_funcoes`: comercial/ativação são independentes por pessoa).
+// Antes um único booleano dizia "tem o bônus?" e a lista de abas era uma
+// CONSTANTE fixa (`ABAS_ESTEIRA_COMPARTILHADA`) interpolada direto no SQL —
+// igual para qualquer um que tivesse a marca. Agora o SQL casa a aba do CARD
+// contra a lista RESOLVIDA da sessão, passada como `$n::text[]` — sem
+// interpolação de string. Lista vazia (`[]`) é o mesmo "ramo morto" de antes,
+// só que agora é o caso comum (maioria das sessões não tem função nenhuma no
+// HM), não a exceção.
 
 // Colunas que expõem responsavel_id, equipe_id e responsavel (texto) —
 // cs.contatos_evento / cs.contatos_ht / cs.contatos_hm_kanban; para cs.contatos
@@ -43,10 +55,10 @@ type ColunasEscopo = { rid: string; eq: string; nome: string;
   tags?: string;
   // Colunas da esteira compartilhada (12/08, ver lib/papeis.ts): a aba e o
   // produto do card (ex.: 'k.estagio_aba', "'HM'"/coluna literal). Presentes
-  // as DUAS → o predicado ganha o ramo esteira (equipe principal × evento HM ×
-  // aba Ativação × produto HM). Ausente qualquer uma = ramo não entra
-  // (fail-closed) — é assim que /api/send e as listagens genéricas HT/SEM ficam
-  // de fora sem precisar de um "if" próprio em cada rota.
+  // as DUAS → o predicado ganha o ramo esteira (aba do card está na lista
+  // `abas` resolvida da sessão × produto = HM). Ausente qualquer uma = ramo
+  // não entra (fail-closed) — é assim que /api/send e as listagens genéricas
+  // HT/SEM ficam de fora sem precisar de um "if" próprio em cada rota.
   aba?: string;
   produto?: string };
 
@@ -58,12 +70,13 @@ export function sqlCardLivre(a: ColunasEscopo): string {
 
 // Fragmento SQL do predicado completo, para as rotas montarem o WHERE com os
 // MESMOS placeholders sempre (verTudo boolean, usuarioId uuid, equipeId uuid —
-// a ordem do paramsEscopo), mais o placeholder OPCIONAL `esteira` (boolean).
+// a ordem do paramsEscopo), mais os placeholders OPCIONAIS `abas` (text[]) e
+// `produto` (text) da esteira compartilhada.
 // NULL-safe por construção: `eq = $x::uuid` com $x nulo é unknown e NÃO casa —
 // gestor sem equipe vê só o pool, nunca "null = null" virando vazamento.
 export function sqlEscopo(
   a: ColunasEscopo,
-  p: { verTudo: number; usuario: number; equipe: number; esteira?: number },
+  p: { verTudo: number; usuario: number; equipe: number; abas?: number; produto?: number },
 ): string {
   // Ramo canal→pessoa (0154): reusa o placeholder $usuario — sem novo parâmetro.
   // Card com alguma tag atribuída a mim em cs.usuario_canais entra na minha visão.
@@ -72,21 +85,22 @@ export function sqlEscopo(
     ? `\n       or exists (select 1 from cs.usuario_canais uc
                     where uc.usuario_id = $${p.usuario}::uuid and uc.canal = any(${a.tags}))`
     : "";
-  // Ramo esteira compartilhada (12/08, lib/papeis.ts): SÓ emitido quando o
-  // CHAMADOR declarou as colunas `aba`/`produto` E passou o placeholder
-  // `esteira` — as duas coisas, não uma. `$esteira` já chega calculado do JS
-  // (esteiraCompartilhada(sessao, "HM")): é "a sessão tem o bônus?", sem
-  // repetir aqui a checagem de equipe. O SQL só casa aba/produto do CARD.
+  // Ramo esteira compartilhada (12/08, virada 0210→0212 em lib/papeis.ts): SÓ
+  // emitido quando o CHAMADOR declarou as colunas `aba`/`produto` E passou os
+  // placeholders `abas`/`produto` — tudo junto, não uma peça isolada. `$abas`
+  // já chega RESOLVIDO do JS (abasDaEsteira(sessao, "HM", produto)): a lista
+  // de abas que esta sessão especificamente alcança, por função
+  // (cs.usuario_funcoes) — sem repetir aqui a checagem de equipe/função. O SQL
+  // só casa a aba/produto do CARD contra essa lista, com `= any($x::text[])`
+  // em vez de uma lista de literais interpolada — array vazio nunca casa nada
+  // (fail-closed, e é o caso comum agora: a maioria não tem função no HM).
   // ⚠️ estagio_aba é NULL-able — de propósito NÃO se usa coalesce(aba,'comercial')
   // aqui: um card sem aba (NULL) não entra no ramo esteira nem em SQL nem em JS
   // (podeVerPorEscopo espelha isso). Colocar coalesce só de um lado faria os
   // dois módulos divergirem exatamente no caso em que a coluna está vazia —
   // fail-closed nos dois, sempre.
-  const ramoEsteira = a.aba && a.produto && p.esteira !== undefined
-    // `in (...)` e não `=`: desde 12/08 16h a regra cobre DUAS abas (ativacao e
-    // comercial). A lista vem da MESMA constante que o JS usa — se um dia entrar
-    // uma terceira aba, os dois lados mudam juntos.
-    ? `\n       or ($${p.esteira}::boolean and ${a.aba} in (${ABAS_ESTEIRA_COMPARTILHADA.map((x) => `'${x}'`).join(", ")}) and ${a.produto} = '${ESTEIRA_COMPARTILHADA_PRODUTO}')`
+  const ramoEsteira = a.aba && a.produto && p.abas !== undefined && p.produto !== undefined
+    ? `\n       or (${a.aba} = any($${p.abas}::text[]) and ${a.produto} = $${p.produto}::text)`
     : "";
   return `($${p.verTudo}::boolean
        or ${sqlCardLivre(a)}
@@ -123,10 +137,10 @@ export function ehCardLivre(c: CardVisibilidade): boolean {
 // podeVerContato (contato.ts). `canais` = as tags que o usuário cuida
 // (cs.usuario_canais, 0154); espelha EXATO o ramo canal do sqlEscopo.
 // Omitido/[] = ramo não conta.
-// `esteira` = o CHAMADOR já decidiu "esta sessão tem o bônus?" (tipicamente
-// `esteiraCompartilhada(sessao, "HM")`, lib/papeis.ts) — espelha `$esteira` do
-// SQL: aqui só se casa aba/produto do CARD contra as constantes, sem repetir a
-// checagem de equipe. Omitido/false = ramo não conta (fail-closed, igual ao SQL).
+// `esteira` = o CHAMADOR já decidiu "esta sessão alcança ESTE card?" (tipicamente
+// `esteiraCompartilhada(sessao, "HM", c.aba, c.produto)`, lib/papeis.ts, que por
+// sua vez casa a aba do card contra `abasDaEsteira` — a lista resolvida por
+// FUNÇÃO desta sessão). Omitido/false = ramo não conta (fail-closed).
 export function podeVerPorEscopo(
   escopo: EscopoVisibilidade,
   c: CardVisibilidade,
@@ -142,9 +156,15 @@ export function podeVerPorEscopo(
   // ramo de equipe/próprio) — casar a ORDEM não muda o resultado (é um OR),
   // mas divergir a ordem entre os dois lados é o tipo de coisa que confunde
   // quem lê os dois módulos lado a lado depois.
-  // ⚠️ estagio_aba é NULL-able: `c.aba` null/undefined não casa
-  // `ABAS_ESTEIRA_COMPARTILHADA.includes(...)` — sem coalesce, espelhando o SQL.
-  if (esteira && c.aba && ABAS_ESTEIRA_COMPARTILHADA.includes(c.aba) && c.produto === ESTEIRA_COMPARTILHADA_PRODUTO) return true;
+  // `esteira` chega RESOLVIDO pelo chamador como `esteiraCompartilhada(sessao,
+  // "HM", c.aba, c.produto)` (lib/papeis.ts) — mas REVALIDA-SE `c.aba` aqui
+  // como segunda camada de defesa: se o chamador computou `esteira` para OUTRO
+  // card (bug de call site) e passou este `c` sem aba, o ramo NÃO deve abrir só
+  // porque o booleano veio true. Foi exatamente a 2ª causa do 403 da Ana
+  // Camila (12/08): `cardEscopoHm` devolvia `estagio_aba`, o tipo lia `aba`, o
+  // TS não reclamava (campo opcional) e `c.aba` chegava `undefined` — sem esta
+  // revalidação um teste que só chamasse `esteiraCompartilhada` não pegaria.
+  if (esteira && c.aba) return true;
   // `equipe_id !== null` de propósito: ator sem equipe (equipeId null) não
   // pode casar com card de equipe nula — "null === null" viraria vazamento.
   // O ramo `responsavel_id === usuarioId` cobre o card do PRÓPRIO usuário

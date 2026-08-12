@@ -32,21 +32,36 @@ export function tagTone(tag: string): string {
 
 // `cor` vem do catálogo (cs.tags, 0067) e vence o regex: a cor é da tag, não
 // da tela. Sem catálogo (tag antiga, telas do HT), o tom heurístico segue valendo.
-export function TagChip({ tag, mini, cor }: { tag: string; mini?: boolean; cor?: string | null }) {
+//
+// `titulo` (12/08, dicionário de tags): tooltip nativo (atributo `title` do
+// HTML) com o que a tag SIGNIFICA — cor sozinha nunca conta a história
+// inteira. Prop OPCIONAL e retrocompatível: quem não passar nada mantém o
+// comportamento de sempre. Tooltip nativo de propósito — nada de componente
+// custom, o browser já resolve foco/teclado/mobile sozinho.
+export function TagChip({ tag, mini, cor, titulo }: { tag: string; mini?: boolean; cor?: string | null; titulo?: string | null }) {
   const base = cn("inline-flex items-center rounded-full font-medium", mini ? "px-1.5 py-0.5 text-[10px] leading-none" : "px-2.5 py-0.5 text-xs");
   if (cor) {
     return (
-      <span className={base} style={{ backgroundColor: `${cor}1f`, color: cor, boxShadow: `inset 0 0 0 1px ${cor}40` }}>
+      <span className={base} style={{ backgroundColor: `${cor}1f`, color: cor, boxShadow: `inset 0 0 0 1px ${cor}40` }} title={titulo || undefined}>
         {tag}
       </span>
     );
   }
-  return <span className={cn(base, "ring-1 ring-inset", tagTone(tag))}>{tag}</span>;
+  return <span className={cn(base, "ring-1 ring-inset", tagTone(tag))} title={titulo || undefined}>{tag}</span>;
 }
 
 // Ícone de etiqueta no card (estilo Clint). O popup é renderizado via PORTAL
 // no <body> com posição fixa — assim não é cortado pela rolagem das colunas.
-export function TagsIcon({ tags, cores }: { tags: string[] | null | undefined; cores?: Record<string, string | null> }) {
+export function TagsIcon({
+  tags,
+  cores,
+  descricoes,
+}: {
+  tags: string[] | null | undefined;
+  cores?: Record<string, string | null>;
+  /** opcional (12/08) — nome da tag -> descrição do catálogo, vira tooltip nativo em cada chip */
+  descricoes?: Record<string, string | null>;
+}) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   if (!tags || tags.length === 0) return null;
   const abrir = (e: React.MouseEvent) => {
@@ -71,7 +86,7 @@ export function TagsIcon({ tags, cores }: { tags: string[] | null | undefined; c
             style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 60, maxWidth: 210 }}
             className="pointer-events-none flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-pop dark:border-slate-700 dark:bg-slate-900"
           >
-            {tags.map((t) => <TagChip key={t} tag={t} mini cor={cores?.[t]} />)}
+            {tags.map((t) => <TagChip key={t} tag={t} mini cor={cores?.[t]} titulo={descricoes?.[t]} />)}
           </div>,
           document.body,
         )}

@@ -16,7 +16,7 @@ import { podeVerPorEscopo } from "@/lib/services/visibilidade";
 import {
   ehEquipeDeAtivacao, escopoAcao, escopoDisparo, escopoVisibilidade, esteiraCompartilhada,
   nivelDe, podeAtribuirPara, podeGerirAcesso,
-  podeRemanejarTravado, podeTravarAtribuicao, podeVerTudo, semBonusDeGerente, type Ator,
+  podeRemanejarTravado, podeTravarAtribuicao, podeVerTudo, semBonusDeGerente, temFuncao, type Ator,
 } from "@/lib/papeis";
 
 const EQ_GP = "2a1f9c6e-2825-441e-a10e-23aec4b1757b";  // Grupo Participa (principal)
@@ -78,19 +78,24 @@ ok("operador não gere acesso", podeGerirAcesso(operadorGP), false);
 ok("sessão ausente cai no nível mais baixo", nivelDe(null), "operador");
 ok("sessão ausente não trava", podeTravarAtribuicao(null), false);
 
-// ===== Esteira de ativação (0202, 12/08) ====================================
+// ===== Esteira de ativação (0210/0212, 12/08) ================================
 // A Ana Camila VIA os 9 cards da Kelly no board e levava 403 ao arrastar. Causa:
 // `SessaoEquipe` (lib/services/hm.ts) não declarava `equipe_ativacao`, então o
 // `sessao as Ator` entregava o campo como undefined e o ramo nunca entrava — sem
 // erro de TS, sem log. O MESMO defeito que já tinha acontecido com
 // `gerente_distribuidor` em 11/08. Estes casos existem para a 3ª vez não passar.
-console.log("\n== esteira de ativação (Ana Camila e Thomas) ==");
-const anaAtivacao: Ator = { ...operadorGP, equipe_ativacao: true };
+//
+// 12/08 16h→noite: o boolean único `equipe_ativacao` virou FUNÇÃO por portal
+// (`cs.usuario_funcoes`, 0210) — comercial e ativação agora são independentes
+// por pessoa. `anaAtivacao` abaixo tem as DUAS funções (é o backfill real da
+// 0210: Ana Camila e Thomas ficam com as duas, para não perder alcance).
+console.log("\n== esteira de ativação (Ana Camila e Thomas — funções HM:comercial + HM:ativacao) ==");
+const anaAtivacao: Ator = { ...operadorGP, funcoes: ["HM:comercial", "HM:ativacao"] };
 const CARD_ATIV = { aba: "ativacao", produto: "HM" };
 
-ok("com a marca: move card da Ativação do HM",
+ok("com as duas funções: move card da Ativação do HM",
   esteiraCompartilhada(anaAtivacao, "HM", CARD_ATIV.aba, CARD_ATIV.produto), true);
-ok("SEM a marca: não ganha o bônus (os outros 12 do GP)",
+ok("SEM função nenhuma: não ganha o bônus (os outros 12 do GP)",
   esteiraCompartilhada(operadorGP, "HM", CARD_ATIV.aba, CARD_ATIV.produto), false);
 // 12/08 16h: o COMERCIAL ENTROU no escopo (caso Gabriela — ver lib/papeis.ts).
 // Este caso já testou o contrário de manhã; a inversão é intencional.
@@ -103,10 +108,36 @@ ok("a marca não vale em outro evento (HT/SEM)",
 // estagio_aba é NULL-able: card sem aba não pode entrar por omissão.
 ok("card SEM aba não entra (fail-closed)", esteiraCompartilhada(anaAtivacao, "HM", null, "HM"), false);
 ok("sessão ausente não ganha o bônus", esteiraCompartilhada(null, "HM", "ativacao", "HM"), false);
-ok("ehEquipeDeAtivacao lê a marca", ehEquipeDeAtivacao(anaAtivacao), true);
-ok("ehEquipeDeAtivacao é fail-closed sem o campo", ehEquipeDeAtivacao(operadorGP), false);
+ok("ehEquipeDeAtivacao lê a função HM:ativacao", ehEquipeDeAtivacao(anaAtivacao), true);
+ok("ehEquipeDeAtivacao é fail-closed sem função nem boolean", ehEquipeDeAtivacao(operadorGP), false);
 // A marca é de VER/MOVER, não de disparo — mesmo corte do gerente_distribuidor.
 ok("a marca NÃO amplia o escopo de disparo", escopoDisparo(anaAtivacao).modo, escopoDisparo(operadorGP).modo);
+
+console.log("\n== granularidade por FUNÇÃO (0210/0212): comercial ≠ ativação ==");
+// O caso que a virada de boolean→função existe para resolver: alguém com SÓ
+// a função ativação não alcança o comercial, e vice-versa — no boolean antigo
+// a marca era tudo-ou-nada para as duas abas.
+const soAtivacao: Ator = { ...operadorGP, funcoes: ["HM:ativacao"] };
+const soComercial: Ator = { ...operadorGP, funcoes: ["HM:comercial"] };
+ok("temFuncao lê HM:ativacao isolada", temFuncao(soAtivacao, "HM", "ativacao"), true);
+ok("temFuncao NÃO confunde ativacao com comercial", temFuncao(soAtivacao, "HM", "comercial"), false);
+ok("SÓ ativação: alcança card na aba ativação",
+  esteiraCompartilhada(soAtivacao, "HM", "ativacao", "HM"), true);
+ok("SÓ ativação: NÃO alcança card comercial (o caso novo)",
+  esteiraCompartilhada(soAtivacao, "HM", "comercial", "HM"), false);
+ok("SÓ comercial: alcança card no comercial",
+  esteiraCompartilhada(soComercial, "HM", "comercial", "HM"), true);
+ok("SÓ comercial: NÃO alcança card na ativação",
+  esteiraCompartilhada(soComercial, "HM", "ativacao", "HM"), false);
+// A rede de segurança do `||` em ehEquipeDeAtivacao é só para essa função
+// isolada (ex.: telas que ainda perguntam "é da equipe de ativação?" sem
+// precisar de aba) — `abasDaEsteira`/`esteiraCompartilhada` somam aba SÓ por
+// FUNÇÃO (cs.usuario_funcoes), nunca pelo boolean legado. Documentado aqui
+// para não vazar visibilidade de comercial para quem só tem o boolean antigo.
+const soBooleanLegado: Ator = { ...operadorGP, equipe_ativacao: true };
+ok("ehEquipeDeAtivacao ainda lê o boolean legado (rede de segurança)", ehEquipeDeAtivacao(soBooleanLegado), true);
+ok("mas esteiraCompartilhada NÃO soma aba pelo boolean legado sozinho",
+  esteiraCompartilhada(soBooleanLegado, "HM", "ativacao", "HM"), false);
 
 // O predicado inteiro, com o objeto de card no formato que `podeVerPorEscopo`
 // espera. Este caso pega a 2ª causa do 403 da Ana Camila: `cardEscopoHm`

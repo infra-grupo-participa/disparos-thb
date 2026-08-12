@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -582,7 +582,9 @@ export default function HmTabelaPage() {
     if (d?.ok) setCatalogoTags(d.tags);
   }, []);
   useEffect(() => { carregarTags(); }, [carregarTags]);
-  const coresTags = useMemo(() => Object.fromEntries(catalogoTags.map((t) => [t.nome, t.cor])), [catalogoTags]);
+  // cor_efetiva (0206) = a cor que se DESENHA (override da tag ou herdada da
+  // categoria); cai para `cor` se a API ainda não trouxer o campo novo.
+  const coresTags = useMemo(() => Object.fromEntries(catalogoTags.map((t) => [t.nome, t.cor_efetiva ?? t.cor])), [catalogoTags]);
 
   // ------------------------------------------------------------- escrita (1 linha)
   // Único ponto de escrita unitária: o MESMO PATCH da ficha. Etapa vira
@@ -777,6 +779,7 @@ export default function HmTabelaPage() {
       render: (l) => {
         const novo = pagouAgora(l);
         const recompra = origemRecompra(l.tags);
+        const alunoAntigo = ehAlunoAntigo(l.tags);
         return (
           <div className="flex min-w-0 max-w-[16rem] flex-col">
             <div className="flex min-w-0 items-center gap-1.5">
@@ -814,9 +817,10 @@ export default function HmTabelaPage() {
             {/* Telefone e e-mail andam junto com o nome: é o que o operador vai
                 usar em seguida, e copiar não pode custar abrir a ficha. */}
             <ContatoDoNome telefone={l.telefone} email={l.email} />
-            {/* Recompra (27/07): o MESMO selo do board, na coluna fixa — visível
-                em qualquer visão e em qualquer scroll horizontal. */}
+            {/* Recompra (27/07) e aluno antigo (0213): os MESMOS selos do board,
+                na coluna fixa — visíveis em qualquer visão e scroll horizontal. */}
             {recompra && <SeloRecompra origem={recompra} className="mt-0.5 self-start" />}
+            {alunoAntigo && <SeloAlunoAntigo className="mt-0.5 self-start" />}
           </div>
         );
       },

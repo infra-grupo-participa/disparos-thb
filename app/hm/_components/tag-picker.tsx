@@ -9,7 +9,17 @@ import { TagChip } from "@/app/_components/tags";
 // filtra o catálogo, e um nome que não existe vira a linha "criar" — criar É
 // digitar. As tags gerenciadas (Origem/Turma/Aurum) nem aparecem: são do
 // sistema, e oferecê-las aqui seria convidar ao erro que o serviço recusa.
-export type TagOpcao = { nome: string; cor: string | null; tipo?: string };
+// `categoria`/`descricao` (dicionário de tags, 12/08): a cor já chega pronta —
+// DERIVADA da categoria pelo backend — e a descrição vira tooltip na opção,
+// para o operador bater o olho e entender o que a tag significa antes de
+// aplicá-la, sem sair da busca. Ambos opcionais: telas antigas / API em voo
+// continuam funcionando sem eles.
+// `cor_efetiva` (0206) é a cor que se DESENHA — override da tag OU cor da
+// categoria OU cinza neutro, já resolvida pelo backend. `cor` continua
+// existindo (é o override cru), mas quem pinta pixel é sempre `cor_efetiva`
+// com fallback para `cor` — telas antigas ou payload sem o campo novo não
+// quebram, só perdem a herança de cor da categoria.
+export type TagOpcao = { nome: string; cor: string | null; cor_efetiva?: string | null; tipo?: string; categoria?: string | null; descricao?: string | null };
 
 const RE_TAG_GERENCIADA = /^(Origem|Turma|Aurum) /;
 
@@ -99,7 +109,7 @@ export function TagPicker({ opcoes, jaTem = [], onEscolher, disabled, rotulo = "
                 onClick={() => escolher(o.nome)}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
               >
-                <TagChip tag={o.nome} mini cor={o.cor} />
+                <TagChip tag={o.nome} mini cor={o.cor_efetiva ?? o.cor} titulo={o.descricao || (o.categoria ? `Categoria: ${o.categoria}` : undefined)} />
                 {o.tipo === "sistema" && (
                   <span className="ml-auto text-[10px] font-medium uppercase tracking-wide text-slate-300 dark:text-slate-600">sistema</span>
                 )}

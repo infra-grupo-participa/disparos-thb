@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompra, SeloRecompra, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -45,6 +45,13 @@ type Card = {
   equipe_nome: string | null;
   equipe_cor: string | null;
   equipe_tipo: "principal" | "comum" | null;
+  // DUPLO RESPONSÁVEL (0211/0212): dono POR ABA — histórico, distinto do
+  // vigente (responsavel_id) acima. Opcionais: a rota pode ainda não
+  // devolvê-los (backend subindo em paralelo).
+  responsavel_comercial_id?: string | null;
+  responsavel_comercial?: string | null;
+  responsavel_ativacao_id?: string | null;
+  responsavel_ativacao?: string | null;
   // Atribuição travada pelo admin (0142): operador comum não mexe. inbox_status
   // dá o selo de conversa pendente no card.
   atribuicao_admin: boolean;
@@ -490,7 +497,9 @@ export default function HmKanbanPage() {
   useEffect(() => { if (filtrosProntos) carregar(); }, [carregar, filtrosProntos]);
   useEffect(() => {
     fetch("/api/hm/tags").then((r) => r.json()).then((d) => {
-      if (d.ok) setCoresTags(Object.fromEntries(d.tags.map((t: { nome: string; cor: string | null }) => [t.nome, t.cor])));
+      // cor_efetiva (0206) é a cor derivada da categoria — cai para `cor` (override
+      // cru) se o payload ainda não trouxer o campo novo (API antiga em voo).
+      if (d.ok) setCoresTags(Object.fromEntries(d.tags.map((t: { nome: string; cor: string | null; cor_efetiva?: string | null }) => [t.nome, t.cor_efetiva ?? t.cor])));
     }).catch(() => {});
     fetch("/api/hm/estagios").then((r) => r.json()).then((d) => { if (d.ok) setEstagios(d.estagios); }).catch(() => {});
   }, []);
@@ -1495,6 +1504,9 @@ function CardItem({
   // Recompra (27/07, "por ora"): já era aluno antes de comprar — tag "Origem Txx"
   // ou "Aluno THB"/"Aluno Aurum" (nunca "Turma T39", que todo mundo ganha).
   const recompra = origemRecompra(card.tags);
+  // Aluno antigo (0213): sinal PRÓPRIO, separado de recompra — dispara a
+  // auto-marcação dos acessos e precisa dizer isso, não só "já foi cliente".
+  const alunoAntigo = ehAlunoAntigo(card.tags);
   // O card tem equipe? A borda esquerda é DELA (modelo de acesso, mais importante
   // que qualquer outro sinal). `equipe_cor` nula NÃO apaga a faixa: cai no cinza
   // padrão — antes o card de uma equipe sem cor parecia do pool sem ser.
@@ -1526,6 +1538,7 @@ function CardItem({
   // sinalizada pela borda superior vermelha mesmo com o selo colapsado.
   const extras: { key: string; rotulo: string; el: React.ReactNode }[] = [];
   if (recompra) extras.push({ key: "recompra", rotulo: `Recompra (${recompra})`, el: <SeloRecompra origem={recompra} /> });
+  if (alunoAntigo) extras.push({ key: "aluno_antigo", rotulo: "Aluno antigo — acessos pré-marcados", el: <SeloAlunoAntigo /> });
   if (cat) extras.push({
     key: "cat", rotulo: `Entrada: ${cat.txt}`,
     el: <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>,
@@ -1749,6 +1762,22 @@ function CardItem({
           <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /></svg>
           {dataEtapa.label}: {fmtDataHora(dataEtapa.quando)}
         </div>
+      )}
+
+      {/* DUPLO RESPONSÁVEL (0211/0212, B.4): quando o comercial (histórico,
+          imutável) diverge do vigente, mostra os DOIS — é a informação que a
+          feature existe para preservar. Sem isto no card, o duplo responsável
+          é só coluna no banco. Só aparece quando há de fato divergência (e o
+          comercial existe) — card sem histórico ainda não passou por lá e não
+          precisa de um selo extra dizendo o óbvio. */}
+      {card.responsavel_comercial && card.responsavel_comercial_id !== card.responsavel_id && (
+        <p
+          className="mt-1.5 flex items-center gap-1 truncate text-[10px] text-slate-500 dark:text-slate-400"
+          title={`Comercial (quem vendeu, histórico imutável): ${card.responsavel_comercial}. Operador vigente (quem está com o card agora): ${card.responsavel ?? "sem operador"}.`}
+        >
+          <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+          <span className="truncate">Comercial: {card.responsavel_comercial}</span>
+        </p>
       )}
 
       <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 dark:border-slate-800">

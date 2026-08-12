@@ -2,14 +2,17 @@ import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { guardProdutoOpcional } from "@/lib/produto-hm";
 import { nivelDe } from "@/lib/papeis";
-import { parsePeriodo } from "@/lib/validators";
+import { parsePeriodo, parseGranularidade } from "@/lib/validators";
 import { atividadeHm, type EscopoAtividade } from "@/lib/services/hm-atividade";
 
 export const runtime = "nodejs";
 
-// GET /api/hm/atividade?de=YYYY-MM-DD&ate=YYYY-MM-DD — o que cada colaborador
-// fez na esteira HM no período. Datas opcionais; `ate` é exclusivo (o dia
-// seguinte ao último que se quer incluir vem tratado no cliente).
+// GET /api/hm/atividade?de=YYYY-MM-DD&ate=YYYY-MM-DD[&granularidade=dia|semana|mes]
+// — o que cada colaborador fez na esteira HM no período. Datas opcionais; `ate`
+// é exclusivo (o dia seguinte ao último que se quer incluir vem tratado no
+// cliente). `granularidade` (D1, opcional) devolve também `serie` (total por
+// período×colaborador) e `colaboradores[].porColuna` (D3-a: para onde cada um
+// moveu, no período consultado).
 // RECORTE de LEITURA (28/07, leitura ≠ ação): master vê todos os colaboradores;
 // quem tem equipe — gestor OU operador — vê os colegas da própria equipe (a
 // tela de Atividade mostra o trabalho do time, decisão do Marcio); quem NÃO tem
@@ -27,16 +30,20 @@ export async function GET(req: Request) {
     : sessao.equipe_id ? { modo: "equipe", equipeId: sessao.equipe_id }
     : { modo: "operador", nome: sessao.nome || "" };
 
+  const sp = new URL(req.url).searchParams;
   // Validação de período compartilhada (lib/validators): sem ela, ?ate=invalido
   // virava 22007 do Postgres e derrubava o painel com 500 — agora é 400
   // data_invalida, a MESMA resposta do /api/atividade genérico.
-  const periodo = parsePeriodo(new URL(req.url).searchParams);
+  const periodo = parsePeriodo(sp);
   if (!periodo.ok) return periodo.res;
+  const granularidade = parseGranularidade(sp);
+  if (!granularidade.ok) return granularidade.res;
 
   // Board do produto (0164): sem isso a Atividade do Aurum somava o movimento do HM.
   const r = await atividadeHm(
     { de: periodo.de, ate: periodo.ate, produto: pAtv },
     escopo,
+    granularidade.granularidade,
   );
   return NextResponse.json({ ok: true, ...r });
 }

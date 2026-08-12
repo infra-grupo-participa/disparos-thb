@@ -10,7 +10,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
@@ -25,12 +25,26 @@ type Contato = {
   responsavel_id?: string | null; atribuicao_admin?: boolean;
   // Equipe dona do card (0140/0146) — a ficha (hm-ficha.ts) já devolve.
   equipe_id?: string | null; equipe_nome?: string | null; equipe_cor?: string | null;
+  // DUPLO RESPONSÁVEL (0211/0212, 12/08): dono POR ABA, carimbado uma vez ao
+  // ENTRAR nela e mantido depois — histórico, não "quem está mexendo agora"
+  // (isso é `responsavel`/`responsavel_id`, o campo VIGENTE, inalterado).
+  // Comercial é IMUTÁVEL depois de gravado (trigger fn_hm_congela_comercial,
+  // errcode restrict_violation) — "quem fechou a venda; não muda nem para o
+  // master". Ativação segue as regras normais de atribuição. Opcionais: a
+  // rota pode ainda não devolvê-los (backend subindo em paralelo).
+  responsavel_comercial_id?: string | null; responsavel_comercial?: string | null;
+  responsavel_ativacao_id?: string | null; responsavel_ativacao?: string | null;
   reuniao_em: string | null; reuniao_resultado: string | null; reuniao_gravacao_url: string | null;
   entrevista_em: string | null; entrevista_resultado: string | null; entrevista_gravacao_url: string | null;
   pagamento_em: string | null; pagamento_forma: string | null; apto_ativacao: boolean; tags: string[] | null;
   // acordo do saldo
   pagamento_meio: string | null; pagamento_previsto_em: string | null; acordo: string | null;
   oferta_saldo_codigo: string | null; link_saldo_enviado_em: string | null;
+  // Motivo do crédito pró-rata (novo campo, cs.contatos_hm.credito_obs): o
+  // pró-rata é calculado à mão (planilha do Victor / analista) — este texto
+  // explica POR QUE aquele aluno tem aquele crédito. Opcional: a rota pode
+  // ainda não devolvê-lo (backend subindo em paralelo).
+  credito_obs?: string | null;
   // travas
   nao_contatar: boolean; nao_contatar_motivo: string | null;
   revisar: boolean; revisar_motivo: string | null;
@@ -243,6 +257,9 @@ export function HmDrawer({
   const [acordo, setAcordo] = useState("");
   const [previsao, setPrevisao] = useState("");
   const [pendencia, setPendencia] = useState("");
+  // Motivo do crédito pró-rata — o mesmo padrão de rascunho local (grava no
+  // blur, um por abertura de card) já usado por acordo/previsão/pendência.
+  const [creditoObs, setCreditoObs] = useState("");
   const [grupo, setGrupo] = useState("");
   const [copiado, setCopiado] = useState(false);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
@@ -289,6 +306,7 @@ export function HmDrawer({
         setPrevisao(d.contato.pagamento_previsto_em?.slice(0, 10) ?? "");
         setPendencia(d.contato.pendencia ?? "");
         setGrupo(d.contato.grupo_informes ?? "");
+        setCreditoObs(d.contato.credito_obs ?? "");
         rascunhoIniciado.current = compradorId;
       }
     }
@@ -318,7 +336,9 @@ export function HmDrawer({
       setSalvando(false);
     }
   }
-  const coresTags = Object.fromEntries(catalogoTags.map((t) => [t.nome, t.cor]));
+  // cor_efetiva (0206) = a cor que se DESENHA (override da tag ou herdada da
+  // categoria); cai para `cor` se a API ainda não trouxer o campo novo.
+  const coresTags = Object.fromEntries(catalogoTags.map((t) => [t.nome, t.cor_efetiva ?? t.cor]));
   const ehGerenciada = (t: string) => /^(Origem|Turma|Aurum) /.test(t);
 
   // O servidor pode RECUSAR a edição: "Ativação Realizada" é a linha de chegada
@@ -461,10 +481,11 @@ export function HmDrawer({
                 {c.plano && <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{c.plano}</p>}
                 {/* Equipe dona + recompra — os mesmos selos do board, para a ficha
                     não contar outra história. Equipe sem cor cai no cinza padrão. */}
-                {(c.equipe_nome || origemRecompra(c.tags)) && (
+                {(c.equipe_nome || origemRecompra(c.tags) || ehAlunoAntigo(c.tags)) && (
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     {c.equipe_nome && <SeloEquipe nome={c.equipe_nome} cor={c.equipe_cor} grande abreviado={false} />}
                     {origemRecompra(c.tags) && <SeloRecompra origem={origemRecompra(c.tags)!} />}
+                    {ehAlunoAntigo(c.tags) && <SeloAlunoAntigo />}
                   </div>
                 )}
                 {/* Tags editáveis: × remove (menos as gerenciadas — turma/origem
@@ -733,6 +754,25 @@ export function HmDrawer({
                 {/* Saldo a pagar manual removido (30/07): o saldo é calculado pelo
                     pró-rata sobre o que a Hotmart registrou — não se digita à mão. */}
 
+                {/* Motivo do crédito pró-rata (cs.contatos_hm.credito_obs, novo
+                    campo): o valor do crédito é calculado à mão (planilha/analista)
+                    — este texto é o PORQUÊ daquele número, o mesmo padrão do `obs`
+                    e `excecao_motivo` que já existem na ficha do Aurum. Editável
+                    por quem pode mexer no card; grava no blur, como os campos
+                    vizinhos deste bloco. */}
+                <label className="mb-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  Motivo do crédito (pró-rata)
+                  <textarea
+                    value={creditoObs}
+                    disabled={somenteLeitura}
+                    onChange={(e) => setCreditoObs(e.target.value)}
+                    onBlur={() => patch({ credito_obs: creditoObs || null })}
+                    rows={2}
+                    placeholder="Ex.: dias não usados na turma anterior, desconto combinado com o Victor…"
+                    className={fieldClass}
+                  />
+                </label>
+
                 <div className="grid grid-cols-2 gap-2">
                   <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                     Como vai pagar
@@ -851,7 +891,60 @@ export function HmDrawer({
                 </div>
               </Campo>
 
-              <Campo label="Operador">
+              {/* DUPLO RESPONSÁVEL (0211/0212, 12/08) — três campos, três
+                  perguntas diferentes:
+                    · Comercial: quem VENDEU. Histórico, IMUTÁVEL (o banco
+                      recusa a escrita — errcode restrict_violation). SEMPRE
+                      leitura, inclusive para master: oferecer um seletor que o
+                      servidor vai recusar só faria a pessoa descobrir o limite
+                      errando.
+                    · Ativação: quem RECEBEU na aba de ativação. Também
+                      histórico, carimbado sozinho pela trigger ao entrar na
+                      aba (só se ainda vazio) — hoje sem endpoint de edição
+                      direta, então também sai como leitura.
+                    · Vigente (responsavel_id, abaixo): o campo de SEMPRE, quem
+                      está com o card AGORA — segue com o seletor/assumir
+                      normal, sem mudança de comportamento.
+                  Nulo mostra "—", nunca some: um card comercial sem
+                  responsável de ativação ainda não passou pela Ativação — é
+                  informação, não vazio para esconder. */}
+              <Campo label="Comercial">
+                <div
+                  className="flex items-center gap-2"
+                  title="Quem fechou a venda — é estrutural: não muda nem para o administrador do Grupo Participa. Corrigido só por migration pontual, fora da aplicação."
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  >
+                    <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  {c.responsavel_comercial ? (
+                    <>
+                      <Avatar nome={c.responsavel_comercial} className="h-7 w-7 text-xs" />
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{c.responsavel_comercial}</span>
+                    </>
+                  ) : (
+                    <span className="text-sm text-slate-400 dark:text-slate-500">—</span>
+                  )}
+                </div>
+              </Campo>
+
+              <Campo label="Ativação">
+                <div className="flex items-center gap-2">
+                  {c.responsavel_ativacao ? (
+                    <>
+                      <Avatar nome={c.responsavel_ativacao} className="h-7 w-7 text-xs" />
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{c.responsavel_ativacao}</span>
+                    </>
+                  ) : (
+                    <span className="text-sm text-slate-400 dark:text-slate-500">—</span>
+                  )}
+                </div>
+              </Campo>
+
+              <Campo label="Operador (vigente)">
                 {podeDistribuir() ? (
                   // MASTER/GESTOR: o seletor distribui. A lista `responsaveis` já
                   // vem recortada do servidor (master = todos os ativos; gestor =

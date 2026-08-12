@@ -25,7 +25,14 @@ export type Usuario = {
   gerente_distribuidor: boolean;
   // Equipe de ativação (0202): vê e move todo card da aba Ativação do HM,
   // inclusive de outra equipe. Marca por pessoa — ver lib/papeis.ts.
+  // MANTIDA nesta fase (0210/0212) como rede de segurança — ver o comentário
+  // de `ehEquipeDeAtivacao` em lib/papeis.ts.
   equipe_ativacao: boolean;
+  // Funções por portal (0210): substitui o boolean acima como fonte principal.
+  // Formato "portal:funcao" (ex.: "HM:comercial") — achatado assim porque a
+  // sessão trafega como objeto simples (cookie→token→SELECT), não como lista
+  // de pares; `temFuncao` (lib/papeis.ts) reconstrói a checagem.
+  funcoes: string[];
   // Portais que esta conta pode acessar (0145). Vazio = nenhum (conta restrita).
   portais: string[];
 };
@@ -80,7 +87,10 @@ export async function getSessao(): Promise<Usuario | null> {
     `select u.id, u.nome, u.email, u.papel, u.ativo, u.telefone, u.lider_equipe, u.gerente_distribuidor,
             u.equipe_ativacao,
             u.equipe_id, e.tipo as equipe_tipo, e.nome as equipe_nome, e.cor as equipe_cor,
-            coalesce((select array_agg(up.portal) from cs.usuario_portais up where up.usuario_id = u.id), '{}') as portais
+            coalesce((select array_agg(up.portal) from cs.usuario_portais up where up.usuario_id = u.id), '{}') as portais,
+            -- Funções por portal (0210/0212): "portal:funcao" achatado — a
+            -- pessoa pode ter várias (ex.: HM:comercial e HM:ativacao).
+            coalesce((select array_agg(uf.portal || ':' || uf.funcao) from cs.usuario_funcoes uf where uf.usuario_id = u.id), '{}') as funcoes
        from cs.usuarios u
        left join cs.equipes e on e.id = u.equipe_id
       where u.id = $1 and u.ativo = true`,

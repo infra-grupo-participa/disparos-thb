@@ -71,6 +71,15 @@ const SITUACAO: Record<string, string> = {
   incalculavel: "Saldo incalculável",
   cancelado: "Cancelado",
 };
+// A reconciliação (0214): pagamento_previsto_em confrontado contra cs.hm_pagamentos
+// (cs.vw_hm_financeiro.status_parcela). "Atrasado" só quando a data combinada
+// venceu e ninguém pagou nada depois dela — nunca a digitação isolada.
+const STATUS_PARCELA: Record<string, string> = {
+  quitado: "Quitado",
+  em_dia: "Em dia",
+  atrasado: "Atrasado",
+  aguardando: "Sem previsão combinada",
+};
 const PUBLICO: Record<string, string> = {
   lead_novo: "Lead novo",
   aluno_base: "Aluno da base",
@@ -226,6 +235,13 @@ function resumo(wb: ExcelJS.Workbook, r: RelatorioFinanceiroHm, agora: Date) {
   const parcelados = r.linhas.filter((l) => (l.parcelas_contratadas ?? 0) > 0);
   const pagas = parcelados.reduce((a, l) => a + (l.parcelas_pagas ?? 0), 0);
   const contratadas = parcelados.reduce((a, l) => a + (l.parcelas_contratadas ?? 0), 0);
+  // 0214: quem tem DATA COMBINADA vencida, reconciliada contra o razão — não a
+  // subtração agregada acima (que não sabe se o atraso é real ou já foi pago).
+  const comPrevisao = r.linhas.filter((l) => l.pagamento_previsto_em);
+  const atrasoReal = comPrevisao.filter((l) => l.status_parcela === "atrasado");
+  const jaPagouAposPrevisao = comPrevisao.filter(
+    (l) => l.status_parcela === "em_dia" && l.pagamento_previsto_em && new Date(l.pagamento_previsto_em) < agora,
+  );
   secao(ws, "PARCELAMENTO", ["", "Alunos", "Parcelas"], [
     ["Alunos com parcelamento", parcelados.length, contratadas],
     // A contagem de alunos é a mesma das três linhas — repeti-la faria parecer que
@@ -233,6 +249,20 @@ function resumo(wb: ExcelJS.Workbook, r: RelatorioFinanceiroHm, agora: Date) {
     ["Parcelas já pagas", "", pagas],
     ["Parcelas a vencer ou em atraso", "", Math.max(0, contratadas - pagas)],
   ], {});
+  secao(ws, "ATRASO — RECONCILIADO COM O RAZÃO", ["", "Alunos", "", "Observação"], [
+    [
+      "⚠ Data combinada vencida, sem pagamento desde então",
+      atrasoReal.length,
+      "",
+      "Atraso real — é quem cobrar.",
+    ],
+    [
+      "Data combinada vencida, mas JÁ PAGOU depois",
+      jaPagouAposPrevisao.length,
+      "",
+      "O card no board pode estar pintando atraso à toa — o campo manual não foi atualizado, mas o dinheiro já caiu.",
+    ],
+  ], { alertaSe: (i) => i === 0 && atrasoReal.length > 0 });
 
   // ----- cancelamentos: o confronto -----
   const cancHm = r.linhas.filter((l) => l.hotmart_cancelado_em);
@@ -332,6 +362,9 @@ const COLS_CARTEIRA: Col<LinhaEsteira>[] = [
   { header: "Sinal pago em", width: 13, get: (l) => d(l.sinal_pago_em), fmt: "data" },
   { header: "Valor do sinal", width: 13, get: (l) => n(l.sinal_valor), fmt: "dinheiro" },
   { header: "Crédito pró-rata", width: 14, get: (l) => n(l.credito), fmt: "dinheiro" },
+  // 0214: o motivo do pró-rata, ao lado do valor — sem ele o crédito é "confia em
+  // mim". Existe desde a 0207 e não saía em nenhum relatório (0 preenchidos).
+  { header: "Motivo do crédito pró-rata", width: 34, get: (l) => txt(l.credito_obs) },
   // Cravado = o pacote que foi FECHADO com a pessoa. Pela régua = o que o sistema
   // deduziu. Os dois na planilha, e a diferença ao lado: uma dedução não é acordo.
   { header: "Pacote cravado", width: 14, get: (l) => n(l.valor_total), fmt: "dinheiro" },
@@ -356,6 +389,10 @@ const COLS_CARTEIRA: Col<LinhaEsteira>[] = [
   { header: "Valor do abatimento", width: 14, get: (l) => n(l.ultimo_abatimento_valor), fmt: "dinheiro" },
   { header: "Meio de pagamento", width: 16, get: (l) => txt(l.pagamento_meio) },
   { header: "Previsão de pagamento", width: 16, get: (l) => d(l.pagamento_previsto_em), fmt: "data" },
+  // 0214: a leitura RECONCILIADA — "Atrasado" só quando venceu e ninguém pagou
+  // depois. É a que corrige o falso positivo do badge do board (data vencida
+  // não quer dizer que a pessoa não pagou; o razão pode dizer outra coisa).
+  { header: "Situação da parcela", width: 20, get: (l) => STATUS_PARCELA[l.status_parcela ?? ""] ?? txt(l.status_parcela) },
   { header: "Acordo", width: 40, get: (l) => txt(l.acordo) },
   { header: "Oferta do saldo", width: 14, get: (l) => txt(l.oferta_saldo_codigo) },
   { header: "Link enviado em", width: 15, get: (l) => d(l.link_saldo_enviado_em), fmt: "data" },
@@ -389,6 +426,9 @@ const COLS_A_RECEBER: Col<LinhaEsteira>[] = [
   { header: "Último pagamento", width: 15, get: (l) => d(l.ultimo_pagamento_em), fmt: "data" },
   { header: "Meio de pagamento", width: 16, get: (l) => txt(l.pagamento_meio) },
   { header: "Previsão de pagamento", width: 16, get: (l) => d(l.pagamento_previsto_em), fmt: "data" },
+  // 0214: idem Carteira — a lista de cobrança não pode gritar atraso de quem
+  // já pagou depois da data combinada.
+  { header: "Situação da parcela", width: 20, get: (l) => STATUS_PARCELA[l.status_parcela ?? ""] ?? txt(l.status_parcela) },
   { header: "Acordo", width: 40, get: (l) => txt(l.acordo) },
   { header: "Oferta do saldo", width: 14, get: (l) => txt(l.oferta_saldo_codigo) },
   { header: "Link enviado em", width: 15, get: (l) => d(l.link_saldo_enviado_em), fmt: "data" },

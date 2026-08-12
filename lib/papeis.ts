@@ -48,59 +48,59 @@ export function acaoLivrePorEquipeEvento(u: Ator | null | undefined, evento?: st
     && ehEquipeGrupoParticipa(u);
 }
 
-// ===== Esteira compartilhada: aba Ativação do HM (12/08/2026, pedido do Marcio) ===
+// ===== Funções por portal (0210, 12/08/2026 16h) ============================
+// `cs.usuario_funcoes` (portal, funcao) substitui o boolean único
+// `equipe_ativacao` como fonte principal de "que função a pessoa exerce em
+// que portal" — uma pessoa pode ter 'comercial' e 'ativacao' no mesmo portal
+// (o próprio caso Ana Camila/Thomas). `sessao.funcoes` chega achatada como
+// "portal:funcao" (ver lib/auth.ts) porque a sessão trafega como objeto
+// simples; esta função reconstrói a checagem sem a pessoa que chama precisar
+// saber do formato.
+export function temFuncao(u: Ator | null | undefined, portal: string, funcao: "comercial" | "ativacao"): boolean {
+  return !!u?.funcoes?.includes(`${portal}:${funcao}`);
+}
+
+// Tags que marcam quem já foi aluno (THB ou Aurum) antes de reentrar pela
+// Ativação (0213, gatilho de auto-marcação de acessos). Vive aqui porque é a
+// MESMA lista que a migration 0213 espelha em SQL — mudar de um lado sem
+// mudar do outro é o tipo de drift que este arquivo existe para evitar.
+export const TAGS_ALUNO_ANTIGO: readonly string[] = ["Aluno THB", "Aluno Aurum"];
+
+// ===== Esteira compartilhada: abas do HM por FUNÇÃO (12/08/2026, pedido do Marcio) ===
 // A equipe de ativação (hoje Ana Camila e Thomas) precisa VER e MOVER todo card
-// da aba Ativação do produto HM — inclusive os que hoje são só da Kelly
-// (Equipe 2, equipe_tipo 'comum') e que hoje nem aparecem para elas. O card cai
-// atribuído a UMA pessoa (webhook/pagamento), mas a ativação é trabalho de equipe.
+// das abas do produto HM em que TÊM FUNÇÃO — inclusive os que hoje são só da
+// Kelly (Equipe 2, equipe_tipo 'comum') e que hoje nem aparecem para elas. O
+// card cai atribuído a UMA pessoa (webhook/pagamento), mas a ativação (e,
+// desde 12/08 16h, o comercial) é trabalho de equipe.
 //
-// ⚠️ QUEM tem o bônus é `usuario.equipe_ativacao` (migration 0202), NÃO
+// ⚠️ QUEM tem o bônus é decidido por FUNÇÃO (`cs.usuario_funcoes`, 0210), NÃO
 // `equipe_tipo = 'principal'`. A diferença importa: o Grupo Participa tem 14
-// pessoas ativas e o pedido nomeia 2. "Equipe de ativação" é um SUBCONJUNTO da
-// equipe principal — e um subconjunto que muda (entra e sai gente) sem que o
-// tipo da equipe mude. Como marca por pessoa, incluir a 3ª é um UPDATE em
-// cs.usuarios; como tipo de equipe, seria migration + deploy, e daria o bônus a
-// 12 pessoas que não o pediram.
+// pessoas ativas e o pedido nomeia 2. "Quem tem função no HM" é um SUBCONJUNTO
+// da equipe principal — e um subconjunto que muda (entra e sai gente, e agora
+// entra e sai POR ABA) sem que o tipo da equipe mude. Incluir a 3ª pessoa, ou
+// dar a alguém só o comercial e não a ativação, é um INSERT em
+// cs.usuario_funcoes; como tipo de equipe, seria migration + deploy, e daria o
+// bônus a 12 pessoas que não o pediram.
 // Mesmo espírito de `gerente_distribuidor` (0161) e `lider_equipe` (0143):
 // capacidade de PESSOA mora no usuário, não no tipo da equipe.
 //
-// O recorte é a INTERSEÇÃO de duas coisas — as duas têm de casar:
-//   evento  'HM'        (o board é o mesmo do arraste livre acima)
-//   produto 'HM'        (AURUM e ETHB são o MESMO evento HM, produtos
-//                         diferentes — ficam INTACTOS. Caro de propósito: é
-//                         o predicado mais caro, mas sem ele a esteira
-//                         compartilhada vazaria para os outros boards.)
-// A ABA entrou e depois saiu do recorte — ver o bloco abaixo.
+// ⚠️ A LISTA DE ABAS NÃO É MAIS FIXA (12/08, virada 0210→0212). Até aqui
+// `ABAS_ESTEIRA_COMPARTILHADA` era uma constante ["ativacao","comercial"] que
+// valia igual para qualquer pessoa com a marca. Agora cada SESSÃO tem sua
+// própria lista, resolvida por `abasDaEsteira` a partir de QUAIS funções ela
+// tem: alguém só com `HM:ativacao` alcança card na aba ativação e NÃO alcança
+// card no comercial — mesmo tendo a "marca" (o boolean de rede de segurança,
+// ver `ehEquipeDeAtivacao`). Migrar o predicado (SQL e JS) de um booleano fixo
+// para uma LISTA passada pelo chamador é o que torna essa granularidade
+// possível sem duplicar a regra em N lugares — ver `abasDaEsteira` e
+// `lib/services/visibilidade.ts` (sqlEscopo/podeVerPorEscopo recebem `abas` +
+// `produto`, não mais um único booleano `esteira`).
 //
-// ⚠️ MUDANÇA DE ESCOPO NO MESMO DIA (12/08, 16h): o COMERCIAL entrou.
-// De manhã a regra cobria só a aba 'ativacao', com a justificativa de que o
-// comercial guarda a autoria da venda ("a gente sabe que aquele card ali, quem
-// fez a venda foi tal pessoa"). À tarde apareceu o caso concreto: a Ana Camila
-// não conseguia mover a **Gabriela Cristina Gavioli Pinto**, que está em
-// "Aguardando Retorno" — aba COMERCIAL, Equipe 2 (Kelly). Ela nem via o card.
-// Decisão do Marcio: liberar o comercial também.
+// O recorte é a INTERSEÇÃO de: evento 'HM' · produto 'HM' (AURUM e ETHB são o
+// MESMO evento HM, produtos diferentes — ficam INTACTOS, é o predicado mais
+// caro de propósito) · a aba do card estar na lista de abas QUE ESTA SESSÃO
+// alcança.
 //
-// Medido no momento da mudança: 57 cards de outra equipe no comercial do HM
-// (36 em "Aguardando Retorno", 10 em "Contato Inicial", 5 em "Reunião
-// Finalizada", 3 em "Boleto Gerado", 2 em "Reunião Agendada", 1 "Reembolsado").
-// Com o comercial dentro, o alcance vai de 95 para 152 cards.
-//
-// O que a mudança NÃO altera, e continua valendo:
-//   · a autoria da venda segue gravada no card (`responsavel`/`equipe_id`) —
-//     liberar o MOVIMENTO não apaga de quem o card é;
-//   · AURUM/ETHB seguem fora (o predicado de produto não mudou);
-//   · assumir o card e disparar continuam bloqueados.
-//
-// As constantes moram AQUI, e só aqui — antes estavam digitadas soltas em ~10
-// arquivos (hm.ts, telas do board, exports, script de relatório): um "ativacao"
-// reescrito por engano num desses lugares silenciava a regra sem erro nenhum.
-// Server (SQL) e cliente (JS) importam as MESMAS constantes.
-export const ESTEIRA_COMPARTILHADA_ABA = "ativacao";
-export const ESTEIRA_COMPARTILHADA_PRODUTO = "HM";
-// Ambas as abas do board do HM. `null` (card sem estágio) segue FORA: a regra
-// nunca entra por omissão de dado — fail-closed, como o SQL e o JS espelham.
-export const ABAS_ESTEIRA_COMPARTILHADA: readonly string[] = ["ativacao", "comercial"];
-
 // O que esta regra deliberadamente NÃO cobre (decisões travadas do Marcio,
 // 12/08/2026 — não mexer sem novo pedido):
 //   · DISPARO — /api/send e /api/disparos/elegiveis continuam SEM o ramo
@@ -110,43 +110,51 @@ export const ABAS_ESTEIRA_COMPARTILHADA: readonly string[] = ["ativacao", "comer
 //   · ASSUMIR (reatribuir para si) — atribuicao_travada de hm.ts continua
 //     bloqueando. Ver/mover ≠ tomar posse do card de outra equipe.
 //   · AURUM/ETHB — mesmo evento HM, produto diferente do predicado: intactos.
-//   · Aba COMERCIAL do HM — só a Ativação entra; o comercial é território da
-//     equipe dona do card, como sempre foi.
+//
+// As constantes moram AQUI, e só aqui — antes estavam digitadas soltas em ~10
+// arquivos (hm.ts, telas do board, exports, script de relatório): um "ativacao"
+// reescrito por engano num desses lugares silenciava a regra sem erro nenhum.
+// Server (SQL) e cliente (JS) importam as MESMAS constantes.
+export const ESTEIRA_COMPARTILHADA_PRODUTO = "HM";
+
+// A(s) aba(s) que ESTA SESSÃO alcança pela esteira compartilhada, neste
+// evento×produto. Vazio ([]) = ramo morto para esta sessão — fail-closed
+// MAIS FORTE que antes: com a lista fixa, ter a marca bastava para as duas
+// abas; agora cada função soma uma aba, e sem nenhuma função soma zero.
+export function abasDaEsteira(
+  ator: Ator | null | undefined,
+  evento?: string | null,
+  produto?: string | null,
+): string[] {
+  if (evento !== "HM" || produto !== ESTEIRA_COMPARTILHADA_PRODUTO) return [];
+  const abas: string[] = [];
+  if (temFuncao(ator, "HM", "comercial")) abas.push("comercial");
+  if (temFuncao(ator, "HM", "ativacao")) abas.push("ativacao");
+  return abas;
+}
+
+// A pergunta sobre um CARD já carregado: "esta sessão alcança este card pela
+// esteira?" — casa a aba do card contra `abasDaEsteira`.
 export function esteiraCompartilhada(
   ator: Ator | null | undefined,
   evento?: string | null,
   aba?: string | null,
   produto?: string | null,
 ): boolean {
-  return evento === "HM"
-    && ehEquipeDeAtivacao(ator)
-    && !!aba && ABAS_ESTEIRA_COMPARTILHADA.includes(aba)
-    && produto === ESTEIRA_COMPARTILHADA_PRODUTO;
+  return !!aba && abasDaEsteira(ator, evento, produto).includes(aba);
 }
 
-/**
- * A pergunta das LISTAGENS: "esta sessão tem o bônus neste board?" — sem um card
- * em mãos. As rotas do kanban/tabela/export resolvem isto no JS e mandam o
- * booleano ao SQL, que faz o recorte por aba/produto de cada CARD.
- *
- * Existe para as rotas não precisarem passar uma aba qualquer só para satisfazer
- * a assinatura (era `ABAS_ESTEIRA_COMPARTILHADA[0]`, que dava a impressão errada
- * de que a regra valia só para a primeira aba da lista).
- */
-export function esteiraCompartilhadaNoBoard(
-  ator: Ator | null | undefined,
-  evento?: string | null,
-  produto?: string | null,
-): boolean {
-  return evento === "HM"
-    && ehEquipeDeAtivacao(ator)
-    && produto === ESTEIRA_COMPARTILHADA_PRODUTO;
-}
-
-// A marca por pessoa (0202). Fail-closed: sem o campo na sessão (undefined) o
-// bônus não entra — quem não tem a marca segue com o escopo normal.
+// A marca por pessoa (0202) — boolean único, ORIGEM da funcionalidade antes
+// de virar função granular por aba (0210/0212). MANTIDA como REDE DE
+// SEGURANÇA deliberada por um deploy: o `||` cobre a janela entre "o código
+// novo foi para produção" e "o backfill de cs.usuario_funcoes rodou / foi
+// conferido" — se algo no backfill (0210) tiver ficado incompleto, quem já
+// tinha `equipe_ativacao=true` não perde o acesso que já tinha hoje. Uma vez
+// confirmado que `cs.usuario_funcoes` cobre todo mundo que precisa, este `||`
+// vira candidato a remoção em migration futura (dropar a coluna também).
+// Fail-closed nos dois lados: sem `funcoes` NEM `equipe_ativacao`, false.
 export function ehEquipeDeAtivacao(u: Ator | null | undefined): boolean {
-  return !!u?.equipe_ativacao;
+  return temFuncao(u, "HM", "ativacao") || !!u?.equipe_ativacao;
 }
 
 // ===== Equipes / níveis de acesso ==========================================
@@ -210,6 +218,16 @@ export type Ator = {
    * mesmo corte do `gerente_distribuidor`.
    */
   equipe_ativacao?: boolean | null;
+  /**
+   * FUNÇÕES POR PORTAL (0210, 12/08 16h): substitui `equipe_ativacao` como
+   * fonte principal de "que função a pessoa exerce em que portal". Formato
+   * achatado "portal:funcao" (ex.: "HM:comercial", "HM:ativacao") — casado
+   * por `temFuncao`. Uma pessoa pode ter as duas funções no mesmo portal.
+   *
+   * `equipe_ativacao` continua no tipo como rede de segurança (`||` em
+   * `ehEquipeDeAtivacao`) — ver o comentário dela.
+   */
+  funcoes?: string[] | null;
 };
 
 // Ator ausente (sessão ainda não carregada, autor de sistema) = o nível mais

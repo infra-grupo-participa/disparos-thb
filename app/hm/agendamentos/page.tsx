@@ -119,6 +119,21 @@ export default function HmAgendamentosPage() {
   const [diaAberto, setDiaAberto] = useState<string | null>(null);
   const [aberto, setAberto] = useState<Agendamento | null>(null);   // modal do evento
   const [criar, setCriar] = useState<{ dia: Date; hora: number } | null>(null); // slot para encaixar
+  // Cor + descrição do catálogo (cs.tags, 0206) — o único ponto do HM que ainda
+  // caía no fallback por regex (tagTone), ignorando o dicionário. Catálogo é
+  // ÚNICO para os 3 boards (mesmo padrão do kanban): fetch puro, sem ?produto=.
+  const [tagsCatalogo, setTagsCatalogo] = useState<Record<string, { cor: string | null; descricao: string | null }>>({});
+  useEffect(() => {
+    fetch("/api/hm/tags").then((r) => r.json()).then((d) => {
+      if (!d.ok) return;
+      setTagsCatalogo(Object.fromEntries(
+        d.tags.map((t: { nome: string; cor: string | null; cor_efetiva?: string | null; descricao?: string | null }) => [
+          t.nome,
+          { cor: t.cor_efetiva ?? t.cor, descricao: t.descricao ?? null },
+        ]),
+      ));
+    }).catch(() => {});
+  }, []);
 
   // A vista e os filtros são escolha de quem usa. Perdê-los a cada visita é o que
   // o time chamou de "a agenda desconfigura": a pessoa arruma e, no dia seguinte,
@@ -441,7 +456,7 @@ export default function HmAgendamentosPage() {
         </>
       )}
 
-      {aberto && <ModalEvento ev={aberto} onClose={() => setAberto(null)} />}
+      {aberto && <ModalEvento ev={aberto} onClose={() => setAberto(null)} tagsCatalogo={tagsCatalogo} />}
       {criar && (
         <CriarAgendamento
           slot={criar}
@@ -667,7 +682,15 @@ function CriarAgendamento({ slot, onClose, onCriado }: {
 // está espalhado pelo card: quem é a pessoa, o que já foi combinado, o que trava
 // e (na entrevista) o que falta da ativação. Sem isso, o evento da agenda é só um
 // nome numa data e alguém teria que abrir o kanban para saber do que se trata.
-function ModalEvento({ ev, onClose }: { ev: Agendamento; onClose: () => void }) {
+function ModalEvento({
+  ev,
+  onClose,
+  tagsCatalogo,
+}: {
+  ev: Agendamento;
+  onClose: () => void;
+  tagsCatalogo: Record<string, { cor: string | null; descricao: string | null }>;
+}) {
   const t = TIPOS[ev.tipo];
   const checklist = [
     ["Searchie/Óbvio", ev.ativ_searchie],
@@ -716,7 +739,9 @@ function ModalEvento({ ev, onClose }: { ev: Agendamento; onClose: () => void }) 
               e por qual canal entrou. */}
           {ev.tags && ev.tags.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              {ev.tags.map((tag) => <TagChip key={tag} tag={tag} mini />)}
+              {ev.tags.map((tag) => (
+                <TagChip key={tag} tag={tag} mini cor={tagsCatalogo[tag]?.cor} titulo={tagsCatalogo[tag]?.descricao} />
+              ))}
             </div>
           )}
 

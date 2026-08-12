@@ -13,6 +13,7 @@ import {
   escopoAcao as regraEscopoAcao,
   acaoLivrePorEquipeEvento as regraAcaoLivre,
   esteiraCompartilhada as regraEsteiraCompartilhada,
+  ehEquipeDeAtivacao as regraEhEquipeDeAtivacao,
   type Papel,
   type TipoEquipe,
   type Nivel,
@@ -39,6 +40,12 @@ export type Me = {
   // em cache pode não trazer o campo — e `!!undefined` é false, que é o
   // fail-closed certo: na dúvida, sem o bônus.
   equipe_ativacao?: boolean;
+  // FUNÇÕES POR PORTAL (0210/0212): "portal:funcao" achatado (ex.: "HM:comercial",
+  // "HM:ativacao") — fonte PRINCIPAL do predicado de esteira compartilhada,
+  // casada por `temFuncao`/`ehEquipeDeAtivacao` (lib/papeis). Opcional pelo
+  // mesmo motivo de `equipe_ativacao`: sessão em cache sem o campo ainda não
+  // deve travar a UI, só deixá-la cair na rede de segurança abaixo.
+  funcoes?: string[];
 };
 
 // Usuário logado para gating de UI. Os três NÍVEIS efetivos (decisão 27/07):
@@ -87,8 +94,16 @@ export function useMe() {
   // não muda o board da Ana; ele existe para não deixar a UI e o backend
   // divergirem quando o critério deixar de ser "evento inteiro".
   // Mesma ordem de parâmetros de lib/papeis: (evento, aba, produto).
+  // Rede de segurança (0210/0212, mesmo espírito de `ehEquipeDeAtivacao` acima):
+  // sem NENHUMA função em cs.usuario_funcoes, `regraEsteiraCompartilhada` dá
+  // sempre false — quem ainda só tem o boolean antigo `equipe_ativacao=true`
+  // não pode perder o card na aba Ativação-HM só porque o backfill de funções
+  // não rodou/foi conferido. O `||` cobre exatamente essa aba+produto.
   const esteiraCompartilhada = (evento?: string | null, aba?: string | null, produto?: string | null) =>
-    !!me && regraEsteiraCompartilhada(me, evento, aba, produto);
+    !!me && (
+      regraEsteiraCompartilhada(me, evento, aba, produto)
+      || (!!me.equipe_ativacao && evento === "HM" && aba === "ativacao" && (produto == null || produto === "HM"))
+    );
   const ehCardDeColega = (
     card: { responsavel_id?: string | null; estagio_aba?: string | null } | null | undefined,
     evento?: string | null,
@@ -101,10 +116,16 @@ export function useMe() {
     if (esteiraCompartilhada(evento, card.estagio_aba, produto)) return false;
     return regraEscopoAcao(me).modo === "operador" && card.responsavel_id !== me.id;
   };
-  // Marca de pessoa (0202): "esta conta é da equipe de ativação?". A UI usa para
+  // Marca de pessoa: "esta conta é da equipe de ativação?". A UI usa para
   // sinalizar que a aba Ativação é o território dela — o selo é informativo, a
   // permissão de verdade está no backend.
-  const ehEquipeDeAtivacao = !!me?.equipe_ativacao;
+  // 0210/0212: passa a usar o predicado novo (temFuncao "HM:ativacao"), com o
+  // boolean antigo (`equipe_ativacao`) mantido como REDE DE SEGURANÇA — o
+  // MESMO `||` que o backend usa em `ehEquipeDeAtivacao` (lib/papeis.ts): cobre
+  // a janela entre "o código novo foi para produção" e "o backfill de
+  // cs.usuario_funcoes rodou/foi conferido". Sai num deploy futuro, junto com o
+  // do backend.
+  const ehEquipeDeAtivacao = !!me && (regraEhEquipeDeAtivacao(me) || !!me.equipe_ativacao);
   return { me, nivel, ehMaster, podeVerTudo, podeGerirAcesso, podeDistribuir, podeAtribuirPara, podeDisparar, podeAcessarPortal, ehCardDeColega, acaoLivre, esteiraCompartilhada, ehEquipeDeAtivacao };
 }
 
@@ -143,6 +164,16 @@ export function msgErroPermissao(reason?: string | null): string | null {
       return "Não é possível assumir este card para você — ele é de outra equipe (ou a atribuição foi travada pelo administrador). Você pode movê-lo e editá-lo normalmente; só a reatribuição para si é que fica bloqueada. Fale com o administrador do Grupo Participa se precisar mudar o dono.";
     case "cancelamento_so_admin_gp":
       return "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.";
+    case "responsavel_comercial_imutavel":
+      // Espelho do errcode `restrict_violation` que a trigger
+      // cs.fn_hm_congela_comercial (0212) devolve se algo tentar reescrever
+      // responsavel_comercial_id depois de gravado — hoje o front nunca manda
+      // esse campo (o comercial é sempre leitura na ficha), então este caso é
+      // rede de segurança para quando o backend passar a mapear o errcode para
+      // este reason. Não é permissão, é natureza do dado: como
+      // `pagamento_so_hotmart` acima, corrigir é migration pontual, não edição
+      // pela aplicação — nem o master reescreve pela tela.
+      return "O comercial responsável é histórico imutável — quem fechou a venda não se reescreve, nem pelo administrador. Se o dado está errado, é correção de banco (migration pontual), não edição pela ficha.";
     case "pagamento_so_hotmart":
       return "Pagamento não é lançado à mão — a confirmação vem da Hotmart. Envie o link do saldo; ao pagar, o card entra sozinho na Ativação. Se a Hotmart não refletiu, avise o admin para catalogar a oferta.";
     case "saldo_so_hotmart":

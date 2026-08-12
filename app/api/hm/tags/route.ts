@@ -6,7 +6,9 @@ import { listarTagsHm, criarTagHm } from "@/lib/services/hm-tags";
 
 export const runtime = "nodejs";
 
-// GET /api/hm/tags — o catálogo (nome, cor, tipo, quantos cards usam).
+// GET /api/hm/tags — o catálogo (nome, cor, tipo, quantos cards usam) + o
+// dicionário (0206): categoria, rótulo da categoria, descrição e cor_efetiva
+// (override da tag OU cor herdada de cs.tag_categoria).
 export async function GET(req: Request) {
   // 0187: o portal validado e o do produto PEDIDO, nao "HM" literal — HM/AURUM/ETHB
   // sao portais distintos em cs.usuario_portais. Vem no topo: nada pode ler g.sessao

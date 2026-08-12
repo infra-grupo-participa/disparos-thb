@@ -42,6 +42,11 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
     `select k.comprador_id, k.nome, k.email, k.telefone, k.turma, k.turma_origem, k.plano, k.categoria_entrada,
             k.estagio_chave, k.estagio_nome, k.estagio_aba, k.responsavel,
             k.responsavel_id, k.equipe_id, k.equipe_nome, k.equipe_cor, ch.atribuicao_admin,
+            -- Histórico por aba (0211/0212): dono do card em cada aba, mesmo
+            -- depois que ele muda de aba. A view contatos_hm_kanban já expõe
+            -- os ids e os nomes derivados (LEFT JOIN) desde a 0211.
+            k.responsavel_comercial_id, k.responsavel_ativacao_id,
+            k.responsavel_comercial, k.responsavel_ativacao,
             k.reuniao_em, k.reuniao_resultado, k.reuniao_gravacao_url,
             k.entrevista_em, k.entrevista_resultado, k.entrevista_gravacao_url,
             k.pagamento_forma, k.pagamento_parcelas, k.pagamento_em, k.apto_ativacao,
@@ -54,7 +59,12 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
             k.hotmart_status, k.hotmart_status_em, k.canal_aquisicao,
             k.rev_searchie, k.rev_comunidade, k.rev_grupo, k.rev_pesquisa,
             k.acessos_revogados_em, k.acessos_revogados_por, k.acessos_a_remover, k.aluno_id,
-            k.tags, k.observacoes, k.criado_em, ch.produto, ch.id as contato_hm_id
+            k.tags, k.observacoes, k.criado_em, ch.produto, ch.id as contato_hm_id,
+            -- credito_obs (0207/F4): motivo do pró-rata manual. Não está na view
+            -- contatos_hm_kanban (nenhum campo credito_* insumo está — só o
+            -- calculado sai via fn_hm_prorata, abaixo), então vem direto da
+            -- tabela, no mesmo select que já busca atribuicao_admin/produto por ali.
+            ch.credito_obs
        from cs.contatos_hm_kanban k
        -- 0164: join pelo CARD. Com card por pessoa×produto, casar por comprador_id
        -- cruzaria o card do HM com o do Aurum (a mesma regressão da 0163).

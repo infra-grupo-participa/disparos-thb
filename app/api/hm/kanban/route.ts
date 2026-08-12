@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { produtoDaRequisicao } from "@/lib/produto-hm";
-import { ehMaster, escopoVisibilidade, esteiraCompartilhadaNoBoard, paramsEscopo, type Ator } from "@/lib/papeis";
+import { ehMaster, escopoVisibilidade, abasDaEsteira, ESTEIRA_COMPARTILHADA_PRODUTO, paramsEscopo, type Ator } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
 import { listaResponsaveis, sqlEscopo } from "@/lib/services/visibilidade";
@@ -43,13 +43,15 @@ export async function GET(req: Request) {
   // pool + todos os cards da equipe dele; operador comum vê o pool + só os
   // cards atribuídos a ele. O filtro por responsável (abaixo) é conveniência.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(sessao));
-  // Esteira compartilhada (0202): a equipe de ativação vê TODO card da aba
-  // Ativação deste board, inclusive de outra equipe. Resolvido aqui, no JS
-  // ("esta sessão tem o bônus?"), e mandado como booleano — o SQL só compara a
-  // aba e o produto do CARD. `produto` entra na conta para o bônus não vazar
-  // para AURUM/ETHB quando o board pedido é outro.
-  const esteira = esteiraCompartilhadaNoBoard(sessao as Ator, "HM", produto);
-  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId, produto, esteira];
+  // Esteira compartilhada (0210/0212): a lista de abas que ESTA SESSÃO
+  // alcança neste board, resolvida por FUNÇÃO (cs.usuario_funcoes) — cada
+  // função (comercial/ativação) soma uma aba. Resolvido aqui, no JS, e mandado
+  // como `text[]` — o SQL só compara a aba do CARD contra essa lista e o
+  // produto do card contra `ESTEIRA_COMPARTILHADA_PRODUTO`. `produto` entra na
+  // conta (abasDaEsteira) para o bônus não vazar para AURUM/ETHB quando o
+  // board pedido é outro.
+  const abas = abasDaEsteira(sessao as Ator, "HM", produto);
+  const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId, produto, abas, ESTEIRA_COMPARTILHADA_PRODUTO];
 
   const colunas = await query(
     `select e.chave, e.nome, e.cor, e.aba
@@ -62,6 +64,12 @@ export async function GET(req: Request) {
     `select k.comprador_id, k.nome, k.email, k.telefone, k.turma, k.plano, k.categoria_entrada,
             k.estagio_chave, k.estagio_nome, k.estagio_aba, k.responsavel, k.tags, k.apto_ativacao,
             k.responsavel_id, k.equipe_id, k.equipe_nome, k.equipe_cor, k.equipe_tipo,
+            -- Duplo responsável (0211/0212): dono POR ABA, para o card mostrar
+            -- os dois quando divergem do vigente (k.responsavel_id) — é a
+            -- informação que a feature existe para preservar; sem isto no
+            -- SELECT do board, o duplo responsável é só coluna no banco.
+            k.responsavel_comercial_id, k.responsavel_comercial,
+            k.responsavel_ativacao_id, k.responsavel_ativacao,
             ch2.atribuicao_admin, ch2.inbox_status,
             k.reuniao_em, k.entrevista_em, k.pagamento_em, k.pagamento_previsto_em,
             -- Saldo quitado: não deve mais nada. Colore o card de verde sutil (0099).
@@ -123,7 +131,7 @@ export async function GET(req: Request) {
         -- (sem id, sem equipe E sem texto órfão) OU é MEU OU é da minha equipe.
         and ${sqlEscopo(
           { rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags", aba: "k.estagio_aba", produto: "k.produto" },
-          { verTudo: 4, usuario: 5, equipe: 6, esteira: 8 },
+          { verTudo: 4, usuario: 5, equipe: 6, abas: 8, produto: 9 },
         )}
       order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
@@ -152,13 +160,13 @@ export async function GET(req: Request) {
                where tk.comprador_id = s.titular_comprador_id
                  and ${sqlEscopo(
                    { rid: "tk.responsavel_id", eq: "tk.equipe_id", nome: "tk.responsavel", tags: "tk.tags", aba: "tk.estagio_aba", produto: "tk.produto" },
-                   { verTudo: 1, usuario: 2, equipe: 3, esteira: 5 },
+                   { verTudo: 1, usuario: 2, equipe: 3, abas: 5, produto: 6 },
                  )})
       order by s.titular_nome, s.nome`,
     // O sócio herda a visibilidade do TITULAR — inclusive pelo ramo esteira: os
-    // sócios vivem justamente na Ativação, então sem $5 aqui o card do titular
-    // apareceria no board e os sócios dele sumiriam.
-    [verTudo, usuarioId, equipeId, produto, esteira],
+    // sócios vivem justamente na Ativação, então sem $5/$6 aqui o card do
+    // titular apareceria no board e os sócios dele sumiriam.
+    [verTudo, usuarioId, equipeId, produto, abas, ESTEIRA_COMPARTILHADA_PRODUTO],
   );
 
   // Quem pode assumir um contato = a equipe ATIVA (cs.usuarios), não só quem já

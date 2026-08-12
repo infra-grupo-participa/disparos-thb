@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { nivelDe } from "@/lib/papeis";
-import { parsePeriodo } from "@/lib/validators";
+import { parsePeriodo, parseGranularidade } from "@/lib/validators";
 import { eventoDe } from "@/lib/services/evento";
 import { atividadeEvento, type EscopoAtividade } from "@/lib/services/hm-atividade";
 
 export const runtime = "nodejs";
 
-// GET /api/atividade?de=YYYY-MM-DD&ate=YYYY-MM-DD[&evento=HT] — o que cada
-// colaborador fez no portal (HT/SEM/CNHF) no período: o equivalente genérico de
-// /api/hm/atividade, para o gestor ver as ações de cada operador. Datas
-// opcionais; `ate` é exclusivo (o cliente manda o dia seguinte ao último que
-// quer incluir).
+// GET /api/atividade?de=YYYY-MM-DD&ate=YYYY-MM-DD[&evento=HT][&granularidade=dia|semana|mes]
+// — o que cada colaborador fez no portal (HT/SEM/CNHF) no período: o
+// equivalente genérico de /api/hm/atividade, para o gestor ver as ações de
+// cada operador. Datas opcionais; `ate` é exclusivo (o cliente manda o dia
+// seguinte ao último que quer incluir). `granularidade` (D1, opcional) devolve
+// também `serie` (total por período×colaborador) — sem `porColuna`: estágio é
+// conceito do board HM/AURUM/ETHB, os genéricos não têm cs.estagios.
 // RECORTE de LEITURA (28/07, leitura ≠ ação — mesma regra do HM): master vê
 // todos os colaboradores; quem tem equipe — gestor OU operador — vê os colegas
 // da própria equipe (a tela de Atividade mostra o trabalho do time); quem NÃO
@@ -27,11 +29,14 @@ export async function GET(req: Request) {
     : g.sessao.equipe_id ? { modo: "equipe", equipeId: g.sessao.equipe_id }
     : { modo: "operador", nome: g.sessao.nome || "" };
 
+  const sp = new URL(req.url).searchParams;
   // Validação de período compartilhada (lib/validators): 400 data_invalida em
   // vez de 22007/500 do Postgres — a mesma regra do /api/hm/atividade.
-  const periodo = parsePeriodo(new URL(req.url).searchParams);
+  const periodo = parsePeriodo(sp);
   if (!periodo.ok) return periodo.res;
+  const granularidade = parseGranularidade(sp);
+  if (!granularidade.ok) return granularidade.res;
 
-  const r = await atividadeEvento(evento, { de: periodo.de, ate: periodo.ate }, escopo);
+  const r = await atividadeEvento(evento, { de: periodo.de, ate: periodo.ate }, escopo, granularidade.granularidade);
   return NextResponse.json({ ok: true, evento, ...r });
 }

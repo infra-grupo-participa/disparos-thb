@@ -688,7 +688,12 @@ export async function atribuirResponsavelHm(
 // Foi exatamente o que aconteceu com `gerente_distribuidor` (ver o comentário
 // dele em SessaoEquipe do 11/08) e voltou a acontecer aqui em 12/08: a Ana
 // Camila via os 9 cards da Kelly no board e o arrasto recusava com 'sem_acesso'.
-type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null; gerente_distribuidor?: boolean | null; equipe_ativacao?: boolean | null };
+// ⚠️ `funcoes` (0210/0212) é o MESMO tipo de armadilha, 3ª vez: `esteiraCompartilhada`
+// agora resolve o bônus por FUNÇÃO (cs.usuario_funcoes), não só pelo boolean
+// `equipe_ativacao` — campo ausente aqui e o ramo esteira volta a nunca entrar
+// para quem tem função só de comercial ou só de ativação (equipe_ativacao
+// continua como rede de segurança, mas não cobre granularidade por aba).
+type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null; gerente_distribuidor?: boolean | null; equipe_ativacao?: boolean | null; funcoes?: string[] | null };
 
 // `produto` OBRIGATÓRIO (12/08, item de otimização exigido pela esteira
 // compartilhada): antes esta função casava só por comprador_id, sem filtro de

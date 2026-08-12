@@ -16,10 +16,19 @@ const RE_TAG_GERENCIADA = /^(Origem|Turma|Aurum) /;
 export type TagCatalogo = {
   id: string;
   nome: string;
-  cor: string | null;
+  cor: string | null;          // override da tag (0206) — null = herda de tag_categoria
+  cor_efetiva: string;         // a cor que o front DESENHA: override ?? cor da categoria ?? cinza neutro
+  categoria: string | null;    // publico|canal|turma|origem_base|produto|operacional (0206) — null = tag antiga sem classificar
+  categoria_rotulo: string | null;
+  categoria_descricao: string | null; // cs.tag_categoria.descricao — o texto que explica a FAMÍLIA (legenda)
+  descricao: string | null;
   tipo: "livre" | "sistema";
   usos: number;
 };
+
+// Cor de fallback para tag sem categoria (metadado incompleto — não deveria
+// sobrar nenhuma depois da 0206, mas o front não pode quebrar se sobrar).
+const COR_SEM_CATEGORIA = "#94a3b8";
 
 // `produto` recorta o CATÁLOGO ao board (10/08): o catálogo `cs.tags` é único para
 // HM/Aurum/ETHB (todos com evento='HM'), então sem recorte o portal do Aurum listava
@@ -28,20 +37,33 @@ export type TagCatalogo = {
 // Regra: a tag entra se estiver em uso NESTE board (usos > 0) ou se for 'livre' e
 // ainda não usada em lugar nenhum (tag recém-criada precisa aparecer para ser usada).
 // Tag de sistema em uso só no OUTRO board fica de fora — é o vazamento.
+//
+// OTIMIZAÇÃO (0206): a versão antiga rodava DUAS subqueries correlacionadas por
+// LINHA de cs.tags — cada uma um seq scan em cs.contatos_hm (confirmado com
+// EXPLAIN: 746 buffers / 38ms com 13 tags; o catálogo passou a ter ~71 depois
+// do dicionário, o que teria multiplicado o custo). Agora é um `unnest`
+// agregado UMA vez (CTE `usos`) com LEFT JOIN — 1 seq scan inteiro, não 2×N.
+// Medido: 33 buffers / 5ms no mesmo catálogo (EXPLAIN ANALYZE, sem cronômetro
+// de cliente — pooler Supavisor em modo transação).
 export async function listarTagsHm(produto: "HM" | "AURUM" | "ETHB" = "HM"): Promise<TagCatalogo[]> {
   return query<TagCatalogo>(
-    `with c as (
-       select t.id, t.nome, t.cor, t.tipo,
-              (select count(*)::int from cs.contatos_hm ch
-                where ch.produto = $1 and t.nome = any(ch.tags)) as usos,
-              (select count(*)::int from cs.contatos_hm ch2
-                where t.nome = any(ch2.tags)) as usos_global
-         from cs.tags t
-        where t.evento = 'HM'
+    `with usos as (
+       select t as nome,
+              count(*) filter (where ch.produto = $1)::int as usos,
+              count(*)::int                                as usos_global
+         from cs.contatos_hm ch, unnest(ch.tags) t
+        group by t
      )
-     select id, nome, cor, tipo, usos from c
-      where usos > 0 or (tipo = 'livre' and usos_global = 0)
-      order by tipo desc, nome`,
+     select tg.id, tg.nome, tg.cor, tg.tipo,
+            tg.categoria, cat.rotulo as categoria_rotulo, cat.descricao as categoria_descricao, tg.descricao,
+            coalesce(tg.cor, cat.cor, '${COR_SEM_CATEGORIA}') as cor_efetiva,
+            coalesce(u.usos, 0) as usos
+       from cs.tags tg
+       left join cs.tag_categoria cat on cat.categoria = tg.categoria
+       left join usos u on u.nome = tg.nome
+      where tg.evento = 'HM'
+        and (coalesce(u.usos, 0) > 0 or (tg.tipo = 'livre' and coalesce(u.usos_global, 0) = 0))
+      order by tg.tipo desc, tg.nome`,
     [produto],
   );
 }
@@ -55,9 +77,14 @@ export async function criarTagHm(
 ): Promise<{ ok: true; id: string } | { ok: false; reason: CriarTagErro }> {
   const n = nome.trim();
   if (RE_TAG_GERENCIADA.test(n)) return { ok: false, reason: "nome_gerenciado" };
+  // categoria 'operacional' (0206) por padrão: toda tag criada à mão pelo
+  // operador é, por definição, um marcador de rotina do time — não é gerada
+  // por trigger/webhook (essas entram por SQL direto na migration, com a
+  // categoria certa). `cor` explícita continua sendo o override de sempre;
+  // sem ela, a tag herda o cinza de 'operacional' até alguém recolorir.
   const r = await queryOne<{ id: string }>(
-    `insert into cs.tags (evento, nome, cor, tipo, criado_por)
-     values ('HM', $1, $2, 'livre', $3)
+    `insert into cs.tags (evento, nome, cor, tipo, categoria, criado_por)
+     values ('HM', $1, $2, 'livre', 'operacional', $3)
      on conflict (evento, nome) do nothing
      returning id`,
     [n, cor, autor],
@@ -91,8 +118,34 @@ export async function renomearTagHm(id: string, novoNome: string): Promise<boole
   return true;
 }
 
+// A cor default de uma tag agora vem de cs.tag_categoria (0206) — esta função
+// escreve o OVERRIDE (cs.tags.cor). `cor = null` não é "sem cor": é "volta a
+// herdar a cor da categoria" — listarTagsHm já resolve isso com
+// coalesce(tg.cor, cat.cor, ...). Só recolore quem já tem categoria fazendo
+// sentido pontual (ex.: uma tag de sistema que precisa se destacar do resto
+// da família); a paleta em si (cs.tag_categoria) não é editável por aqui.
 export async function recolorirTagHm(id: string, cor: string | null): Promise<boolean> {
   const r = await query(`update cs.tags set cor = $2 where id = $1 and evento = 'HM' returning id`, [id, cor]);
+  return r.length > 0;
+}
+
+// Escreve a descrição (o que a tag SIGNIFICA, 0206). Mesmo padrão de
+// recolorirTagHm: `descricao = null` é gesto válido (limpar uma explicação
+// desatualizada), não erro — o service não distingue "limpar" de "nunca teve".
+export async function descreverTagHm(id: string, descricao: string | null): Promise<boolean> {
+  const r = await query(`update cs.tags set descricao = $2 where id = $1 and evento = 'HM' returning id`, [id, descricao]);
+  return r.length > 0;
+}
+
+// Recategoriza a tag (0206) — a categoria decide a cor herdada (cat.cor em
+// listarTagsHm) quando a tag não tem override próprio. Diferente de
+// nome/exclusão, categoria é editável em QUALQUER tipo (inclusive 'sistema':
+// uma tag gerada por trigger pode ter nascido classificada errado, e corrigir
+// a família não mexe no NOME literal que as funções do banco comparam — só
+// no metadado). category = null devolve a tag ao estado "sem categoria"
+// (cor cai no cinza de fallback, COR_SEM_CATEGORIA em listarTagsHm).
+export async function recategorizarTagHm(id: string, categoria: string | null): Promise<boolean> {
+  const r = await query(`update cs.tags set categoria = $2 where id = $1 and evento = 'HM' returning id`, [id, categoria]);
   return r.length > 0;
 }
 

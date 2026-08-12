@@ -198,6 +198,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.credito_valor_pago !== undefined) add("credito_valor_pago", b.credito_valor_pago);
   if (b.credito_dias_totais !== undefined) add("credito_dias_totais", b.credito_dias_totais);
   if (b.credito_compra_em !== undefined) sets.push(`credito_compra_em = ${b.credito_compra_em ? `$${vals.push(b.credito_compra_em)}::date` : "null"}`);
+  // Motivo do pró-rata manual (0207/F4) — por que este crédito foi concedido.
+  if (b.credito_obs !== undefined) add("credito_obs", b.credito_obs);
 
   // Snapshot para o "Desfazer edição" (A2): guarda o estado ANTES de aplicar os
   // campos. Só quando há edição de campo — mudança de etapa e agendamento têm
@@ -307,7 +309,7 @@ function resumoEdicao(b: Record<string, unknown>): string {
   const p: string[] = [];
   if (b.observacoes !== undefined) p.push("observações");
   if (b.acordo !== undefined || b.pagamento_meio !== undefined || b.oferta_saldo_codigo !== undefined || b.pagamento_previsto_em !== undefined || b.link_saldo_enviado !== undefined) p.push("acordo do saldo");
-  if (b.credito_oferta !== undefined || b.credito_valor_pago !== undefined || b.credito_dias_totais !== undefined || b.credito_compra_em !== undefined) p.push("crédito pró-rata");
+  if (b.credito_oferta !== undefined || b.credito_valor_pago !== undefined || b.credito_dias_totais !== undefined || b.credito_compra_em !== undefined || b.credito_obs !== undefined) p.push("crédito pró-rata");
   if (b.ativ_searchie !== undefined || b.ativ_comunidade !== undefined || b.ativ_grupo !== undefined || b.ativ_pesquisa !== undefined || b.grupo_informes !== undefined || b.pendencia !== undefined) p.push("ativação");
   if (b.rev_searchie !== undefined || b.rev_comunidade !== undefined || b.rev_grupo !== undefined || b.rev_pesquisa !== undefined) p.push("revogação");
   if (b.nao_contatar !== undefined || b.revisar !== undefined) p.push("travas");

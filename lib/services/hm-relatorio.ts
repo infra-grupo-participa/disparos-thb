@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { HM_ESTAGIOS_CANCELAMENTO } from "@/lib/services/hm";
 import { sqlEscopo } from "@/lib/services/visibilidade";
+import { ESTEIRA_COMPARTILHADA_PRODUTO } from "@/lib/papeis";
 
 // A esteira HM inteira, uma linha por aluno, pronta para virar relatório. É a
 // mesma leitura do board — mesmos filtros, mesma ordem das colunas e dos cards —
@@ -25,12 +26,12 @@ export type FiltrosHm = {
   /** Board do produto (0155): 'HM' (default), 'AURUM' ou 'ETHB'. Isola a esteira. */
   produto?: "HM" | "AURUM" | "ETHB";
   /**
-   * Esteira compartilhada (0202): a sessão é da equipe de ativação e o board
-   * pedido é o HM. Já vem resolvido da rota (esteiraCompartilhada em papeis.ts)
-   * — aqui é só "aplica o ramo?". Omitido/false = ramo não entra (fail-closed):
+   * Esteira compartilhada (0210/0212): a lista de abas que a sessão alcança
+   * neste board, por FUNÇÃO (cs.usuario_funcoes) — já vem resolvida da rota
+   * (abasDaEsteira em papeis.ts). Vazio/ausente = ramo não entra (fail-closed):
    * é assim que o XLSX e a tabela não ganham o bônus por engano.
    */
-  esteira?: boolean;
+  abas?: string[];
 };
 
 // Datas: o driver pg entrega Date no servidor (o XLSX as recebe assim), mas a
@@ -93,6 +94,10 @@ export type LinhaEsteira = {
   aluno_id: string | null;
   saldo_a_pagar: string | null;
   credito: string | null;
+  /** 0207/0214: o MOTIVO do crédito pró-rata manual — existe desde a 0207 mas não
+   *  saía em nenhum relatório (0 cards preenchidos por falta de visibilidade de
+   *  quem cobra é parte do diagnóstico). Direto de cs.contatos_hm.credito_obs. */
+  credito_obs: string | null;
   // ----- o saldo pela RÉGUA (cs.vw_hm_financeiro, 0078) -----
   // `saldo_a_pagar` (fn_hm_prorata) só existe para quem tem crédito informado — o
   // lead novo ficava sem saldo nenhum na tela, embora o dele seja o mais simples:
@@ -124,6 +129,11 @@ export type LinhaEsteira = {
   parcelas_contratadas: number | null;
   valor_parcela: string | null;
   pago_pct: string | null;
+  /** 0214: quitado · em_dia · atrasado · aguardando — pagamento_previsto_em
+   *  RECONCILIADO com cs.hm_pagamentos (cs.vw_hm_financeiro). "atrasado" só
+   *  quando a data combinada venceu e ninguém pagou nada depois dela — a
+   *  leitura correta, diferente da digitação isolada que o card pintava. */
+  status_parcela: string | null;
   // ----- ativação -----
   ativ_searchie: boolean;
   ativ_comunidade: boolean;
@@ -217,7 +227,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
   const lista = (v?: string[] | null) => (v && v.length ? v : null);
   const p = [lista(f.responsavel), lista(f.canal), lista(f.turma), f.estagio || null,
              f.verTudo ?? false, f.usuarioId ?? null, f.equipeId ?? null,
-             HM_ESTAGIOS_CANCELAMENTO, f.produto ?? "HM", f.esteira ?? false];
+             HM_ESTAGIOS_CANCELAMENTO, f.produto ?? "HM", f.abas ?? [], ESTEIRA_COMPARTILHADA_PRODUTO];
 
   const colunas = await query<ColunaHm>(
     `select e.chave, e.nome, e.cor, e.aba, e.ordem
@@ -243,12 +253,12 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             k.sinal_pago_em, k.sinal_valor,
             k.pagamento_em, k.pagamento_forma, k.pagamento_parcelas, k.apto_ativacao,
             ch.valor_total, ch.valor_pago, ch.aluno_id,
-            pr.saldo_a_pagar, pr.credito,
+            pr.saldo_a_pagar, pr.credito, ch.credito_obs,
             fin.publico, fin.saldo_a_perseguir, fin.pacote_regra,
             fin.situacao as situacao_financeira, fin.quitado,
             cs.fn_hm_pode_finalizar(k.comprador_id) as pode_finalizar,
             fin.ultimo_pagamento_em, fin.parcelas_pagas, fin.parcelas_contratadas,
-            fin.valor_parcela, fin.pago_pct,
+            fin.valor_parcela, fin.pago_pct, fin.status_parcela,
             fin.ultimo_abatimento_em, fin.ultimo_abatimento_valor, fin.ultimo_abatimento_categoria,
             k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa,
             k.grupo_informes, k.pendencia,
@@ -294,7 +304,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
         and k.produto = $9                       -- board do produto (0155)
         and ${sqlEscopo(
           { rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags", aba: "k.estagio_aba", produto: "k.produto" },
-          { verTudo: 5, usuario: 6, equipe: 7, esteira: 10 },
+          { verTudo: 5, usuario: 6, equipe: 7, abas: 10, produto: 11 },
         )}
         -- Cancelados (Reclamada/Reembolsado, $8) são acesso SÓ do master, como
         -- nas rotas unitárias (403 na ficha): quem não vê tudo não recebe a
