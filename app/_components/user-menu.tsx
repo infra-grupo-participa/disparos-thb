@@ -44,7 +44,7 @@ export default function UserMenu() {
     <div className="relative shrink-0" ref={ref}>
       <button
         onClick={() => setAberto((v) => !v)}
-        className="flex items-center gap-2 rounded-lg p-1 pr-2 text-sm transition hover:bg-slate-100 dark:hover:bg-slate-800"
+        className="alvo-toque flex items-center gap-2 rounded-lg p-1 pr-2 text-sm transition hover:bg-slate-100 dark:hover:bg-slate-800"
         aria-label="Menu do usuário"
         aria-haspopup="menu"
         aria-expanded={aberto}

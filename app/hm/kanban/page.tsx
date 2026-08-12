@@ -57,6 +57,9 @@ type Card = {
   pagamento_previsto_em: string | null;
   quitado: boolean;
   parcelado: boolean;
+  /** Quanto ainda falta receber. null = o sistema não sabe (nunca zero por
+   *  omissão) — nesse caso o card fica calado em vez de inventar. */
+  saldo: string | number | null;
   /** Falso-verde: o saldo zerou por dupla contagem do crédito pró-rata (0112),
    *  não por quitação. O card avisa em vez de mentir; quanto cobrar é do comercial. */
   conferir_saldo: boolean;
@@ -663,11 +666,11 @@ export default function HmKanbanPage() {
         {/* Wrap aqui também: são até 5 botões e, sem quebra, no celular eles
             saíam pela direita da tela — "Disparo inteligente" e "Selecionar
             todos" ficavam inalcançáveis. */}
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
           {/* Cadastrar à mão — só o master (admin do GP). Card é reflexo da Hotmart;
               colaborador não cria card à mão (30/07). */}
           {ehMaster() && (
-            <Button variant="secondary" size="sm" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
+            <Button variant="secondary" size="sm" className="alvo-toque" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
           )}
           {/* A outra leitura da mesma esteira — os filtros viajam na URL */}
           <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
@@ -680,7 +683,7 @@ export default function HmKanbanPage() {
               ? "Baixar o relatório da esteira inteira (resumo + uma aba por etapa)"
               : "Baixar o relatório da SUA visão da esteira (o pool + os cards que você vê), resumo + uma aba por etapa"}
           >
-            <Button variant="secondary" size="sm">Esteira .xlsx</Button>
+            <Button variant="secondary" size="sm" className="alvo-toque">Esteira .xlsx</Button>
           </a>
           {/* O dinheiro é outro relatório: quem deve, quanto entrou e os cancelamentos. */}
           <a
@@ -689,7 +692,7 @@ export default function HmKanbanPage() {
               ? "Baixar o financeiro (resumo, carteira, a receber, razão de pagamentos e cancelamentos)"
               : "Baixar o financeiro da SUA visão da esteira (resumo, carteira, a receber, pagamentos e cancelamentos dos cards que você vê)"}
           >
-            <Button variant="secondary" size="sm">Financeiro .xlsx</Button>
+            <Button variant="secondary" size="sm" className="alvo-toque">Financeiro .xlsx</Button>
           </a>
           {podeDisparar && cardsSelecionaveis.length > 0 && (
             <Button
@@ -730,7 +733,7 @@ export default function HmKanbanPage() {
                 key={a.id}
                 onClick={() => setAba(a.id)}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
+                  "alvo-toque flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
                   ativa
                     ? "bg-white text-slate-900 shadow-card dark:bg-slate-700 dark:text-slate-100"
                     : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
@@ -750,7 +753,7 @@ export default function HmKanbanPage() {
 
         <div className="relative min-w-[10rem] flex-1">
           <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar lead…" className={cn(fieldClass, "w-full pl-8")} />
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar lead…" className={cn(fieldClass, "alvo-toque w-full pl-8")} />
         </div>
 
         {responsaveis.length > 0 && (
@@ -1485,6 +1488,10 @@ function CardItem({
   // cor). Prioridade: quitado > parcela (atrasada/em dia) > saldo pago à vista.
   // Sem nenhum dos três, o card não afirma nada — leads no início do comercial
   // ainda não têm o que noticiar aqui, e inventar "deve" seria ruído.
+  // string|number|null vindo do Postgres (numeric chega como string).
+  const saldoNum = card.saldo === null || card.saldo === undefined
+    ? null
+    : Number.isFinite(Number(card.saldo)) ? Number(card.saldo) : null;
   const finBadge: { txt: string; cls: string; title: string; icon: "ok" | "alerta" | "relogio" } | null = verde
     ? { txt: "Quitado", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300", title: card.pagamento_em ? `Saldo quitado — pago em ${fmtDataHora(card.pagamento_em)}` : "Saldo quitado", icon: "ok" }
     : parcela
@@ -1635,6 +1642,19 @@ function CardItem({
           {/* Situação financeira: "quanto ela deve? em que pé está?" — a
               pergunta do dia todo, respondida em TEXTO (não só na cor de
               fundo do card, que sozinha não diz nada e exclui daltônico). */}
+          {/* 11/08, pedido do Marcio: "bater o olho e saber o que está acontecendo
+              com cada aluno". Quanto falta receber vivia só dentro da ficha —
+              agora está no card, em texto, ao lado da situação. Só aparece quando
+              o sistema SABE: saldo null (exceção do Aurum, lead sem lastro) não
+              vira "R$ 0,00", fica calado. */}
+          {saldoNum !== null && saldoNum > 0 && !card.quitado && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              title={`Ainda falta receber ${saldoNum.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`}
+            >
+              deve {saldoNum.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })}
+            </span>
+          )}
           {finBadge && (
             <span
               className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", finBadge.cls)}
