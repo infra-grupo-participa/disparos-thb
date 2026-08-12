@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent, ReactNode, WheelEvent } from "react";
 import Link from "next/link";
-import { Button, EmptyState, cn, fieldClass, Spinner } from "@/app/_components/ui";
+import { Button, EmptyState, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
 import { DisparoInteligente } from "@/app/_components/disparo-inteligente";
 import { TagsIcon, TAGS_PADRAO, tagTone } from "@/app/_components/tags";
@@ -327,18 +327,18 @@ export default function KanbanPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select value={edicao ?? ""} onChange={(e) => setEdicao(e.target.value)} className={cn(fieldClass, "w-auto")}>
+          <select value={edicao ?? ""} onChange={(e) => setEdicao(e.target.value)} className={fieldCompactClass}>
             <option value="">Todas as edições</option>
             {edicoes.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
           </select>
           {opcoesResponsavel.length > 0 && (
-            <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={cn(fieldClass, "w-auto")}>
+            <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={fieldCompactClass}>
               <option value="">Todos os operadores</option>
               {opcoesResponsavel.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           )}
           {tags.length > 0 && (
-            <select value={filtroTag} onChange={(e) => setFiltroTag(e.target.value)} className={cn(fieldClass, "w-auto")}>
+            <select value={filtroTag} onChange={(e) => setFiltroTag(e.target.value)} className={fieldCompactClass}>
               <option value="">Todas as tags</option>
               {tags.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>

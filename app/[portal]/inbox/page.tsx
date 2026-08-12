@@ -478,7 +478,15 @@ export default function InboxPage() {
           sub={k?.maior_espera_min != null ? `pior espera ${fmtMin(k.maior_espera_min)}` : "tudo em dia"} />
         <KpiCS label="1º contato (hoje)" valor={fmtMin(k?.frt_hoje)} tom="brand" sub={`média geral ${fmtMin(k?.frt_medio)}`} />
         <KpiCS label="Atendidas hoje" valor={k?.atendidas_hoje ?? 0} tom="sky" sub={`${k?.total_atendimentos ?? 0} no total`} />
-        <KpiCS label={`Dentro do SLA (${slaMin}min)`} valor={k?.sla_pct != null ? `${k.sla_pct}%` : "—"} tom="emerald" sub="1º contato no prazo" />
+        {/* 11/08: o tom era `emerald` fixo — 0% de SLA aparecia em VERDE, ou
+            seja, a cor dizia "tudo bem" no pior cenário possível. Agora ela
+            segue o número: >=80% verde, >=50% âmbar, abaixo disso vermelho. */}
+        <KpiCS
+          label={`Dentro do SLA (${slaMin}min)`}
+          valor={k?.sla_pct != null ? `${k.sla_pct}%` : "—"}
+          tom={k?.sla_pct == null ? "slate" : k.sla_pct >= 80 ? "emerald" : k.sla_pct >= 50 ? "amber" : "rose"}
+          sub="1º contato no prazo"
+        />
       </div>
 
       {modoDisparo && (
@@ -692,6 +700,9 @@ export default function InboxPage() {
 const KPI_TOM: Record<string, string> = {
   brand: "text-brand dark:text-brand-300", rose: "text-rose-600 dark:text-rose-400",
   emerald: "text-emerald-600 dark:text-emerald-400", sky: "text-sky-600 dark:text-sky-400",
+  // 11/08: faltavam o meio-termo e o neutro — sem eles, um indicador ruim só
+  // tinha "verde" para exibir, que foi o caso do SLA em 0%.
+  amber: "text-amber-600 dark:text-amber-400", slate: "text-slate-500 dark:text-slate-400",
 };
 function KpiCS({ label, valor, tom, sub }: { label: string; valor: string | number; tom: keyof typeof KPI_TOM; sub?: string }) {
   return (

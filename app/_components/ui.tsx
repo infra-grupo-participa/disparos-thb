@@ -19,7 +19,13 @@ export const fieldClass =
 // passado por cima de fieldClass NÃO vence o "w-full" dele (quem decide é a
 // ordem no CSS gerado, não a ordem na string) e o select explode para a linha
 // inteira, empilhando os filtros.
-export const fieldCompactClass = fieldClass.replace(/^w-full /, "");
+//
+// O recorte é por PALAVRA, em qualquer posição da string (11/08). Era `^w-full `
+// — ancorado no começo — e bastou `alvo-toque` entrar na frente de fieldClass
+// para o replace parar de casar: `w-full` sobreviveu, e os três filtros do board
+// do HT viraram três caixas empilhadas ocupando um terço da tela. Só apareceu
+// olhando a captura; nenhum teste reclamou.
+export const fieldCompactClass = fieldClass.replace(/(^|\s)w-full(\s|$)/, "$1");
 
 // ---- Button -------------------------------------------------------------
 type ButtonProps = {
