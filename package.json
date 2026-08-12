@@ -9,7 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "db:pull": "drizzle-kit pull",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:papeis": "tsx scripts/test-papeis.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",

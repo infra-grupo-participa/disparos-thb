@@ -2,7 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/lib/drizzle";
 import { query, queryOne } from "@/lib/db";
 import { contatos, estagios, interacoes } from "@/db/schema";
-import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator } from "@/lib/papeis";
+import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, semBonusDeGerente, type Ator } from "@/lib/papeis";
 import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 import type { AtribuicaoResultado, DestinoAtribuicao } from "@/lib/services/hm";
 
@@ -135,7 +135,10 @@ export async function podeAgirContato(sessao: Ator, compradorId: string, evento:
   }
   const c = await contatoEscopo(compradorId, evento);
   if (!c) return "ok"; // inexistente → deixa o 404 acontecer no fluxo normal
-  return veredictoAcao(sessao, c);
+  // 11/08 (auditoria): o bônus do gerente distribuidor é da esteira de ativação
+  // (HM/AURUM), onde ele distribui a carteira. Aqui é HT/SEM — se a conta ganhar
+  // esse portal um dia, não pode herdar escrita irrestrita de brinde.
+  return veredictoAcao(semBonusDeGerente(sessao), c);
 }
 
 // Atribui por ID (o caminho das equipes): grava responsavel_id — o texto deriva
@@ -266,7 +269,7 @@ export async function atribuirResponsavel(
   if (!user.tem_portal) return { ok: false, reason: "destino_sem_portal" };
 
   // Hierarquia do DESTINO (lib/papeis) + estado do card.
-  if (!podeAtribuirPara(sessao, user)) {
+  if (!podeAtribuirPara(semBonusDeGerente(sessao), user)) {
     return { ok: false, reason: nivel === "gestor" ? "destino_fora_da_equipe" : "sem_permissao_para_atribuir" };
   }
   // Operador: só assume do pool (ou re-assume o próprio, que é no-op). Card com

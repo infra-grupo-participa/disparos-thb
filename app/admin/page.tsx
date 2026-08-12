@@ -109,8 +109,9 @@ export default function AdminPage() {
                         {c}
                         <button
                           onClick={() => salvarVinculo(usuarioId, c, "remover")}
-                          className="text-slate-400 hover:text-rose-500"
+                          className="alvo-toque text-slate-400 hover:text-rose-500"
                           title="Remover este canal desta pessoa"
+                          aria-label={`Remover o canal ${c} de ${info.nome}`}
                         >
                           <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                         </button>

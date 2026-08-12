@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, EmptyState, PageHeader, cn, fieldClass } from "@/app/_components/ui";
+import { Button, Card, EmptyState, PageHeader, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { Reveal } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
+import { msgErroPermissao, msgErroCarregamento } from "@/app/_components/use-me";
 import { VereditoBanner } from "@/app/_components/disparo-email";
 
 type Canal = "whatsapp" | "email";
@@ -81,6 +82,11 @@ function sanitizar(html: string): string {
 export default function TemplatesPage() {
   const { evento } = usePortal();
   const [templates, setTemplates] = useState<Template[]>([]);
+  // A lista de templates não tinha estado de carregamento nem de erro: uma
+  // falha (rede ou 500) e a base ainda vazia caíam no MESMO "Nenhum template
+  // ainda" — o operador não tinha como distinguir base nova de erro.
+  const [carregandoTemplates, setCarregandoTemplates] = useState(true);
+  const [erroTemplates, setErroTemplates] = useState<string | null>(null);
   const [canal, setCanal] = useState<Canal>("whatsapp");
   // Escrever o e-mail aqui é o caminho padrão. A automação por tag continua
   // disponível para quem já tem réguas montadas no AC.
@@ -114,9 +120,18 @@ export default function TemplatesPage() {
   function fecharGuia() { setGuiaAberto(false); try { localStorage.setItem("cs_guia_templates_off", "1"); } catch { /* noop */ } }
 
   async function carregar() {
-    const r = await fetch(`/api/templates?evento=${evento}`);
-    const d = await r.json();
-    if (d.ok) setTemplates(d.templates);
+    setCarregandoTemplates(true);
+    try {
+      const r = await fetch(`/api/templates?evento=${evento}`);
+      if (!r.ok) { setErroTemplates(msgErroCarregamento(r.status)); return; }
+      const d = await r.json();
+      if (d.ok) { setTemplates(d.templates); setErroTemplates(null); }
+      else setErroTemplates(msgErroPermissao(d.reason) ?? "Não foi possível carregar os templates.");
+    } catch {
+      setErroTemplates(msgErroCarregamento());
+    } finally {
+      setCarregandoTemplates(false);
+    }
   }
   useEffect(() => { carregar(); }, [evento]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -354,7 +369,23 @@ export default function TemplatesPage() {
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_400px]">
         {/* ---- Coluna esquerda: lista ---- */}
         <Reveal className="space-y-3">
-          {templates.length === 0 ? (
+          {carregandoTemplates && templates.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-400 dark:text-slate-500">
+              <Spinner /> Carregando templates…
+            </div>
+          ) : erroTemplates && templates.length === 0 ? (
+            <EmptyState
+              icon={
+                <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                  <path d="M12 9v4M12 17h.01" />
+                </svg>
+              }
+              title="Não foi possível carregar os templates"
+              description={erroTemplates}
+              action={<Button variant="secondary" size="sm" onClick={carregar}>Tentar de novo</Button>}
+            />
+          ) : templates.length === 0 ? (
             <EmptyState
               title="Nenhum template ainda"
               description="Cadastre o primeiro usando o formulário ao lado."

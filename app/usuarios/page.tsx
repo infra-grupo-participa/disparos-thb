@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Avatar } from "@/app/_components/avatar";
 import { Button, Card, EmptyState, PageHeader, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
-import { LegendaNiveis, SeloNivel } from "@/app/_components/selo-nivel";
+import { DescricaoNivel, LegendaNiveis, SeloNivel } from "@/app/_components/selo-nivel";
 
 type Papel = "admin" | "disparador" | "operador";
 type Portal = "HT" | "SEM" | "HM" | "AURUM" | "ETHB";
@@ -18,6 +18,10 @@ type Usuario = {
   equipe_id?: string | null;
   equipe_tipo?: "principal" | "comum" | null;
   lider_equipe?: boolean | null;
+  // 11/08: existia só como coluna, ligada na mão por SQL no dia em que a Kelly
+  // precisou. Poder que só se concede por migration não é regra do sistema — é
+  // exceção que ninguém audita. Agora se lê e se liga aqui.
+  gerente_distribuidor?: boolean | null;
 };
 
 // Rótulos dos portais para o admin marcar o acesso de cada conta.
@@ -37,6 +41,8 @@ export default function UsuariosPage() {
   const [carregando, setCarregando] = useState(true);
   const [novo, setNovo] = useState(false);
   const [resetar, setResetar] = useState<Usuario | null>(null);
+  const [desativar, setDesativar] = useState<Usuario | null>(null);
+  const [busca, setBusca] = useState("");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -65,6 +71,24 @@ export default function UsuariosPage() {
     if (!d.ok) { alert("Não foi possível salvar os portais."); await carregar(); }
   }
 
+  async function toggleGerente(u: Usuario) {
+    const novo = !u.gerente_distribuidor;
+    if (novo && !confirm(
+      [
+        `Tornar ${u.nome} GERENTE?`,
+        "Ela passa a ver e trabalhar a esteira INTEIRA (todas as equipes) e a distribuir card para qualquer pessoa, travando a atribuição para o operador não desfazer.",
+        "Não ganha gerir contas, portais nem equipes — isso continua só do Grupo Participa.",
+      ].join("\n\n"),
+    )) return;
+    setUsuarios((lista) => lista.map((x) => (x.id === u.id ? { ...x, gerente_distribuidor: novo } : x)));
+    const r = await fetch(`/api/usuarios/${u.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gerente_distribuidor: novo }),
+    });
+    const d = await r.json();
+    if (!d.ok) { alert("Não foi possível salvar o gerente."); await carregar(); }
+  }
+
   // Só o admin do Grupo Participa gere contas. Um admin de equipe comum (Kelly)
   // não gerencia usuários — cada equipe é independente.
   if (souAdmin !== null && !podeGerirAcesso) {
@@ -74,6 +98,13 @@ export default function UsuariosPage() {
       </PageFade>
     );
   }
+
+  // Busca por nome/e-mail — só aparece quando a lista cresce o suficiente para
+  // precisar (equipe pequena não precisa filtrar 6 pessoas).
+  const termo = busca.trim().toLowerCase();
+  const usuariosFiltrados = termo
+    ? usuarios.filter((u) => u.nome.toLowerCase().includes(termo) || u.email.toLowerCase().includes(termo))
+    : usuarios;
 
   return (
     <PageFade>
@@ -85,10 +116,36 @@ export default function UsuariosPage() {
 
       {/* Como se produz cada nível — o papel sozinho NÃO conta a história toda:
           "Administrador" pode ser master (GP) ou gestor (outra equipe). */}
-      <LegendaNiveis className="mb-4" />
+      <LegendaNiveis className="mb-1.5" />
+      {/* O efeito de cada campo, por escrito — não só no hover. Papel decide o
+          que a pessoa FAZ; combinado com a equipe forma o Nível (coluna ao
+          lado); Portais decide o que ela VÊ (whitelist por conta). */}
+      <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+        <strong className="font-semibold text-slate-600 dark:text-slate-300">Portais</strong>: sem o portal marcado, a conta não vê nem acessa aquele board — nem pela tela, nem pela API.
+      </p>
+
+      {usuarios.length > 8 && (
+        <div className="mb-3">
+          <label className="sr-only" htmlFor="busca-usuarios">Buscar por nome ou e-mail</label>
+          <input
+            id="busca-usuarios"
+            type="search"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar por nome ou e-mail…"
+            className={cn(fieldClass, "max-w-xs")}
+          />
+        </div>
+      )}
 
       {carregando && usuarios.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-16 text-slate-400"><Spinner /> Carregando…</div>
+      ) : usuariosFiltrados.length === 0 ? (
+        <EmptyState
+          title="Nenhuma pessoa encontrada"
+          description={`Nada bate com "${busca}". Confira a grafia ou limpe a busca.`}
+          action={<Button variant="secondary" onClick={() => setBusca("")}>Limpar busca</Button>}
+        />
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
@@ -106,7 +163,7 @@ export default function UsuariosPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {usuarios.map((u) => (
+                {usuariosFiltrados.map((u) => (
                   <tr key={u.id} className={cn("transition", !u.ativo && "opacity-50")}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -121,7 +178,8 @@ export default function UsuariosPage() {
                       <select
                         value={u.papel}
                         onChange={(e) => patch(u.id, { papel: e.target.value })}
-                        className={cn(fieldClass, "w-auto py-1 text-xs")}
+                        aria-label={`Papel de ${u.nome}`}
+                        className={cn(fieldClass, "alvo-toque w-auto py-1 text-xs")}
                       >
                         <option value="operador">Operador</option>
                         <option value="disparador">Operador de disparos</option>
@@ -131,8 +189,30 @@ export default function UsuariosPage() {
                     <td className="px-4 py-3">
                       {/* master = admin + Grupo Participa; gestor = admin de outra
                           equipe ou estrela de líder; operador = o resto. A equipe
-                          e a estrela se mexem na tela de Equipes do HM. */}
+                          e a estrela se mexem na tela de Equipes do HM. Nível
+                          + explicação visível: o que administra não pode
+                          precisar decorar a regra papel×equipe (0155). */}
                       <SeloNivel usuario={u} />
+                      <DescricaoNivel usuario={u} className="mt-1 max-w-[16rem]" />
+                      {/* Gerente é ACRÉSCIMO ao nível (11/08, caso da Kelly): trabalha
+                          a esteira inteira e distribui para qualquer equipe, sem
+                          ganhar a gestão do sistema. Fica junto do nível porque é
+                          disso que se trata — o que esta pessoa consegue fazer. */}
+                      <button
+                        type="button"
+                        onClick={() => toggleGerente(u)}
+                        aria-pressed={!!u.gerente_distribuidor}
+                        aria-label={`Gerente da esteira: ${u.gerente_distribuidor ? "ligado" : "desligado"} para ${u.nome}`}
+                        title={u.gerente_distribuidor
+                          ? `Tirar de ${u.nome} o papel de gerente da esteira`
+                          : `Tornar ${u.nome} gerente da esteira (vê e distribui tudo, não gere o sistema)`}
+                        className={cn("alvo-toque mt-1.5 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition",
+                          u.gerente_distribuidor
+                            ? "bg-teal-100 text-teal-700 ring-1 ring-teal-300 dark:bg-teal-500/15 dark:text-teal-300 dark:ring-teal-500/30"
+                            : "bg-slate-100 text-slate-400 hover:text-slate-600 dark:bg-slate-800 dark:text-slate-500 dark:hover:text-slate-300")}
+                      >
+                        {u.gerente_distribuidor ? "✓ gerente da esteira" : "tornar gerente"}
+                      </button>
                     </td>
                     {podeGerirAcesso && (
                       <td className="px-4 py-3">
@@ -146,7 +226,9 @@ export default function UsuariosPage() {
                                 type="button"
                                 onClick={() => toggglePortal(u, p.id)}
                                 title={`${on ? "Bloquear" : "Liberar"} ${p.label} para ${u.nome}`}
-                                className={cn("rounded-md px-2 py-0.5 text-[11px] font-medium transition",
+                                aria-pressed={on}
+                                aria-label={`${p.label}: ${on ? "liberado" : "bloqueado"} para ${u.nome}`}
+                                className={cn("alvo-toque rounded-md px-2 py-0.5 text-[11px] font-medium transition",
                                   on
                                     ? "bg-brand/10 text-brand ring-1 ring-brand/30 dark:bg-brand-400/15 dark:text-brand-300"
                                     : "bg-slate-100 text-slate-400 hover:text-slate-600 dark:bg-slate-800 dark:text-slate-500 dark:hover:text-slate-300")}
@@ -167,10 +249,15 @@ export default function UsuariosPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1.5">
-                        <Button variant="secondary" size="sm" onClick={() => setResetar(u)}>Redefinir senha</Button>
-                        <Button variant={u.ativo ? "ghost" : "secondary"} size="sm" onClick={() => patch(u.id, { ativo: !u.ativo })}>
-                          {u.ativo ? "Desativar" : "Reativar"}
-                        </Button>
+                        <Button variant="secondary" size="sm" className="alvo-toque" aria-label={`Redefinir senha de ${u.nome}`} onClick={() => setResetar(u)}>Redefinir senha</Button>
+                        {u.ativo ? (
+                          // Desativar é destrutivo o bastante para pedir confirmação:
+                          // a pessoa perde o acesso na hora, e os cards que já são
+                          // dela NÃO voltam ao pool sozinhos — ficam com ela, órfãos.
+                          <Button variant="ghost" size="sm" className="alvo-toque" aria-label={`Desativar ${u.nome}`} onClick={() => setDesativar(u)}>Desativar</Button>
+                        ) : (
+                          <Button variant="secondary" size="sm" className="alvo-toque" aria-label={`Reativar ${u.nome}`} onClick={() => patch(u.id, { ativo: true })}>Reativar</Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -183,6 +270,13 @@ export default function UsuariosPage() {
 
       {novo && <ModalNovo onClose={() => setNovo(false)} onCriado={() => { setNovo(false); carregar(); }} />}
       {resetar && <ModalResetar usuario={resetar} onClose={() => setResetar(null)} />}
+      {desativar && (
+        <ModalConfirmarDesativar
+          usuario={desativar}
+          onClose={() => setDesativar(null)}
+          onConfirmar={async () => { await patch(desativar.id, { ativo: false }); setDesativar(null); }}
+        />
+      )}
     </PageFade>
   );
 }
@@ -238,6 +332,37 @@ function ModalNovo({ onClose, onCriado }: { onClose: () => void; onCriado: () =>
           <Button type="submit" disabled={salvando}>{salvando && <Spinner className="text-white" />}Criar</Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// Confirmação de "Desativar" — a única ação destrutiva desta tela: tira o
+// acesso na hora (login recusado no próximo request) e NÃO reatribui os cards
+// que já são dela — eles ficam com a pessoa desativada até alguém mover à mão.
+// Dizer isso aqui evita o "ué, sumiu, cadê os cards da Fulana" depois.
+function ModalConfirmarDesativar({ usuario, onClose, onConfirmar }: { usuario: Usuario; onClose: () => void; onConfirmar: () => Promise<void> }) {
+  const [salvando, setSalvando] = useState(false);
+
+  async function confirmar() {
+    setSalvando(true);
+    try { await onConfirmar(); } finally { setSalvando(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" onClick={onClose} role="alertdialog" aria-modal="true" aria-labelledby="titulo-desativar">
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm animate-fade-in rounded-xl border border-slate-200 bg-white p-6 shadow-pop dark:border-slate-800 dark:bg-slate-900">
+        <h2 id="titulo-desativar" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Desativar {usuario.nome}?</h2>
+        <ul className="mt-3 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
+          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Ela perde o acesso ao sistema imediatamente.</li>
+          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Os cards já atribuídos a ela <strong>continuam com ela</strong> — não voltam ao pool sozinhos.</li>
+          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Some das listas de novo responsável (ninguém mais atribui a ela).</li>
+        </ul>
+        <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">Pode reativar a qualquer momento — nada é apagado.</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={salvando}>Cancelar</Button>
+          <Button type="button" variant="danger" onClick={confirmar} disabled={salvando}>{salvando && <Spinner className="text-white" />}Desativar</Button>
+        </div>
+      </div>
     </div>
   );
 }

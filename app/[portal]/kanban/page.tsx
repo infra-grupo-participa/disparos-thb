@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent, ReactNode, WheelEvent } from "react";
 import Link from "next/link";
-import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
+import { Button, EmptyState, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { DisparoModal } from "@/app/_components/disparo";
 import { DisparoInteligente } from "@/app/_components/disparo-inteligente";
 import { TagsIcon, TAGS_PADRAO, tagTone } from "@/app/_components/tags";
@@ -11,7 +11,7 @@ import { Reveal } from "@/app/_components/anim";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { toast } from "@/app/_components/toast";
-import { useMe, msgErroPermissao } from "@/app/_components/use-me";
+import { useMe, msgErroPermissao, msgErroCarregamento } from "@/app/_components/use-me";
 import { usePortal } from "@/app/_components/use-portal";
 import { MarcaPortal } from "@/app/_components/marca";
 
@@ -142,6 +142,10 @@ export default function KanbanPage() {
   const [filtroResp, setFiltroResp] = useState("");
   const [filtroTag, setFiltroTag] = useState("");
   const [carregando, setCarregando] = useState(true);
+  // Antes um 500 ou uma queda de rede na carga inicial ficavam mudos: a tela
+  // parava de carregar e mostrava o board vazio, indistinguível de "sem
+  // cards" — o operador não tinha como saber que era falha, não ausência.
+  const [erro, setErro] = useState<string | null>(null);
   const [selecionado, setSelecionado] = useState<Card | null>(null);
   const [dispararSelecao, setDispararSelecao] = useState<SelDisparo[] | null>(null);
   const [showInteligente, setShowInteligente] = useState(false);
@@ -159,15 +163,22 @@ export default function KanbanPage() {
       if (filtroResp) params.set("responsavel", filtroResp);
       if (filtroTag) params.set("tag", filtroTag);
       const r = await fetch(`/api/kanban?${params.toString()}`);
+      if (!r.ok) { setErro(msgErroCarregamento(r.status)); return; }
       const d = await r.json();
       if (d.ok) {
+        setErro(null);
         setColunas(d.colunas);
         setCards(d.cards);
         if (Array.isArray(d.edicoes)) setEdicoes(d.edicoes);
         if (Array.isArray(d.responsaveis)) setResponsaveis(d.responsaveis);
         if (Array.isArray(d.tags)) setTags(d.tags);
         if (edicao === null && d.edicoes?.length) { setEdicao(d.edicoes[0]); return; }
+      } else {
+        setErro(msgErroPermissao(d.reason) ?? "Não foi possível carregar a jornada. Tente de novo.");
       }
+    } catch {
+      // Falha de rede de verdade: o fetch nem completou.
+      setErro(msgErroCarregamento());
     } finally {
       setCarregando(false);
     }
@@ -345,11 +356,31 @@ export default function KanbanPage() {
         <div className="flex items-center justify-center gap-3 py-20 text-slate-400 dark:text-slate-500">
           <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando jornada…</span>
         </div>
+      ) : erro && colunas.length === 0 ? (
+        <EmptyState
+          icon={
+            <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+              <path d="M12 9v4M12 17h.01" />
+            </svg>
+          }
+          title="Não foi possível carregar a jornada"
+          description={erro}
+          action={<Button variant="secondary" onClick={carregar}>Tentar de novo</Button>}
+        />
       ) : (
         <div
           className={cn("-mx-4 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6", selecaoMulti.size > 0 && "pb-20")}
           onWheel={rolarBoardHorizontal}
         >
+          {/* Falha ao recarregar (filtro trocou, ação depois de mover card…) com
+              o board já tendo dados: avisa sem trocar a tela inteira por um erro. */}
+          {erro && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" role="alert">
+              <span>{erro}</span>
+              <Button variant="secondary" size="sm" className="shrink-0" onClick={carregar}>Tentar de novo</Button>
+            </div>
+          )}
         <Reveal className="flex gap-3">
           {colunas.map((col) => {
             const doCol = cards.filter((c) => c.estagio_chave === col.chave);

@@ -6,7 +6,7 @@ import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, Spinner, cn } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
-import { useMe } from "@/app/_components/use-me";
+import { useMe, msgErroPermissao, msgErroCarregamento } from "@/app/_components/use-me";
 
 type Disparo = {
   id: string; status: string; fase: string | null; operador: string | null; edicao: string | null;
@@ -49,13 +49,20 @@ export default function DisparosPage() {
   const [atualizandoEntrega, setAtualizandoEntrega] = useState<string | null>(null);
   const [reenviando, setReenviando] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  // Falha de rede × erro do servidor na carga inicial: antes ficavam mudas e
+  // a tela caía no "Nenhum disparo ainda" — igual a uma base vazia de verdade.
+  const [erro, setErro] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const carregar = useCallback(async () => {
     try {
       const r = await fetch(`/api/disparos?evento=${evento}`);
+      if (!r.ok) { setErro(msgErroCarregamento(r.status)); return; }
       const d = await r.json();
-      if (d.ok) setDisparos(d.disparos as Disparo[]);
+      if (d.ok) { setDisparos(d.disparos as Disparo[]); setErro(null); }
+      else setErro(msgErroPermissao(d.reason) ?? "Não foi possível carregar os disparos.");
+    } catch {
+      setErro(msgErroCarregamento());
     } finally { setCarregando(false); }
   }, [evento]);
 
@@ -153,9 +160,31 @@ export default function DisparosPage() {
           {aviso}
         </div>
       )}
+      {/* Erro com lista já carregada (ex.: recarga em background falhou): avisa
+          sem trocar a lista inteira por uma tela de erro. */}
+      {erro && disparos.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" role="alert">
+          <span>{erro}</span>
+          <Button variant="secondary" size="sm" className="shrink-0" onClick={carregar}>Tentar de novo</Button>
+        </div>
+      )}
 
       {carregando ? (
         <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-500 dark:text-slate-400"><Spinner /> Carregando…</div>
+      ) : erro && disparos.length === 0 ? (
+        <Card className="p-4">
+          <EmptyState
+            icon={
+              <svg className="h-9 w-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                <path d="M12 9v4M12 17h.01" />
+              </svg>
+            }
+            title="Não foi possível carregar os disparos"
+            description={erro}
+            action={<Button variant="secondary" size="sm" onClick={carregar}>Tentar de novo</Button>}
+          />
+        </Card>
       ) : disparos.length === 0 ? (
         <Card className="p-4"><EmptyState title="Nenhum disparo ainda" description="Quando você enviar uma campanha pelo Kanban, ela aparece aqui com o progresso." /></Card>
       ) : (

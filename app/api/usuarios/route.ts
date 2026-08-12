@@ -30,7 +30,7 @@ export async function GET() {
   // responsável e não deve crescer.
   const usuarios = await query(
     `select u.id, u.nome, u.email, u.papel, u.ativo, u.criado_em,
-            u.equipe_id, e.tipo as equipe_tipo, u.lider_equipe,
+            u.equipe_id, e.tipo as equipe_tipo, u.lider_equipe, u.gerente_distribuidor,
             coalesce((select array_agg(up.portal) from cs.usuario_portais up where up.usuario_id = u.id), '{}') as portais
        from cs.usuarios u
        left join cs.equipes e on e.id = u.equipe_id

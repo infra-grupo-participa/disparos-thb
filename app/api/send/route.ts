@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { podeDisparar } from "@/lib/auth";
 import { guard } from "@/lib/guard";
-import { escopoAcao, paramsEscopo } from "@/lib/papeis";
+import { escopoDisparo, paramsEscopo } from "@/lib/papeis";
 import { sqlEscopo } from "@/lib/services/visibilidade";
 import { query, queryOne } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
@@ -63,7 +63,10 @@ export async function POST(req: Request) {
   // própria carteira. Vale nos DOIS ramos: o HM pela view do overlay, os
   // genéricos por cs.contatos_evento. Quem entra na seleção por fora do escopo
   // simplesmente não recebe (fica de fora do insert).
-  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoAcao(sessao));
+  // 11/08 (auditoria de segurança): escopoDISPARO, não escopoAcao. O gerente
+  // distribuidor age em card de qualquer equipe, mas NÃO herda a base inteira
+  // como destinatária de campanha — disparo segue o nível.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoDisparo(sessao));
 
   const ehHM = evento === "HM";
   const contatos = ehHM

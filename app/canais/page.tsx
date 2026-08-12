@@ -61,6 +61,12 @@ export default function CanaisPage() {
         actions={<Button onClick={() => setNovo(true)}>+ Novo canal</Button>}
       />
 
+      {canais.length > 0 && (
+        <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+          <strong className="font-semibold text-slate-600 dark:text-slate-300">Inativo</strong> = o evento não dispara por este canal (cai na credencial padrão do ambiente, se houver, ou falha).
+        </p>
+      )}
+
       {carregando && canais.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-16 text-slate-400"><Spinner /> Carregando…</div>
       ) : canais.length === 0 ? (
@@ -100,11 +106,11 @@ export default function CanaisPage() {
                     <td className="px-4 py-3">
                       <div className="flex flex-col items-end gap-1.5">
                         <div className="flex items-center justify-end gap-1.5">
-                          <Button variant="secondary" size="sm" onClick={() => testar(c.id)} disabled={teste[c.id]?.loading}>
+                          <Button variant="secondary" size="sm" className="alvo-toque" aria-label={`Testar canal ${c.nome}`} onClick={() => testar(c.id)} disabled={teste[c.id]?.loading}>
                             {teste[c.id]?.loading ? "Testando…" : "Testar"}
                           </Button>
-                          <Button variant="secondary" size="sm" onClick={() => setEditar(c)}>Editar / trocar chave</Button>
-                          {!c.ativo && <Button variant="ghost" size="sm" onClick={() => patch(c.id, { ativo: true })}>Ativar</Button>}
+                          <Button variant="secondary" size="sm" className="alvo-toque" aria-label={`Editar ou trocar chave do canal ${c.nome}`} onClick={() => setEditar(c)}>Editar / trocar chave</Button>
+                          {!c.ativo && <Button variant="ghost" size="sm" className="alvo-toque" aria-label={`Ativar canal ${c.nome}`} onClick={() => patch(c.id, { ativo: true })}>Ativar</Button>}
                         </div>
                         {teste[c.id] && !teste[c.id].loading && (
                           <span className={cn("text-right text-xs", teste[c.id].ok ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
@@ -327,6 +333,11 @@ function ModalCanal({ canal, eventos, onClose, onSalvo }: { canal?: Canal; event
             className={cn(fieldClass, "font-mono")}
             autoComplete="off"
           />
+          {edicao && apiKey && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              A troca é imediata: a partir de salvar, os próximos disparos deste canal já usam esta chave nova — se ela estiver errada, o disparo para.
+            </p>
+          )}
           {!ehEmail && (
             <input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Número do WhatsApp (opcional)" className={fieldClass} />
           )}

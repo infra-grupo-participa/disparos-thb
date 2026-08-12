@@ -7,7 +7,7 @@ import { Button, Card, PageHeader, EmptyState, Spinner, cn, fieldClass } from "@
 import { DisparoModal } from "@/app/_components/disparo";
 import { TagsIcon } from "@/app/_components/tags";
 import { PageFade } from "@/app/_components/anim";
-import { useMe } from "@/app/_components/use-me";
+import { useMe, msgErroPermissao, msgErroCarregamento } from "@/app/_components/use-me";
 import { usePortal } from "@/app/_components/use-portal";
 
 type SelDisparo = { comprador_id: string; nome: string; telefone: string; edicao?: string | null };
@@ -56,6 +56,9 @@ export default function ContatosPage() {
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [contatos, setContatos] = useState<Contato[]>([]);
   const [carregando, setCarregando] = useState(true);
+  // Antes uma falha de rede ou um 500 na busca ficava mudo: a lista zerava e o
+  // operador via "Nenhum lead cadastrado ainda" — parecia base vazia, não erro.
+  const [erro, setErro] = useState<string | null>(null);
 
   const [fEstagio, setFEstagio] = useState("");
   const [fEdicao, setFEdicao] = useState("");
@@ -94,8 +97,12 @@ export default function ContatosPage() {
     if (fFaixa) params.set("faixa", fFaixa);
     try {
       const r = await fetch(`/api/contatos?${params.toString()}`);
+      if (!r.ok) { setErro(msgErroCarregamento(r.status)); return; }
       const d = await r.json();
-      if (d.ok) setContatos(d.contatos);
+      if (d.ok) { setContatos(d.contatos); setErro(null); }
+      else setErro(msgErroPermissao(d.reason) ?? "Não foi possível carregar os leads. Tente de novo.");
+    } catch {
+      setErro(msgErroCarregamento());
     } finally {
       setCarregando(false);
     }
@@ -261,12 +268,24 @@ export default function ContatosPage() {
         </div>
       </Card>
 
-      {/* Conteúdo: carregando × vazio × tabela */}
+      {/* Conteúdo: carregando × erro × vazio × tabela */}
       {carregando && contatos.length === 0 ? (
         <Card className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-slate-400 dark:text-slate-500">
           <Spinner className="h-7 w-7" />
           <span className="text-sm">Carregando leads…</span>
         </Card>
+      ) : erro && contatos.length === 0 ? (
+        <EmptyState
+          icon={
+            <svg className="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+              <path d="M12 9v4M12 17h.01" />
+            </svg>
+          }
+          title="Não foi possível carregar os leads"
+          description={erro}
+          action={<Button variant="secondary" size="sm" onClick={carregar}>Tentar de novo</Button>}
+        />
       ) : contatos.length === 0 && temFiltro ? (
         <EmptyState
           icon={
@@ -298,7 +317,20 @@ export default function ContatosPage() {
           description="Os leads aparecem aqui assim que houver compradores no sistema."
         />
       ) : (
+        <>
+          {/* Recarga (filtro mudou) falhou com a lista já cheia: avisa sem
+              trocar a tabela por um erro em tela cheia. */}
+          {erro && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" role="alert">
+              <span>{erro}</span>
+              <Button variant="secondary" size="sm" className="shrink-0" onClick={carregar}>Tentar de novo</Button>
+            </div>
+          )}
         <Card className="overflow-hidden">
+          {/* overflow-x-auto: sem isso a tabela de 8 colunas estourava a tela
+              no celular e o overflow-hidden do Card cortava colunas inteiras
+              em silêncio, em vez de deixar rolar. */}
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
               <tr>
@@ -376,7 +408,9 @@ export default function ContatosPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
+        </>
       )}
 
       {/* Barra de ação em massa — fixa no rodapé enquanto houver seleção */}

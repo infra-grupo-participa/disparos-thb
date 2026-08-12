@@ -128,6 +128,27 @@ export function podeDistribuir(u: Ator | null | undefined): boolean {
   return nivelDe(u) !== "operador";
 }
 
+// O CADEADO da atribuição (`cs.contatos_hm.atribuicao_admin`, 0142). Quem
+// distribui de cima trava o card: o operador que recebeu não devolve ao pool
+// nem passa adiante o que a gestão decidiu. Decisão do Marcio (11/08):
+// "aquele cadeado que impede o operador de mudar algo que o gestor alterou —
+// mantenha isso".
+//
+// Antes só o master travava. O gerente entra porque é ele quem distribui a
+// esteira do comercial hoje; sem isso a distribuição dele era desfeita pelo
+// próprio destinatário.
+export function podeTravarAtribuicao(u: Ator | null | undefined): boolean {
+  return ehMaster(u) || !!u?.gerente_distribuidor;
+}
+
+// ...e quem ABRE o cadeado. Tem de ser exatamente quem pode pôr, senão a
+// primeira distribuição congela o card: a Kelly travaria para a Jusy e depois
+// não conseguiria remanejar para o Jonathan. Operador nunca abre — é o ponto
+// inteiro da trava.
+export function podeRemanejarTravado(u: Ator | null | undefined): boolean {
+  return podeTravarAtribuicao(u);
+}
+
 // Pode atribuir um card PARA este destino?
 //   master   → sempre (e a rota trava o card: porAdmin=true).
 //   gestor   → só se o destino pertence à MESMA equipe dele. Destino sem equipe
@@ -201,6 +222,29 @@ export function escopoVisibilidade(u: Ator): EscopoVisibilidade {
   return { modo: "equipe", equipeId: u.equipe_id, usuarioId: u.id };
 }
 
+// O bônus do gerente vale para o CARD do board de ativação — não é um cheque em
+// branco. Esta função devolve o mesmo ator "sem o bônus", para os caminhos em que
+// a flag não deve valer:
+//   · DISPARO em massa (`escopoDisparo`) — achado da auditoria de 11/08: com
+//     escopoAcao='tudo', a Kelly (papel `disparador`) passaria a poder mandar
+//     campanha de WhatsApp/e-mail para QUALQUER contato do portal, não só para
+//     quem ela gerencia. Ninguém pediu isso; o risco é ban do número e contato
+//     sem finalidade. Disparo continua pelo nível.
+//   · PORTAIS GENÉRICOS (HT/SEM) — a flag nasceu para a esteira de ativação
+//     (migration 0161: "a flag é cirúrgica"). Ela é transversal por acidente:
+//     se um dia a conta ganhar o portal HT, herdaria escrita irrestrita lá sem
+//     ninguém ter decidido. `lib/services/contato.ts` chama daqui.
+export function semBonusDeGerente(u: Ator): Ator {
+  return { ...u, gerente_distribuidor: false };
+}
+
+// Recorte dos DESTINATÁRIOS de um disparo. Deliberadamente diferente de
+// escopoAcao: mexer no card de quem você gerencia é uma coisa, mandar mensagem
+// para a base inteira é outra.
+export function escopoDisparo(u: Ator): EscopoVisibilidade {
+  return escopoAcao(semBonusDeGerente(u));
+}
+
 // ESCRITA: é o que escopoVisibilidade ERA antes de leitura e ação se separarem.
 // master age em tudo; gestor no pool + na equipe dele; operador SÓ no pool
 // (assumir) e nos cards dele. Card de colega abre em leitura e recusa escrita
@@ -208,6 +252,16 @@ export function escopoVisibilidade(u: Ator): EscopoVisibilidade {
 export function escopoAcao(u: Ator): EscopoVisibilidade {
   const nivel = nivelDe(u);
   if (nivel === "master") return { modo: "tudo" };
+  // GERENTE (11/08, pedido do Marcio): passa a AGIR onde já enxergava. Em 10/08
+  // ele ganhou ver tudo + atribuir para qualquer equipe, mas a escrita continuou
+  // presa à própria equipe — e o gate de ação roda ANTES de tudo no PATCH, então
+  // na prática a Kelly levava 403 nos 101 cards da Jusy e do Jonathan: não movia
+  // no board, não reatribuía, não registrava atendimento. Gerência que não pode
+  // mexer no card de quem gerencia não é gerência.
+  // O que ele continua NÃO podendo, e é de propósito: gerir contas/portais/
+  // equipes (podeGerirAcesso segue master-only) e mexer em card cancelado
+  // (a trava de Reclamada/Reembolsado é ehMaster, gate separado).
+  if (u.gerente_distribuidor) return { modo: "tudo" };
   if (nivel === "gestor") return { modo: "equipe", equipeId: u.equipe_id, usuarioId: u.id };
   return { modo: "operador", usuarioId: u.id };
 }

@@ -1,6 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
-import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
+import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, nivelDe, podeAtribuirPara, podeRemanejarTravado, podeTravarAtribuicao, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
 import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 
 const log = logger("hm");
@@ -648,7 +648,10 @@ export async function atribuirResponsavelHm(
   // seguida, dois passos para desfazer o que o master decidiu). O operador só
   // devolve o card que é DELE, e também não fura a trava.
   if (destino.tipo === "pool") {
-    if (nivel !== "master" && atual.atribuicao_admin) {
+    // 11/08: quem ABRE o cadeado é quem pode PÔR (master e gerente). Antes só o
+    // master — a Kelly travava ao distribuir e depois não conseguia devolver ao
+    // pool o próprio card que ela mesma tinha travado.
+    if (!podeRemanejarTravado(sessao) && atual.atribuicao_admin) {
       return { ok: false, reason: "atribuicao_travada" };
     }
     if (nivel === "operador" && atual.responsavel_id !== sessao.id) {
@@ -722,7 +725,7 @@ export async function atribuirResponsavelHm(
   if (!podeAtribuirPara(sessao, user)) {
     return { ok: false, reason: nivel === "gestor" ? "destino_fora_da_equipe" : "sem_permissao_para_atribuir" };
   }
-  if (nivel !== "master") {
+  if (!podeRemanejarTravado(sessao)) {
     if (atual.atribuicao_admin) return { ok: false, reason: "atribuicao_travada" };
     // Operador: só assume do pool (ou re-assume o próprio, que é no-op). Card
     // com outro dono — por id OU por TEXTO órfão — não é dele para pegar: o
@@ -733,7 +736,9 @@ export async function atribuirResponsavelHm(
       return { ok: false, reason: "atribuicao_travada" };
     }
   }
-  await setResponsavelHmPorId(compradorId, user.id, autor, nivel === "master");
+  // O cadeado (0142) passa a ser posto por master E gerente (11/08): é a gestão
+  // distribuindo, e o destinatário não desfaz.
+  await setResponsavelHmPorId(compradorId, user.id, autor, podeTravarAtribuicao(sessao));
   return { ok: true };
 }
 
@@ -746,7 +751,10 @@ export async function atribuirResponsavelHm(
 //                  em leitura e recusa escrita (403 'card_de_outro_operador').
 // Era UMA função servindo às duas perguntas — exatamente a confusão que fazia
 // o operador não ver o board da equipe. NÃO reunificar.
-type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null };
+// `gerente_distribuidor` entra no tipo (11/08) porque o veredicto de AÇÃO agora
+// depende dele: sem o campo aqui, o TS deixava o valor cair no cast para Ator e a
+// flag chegava como undefined — a Kelly voltaria a levar 403 no card da Jusy.
+type SessaoEquipe = { id: string; papel: Papel; equipe_id: string | null; equipe_tipo: TipoEquipe | null; lider_equipe?: boolean | null; gerente_distribuidor?: boolean | null };
 
 async function cardEscopoHm(compradorId: string) {
   return queryOne<{ responsavel_id: string | null; equipe_id: string | null; responsavel: string | null; tags: string[] | null }>(

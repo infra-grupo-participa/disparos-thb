@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { podeDisparar } from "@/lib/auth";
 import { guard } from "@/lib/guard";
-import { escopoAcao, paramsEscopo } from "@/lib/papeis";
+import { escopoDisparo, paramsEscopo } from "@/lib/papeis";
 import { sqlEscopo } from "@/lib/services/contato";
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
@@ -81,7 +81,8 @@ export async function POST(req: Request) {
   // RECORTE de segurança: enviar e-mail é AÇÃO (28/07, leitura ≠ ação) — mesmo
   // predicado do /api/send, pelo escopo de AÇÃO: operador só dispara para o
   // pool e para a própria carteira, mesmo vendo a equipe inteira nas listas.
-  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoAcao(sessao));
+  // 11/08 (auditoria de segurança): mesmo recorte do /api/send — escopoDisparo.
+  const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoDisparo(sessao));
   const contatos = await query<{ comprador_id: string; email: string; edicao: string | null }>(
     `select v.comprador_id, v.email, v.edicao from cs.contatos_evento v
       where v.evento = $2 and v.comprador_id = any($1::uuid[])

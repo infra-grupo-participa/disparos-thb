@@ -42,6 +42,7 @@ export default function HmEquipesPage() {
   const [rotaCanal, setRotaCanal] = useState("");
   const [rotaEquipe, setRotaEquipe] = useState("");
   const [equipePadrao, setEquipePadrao] = useState<string | null>(null);
+  const [remover, setRemover] = useState<{ equipeId: string; usuario: Usuario } | null>(null);
 
   // Ver = master OU gestor (null enquanto carrega). Editar = SÓ master.
   const podeVer = me ? podeDistribuir() : null;
@@ -92,7 +93,10 @@ export default function HmEquipesPage() {
     await carregar();
   }
 
-  async function salvarRota(canal: string, equipe_id: string | null) {
+  async function salvarRota(canal: string, equipe_id: string | null, nomeEquipeAtual?: string) {
+    // Remover rota afeta só as vendas QUE AINDA VÃO CHEGAR — os cards que já
+    // nasceram na equipe não voltam. Vale um "tem certeza" com o efeito escrito.
+    if (equipe_id === null && !confirm(`Remover a rota de "${canal}"? As próximas vendas desse canal deixam de cair direto em "${nomeEquipeAtual}" e passam pelo pool aberto.`)) return;
     const r = await fetch("/api/hm/equipes/rotas", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ canal, equipe_id }) });
     const d = await r.json();
     if (!d.ok) { alert("Não foi possível salvar a rota."); return; }
@@ -132,6 +136,11 @@ export default function HmEquipesPage() {
               ? "Quem é de cada equipe, o cargo de cada um e quais canais caem direto para cada equipe."
               : "Quem faz parte da sua equipe — são as pessoas para quem você pode distribuir cards. A composição é gerida pelo Grupo Participa."}
           </p>
+          {podeEditar && (
+            <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+              Cargo decide o que a pessoa faz (quem dispara); a estrela decide quem lidera. Os dois, junto com a equipe, formam o selo de Nível ao lado do nome.
+            </p>
+          )}
         </div>
         <HmVisao atual="equipes" filtros={{}} podeConfig />
       </div>
@@ -218,7 +227,12 @@ export default function HmEquipesPage() {
                               >
                                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill={u.lider_equipe ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z" /></svg>
                               </button>
-                              <button onClick={() => membro(eq.id, u.id, "remover")} className="rounded-md p-1.5 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-600 dark:hover:bg-rose-500/10" title="Tirar da equipe">
+                              <button
+                                onClick={() => setRemover({ equipeId: eq.id, usuario: u })}
+                                className="alvo-toque rounded-md p-1.5 text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 dark:text-slate-600 dark:hover:bg-rose-500/10"
+                                title="Tirar da equipe"
+                                aria-label={`Tirar ${u.nome} da equipe ${eq.nome}`}
+                              >
                                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                               </button>
                             </div>
@@ -333,7 +347,7 @@ export default function HmEquipesPage() {
                   <span className="inline-block h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: r.equipe_cor }} />
                   <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">{r.canal}</span>
                   <span className="text-xs text-slate-400">→ {r.equipe_nome}</span>
-                  <button onClick={() => salvarRota(r.canal, null)} className="text-xs text-slate-400 hover:text-rose-500" title="Remover rota">remover</button>
+                  <button onClick={() => salvarRota(r.canal, null, r.equipe_nome)} className="alvo-toque text-xs text-slate-400 hover:text-rose-500" title="Remover rota" aria-label={`Remover rota do canal ${r.canal}`}>remover</button>
                 </div>
               ))}
               {rotas.length === 0 && <p className="text-xs text-slate-400">Nenhum canal roteado.</p>}
@@ -361,6 +375,47 @@ export default function HmEquipesPage() {
           )}
         </div>
       )}
+
+      {remover && (
+        <ModalConfirmarRemover
+          usuario={remover.usuario}
+          equipeNome={equipes.find((eq) => eq.id === remover.equipeId)?.nome ?? ""}
+          onClose={() => setRemover(null)}
+          onConfirmar={async () => { await membro(remover.equipeId, remover.usuario.id, "remover"); setRemover(null); }}
+        />
+      )}
     </PageFade>
+  );
+}
+
+// Confirmação de "Tirar da equipe" — destrutivo o bastante pra explicar antes:
+// a pessoa some da visão da equipe (só sobra pool + os cards que já são dela),
+// e perde a estrela de líder se tinha. Os cards dela não mudam de dono.
+function ModalConfirmarRemover({ usuario, equipeNome, onClose, onConfirmar }: { usuario: Usuario; equipeNome: string; onClose: () => void; onConfirmar: () => Promise<void> }) {
+  const [salvando, setSalvando] = useState(false);
+
+  async function confirmar() {
+    setSalvando(true);
+    try { await onConfirmar(); } finally { setSalvando(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" onClick={onClose} role="alertdialog" aria-modal="true" aria-labelledby="titulo-remover-membro">
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm animate-fade-in rounded-xl border border-slate-200 bg-white p-6 shadow-pop dark:border-slate-800 dark:bg-slate-900">
+        <h2 id="titulo-remover-membro" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tirar {usuario.nome} de {equipeNome}?</h2>
+        <ul className="mt-3 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
+          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Ela deixa de ver e distribuir os cards <strong>desta equipe</strong> — sobra o pool e os cards que já são dela.</li>
+          {usuario.lider_equipe && (
+            <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Perde a estrela de líder junto (ninguém lidera equipe nenhuma).</li>
+          )}
+          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Os cards que já são dela <strong>não mudam de dono</strong>.</li>
+        </ul>
+        <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">Pode adicionar de volta a qualquer momento.</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={salvando}>Cancelar</Button>
+          <Button type="button" variant="danger" onClick={confirmar} disabled={salvando}>{salvando && <Spinner className="text-white" />}Tirar da equipe</Button>
+        </div>
+      </div>
+    </div>
   );
 }
