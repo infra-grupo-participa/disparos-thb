@@ -188,9 +188,19 @@ export function msgErroPermissao(reason?: string | null): string | null {
     case "cadastro_manual_so_admin":
       return "Cards nascem da compra na Hotmart. O cadastro manual é restrito ao administrador do Grupo Participa.";
     case "sem_permissao_ativacao":
-      // "Assumir a ativação" (12/08): só quem tem a função HM:ativacao ou é
-      // master/gestor. Espelha a checagem de app/api/hm/contato/[id]/route.ts.
-      return "Só quem tem a função de Ativação (ou é gestor/administrador) pode assumir a ativação deste aluno.";
+      // Dois gates devolvem este mesmo reason, e a mensagem precisa servir aos dois:
+      //   · "Assumir a ativação" (12/08) — só quem tem a função HM:ativacao;
+      //   · escopo de CAMPO (13/08) — quem só tem a função de Comercial não
+      //     escreve em campo da ativação (checklist de acesso, entrevista).
+      // O texto diz a REGRA, não o caminho: o operador não sabe qual gate barrou,
+      // e "você não tem permissão" seco é o que faz ele abrir chamado.
+      return "Esta parte do card é da Ativação — só quem tem essa função (ou é gestor/administrador) mexe aqui. O trabalho do Comercial no mesmo card continua liberado para você.";
+    case "sem_permissao_comercial":
+      // O espelho do de cima (13/08). Existe para quando alguém tiver SÓ a função
+      // de Ativação — hoje ninguém tem (Ana Camila e Thomas têm as duas), então a
+      // mensagem é preventiva: no dia em que a operação separar de verdade, ela
+      // já está aqui, em vez de o operador levar um erro genérico.
+      return "Esta parte do card é do Comercial — quem vendeu, a reunião e a etapa comercial. Só quem tem essa função (ou é gestor/administrador) altera. O seu trabalho na Ativação segue liberado.";
     case "fora_da_ativacao":
       return "Este card ainda não chegou na Ativação — só é possível assumir a ativação quando o aluno está nessa aba.";
     case "card_de_outro_operador":
