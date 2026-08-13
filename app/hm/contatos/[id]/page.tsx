@@ -203,11 +203,11 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
           <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
         </span>
         <p className="text-sm text-slate-600 dark:text-slate-300">{erroAcesso}</p>
-        <Link href="/hm/kanban" className="mt-3 inline-block text-sm font-medium text-brand underline dark:text-brand-300">Voltar à esteira</Link>
+        <Link href="/hm/kanban" className="mt-3 inline-block text-sm font-medium text-brand underline dark:text-brand-300">Voltar à Jornada</Link>
       </div>
     );
   }
-  if (!c) return <div className="py-24 text-center text-slate-500">Lead não encontrado. <Link href="/hm/kanban" className="text-brand underline">Voltar à esteira</Link></div>;
+  if (!c) return <div className="py-24 text-center text-slate-500">Aluno não encontrado. <Link href="/hm/kanban" className="text-brand underline">Voltar à Jornada</Link></div>;
 
   const tags = c.tags ?? [];
   // A marca de pago é apto_ativacao; pagamento_em é o histórico (fica mesmo quando
@@ -369,7 +369,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                         disabled={salvando}
                         onClick={() => patch({ responsavel_id: me.id })}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-teal-400 px-2.5 py-1.5 text-xs font-medium text-teal-700 transition hover:bg-teal-50 disabled:opacity-50 dark:border-teal-500/50 dark:text-teal-300 dark:hover:bg-teal-500/10"
-                        title="Card do pool — clique para assumir para você"
+                        title="Sem dono — clique para assumir este aluno"
                       >
                         <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
                         No pool — atribuir a mim
@@ -576,7 +576,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
 
       {aba === "forms" && (
         formularios.length === 0 ? (
-          <p className="py-4 text-sm text-slate-400 dark:text-slate-500">Nenhum formulário respondido (Respondi) por este lead ainda.</p>
+          <p className="py-4 text-sm text-slate-400 dark:text-slate-500">Nenhum formulário respondido (Respondi) por este aluno ainda.</p>
         ) : (
           <div className="space-y-4">
             {formularios.map((f, i) => {

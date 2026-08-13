@@ -354,7 +354,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
         </Card>
 
         <div className="mt-6 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Leads</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Contatos</span>
           {!criandoContatos && (
             <Button variant="secondary" size="sm" onClick={sincronizarStatus} disabled={sincronizando}>
               {sincronizando && <Spinner className="h-3.5 w-3.5" />}
@@ -424,11 +424,11 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
     return (
       <div className={wrap}>
         <EmptyState
-          title="Nenhum lead selecionado"
+          title="Ninguém selecionado"
           description="Vá em Leads, selecione os destinatários e clique em “Disparar” para começar."
           action={
             <Link href={`${base}/contatos`}>
-              <Button variant="primary">Ir para Leads</Button>
+              <Button variant="primary">Ir para Contatos</Button>
             </Link>
           }
         />

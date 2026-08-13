@@ -22,6 +22,15 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
+      # As duas travas que rodam sem banco. Estavam fora do CI: eram rodadas à
+      # mão e por isso só protegiam quem lembrava de rodar.
+      - name: Regras de acesso (quem pode o quê)
+        run: npm run test:papeis
+      # 13/08 — a tela é lida por quem não conhece o sistema. Falha se voltar
+      # "lead", "pool", "esteira" ou "board" ao texto visível do HM.
+      # Ver docs/plano-sistema-para-quem-opera.md.
+      - name: Vocabulário das telas
+        run: npm run test:vocabulario
       - name: Build
         run: npm run build
         env:

@@ -302,7 +302,7 @@ export function AtividadeColaboradores({
                       não ensina ninguém a interpretá-lo. */}
                   <th className="px-4 py-2.5 font-medium">Quem</th>
                   <th className="px-3 py-2.5 text-right font-medium" title="Tudo que a pessoa registrou no período somado">Tudo</th>
-                  <th className="px-3 py-2.5 text-right font-medium" title="Quantas vezes moveu um card de etapa no board">Moveu de etapa</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Quantas vezes moveu um aluno de etapa na Jornada">Moveu de etapa</th>
                   <th className="px-3 py-2.5 text-right font-medium" title="Anotações escritas na ficha do aluno">Anotou</th>
                   <th className="px-3 py-2.5 text-right font-medium" title="Mensagens de campanha enviadas por esta pessoa">Mandou mensagem</th>
                   {comLigacoes && <th className="px-3 py-2.5 text-right font-medium" title="Atendimentos por telefone/WhatsApp registrados">Falou por telefone</th>}

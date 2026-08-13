@@ -169,11 +169,11 @@ export default function HmEquipesPage() {
                         type="color"
                         value={eq.cor}
                         onChange={(e) => patchEquipe(eq.id, { cor: e.target.value })}
-                        title="Cor da equipe (borda/selo do card no board)"
+                        title="Cor da equipe (borda e selo do card na Jornada)"
                         className="h-5 w-5 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600"
                       />
                     ) : (
-                      <span className="h-4 w-4 shrink-0 rounded" style={{ backgroundColor: eq.cor }} title="Cor da equipe (borda/selo do card no board)" />
+                      <span className="h-4 w-4 shrink-0 rounded" style={{ backgroundColor: eq.cor }} title="Cor da equipe (borda e selo do card na Jornada)" />
                     )}
                     <span className="font-semibold text-slate-800 dark:text-slate-100">{eq.nome}</span>
                     {eq.tipo === "principal" && (
@@ -321,7 +321,7 @@ export default function HmEquipesPage() {
               className={cn(fieldClass, "w-full")}
               title="Equipe que recebe automaticamente as novas vendas de HM"
             >
-              <option value="">Ninguém (cai no pool aberto)</option>
+              <option value="">Ninguém (fica sem dono, livre para qualquer um pegar)</option>
               {equipes.map((eq) => <option key={eq.id} value={eq.id}>{eq.nome}</option>)}
             </select>
             {equipePadrao && (() => {
@@ -404,7 +404,7 @@ function ModalConfirmarRemover({ usuario, equipeNome, onClose, onConfirmar }: { 
       <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm animate-fade-in rounded-xl border border-slate-200 bg-white p-6 shadow-pop dark:border-slate-800 dark:bg-slate-900">
         <h2 id="titulo-remover-membro" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tirar {usuario.nome} de {equipeNome}?</h2>
         <ul className="mt-3 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
-          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Ela deixa de ver e distribuir os cards <strong>desta equipe</strong> — sobra o pool e os cards que já são dela.</li>
+          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Ela deixa de ver e distribuir os cards <strong>desta equipe</strong> — sobram os alunos sem dono e os que já são dela.</li>
           {usuario.lider_equipe && (
             <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Perde a estrela de líder junto (ninguém lidera equipe nenhuma).</li>
           )}

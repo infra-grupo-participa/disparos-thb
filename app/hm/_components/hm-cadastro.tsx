@@ -93,7 +93,7 @@ export function HmCadastroModal({
       >
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Cadastrar na esteira</h2>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Cadastrar na Jornada</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               Para quem pagou e não apareceu, ou entrou por fora. O e-mail acha quem já existe — não duplica.
             </p>
