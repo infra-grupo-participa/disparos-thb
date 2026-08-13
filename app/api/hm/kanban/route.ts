@@ -82,6 +82,11 @@ export async function GET(req: Request) {
             -- RECONCILIADO com cs.hm_pagamentos (a razão), não a data crua. Mesmo join
             -- que já lê fin acima (nenhum custo adicional): só mais uma coluna da view.
             fin.status_parcela,
+            -- 13/08: adimplencia no card. parcelas_* so entram no rotulo quando
+            -- a pessoa esta MESMO num parcelamento (contratadas > 1 e ao menos
+            -- uma paga) -- dizer "0 de 12" para quem nao pagou nenhuma e ruido,
+            -- e e a maioria. Medido: dos 27 atrasados, so 1 esta parcelando.
+            fin.parcelas_pagas, fin.parcelas_contratadas,
             -- 11/08: "quanto essa pessoa ainda deve" é a pergunta que o comercial
             -- faz o dia todo e que só existia dentro da ficha. Vai para o card.
             -- null = o sistema não sabe (não é zero) — o card então não afirma nada.
