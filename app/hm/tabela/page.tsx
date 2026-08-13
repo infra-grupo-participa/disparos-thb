@@ -575,7 +575,7 @@ export default function HmTabelaPage() {
         if (Array.isArray(d.turmas)) setTurmas(d.turmas);
         if (d.canaisQtd) setCanaisQtd(d.canaisQtd);
       } else if (r.ok) {
-        setErro(msgErroPermissao(d?.reason) ?? "Não foi possível carregar a esteira. Tente de novo.");
+        setErro(msgErroPermissao(d?.reason) ?? "Não foi possível carregar a Jornada. Tente de novo.");
       } else {
         setErro(msgErroPermissao(d?.reason) ?? `O servidor não conseguiu responder agora (erro ${r.status}). Tente de novo em instantes.`);
       }
@@ -747,7 +747,7 @@ export default function HmTabelaPage() {
       const semPagto = dos.filter((l) => !l.apto_ativacao).length;
       if (semPagto > 0) {
         const ok = window.confirm(
-          `Mover ${dos.length} lead(s) para "${destino.nome}" os coloca na esteira de Ativação.\n\n` +
+          `Mover ${dos.length} aluno(s) para "${destino.nome}" os coloca na Ativação.\n\n` +
             `${semPagto} deles ainda não têm pagamento confirmado — o movimento marca o saldo como pago e cria o aluno na base THB. Continuar?`,
         );
         if (!ok) return;
@@ -855,7 +855,7 @@ export default function HmTabelaPage() {
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => moverEtapa(l, e.target.value)}
           className={cn(celSelect, "min-w-[10rem]")}
-          title="Trocar a etapa (passa pela mesma regra do board — inclusive a trava do checklist)"
+          title="Trocar a etapa (mesma regra da Jornada — inclusive a trava do checklist)"
         >
           {estagios.map((s) => (
             <option key={s.chave} value={s.chave}>{(s.aba ?? "comercial") === "ativacao" ? "Ativação · " : "Comercial · "}{s.nome}</option>
@@ -918,7 +918,7 @@ export default function HmTabelaPage() {
               disabled={salvando === l.comprador_id}
               onClick={(e) => { e.stopPropagation(); patch(l.comprador_id, l.nome, { responsavel_id: me.id }); }}
               className="inline-flex items-center gap-1 rounded-md border border-dashed border-teal-400 px-2 py-0.5 text-[11px] font-medium text-teal-700 transition hover:bg-teal-50 disabled:opacity-50 dark:border-teal-500/50 dark:text-teal-300 dark:hover:bg-teal-500/10"
-              title="Card do pool — clique para assumir para você"
+              title="Sem dono — clique para assumir este aluno"
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
               Assumir
@@ -953,7 +953,7 @@ export default function HmTabelaPage() {
           return (
             <span
               className="inline-flex items-center gap-0.5 rounded border border-dashed border-teal-400 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 dark:border-teal-500/50 dark:text-teal-300"
-              title="Card do pool — sem equipe e sem dono. Abra a ficha e clique em “Atribuir a mim” para assumir."
+              title="Sem dono e sem equipe. Abra a ficha e clique em “Atribuir a mim” para assumir."
             >
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
               Pool · livre
@@ -1595,7 +1595,7 @@ export default function HmTabelaPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {linhas.length} lead(s) — a esteira em linhas: ordene, filtre, edite na célula e aja em lote.
+            {linhas.length} aluno(s) — a Jornada em linhas: ordene, filtre, edite na célula e aja em lote.
           </p>
         </div>
         {/* flex-wrap (11/08): sem ele, "+ Cadastrar" + abas + os dois botões de
@@ -1618,7 +1618,7 @@ export default function HmTabelaPage() {
               ? "Baixar o relatório da esteira inteira (resumo + uma aba por etapa)"
               : "Baixar o relatório da SUA visão da esteira (o pool + os cards que você vê), resumo + uma aba por etapa"}
           >
-            <Button variant="secondary" size="sm" className="alvo-toque">Esteira .xlsx</Button>
+            <Button variant="secondary" size="sm" className="alvo-toque">Jornada .xlsx</Button>
           </a>
           {/* O financeiro em planilha própria: a visão "Financeiro" desta tela cabe
               numa tabela, mas a conciliação não — ela precisa do razão de pagamentos
@@ -1661,7 +1661,7 @@ export default function HmTabelaPage() {
 
         <div className="relative w-52 min-w-[9rem]">
           <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar lead…" className={cn(fieldClass, "alvo-toque pl-8")} />
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar aluno…" className={cn(fieldClass, "alvo-toque pl-8")} />
         </div>
 
         {responsaveis.length > 0 && (
@@ -1819,7 +1819,7 @@ export default function HmTabelaPage() {
 
       {carregando && linhas.length === 0 ? (
         <div className="flex items-center justify-center gap-3 py-20 text-slate-400 dark:text-slate-500">
-          <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando esteira…</span>
+          <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando a Jornada…</span>
         </div>
       ) : erro && linhas.length === 0 ? (
         // Falhou e não há NADA na tela: sem isto a tabela parecia vazia de
@@ -1831,7 +1831,7 @@ export default function HmTabelaPage() {
               <path d="M12 9v4M12 17h.01" />
             </svg>
           }
-          title="Não foi possível carregar a esteira"
+          title="Não foi possível carregar a Jornada"
           description={erro}
           action={<Button variant="secondary" onClick={() => carregar()}>Tentar de novo</Button>}
         />
@@ -1997,7 +1997,7 @@ export default function HmTabelaPage() {
             {/* O rodapé onde o dinheiro aparece somado — recalculado a cada
                 filtro/lente/busca, sempre sobre o que está na tela. */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
-              <span className="font-semibold text-slate-800 dark:text-slate-100">{visiveis.length} lead(s)</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-100">{visiveis.length} aluno(s)</span>
               <span>
                 · saldo a receber <strong className="tabular-nums text-slate-800 dark:text-slate-100">{brl(totSaldo)}</strong>
                 {/* O sufixo só aparece quando a soma é incompleta — no caso normal

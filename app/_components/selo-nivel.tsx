@@ -127,7 +127,7 @@ export function SeloGerente({ className }: { className?: string }) {
         "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300",
         className,
       )}
-      title="Gerente — vê e trabalha a esteira inteira, de todas as equipes, e distribui card para qualquer pessoa. Não gere contas, portais nem equipes."
+      title="Gerente — vê e trabalha a Jornada inteira, de todas as equipes, e distribui aluno para qualquer pessoa. Não gere contas, portais nem equipes."
     >
       <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
       gerente
@@ -171,10 +171,10 @@ export function LegendaNiveis({ className }: { className?: string }) {
       <span>= Administrador de outra equipe OU líder (estrela, na tela de Equipes) — distribui na própria equipe</span>
       <span className="text-slate-300 dark:text-slate-600">·</span>
       <Selinho nivel="operador" />
-      <span>= os demais (pool + os próprios cards)</span>
+      <span>= os demais (os sem dono + os seus)</span>
       <span className="text-slate-300 dark:text-slate-600">·</span>
       <SeloGerente />
-      <span>= acréscimo ao nível: trabalha a esteira inteira e distribui para qualquer equipe</span>
+      <span>= acréscimo ao nível: trabalha a Jornada inteira e distribui para qualquer equipe</span>
     </p>
   );
 }

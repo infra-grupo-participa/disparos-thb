@@ -421,7 +421,7 @@ export default function HmKanbanPage() {
         if (d.canaisQtd) setCanaisQtd(d.canaisQtd);
       } else if (r.ok) {
         // 200 com payload inesperado — raro, mas não é "sem rede".
-        setErro(msgErroPermissao(d?.reason) ?? "Não foi possível carregar a esteira. Tente de novo.");
+        setErro(msgErroPermissao(d?.reason) ?? "Não foi possível carregar a Jornada. Tente de novo.");
       } else {
         // O servidor respondeu (não é problema de rede), só que com erro —
         // diz o motivo quando dá, e o status quando não dá.
@@ -709,7 +709,7 @@ export default function HmKanbanPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {totalComercial + totalAtivacao} lead(s) — arraste os cards entre as etapas e para cima/baixo para ordenar a fila.
+            {totalComercial + totalAtivacao} aluno(s) — arraste entre as etapas, e para cima/baixo para ordenar a fila.
           </p>
         </div>
         {/* Wrap aqui também: são até 5 botões e, sem quebra, no celular eles
@@ -732,7 +732,7 @@ export default function HmKanbanPage() {
               ? "Baixar o relatório da esteira inteira (resumo + uma aba por etapa)"
               : "Baixar o relatório da SUA visão da esteira (o pool + os cards que você vê), resumo + uma aba por etapa"}
           >
-            <Button variant="secondary" size="sm" className="alvo-toque">Esteira .xlsx</Button>
+            <Button variant="secondary" size="sm" className="alvo-toque">Jornada .xlsx</Button>
           </a>
           {/* O dinheiro é outro relatório: quem deve, quanto entrou e os cancelamentos. */}
           <a
@@ -805,7 +805,7 @@ export default function HmKanbanPage() {
             seria ruído sobre um poder que eles não têm. */}
         {ehEquipeDeAtivacao && (
           <span
-            title="Você é da equipe de ativação: pode mover qualquer card do board do HM, inclusive de outros operadores."
+            title="Você é da equipe de ativação: pode mover qualquer aluno do HM, inclusive de outros operadores."
             className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900"
           >
             <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -819,7 +819,7 @@ export default function HmKanbanPage() {
 
         <div className="relative min-w-[10rem] flex-1">
           <svg className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar lead…" className={cn(fieldClass, "alvo-toque w-full pl-8")} />
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar aluno…" className={cn(fieldClass, "alvo-toque w-full pl-8")} />
         </div>
 
         {responsaveis.length > 0 && (
@@ -855,14 +855,14 @@ export default function HmKanbanPage() {
           board pode estar defasado em relação ao banco — avisa em vez de calar. */}
       {erro && cards.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" role="alert">
-          <span>{erro} O board pode estar desatualizado.</span>
+          <span>{erro} O que você está vendo pode estar desatualizado.</span>
           <button onClick={carregar} className="shrink-0 font-medium underline-offset-2 hover:underline">Recarregar</button>
         </div>
       )}
 
       {carregando && cards.length === 0 ? (
         <div className="flex items-center justify-center gap-3 py-20 text-slate-400 dark:text-slate-500">
-          <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando esteira…</span>
+          <Spinner className="h-6 w-6" /> <span className="text-sm">Carregando a Jornada…</span>
         </div>
       ) : erro && cards.length === 0 ? (
         // Falhou e não há NADA na tela: sem isto a esteira parecia vazia de
@@ -874,7 +874,7 @@ export default function HmKanbanPage() {
               <path d="M12 9v4M12 17h.01" />
             </svg>
           }
-          title="Não foi possível carregar a esteira"
+          title="Não foi possível carregar a Jornada"
           description={erro}
           action={<Button variant="secondary" onClick={carregar}>Tentar de novo</Button>}
         />
@@ -1739,10 +1739,10 @@ function CardItem({
           {!cancelado && ehPool && (
             <span
               className="inline-flex items-center gap-0.5 rounded border border-dashed border-teal-400 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 dark:border-teal-500/50 dark:text-teal-300"
-              title="Card do pool — sem dono. Abra a ficha e clique em “Atribuir a mim” para assumir."
+              title="Sem dono — ninguém pegou este aluno ainda. Abra a ficha e clique em “Atribuir a mim” para assumir."
             >
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
-              Pool · livre
+              Sem dono
             </span>
           )}
           {/* Card de colega (visão do operador): contexto, não bloqueio — slate
@@ -1822,7 +1822,7 @@ function CardItem({
       )}
 
       {espelho && (
-        <p className="mt-1 inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Este card já está na esteira de Ativação — aqui ele é só o registro do pagamento">
+        <p className="mt-1 inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Este aluno já está na Ativação — aqui aparece só o registro do pagamento">
           <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
           Ativação · {card.estagio_nome ?? "em andamento"}
         </p>
