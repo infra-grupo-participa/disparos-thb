@@ -41,7 +41,18 @@ export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tab
     // Agora a tira rola sozinha (o traço some por `rolagem-oculta`, como no
     // cabeçalho e na régua de canais) e a página fica quieta. Verificado no
     // Chromium a 390px: scrollWidth da página volta a 390.
-    <div className="rolagem-oculta -mx-1 min-w-0 max-w-full flex-1 overflow-x-auto px-1 sm:flex-none">
+    // 13/08 — `flex-1` fazia a tira DISPUTAR a linha com "+ Cadastrar",
+    // "Esteira .xlsx", "Financeiro .xlsx" e "Disparo inteligente". No celular
+    // ela era espremida a ~60px: aparecia só o ícone do Kanban e um pedaço da
+    // palavra, e o operador não tinha como saber que Tabela, Reuniões,
+    // Atividade e Equipes estavam ali dentro, atrás de um scroll horizontal de
+    // 60px. Visto na captura do Chromium a 390px — a bateria não acusa, porque
+    // não é erro nem estouro: é o botão sumindo de vista.
+    //
+    // `basis-full` no celular dá LINHA PRÓPRIA à tira (ela rola sozinha se
+    // precisar); do `sm` para cima volta ao comportamento antigo, onde sobra
+    // largura e a disputa não existe.
+    <div className="rolagem-oculta -mx-1 min-w-0 max-w-full basis-full overflow-x-auto px-1 sm:basis-auto sm:flex-none">
       <div className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800/80">
       {VISOES.filter((v) => v.id !== "equipes" || podeConfig).map((v) => {
         const ativa = v.id === atual;
