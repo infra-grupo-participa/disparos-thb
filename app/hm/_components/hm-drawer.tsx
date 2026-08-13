@@ -294,6 +294,10 @@ export function HmDrawer({
   // (pagamento/valor/saldo manual removidos em 30/07: dados de transação vêm da Hotmart)
   // acordo do saldo + ativação (rascunho local; só grava no OK/blur)
   const [prorata, setProrata] = useState<Prorata | null>(null);
+  // 0231: quando existe, o crédito da ficha é o MESMO número que gerou o link de
+  // pagamento enviado ao aluno. É o que permite o comercial defender o valor ao
+  // telefone em vez de torcer para bater.
+  const [prorataFonte, setProrataFonte] = useState<{ fonte?: string | null; importado_em?: string | null } | null>(null);
   // Saldo do Aurum (0158) + saldo cheio do board (14.700 no HM, 59.000 no Aurum).
   const [aurum, setAurum] = useState<AurumSaldoDrawer | null>(null);
   const [saldoCheio, setSaldoCheio] = useState<string | null>(null);
@@ -339,6 +343,7 @@ export function HmDrawer({
       setEntrevista(toLocalInput(d.contato.entrevista_em));
       setFin(d.financeiro ?? null);
       setProrata(d.prorata ?? null);
+      setProrataFonte(d.prorataFonte ?? null);
       setAurum(d.aurumSaldo ?? null);
       setSaldoCheio(d.saldoCheio ?? null);
       setOutrosPortais(d.outrosPortais ?? []);
@@ -921,7 +926,20 @@ export function HmDrawer({
                           disfarçar de anotação de pessoa. */}
                       {prorata && num(prorata.credito) > 0 && (
                         <p className="mb-1.5 rounded bg-white/70 px-2 py-1.5 text-[11px] leading-relaxed text-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
-                          <span className="font-semibold">Conta do sistema:</span>{" "}
+                          {/* 0231: dizer a FONTE muda o que o comercial pode
+                              afirmar. Número congelado da planilha = o mesmo que
+                              foi para o link do aluno, defensável ao telefone.
+                              Número calculado = conta do sistema, que muda a cada
+                              dia e pode não bater com o link que já saiu. */}
+                          {prorataFonte ? (
+                            <span className="mb-1 flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-300">
+                              <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                              Conferido com a planilha do Victor
+                              {prorataFonte.importado_em ? ` · import de ${new Date(prorataFonte.importado_em).toLocaleDateString("pt-BR")}` : ""}
+                              {" — é este o valor do link enviado ao aluno."}
+                            </span>
+                          ) : null}
+                          <span className="font-semibold">{prorataFonte ? "A conta:" : "Conta do sistema:"}</span>{" "}
                           do acesso anterior{c.turma_origem ? ` (turma ${c.turma_origem})` : ""}, usou{" "}
                           <strong>{prorata.dias_usados} dias</strong> a {brl(num(prorata.valor_dia))}/dia
                           {" "}= {brl(num(prorata.consumido))} consumidos. Sobram{" "}

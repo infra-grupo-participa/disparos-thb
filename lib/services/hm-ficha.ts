@@ -10,6 +10,10 @@ export type FichaHm = {
   contato: ContatoHmFicha;
   socios: Record<string, unknown>[];
   prorata: Record<string, unknown> | null;
+  /** 0231: a linha CONGELADA da planilha do Victor, quando existe — a mesma conta
+   *  que gerou o link de pagamento enviado ao aluno. Null = o crédito é cálculo
+   *  do sistema, não número conferido com a planilha. */
+  prorataFonte: Record<string, unknown> | null;
   linksSaldo: Record<string, unknown>[];
   timeline: Record<string, unknown>[];
   formularios: Record<string, unknown>[];
@@ -159,6 +163,20 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
     [compradorId],
   );
 
+  // 0231: de ONDE veio esse crédito. Quando existe linha congelada, o número da
+  // ficha é o MESMO que gerou o link de pagamento enviado ao aluno — e é isso que
+  // o comercial precisa poder afirmar ao telefone. Sem esta informação, ele vê um
+  // valor e não sabe se pode defendê-lo ou se o sistema recalculou por conta.
+  const prorataFonte = await queryOne(
+    `select pl.fonte, pl.importado_em, pl.valor_pago, pl.dias_totais, pl.dias_usados,
+            pl.valor_dia, pl.consumido, pl.credito, pl.saldo_link
+       from cs.hm_prorata_planilha pl
+       join public.compradores co on lower(co.email) = pl.email
+      where co.id = $1 and pl.credito is not null
+      limit 1`,
+    [compradorId],
+  );
+
   // Link de saldo sugerido: cada valor de saldo tem sua própria oferta na Hotmart
   // (o desconto do pró-rata vem embutido no valor — 0049). Sabendo o saldo, o
   // sistema escolhe o link certo em vez de o operador procurar numa aba de planilha.
@@ -270,6 +288,6 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
     [compradorId, produtoCard],
   );
 
-  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, aurumSaldo, pagamentos,
+  return { contato, socios, prorata, prorataFonte, linksSaldo, timeline, formularios, financeiro, aurumSaldo, pagamentos,
            saldoCheio: saldoCheio?.valor ?? null, outrosPortais, agendamentos, versoes };
 }
