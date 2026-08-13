@@ -39,6 +39,14 @@ export const EXPLICACAO: Record<string, { titulo: string; acao: string }> = {
   // existe para o número ser conhecido. Crítico aqui viraria ruído, e alerta que
   // grita sem motivo treina o time a ignorar o painel (lição dos 13 falsos
   // positivos de "Reclamada", 0208).
+  // 0232: o log bruto do webhook parou em 17/07 e ninguém notou por 27 dias.
+  // Crítico não porque há dinheiro perdido — não há —, mas porque enquanto durar
+  // ninguém consegue PROVAR que não há. É o alerta que devolve a capacidade de
+  // investigar.
+  webhook_sem_log: {
+    titulo: "Webhook sem registro bruto",
+    acao: "As compras continuam entrando normalmente — não há pagamento perdido por causa disto. O que parou foi o log bruto que guarda cada evento da Hotmart, e sem ele não dá para investigar um pagamento que alguém jure ter feito. Peça ao time técnico para conferir a edge function do webhook. O alerta se fecha sozinho quando o log voltar a receber.",
+  },
   compra_fora_do_razao: {
     titulo: "Receita que não entra no saldo",
     acao: "Compra aprovada numa categoria que não abate o pacote de 15k (renovação, reserva). Ela não vira card nem pagamento — de propósito, senão marcaria como quitado quem não pagou o pacote. Está aqui só para o dinheiro ser visível: conferir se a receita foi reconhecida fora do sistema e dar baixa. Se a categoria estiver errada no catálogo, corrigir lá é o que faz o pagamento entrar no razão.",
