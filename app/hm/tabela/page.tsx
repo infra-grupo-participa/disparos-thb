@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -793,7 +793,10 @@ export default function HmTabelaPage() {
       sortVal: (l) => l.nome.toLowerCase(),
       render: (l) => {
         const novo = pagouAgora(l);
-        const recompra = origemRecompra(l.tags);
+        // `Distinta` (13/08): mesma dedup do board — quando a origem é "Aluno
+        // THB"/"Aluno Aurum", o selo de aluno antigo abaixo já diz o mesmo
+        // fato; mostrar os dois é a mesma informação duas vezes.
+        const recompra = origemRecompraDistinta(l.tags);
         const alunoAntigo = ehAlunoAntigo(l.tags);
         return (
           <div className="flex min-w-0 max-w-[16rem] flex-col">
@@ -1109,7 +1112,10 @@ export default function HmTabelaPage() {
             disabled={salvando === l.comprador_id}
             onClick={(e) => e.stopPropagation()}
             onBlur={(e) => { if (e.target.value !== toDateInput(l.pagamento_previsto_em)) patch(l.comprador_id, l.nome, { pagamento_previsto_em: e.target.value || null }); }}
-            className={cn(celInput, "min-w-[7.5rem] tabular-nums", vencida && "text-rose-600 dark:text-rose-400")}
+            // Âmbar, não rose (13/08): parcela atrasada é "pare e confira", não
+            // "cancelado" — a MESMA paleta do board (card-sinais.tsx), onde rose
+            // ficou só para cancelamento e "não contatar".
+            className={cn(celInput, "min-w-[7.5rem] tabular-nums", vencida && "text-amber-600 dark:text-amber-400")}
             title={vencida
               ? "Previsão vencida e nenhum pagamento caiu depois — atraso real"
               : pagouDepois
@@ -1152,8 +1158,16 @@ export default function HmTabelaPage() {
       id: "saldo", label: "Saldo a pagar", dir: true,
       sortVal: (l) => (l.quitado || l.apto_ativacao ? null : saldoDe(l)),
       render: (l) => {
-        if (l.quitado || l.apto_ativacao) {
+        // Mesma distinção do board (card-sinais.tsx, `estadoFinanceiroCard`):
+        // "quitado" é reconciliado com o razão; "saldo pago" é a confirmação
+        // do pagamento do saldo, ainda não reconciliada. Antes as duas caíam
+        // no mesmo rótulo "quitado" aqui — a tabela dizia uma coisa, o board
+        // dizia outra para o MESMO card.
+        if (l.quitado) {
           return <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400" title={l.pagamento_em ? `Quitado em ${fmtDataHora(l.pagamento_em)}` : "Saldo quitado"}>quitado</span>;
+        }
+        if (l.apto_ativacao) {
+          return <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400" title="Pagamento do saldo confirmado, ainda não reconciliado com o razão">saldo pago</span>;
         }
         const s = saldoDe(l);
         if (s !== null) {
@@ -1879,7 +1893,10 @@ export default function HmTabelaPage() {
                     visiveis.map((l) => {
                       const bloq = linhaBloqueada(l);
                       const colega = linhaColega(l);
-                      const recompra = !!origemRecompra(l.tags);
+                      // `Distinta` (13/08): mesma dedup do board — some quando a
+                      // origem é "Aluno THB"/"Aluno Aurum" (o selo de aluno antigo
+                      // já diz o mesmo fato na coluna Nome).
+                      const recompra = !!origemRecompraDistinta(l.tags);
                       return (
                       <tr
                         key={l.comprador_id}
@@ -1906,14 +1923,15 @@ export default function HmTabelaPage() {
                           marcados.has(l.comprador_id) && "bg-brand/5 dark:bg-brand-400/10",
                         )}
                       >
-                        {/* Filete esquerdo vermelho = RECOMPRA. É o portador livre da
-                            linha: o fundo já é do não-lido/travas/seleção (o rose de
-                            fundo é do "não contatar" — usar fundo aqui os confundiria)
-                            e o selo textual na coluna Nome tira a ambiguidade. */}
+                        {/* Filete esquerdo = RECOMPRA. É o portador livre da linha: o
+                            fundo já é do não-lido/travas/seleção. Índigo (13/08, mesma
+                            paleta do board): recompra é contexto histórico, não alerta
+                            — rose ficou só para cancelado e "não contatar". O selo
+                            textual na coluna Nome tira qualquer ambiguidade. */}
                         <td
                           className={cn(
                             "sticky left-0 z-[1] w-8 border-b border-slate-100 bg-inherit px-2 py-1.5 dark:border-slate-800",
-                            recompra && "border-l-[3px] border-l-rose-500 dark:border-l-rose-400",
+                            recompra && "border-l-[3px] border-l-indigo-400 dark:border-l-indigo-500",
                           )}
                           onClick={(e) => e.stopPropagation()}
                         >
