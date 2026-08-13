@@ -26,6 +26,12 @@ export type FichaHm = {
   agendamentos: Record<string, unknown>[];
   /** O histórico de versões da ficha (0097) — como a planilha: ver e recuperar. */
   versoes: { id: number; resumo: string; autor: string | null; criado_em: string }[];
+  /** HISTÓRICO FINANCEIRO (12/08): a razão (`cs.hm_pagamentos`) deste card, do mais
+   *  recente para o mais antigo. Pedido do Marcio: "dentro do card do aluno, uma
+   *  micro aba de financeiro, tipo histórico de pagamentos, e aí a gente consegue
+   *  ver toda a linha do tempo do pagamento dele". Filtrado por PRODUTO — sem
+   *  isso o card do HM mostraria a mensalidade do Aurum como se fosse dele. */
+  pagamentos: Record<string, unknown>[];
 };
 
 // Retorna null quando o comprador não tem card HM.
@@ -245,6 +251,25 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
     [cardId],
   );
 
-  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, aurumSaldo,
+  // HISTÓRICO FINANCEIRO (12/08) — a razão deste card, linha a linha.
+  //
+  // Por PRODUTO, com o mesmo predicado que a 0196/0197 usa no resto do dinheiro
+  // (`cs.fn_hm_pagamento_do_produto`): quem tem card no HM e no Aurum tem duas
+  // razões, e misturá-las aqui repetiria exatamente o bug que aquelas migrations
+  // fecharam — só que na tela, que é onde o operador acredita.
+  //
+  // A ordem é do mais recente para o mais antigo porque a pergunta que abre a aba
+  // é "qual foi o último pagamento?" — a linha do tempo completa vem logo abaixo.
+  const pagamentos = await query(
+    `select p.categoria, p.valor, p.pago_em, p.origem, p.transacao,
+            p.oferta_codigo, p.metodo_pagamento, p.parcela, p.obs, p.autor
+       from cs.hm_pagamentos p
+      where p.comprador_id = $1
+        and cs.fn_hm_pagamento_do_produto(p.oferta_codigo, $2)
+      order by p.pago_em desc, p.parcela desc nulls last`,
+    [compradorId, produtoCard],
+  );
+
+  return { contato, socios, prorata, linksSaldo, timeline, formularios, financeiro, aurumSaldo, pagamentos,
            saldoCheio: saldoCheio?.valor ?? null, outrosPortais, agendamentos, versoes };
 }

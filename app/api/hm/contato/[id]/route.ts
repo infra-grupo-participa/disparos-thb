@@ -40,6 +40,26 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const ficha = await fichaHm(params.id, produtoFicha);
   if (!ficha) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
+  // 0217: abrir a ficha É a visualização. Marca a PRIMEIRA (o `is null` no WHERE
+  // torna a escrita idempotente: quem abrir depois não sobrescreve quem chegou
+  // primeiro, e o UPDATE nem acontece nas outras 297 aberturas do dia).
+  //
+  // Depois do gate de visibilidade e do gate de cancelado, de propósito: quem
+  // levou 403 não olhou o card, e marcar como visto ali apagaria o selo sem
+  // ninguém ter visto nada.
+  //
+  // Falha aqui não pode derrubar a ficha — o selo é sinalização, o conteúdo é o
+  // trabalho. Se o UPDATE cair, o card só continua marcado como novo.
+  const cardId = (ficha.contato as { contato_hm_id?: string } | null)?.contato_hm_id;
+  if (cardId) {
+    await query(
+      `update cs.contatos_hm
+          set visto_em = now(), visto_por = $2
+        where id = $1 and visto_em is null`,
+      [cardId, sessao.nome || "operador"],
+    ).catch(() => undefined);
+  }
+
   return NextResponse.json({ ok: true, ...ficha });
 }
 
@@ -69,14 +89,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
 
-  const atual = await queryOne<{ id: string; estagio_chave: string | null; estagio_aba: string | null; reuniao_em: string | null; responsavel_id: string | null; atribuicao_admin: boolean; responsavel_ativacao_id: string | null }>(
+  const atual = await queryOne<{ id: string; estagio_chave: string | null; estagio_aba: string | null; reuniao_em: string | null; reuniao_resultado: string | null; responsavel_id: string | null; atribuicao_admin: boolean; responsavel_ativacao_id: string | null }>(
     // 0187: `and ch.produto = $2` — sem isso, `atual.id` (usado no UPDATE lá
     // embaixo) podia ser o card de OUTRO board. É aqui que a escrita é ancorada.
     // `estagio_aba` (assumir ativação, 12/08): só se decide se o card está na
     // aba ativação DEPOIS de ler o estágio atual — não dá para saber pelo body.
     // `responsavel_ativacao_id` atual: para a nota da timeline dizer "assumiu de
     // Fulano" e o resumoEdicao não confundir "vazio" com "trocou de dono".
-    `select ch.id, est.chave as estagio_chave, est.aba as estagio_aba, ch.reuniao_em, ch.responsavel_id, ch.atribuicao_admin, ch.responsavel_ativacao_id
+    `select ch.id, est.chave as estagio_chave, est.aba as estagio_aba, ch.reuniao_em, ch.reuniao_resultado, ch.responsavel_id, ch.atribuicao_admin, ch.responsavel_ativacao_id
        from cs.contatos_hm ch left join cs.estagios est on est.id = ch.estagio_id
       where ch.comprador_id = $1 and ch.produto = $2`,
     [compradorId, produtoCard],
@@ -107,6 +127,28 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       || (!!b.estagio_chave && HM_ESTAGIOS_CANCELAMENTO.includes(b.estagio_chave));
     if (jaCancelado || vaiCancelar) {
       return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
+    }
+
+    // REUNIÃO FINALIZADA É REGISTRO, NÃO CAMPO (12/08, pedido do Marcio): "como a
+    // reunião foi finalizada a gente não precisa mais mexer — não quero que o
+    // pessoal da ativação mexa aí". Depois da reunião o card VIVE na ativação, e
+    // ali qualquer um do fluxo abriria a ficha e reescreveria data ou resultado
+    // de um evento que já aconteceu.
+    //
+    // Trava só os três campos da reunião — o resto da ficha continua editável, que
+    // é o trabalho da ativação. O master corrige (mesmo critério do cancelado).
+    //
+    // Aqui, no SERVIDOR: o `disabled` da tela é conforto, não regra. Quem chamar a
+    // rota direto (ou com a aba aberta de antes da trava) leva 403 igual.
+    const reuniaoFinalizada = atual.reuniao_resultado === "Realizada"
+      || atual.reuniao_resultado === "Realizada/pago"
+      || atual.estagio_chave === "hm_reuniao_finalizada";
+    const mexeNaReuniao = b.reuniao_em !== undefined
+      || b.reuniao_resultado !== undefined
+      || b.reuniao_gravacao_url !== undefined
+      || (b.agendamento_status !== undefined && b.agendamento_tipo === "reuniao");
+    if (reuniaoFinalizada && mexeNaReuniao) {
+      return NextResponse.json({ ok: false, reason: "reuniao_finalizada_travada" }, { status: 403 });
     }
   }
 

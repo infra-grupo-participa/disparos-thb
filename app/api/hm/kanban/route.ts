@@ -71,6 +71,10 @@ export async function GET(req: Request) {
             k.responsavel_comercial_id, k.responsavel_comercial,
             k.responsavel_ativacao_id, k.responsavel_ativacao,
             ch2.atribuicao_admin, ch2.inbox_status,
+            -- 0217: null = ninguém abriu esse card ainda. O board mostra o selo
+            -- "NOVO" pulsando enquanto for null. Vem da tabela, não da view: o
+            -- join com cs.contatos_hm já existe aqui (ch2) desde a 0163.
+            ch2.visto_em,
             k.reuniao_em, k.entrevista_em, k.pagamento_em, k.pagamento_previsto_em,
             -- Saldo quitado: não deve mais nada. Colore o card de verde sutil (0099).
             (coalesce(fin.quitado, false) or coalesce(fin.saldo_a_perseguir, 1) <= 0) as quitado,

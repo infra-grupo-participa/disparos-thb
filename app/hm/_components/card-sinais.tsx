@@ -57,6 +57,61 @@ export function ehAlunoAntigo(tags: string[] | null | undefined): boolean {
   return tags.some((t) => (TAGS_ALUNO_ANTIGO as readonly string[]).includes(t));
 }
 
+// ===== Aluno novo (0216, 12/08) ==============================================
+// O outro lado do mesmo par. A tag chamava "Lead novo" até a 0216 — o Marcio
+// trocou porque quem está neste board JÁ COMPROU o sinal; "lead" era vocabulário
+// do funil anterior vazando para dentro da esteira.
+//
+// Lê as DUAS grafias pelo mesmo motivo que cs.vw_hm_financeiro lê: a tela do
+// operador não pode ficar muda por causa de um card que escapou do backfill.
+export const TAGS_ALUNO_NOVO: readonly string[] = ["Aluno novo", "Lead novo"];
+
+export function ehAlunoNovo(tags: string[] | null | undefined): boolean {
+  if (!tags?.length) return false;
+  return tags.some((t) => TAGS_ALUNO_NOVO.includes(t));
+}
+
+// Pedido do Marcio (12/08): "eu preciso que esteja ESCANCARADO isso, a
+// diferença entre aluno novo e aluno antigo". Por isso os dois selos saíram do
+// "+N" (SelosExtras) e são renderizados sempre, lado a lado, com a mesma forma
+// e cores opostas: esmeralda = primeira vez, índigo = já era da casa.
+export function SeloAlunoNovo({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+        className,
+      )}
+      title="Aluno novo — primeira compra, nunca foi aluno THB nem Aurum. Nenhum acesso é pré-marcado: o checklist de ativação começa zerado e tudo precisa ser liberado."
+    >
+      {/* Estrela: chegou agora. Contrasta com o crachá do aluno antigo. */}
+      <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9L12 3Z" /></svg>
+      Aluno novo
+    </span>
+  );
+}
+
+// "Ninguém abriu esse card ainda" (0217). Fica ABSOLUTO no canto superior
+// direito do card — o pedido foi literalmente "uma tagzinha no topo superior
+// direito" — e some na primeira abertura. O pulso respeita `motion-safe`: quem
+// pediu menos animação no sistema operacional vê o selo parado, não some com ele.
+export function SeloCardNovo({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "pointer-events-none absolute -right-1.5 -top-2 z-10 inline-flex shrink-0 items-center gap-0.5",
+        "rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white",
+        "shadow-sm ring-2 ring-white motion-safe:animate-pulse dark:bg-indigo-500 dark:ring-slate-900",
+        className,
+      )}
+      title="Venda nova — ninguém da equipe abriu este card ainda. O selo some assim que alguém abrir a ficha."
+    >
+      <svg className="h-2 w-2 shrink-0" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
+      novo
+    </span>
+  );
+}
+
 // O selo vermelho de recompra — o MESMO nas três telas, para a marca ser
 // inequívoca. Vermelho (rose) porque foi o pedido; o selo carrega o texto para
 // nunca se confundir com os outros usos de rose (não contatar, cancelado).

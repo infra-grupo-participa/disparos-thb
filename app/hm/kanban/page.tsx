@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -56,6 +56,11 @@ type Card = {
   // dá o selo de conversa pendente no card.
   atribuicao_admin: boolean;
   inbox_status: string | null;
+  /** 0217: quando alguém abriu esse card pela PRIMEIRA vez. null = ninguém
+   *  olhou ainda → selo "NOVO" pulsando no canto superior direito.
+   *  Opcional: rota antiga em cache não manda o campo. Nesse caso o card não
+   *  afirma nada — ausência de dado nunca vira "é novo". */
+  visto_em?: string | null;
   tags: string[];
   apto_ativacao: boolean;
   reuniao_em: string | null;
@@ -1551,6 +1556,16 @@ function CardItem({
   // Aluno antigo (0213): sinal PRÓPRIO, separado de recompra — dispara a
   // auto-marcação dos acessos e precisa dizer isso, não só "já foi cliente".
   const alunoAntigo = ehAlunoAntigo(card.tags);
+  // Aluno novo (0216): o outro lado do par. Os dois saíram do "+N" e ficam
+  // sempre à vista — o pedido do Marcio foi "escancarado", e um selo que só
+  // aparece no hover não escancara nada. Antigo VENCE novo se por algum motivo
+  // as duas tags coexistirem: quem já foi da casa tem acesso pré-marcado, e
+  // essa é a informação que muda o que o operador faz.
+  const alunoNovo = !alunoAntigo && ehAlunoNovo(card.tags);
+  // 0217: ninguém abriu esse card ainda. `=== null` de propósito — `undefined`
+  // é rota antiga em cache e não pode virar "é novo" (todo card do board
+  // nasceria pulsando num deploy parcial).
+  const naoVisto = card.visto_em === null;
   // O card tem equipe? A borda esquerda é DELA (modelo de acesso, mais importante
   // que qualquer outro sinal). `equipe_cor` nula NÃO apaga a faixa: cai no cinza
   // padrão — antes o card de uma equipe sem cor parecia do pool sem ser.
@@ -1582,7 +1597,8 @@ function CardItem({
   // sinalizada pela borda superior vermelha mesmo com o selo colapsado.
   const extras: { key: string; rotulo: string; el: React.ReactNode }[] = [];
   if (recompra) extras.push({ key: "recompra", rotulo: `Recompra (${recompra})`, el: <SeloRecompra origem={recompra} /> });
-  if (alunoAntigo) extras.push({ key: "aluno_antigo", rotulo: "Aluno antigo — acessos pré-marcados", el: <SeloAlunoAntigo /> });
+  // Aluno antigo NÃO entra mais aqui (12/08): saiu do "+N" para a primeira
+  // linha, ao lado do "Aluno novo". Ver o par renderizado abaixo.
   if (cat) extras.push({
     key: "cat", rotulo: `Entrada: ${cat.txt}`,
     el: <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>,
@@ -1651,8 +1667,19 @@ function CardItem({
               : "border-slate-200 dark:border-slate-800",
       )}
     >
+      {/* 0217: "ninguém visualizou o card dela ainda". Absoluto no canto
+          superior direito, fora do fluxo dos selos — o card não tem mais espaço
+          na primeira linha, e o pedido era justamente que ele saltasse por cima
+          de tudo. Some sozinho na primeira abertura da ficha. */}
+      {naoVisto && !cancelado && <SeloCardNovo />}
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
+          {/* ALUNO NOVO × ALUNO ANTIGO, escancarado (12/08). Sempre o primeiro
+              par de selos: é o que muda o roteiro do operador (quem é antigo já
+              tem os 3 acessos pré-marcados) e o que muda o dinheiro (o antigo
+              tem crédito pró-rata; o novo, não). */}
+          {alunoNovo && <SeloAlunoNovo />}
+          {alunoAntigo && <SeloAlunoAntigo />}
           {selecionavel && (
             <input
               type="checkbox"

@@ -164,6 +164,11 @@ export function msgErroPermissao(reason?: string | null): string | null {
       return "Não é possível assumir este card para você — ele é de outra equipe (ou a atribuição foi travada pelo administrador). Você pode movê-lo e editá-lo normalmente; só a reatribuição para si é que fica bloqueada. Fale com o administrador do Grupo Participa se precisar mudar o dono.";
     case "cancelamento_so_admin_gp":
       return "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.";
+    case "reuniao_finalizada_travada":
+      // 12/08: a reunião já aconteceu; data, remarcação e resultado viram
+      // registro. O card continua editável no resto — o texto precisa deixar
+      // isso claro, senão o operador acha que a ficha inteira congelou.
+      return "A reunião já foi finalizada e os dados dela ficam travados — data, remarcação e resultado não mudam mais. O resto da ficha continua editável. Se algo ficou errado no registro da reunião, fale com o administrador do Grupo Participa.";
     case "responsavel_comercial_imutavel":
       // Espelho do errcode `restrict_violation` que a trigger
       // cs.fn_hm_congela_comercial (0212) devolve se algo tentar reescrever
