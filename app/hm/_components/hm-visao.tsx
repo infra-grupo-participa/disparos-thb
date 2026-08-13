@@ -14,17 +14,37 @@ export type FiltrosVisaoHm = { responsavel?: string[]; canal?: string[]; turma?:
 // vindo de useProdutoHm(). Antes a rota era literal `/hm/*`: quem estava em
 // /aurum/* ou /ethb/* clicava e caía no portal HM (e levava expulsão se não
 // tivesse HM na whitelist — ver app/hm/layout.tsx).
+// 13/08 — A TIRA VOLTOU A SER O QUE ELA É. Reclamação do Marcio: "tem a
+// navegação principal aqui embaixo e a de cima, no topo, também mostrando as
+// paradas. Tá duplicado: clico num botão e tem outro botão em cima que faz a
+// mesma coisa."
+//
+// Ele estava certo, e o comentário no topo deste arquivo já dizia: isto é "o
+// alternador Kanban ⇄ Tabela". Com o tempo entraram Reuniões, Atividade e
+// Equipes, e a tira virou um SEGUNDO MENU — três destinos repetidos:
+//   /kanban     "Jornada" no menu de cima, "Kanban" aqui (a MESMA rota com
+//               DOIS NOMES — o pior caso: o operador acha que são telas
+//               diferentes)
+//   /atividade  igual nos dois
+//   /equipes    igual nos dois
+//
+// Agora a regra é limpa e vale para o sistema todo:
+//   menu do topo = PARA ONDE eu vou   (destinos)
+//   esta tira    = COMO eu vejo isto  (a mesma lista, duas leituras)
+// Por isso ela ganhou o rótulo "Ver como:" — deixa de parecer navegação.
+//
+// Reuniões saiu daqui e entrou no menu do topo (é um relatório, não uma leitura
+// da lista); Atividade e Equipes já estavam lá. Nada ficou inalcançável.
 const VISOES = [
-  { id: "kanban", label: "Kanban", sub: "/kanban" },
+  { id: "kanban", label: "Jornada", sub: "/kanban" },
   { id: "tabela", label: "Tabela", sub: "/tabela" },
-  { id: "reunioes", label: "Reuniões", sub: "/reunioes" },
-  { id: "atividade", label: "Atividade", sub: "/atividade" },
-  // Equipes — aparece para master e gestor (via podeConfig = podeDistribuir()):
-  // o master gere; o gestor só VÊ a própria equipe. Operador não tem a aba.
-  { id: "equipes", label: "Equipes", sub: "/equipes" },
 ] as const;
 
-export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tabela" | "atividade" | "reunioes" | "equipes"; filtros: FiltrosVisaoHm; podeConfig?: boolean }) {
+// `atual` aceita as telas que ainda RENDERIZAM a tira (reunioes/atividade/
+// equipes continuam mostrando o alternador para voltar à lista) — nelas
+// nenhuma das duas fica marcada, que é o correto: você não está em nenhuma
+// das duas leituras.
+export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela" | "atividade" | "reunioes" | "equipes"; filtros: FiltrosVisaoHm }) {
   const { base } = useProdutoHm();
   // Filtro multi-valor = parâmetro repetido (?canal=A&canal=B) — o formato que
   // as rotas leem com getAll.
@@ -53,8 +73,10 @@ export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tab
     // precisar); do `sm` para cima volta ao comportamento antigo, onde sobra
     // largura e a disputa não existe.
     <div className="rolagem-oculta -mx-1 min-w-0 max-w-full basis-full overflow-x-auto px-1 sm:basis-auto sm:flex-none">
+      <div className="inline-flex shrink-0 items-center gap-1.5">
+      <span className="shrink-0 pl-0.5 text-xs text-slate-400 dark:text-slate-500">Ver como:</span>
       <div className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800/80">
-      {VISOES.filter((v) => v.id !== "equipes" || podeConfig).map((v) => {
+      {VISOES.map((v) => {
         const ativa = v.id === atual;
         const cls = cn(
           "alvo-toque flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition",
@@ -62,18 +84,13 @@ export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tab
             ? "bg-white text-slate-900 shadow-card dark:bg-slate-700 dark:text-slate-100"
             : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
         );
-        const icone =
-          v.id === "kanban" ? (
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="14" rx="1.5" /><rect x="14" y="3" width="7" height="9" rx="1.5" /></svg>
-          ) : v.id === "tabela" ? (
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
-          ) : v.id === "reunioes" ? (
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-          ) : v.id === "equipes" ? (
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-          ) : (
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="M7 14l3-3 3 3 5-6" /></svg>
-          );
+        // Só dois ícones — a tira só tem duas leituras desde 13/08. Os ramos
+        // de reunioes/equipes saíram junto com os destinos.
+        const icone = v.id === "kanban" ? (
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="14" rx="1.5" /><rect x="14" y="3" width="7" height="9" rx="1.5" /></svg>
+        ) : (
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
+        );
         // A visão ativa não é um link para si mesma — é onde a pessoa já está.
         return ativa ? (
           <span key={v.id} className={cls} aria-current="page">
@@ -87,6 +104,7 @@ export function HmVisao({ atual, filtros, podeConfig }: { atual: "kanban" | "tab
           </Link>
         );
       })}
+      </div>
       </div>
     </div>
   );

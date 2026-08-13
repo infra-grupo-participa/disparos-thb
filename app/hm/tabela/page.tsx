@@ -428,7 +428,6 @@ export default function HmTabelaPage() {
   // esteira compartilhada. `produto`: mesma tela serve HM/Aurum/ETHB.
   const linhaColega = (l: LinhaEsteira) => ehCardDeColega(l, "HM", produto);
   // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
-  const podeConfigEquipes = podeDistribuir();
   const [linhas, setLinhas] = useState<LinhaEsteira[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
@@ -1608,7 +1607,7 @@ export default function HmTabelaPage() {
           {ehMaster() && (
             <Button variant="secondary" size="sm" className="alvo-toque" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
           )}
-          <HmVisao atual="tabela" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
+          <HmVisao atual="tabela" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} />
           {/* O XLSX é o mesmo relatório desta tela — mesmos filtros, mesma função.
               O servidor recorta por equipe: para quem não é master, o rótulo não
               promete a esteira inteira. */}

@@ -39,9 +39,14 @@ const iconeDe = (sub: string) => LINKS.find((l) => l.sub === sub)?.icon ?? "";
 const LINKS_HM: LinkDef[] = [
   { sub: "/kanban", label: "Jornada", icon: iconeDe("/kanban") },
   { sub: "/agendamentos", label: "Agendamentos", icon: "M8 2v4M16 2v4M3.5 9.09h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5ZM11.995 13.7h.009M8.294 13.7h.01M8.294 16.7h.01" },
-  // Atividade por colaborador (12/08): a tira de visões (HmVisao) já leva até
-  // ela, mas só depois de já estar dentro do board — sem link aqui, quem não
-  // conhece a tira não a encontra. Mesmo ícone da nav genérica (LINKS).
+  // 13/08: Reuniões saiu da tira de visões e veio para cá. A tira voltou a ser
+  // só "Jornada ⇄ Tabela" (duas leituras da MESMA lista); Reuniões é um
+  // RELATÓRIO — destino próprio, e destino mora no menu. Fica ao lado de
+  // Agendamentos porque são o mesmo assunto: a agenda é o que vai acontecer, o
+  // relatório é o que aconteceu.
+  { sub: "/reunioes", label: "Reuniões", icon: "M3 4h18v18H3zM16 2v4M8 2v4M3 10h18M8 14l2.5 2.5L16 11" },
+  // Atividade por colaborador. Desde 13/08 este é o ÚNICO caminho: a tira de
+  // visões deixou de repetir destinos do menu.
   { sub: "/atividade", label: "Atividade", icon: iconeDe("/atividade") },
   // Inbox e Disparos (Fase 2): o HM ganhou conversa e envio como os demais portais.
   // O link fica visível a todos; as ações de disparo aparecem só p/ admin/disparador

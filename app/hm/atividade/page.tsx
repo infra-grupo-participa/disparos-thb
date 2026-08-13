@@ -43,7 +43,7 @@ export default function HmAtividadePage() {
             O que cada colaborador fez na esteira — movimentações, notas, disparos e as demais ações assinadas.
           </p>
         </div>
-        <HmVisao atual="atividade" filtros={{}} podeConfig={podeDistribuir()} />
+        <HmVisao atual="atividade" filtros={{}} />
       </div>
 
       {/* O CARRO-CHEFE (pedido do Marcio, 12/08 à noite): dinheiro fechado por
