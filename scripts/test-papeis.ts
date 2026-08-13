@@ -161,5 +161,36 @@ ok("predicado completo: sem o bônus, comercial da Kelly segue fechado",
 ok("AURUM segue fora mesmo no comercial",
   esteiraCompartilhada(anaAtivacao, "HM", "comercial", "AURUM"), false);
 
+// ===== Kelly NÃO manda na ativação (12/08, achado do pentester, ALTO) =======
+// "A Kelly não manda na ativação. Manda no comercial — toda esteira do
+// comercial é responsabilidade dela." `escopoAcao(kelly).modo === 'tudo'`
+// (linha 43 acima) não olha a ABA do card — sem carve-out, o bônus
+// `gerente_distribuidor` deixava a Kelly mover/editar/reatribuir QUALQUER
+// card na Ativação de QUALQUER equipe (papel de quem tem HM:ativacao, hoje
+// só Ana Camila/Thomas, ou do master). O conserto é em
+// `lib/services/hm.ts:podeAgirCardHm` (não em `escopoAcao`, que continua
+// geral e é usado por outros caminhos) — este bloco simula a MESMA composição
+// que a função faz: card.aba === "ativacao" e a sessão SEM esteira própria →
+// `semBonusDeGerente` antes de resolver o escopo de ação.
+console.log("\n== Kelly NÃO manda na ativação (achado do pentester, ALTO) ==");
+const cardJusyAtivacao = {
+  responsavel_id: jusy.id, equipe_id: EQ_GP, responsavel: "Jusy",
+  tags: [] as string[], aba: "ativacao", produto: "HM",
+};
+const esteiraKellyAtivacao = esteiraCompartilhada(kelly, "HM", cardJusyAtivacao.aba, cardJusyAtivacao.produto);
+const atorAgindoNaAtivacao = (cardJusyAtivacao.aba === "ativacao" && !esteiraKellyAtivacao) ? semBonusDeGerente(kelly) : kelly;
+ok("esteira da Kelly na ativação: nenhuma (zero cs.usuario_funcoes)", esteiraKellyAtivacao, false);
+ok("Kelly SEM função de ativação NÃO age no card de OUTRA equipe na Ativação (era 'tudo' — o furo)",
+  podeVerPorEscopo(escopoAcao(atorAgindoNaAtivacao), cardJusyAtivacao, [], esteiraKellyAtivacao), false);
+ok("...e continua sem VER mudar (escopo de leitura intacto — decisão de UX fica com o dono)",
+  podeVerPorEscopo(escopoVisibilidade(kelly), cardJusyAtivacao, [], esteiraKellyAtivacao), true);
+ok("Kelly segue agindo em QUALQUER card no COMERCIAL (a esteira dela, sem carve-out)",
+  podeVerPorEscopo(escopoAcao(kelly), { ...cardJusyAtivacao, aba: "comercial" }, [], esteiraCompartilhada(kelly, "HM", "comercial", "HM")), true);
+// Master e a esteira própria continuam furando o carve-out — não é uma trava nova, é recorte do bônus.
+ok("master segue agindo na Ativação de qualquer equipe (carve-out não é dele)",
+  escopoAcao(master).modo, "tudo");
+ok("Ana Camila (função HM:ativacao) segue agindo na Ativação — esteira própria, não o bônus da Kelly",
+  podeVerPorEscopo(escopoAcao(anaAtivacao), cardJusyAtivacao, [], esteiraCompartilhada(anaAtivacao, "HM", cardJusyAtivacao.aba, cardJusyAtivacao.produto)), true);
+
 console.log(falhas === 0 ? "\nTODOS OS CASOS PASSARAM\n" : `\n${falhas} CASO(S) FALHARAM\n`);
 process.exit(falhas === 0 ? 0 : 1);

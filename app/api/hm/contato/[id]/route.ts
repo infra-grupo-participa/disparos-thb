@@ -121,6 +121,45 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // quem não é MASTER (admin do GP) — e mandar um card PARA essas colunas também
   // é só do master. As demais equipes veem, mas não alteram nem confirmam/desfazem.
   const souMaster = ehMaster(sessao);
+
+  // REUNIÃO FINALIZADA É REGISTRO, NÃO CAMPO (12/08, pedido do Marcio): "como a
+  // reunião foi finalizada a gente não precisa mais mexer — não quero que o
+  // pessoal da ativação mexa aí". Depois da reunião o card VIVE na ativação, e
+  // ali qualquer um do fluxo abriria a ficha e reescreveria data ou resultado
+  // de um evento que já aconteceu.
+  //
+  // Trava só os três campos da reunião — o resto da ficha continua editável, que
+  // é o trabalho da ativação. O master corrige (mesmo critério do cancelado).
+  //
+  // Aqui, no SERVIDOR: o `disabled` da tela é conforto, não regra. Quem chamar a
+  // rota direto (ou com a aba aberta de antes da trava) leva 403 igual.
+  //
+  // ⚠️ Calculado FORA do `if (!souMaster)` (0219, achado do pentester): o gate
+  // de nome de campo abaixo não é o único jeito de escrever nestas colunas —
+  // `desfazer_edicao`/`restaurar_versao` (mais abaixo) também escrevem, e
+  // precisam da MESMA resposta a "a reunião/entrevista já terminou?" para
+  // saber quais colunas excluir do restore. Ver o bloco de versão/desfazer.
+  const reuniaoFinalizada = atual.reuniao_resultado === "Realizada"
+    || atual.reuniao_resultado === "Realizada/pago"
+    || atual.estagio_chave === "hm_reuniao_finalizada";
+  // ENTREVISTA FINALIZADA É REGISTRO, NÃO CAMPO (12/08, mesmo pedido do Marcio
+  // que travou a reunião — "algumas etapas podem ser truncadas... evita que o
+  // pessoal mexa e cause problema"). A entrevista de ativação é o espelho
+  // exato da reunião comercial (mesmo formato: data, resultado, gravação) e
+  // tem a mesma etapa de chegada dedicada — `hm_entrevista_realizada`, cujo
+  // nome na tela é "Entrevista Finalizada" (renomeada na 0042). Diferente da
+  // reunião, `entrevista_resultado` é texto livre (sem os valores fixos de
+  // RESULTADOS) — por isso o sinal de "já aconteceu" é só a ETAPA: o card
+  // está em "Entrevista Finalizada" ou já passou dela, para "Ativação
+  // Realizada" (a linha de chegada seguinte na mesma aba).
+  //
+  // Trava só os três campos da entrevista — o resto da ficha (checklist,
+  // acordo do saldo, etc.) segue editável, que é o trabalho da ativação
+  // continuando depois da entrevista. O master corrige, mesmo critério da
+  // reunião e do cancelado.
+  const entrevistaFinalizada = atual.estagio_chave === "hm_entrevista_realizada"
+    || atual.estagio_chave === "hm_ativacao_realizada";
+
   if (!souMaster) {
     const jaCancelado = atual.estagio_chave !== null && HM_ESTAGIOS_CANCELAMENTO.includes(atual.estagio_chave);
     const vaiCancelar = !!b.confirmar_cancelamento || !!b.desfazer_cancelamento
@@ -129,26 +168,20 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
     }
 
-    // REUNIÃO FINALIZADA É REGISTRO, NÃO CAMPO (12/08, pedido do Marcio): "como a
-    // reunião foi finalizada a gente não precisa mais mexer — não quero que o
-    // pessoal da ativação mexa aí". Depois da reunião o card VIVE na ativação, e
-    // ali qualquer um do fluxo abriria a ficha e reescreveria data ou resultado
-    // de um evento que já aconteceu.
-    //
-    // Trava só os três campos da reunião — o resto da ficha continua editável, que
-    // é o trabalho da ativação. O master corrige (mesmo critério do cancelado).
-    //
-    // Aqui, no SERVIDOR: o `disabled` da tela é conforto, não regra. Quem chamar a
-    // rota direto (ou com a aba aberta de antes da trava) leva 403 igual.
-    const reuniaoFinalizada = atual.reuniao_resultado === "Realizada"
-      || atual.reuniao_resultado === "Realizada/pago"
-      || atual.estagio_chave === "hm_reuniao_finalizada";
     const mexeNaReuniao = b.reuniao_em !== undefined
       || b.reuniao_resultado !== undefined
       || b.reuniao_gravacao_url !== undefined
       || (b.agendamento_status !== undefined && b.agendamento_tipo === "reuniao");
     if (reuniaoFinalizada && mexeNaReuniao) {
       return NextResponse.json({ ok: false, reason: "reuniao_finalizada_travada" }, { status: 403 });
+    }
+
+    const mexeNaEntrevista = b.entrevista_em !== undefined
+      || b.entrevista_resultado !== undefined
+      || b.entrevista_gravacao_url !== undefined
+      || (b.agendamento_status !== undefined && b.agendamento_tipo === "entrevista");
+    if (entrevistaFinalizada && mexeNaEntrevista) {
+      return NextResponse.json({ ok: false, reason: "entrevista_finalizada_travada" }, { status: 403 });
     }
   }
 
@@ -160,10 +193,29 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   // Histórico de versões (0097). Desfazer = recuperar a versão mais recente;
   // restaurar_versao recupera uma específica. Ambos por cs.fn_hm_versao_restaurar.
+  //
+  // ⚠️ 0219 (achado do pentester): "desfazer edição"/"restaurar versão" escreve
+  // nas MESMAS colunas que a trava da reunião/entrevista finalizada protege
+  // (reuniao_resultado, reuniao_gravacao_url, entrevista_resultado,
+  // entrevista_gravacao_url) — SEM passar pelo gate por nome de campo lá em
+  // cima, porque o body não menciona esses nomes. `colunasTravadas` é a MESMA
+  // resposta (reuniaoFinalizada/entrevistaFinalizada, calculados fora do
+  // `if (!souMaster)` acima) — o 4º argumento da função faz o snapshot
+  // ignorar essas colunas quando quem pediu não é master. Master continua
+  // restaurando tudo (mesmo critério do cancelado e da trava original).
   if (b.desfazer_edicao || b.restaurar_versao !== undefined) {
+    const colunasTravadas = souMaster
+      ? []
+      : [
+          ...(reuniaoFinalizada ? ["reuniao_resultado", "reuniao_gravacao_url"] : []),
+          ...(entrevistaFinalizada ? ["entrevista_resultado", "entrevista_gravacao_url"] : []),
+        ];
     const r = await queryOne<{ res: { ok: boolean; reason?: string } }>(
-      `select cs.fn_hm_versao_restaurar($1, $2, $3) as res`,
-      [compradorId, b.restaurar_versao ?? null, operador],
+      // 0220: `produtoCard` no 5o argumento — sem ele a funcao resolvia o card
+      // por comprador_id sem produto e, para quem tem card no HM E no AURUM,
+      // restaurava por cima do board errado (achado no ensaio da 0219).
+      `select cs.fn_hm_versao_restaurar($1, $2, $3, $4, $5) as res`,
+      [compradorId, b.restaurar_versao ?? null, operador, colunasTravadas.length ? colunasTravadas : null, produtoCard],
     );
     const res = r?.res ?? { ok: false, reason: "nada_a_recuperar" };
     return NextResponse.json({ ok: res.ok === true, reason: res.ok ? undefined : (res.reason ?? "nada_a_recuperar") });
@@ -251,7 +303,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // campos. Só quando há edição de campo — mudança de etapa e agendamento têm
   // desfazer próprio e não entram aqui.
   if (sets.length || b.responsavel !== undefined || b.responsavel_id !== undefined || b.responsavel_ativacao_id !== undefined) {
-    await query(`select cs.fn_hm_undo_registrar($1, $2, $3)`, [compradorId, resumoEdicao(b), operador]);
+    // 0220: o retrato e do CARD deste board, nunca de um card qualquer da pessoa.
+    await query(`select cs.fn_hm_undo_registrar($1, $2, $3, $4)`, [compradorId, resumoEdicao(b), operador, produtoCard]);
   }
 
   if (sets.length) {

@@ -39,6 +39,21 @@ export type AtividadeColaborador = {
   outras: number;          // responsável, tag, pagamento, cadastro… (tipo 'sistema' assinado)
   cards: number;           // cards distintos que tocou
   ultima: string | null;   // última atividade no período
+  /**
+   * Mensagens que ELE disparou e NÃO saíram (D-falha, pedido do Marcio 12/08:
+   * "o que está acontecendo em cada parada, ações E falhas"). Nunca contado
+   * dentro de `disparos` — um envio que falha não gera cs.interacoes (só o
+   * sucesso grava a timeline, ver disparo.ts), então sem isto a falha
+   * simplesmente desaparecia, e "disparos" media só o que deu certo. Ver
+   * falhasDisparoNucleo. Ausente/0 = não buscado ou nenhuma falha.
+   */
+  falhas?: number;
+  /**
+   * Compromissos que ELE marcou no período — "o que a gente promete e o que a
+   * gente propõe a fazer" (pedido literal do Marcio 12/08). Só na esteira HM
+   * (cs.hm_agendamentos). Ver agendamentosNucleo.
+   */
+  agendamentos?: AtividadeAgendamentosResumo;
   /** Para o que quantos cards moveu — só na esteira HM (lib/services/hm-atividade.ts atividadeHm). */
   porColuna?: AtividadeColunaResumo[];
   /**
@@ -226,6 +241,54 @@ async function atividadeNucleo(
   return { de, ate, colaboradores, serie };
 }
 
+// ===== Falhas de disparo — "o que deu errado", separado do que funcionou ===
+// (D-falha, pedido literal do Marcio 12/08: "ações da automação... falhas...
+// não acho interessante deixar como ações da automação"). cs.disparo_contatos
+// guarda `erro` por contato desde a 0001, mas NUNCA aparecia na Atividade
+// porque um envio que FALHA não grava cs.interacoes (só o sucesso grava a
+// timeline — ver disparo.ts, `if (r.ok) { ...insert cs.interacoes... }`). Sem
+// isto a tela via só o que deu certo: "Ana disparou 40" quando 12 dos 40
+// falharam parecia trabalho perfeito. Atribuído por cs.disparos.operador — o
+// MESMO texto de `autor` nas interações (os dois vêm de sessao.nome, ver
+// app/api/send/route.ts). Período pela data do DISPARO em si (iniciado_em),
+// não do contato individual — um disparo é um evento só.
+export type AtividadeFalhas = { colaborador: string; falhas: number };
+
+async function falhasDisparoNucleo(
+  fonte: Fonte,
+  f: { de?: string | null; ate?: string | null; evento?: string | null },
+  escopo: EscopoAtividade,
+): Promise<{ itens: AtividadeFalhas[] }> {
+  const de = f.de || null;
+  const ate = f.ate || null;
+  // fonte='hm': cs.disparos.evento é sempre o literal 'HM' (disparo.ts,
+  // `template.evento === "HM"`) — a tabela não guarda produto (HM/AURUM/ETHB),
+  // então a contagem cobre a esteira HM inteira, não separada por produto.
+  // Mesmo critério de "gap de instrumentação" documentado em porAbaNucleo.
+  const evento = fonte === "hm" ? "HM" : (f.evento || null);
+  const modo = escopo.modo;
+  const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
+  const nome = escopo.modo === "operador" ? escopo.nome : null;
+
+  // CTE renomeia disparos->i (autor/criado_em) só para reaproveitar
+  // SQL_RECORTE_AUTOR literal, sem duplicar o WHERE de recorte por nível.
+  const itens = await query<AtividadeFalhas>(
+    `with i as (
+        select d.id, d.operador as autor, d.iniciado_em as criado_em
+          from cs.disparos d
+         where ($7::text is null or d.evento = $7)
+     )
+     select btrim(i.autor)  as colaborador,
+            count(*)::int   as falhas
+       from i
+       join cs.disparo_contatos dc on dc.disparo_id = i.id and dc.erro is not null
+      ${SQL_RECORTE_AUTOR}
+      group by btrim(i.autor)`,
+    [de, ate, ATORES_SISTEMA, modo, equipeId, nome, evento],
+  );
+  return { itens };
+}
+
 // `produto` (0164): a esteira é a mesma para HM/AURUM/ETHB, então sem o recorte a
 // tela de Atividade do Aurum mostrava o movimento do HM.
 // `granularidade` (D1, opcional): quando informada, devolve também `serie` — o
@@ -290,12 +353,23 @@ export async function atividadeHm(
     porAlunoPorAutor.set(it.colaborador, lista);
   }
 
+  // Falhas de disparo (D-falha) e agendamentos marcados (promessa cumprida x
+  // remarcada) — mesmo critério de "só busca quando granularidade foi pedida",
+  // em série (pooler não tolera Promise.all aqui, ver comentário acima).
+  const falhasBrk = await falhasDisparoNucleo("hm", f, escopo);
+  const falhasPorAutor = new Map(falhasBrk.itens.map((it) => [it.colaborador, it.falhas]));
+
+  const agBrk = await agendamentosNucleo(f, escopo);
+  const agendamentosPorAutor = new Map(agBrk.itens.map((it) => [it.colaborador, it]));
+
   const colaboradoresComColuna = colaboradores.map((c) => ({
     ...c,
     porColuna: porColunaPorAutor.get(c.colaborador) ?? [],
     porAba: porAbaPorAutor.get(c.colaborador) ?? [],
     porAluno: porAlunoPorAutor.get(c.colaborador) ?? [],
     porAlunoTotal: alunoBrk.totalAlunosPorColaborador.get(c.colaborador) ?? 0,
+    falhas: falhasPorAutor.get(c.colaborador) ?? 0,
+    ...(agendamentosPorAutor.has(c.colaborador) ? { agendamentos: agendamentosPorAutor.get(c.colaborador)!.resumo } : {}),
   }));
 
   return { de: r.de, ate: r.ate, colaboradores: colaboradoresComColuna, ...(r.serie ? { serie: r.serie } : {}) };
@@ -327,7 +401,14 @@ export async function atividadeEvento(
 ): Promise<AtividadeEvento> {
   const g = granularidade ? granularidadeValida(granularidade) : null;
   const r = await atividadeNucleo("evento", { ...f, evento }, escopo, g);
-  return { de: r.de, ate: r.ate, colaboradores: r.colaboradores, ...(r.serie ? { serie: r.serie } : {}) };
+  if (!g) return { de: r.de, ate: r.ate, colaboradores: r.colaboradores };
+
+  // Falhas de disparo (D-falha) — mesmo indicador do HM, ver falhasDisparoNucleo.
+  const falhasBrk = await falhasDisparoNucleo("evento", { ...f, evento }, escopo);
+  const falhasPorAutor = new Map(falhasBrk.itens.map((it) => [it.colaborador, it.falhas]));
+  const colaboradoresComFalhas = r.colaboradores.map((c) => ({ ...c, falhas: falhasPorAutor.get(c.colaborador) ?? 0 }));
+
+  return { de: r.de, ate: r.ate, colaboradores: colaboradoresComFalhas, ...(r.serie ? { serie: r.serie } : {}) };
 }
 
 // ===== Atividade por estágio/coluna (D3-a) ==================================
@@ -521,4 +602,60 @@ async function porAlunoNucleo(
   const totalAlunosPorColaborador = new Map(totais.map((t) => [t.colaborador, t.total_alunos]));
 
   return { de, ate, itens, totalAlunosPorColaborador };
+}
+
+// ===== Agendamentos marcados — cumprido x remarcado (pedido literal do ======
+// Marcio, 12/08): "quem tá seguindo de fato na risca, o que a gente promete e
+// o que a gente propõe a fazer". Cada linha de cs.hm_agendamentos (0064) é UMA
+// marcação (reunião/entrevista); `status` já registra o desfecho:
+//   realizado       → aconteceu — a promessa foi cumprida.
+//   nao_compareceu  → o aluno não veio (no-show na data combinada).
+//   reagendado      → a marcação caiu e uma nova foi aberta em cima dela.
+//   agendado        → ainda em aberto (marcação futura, sem desfecho ainda).
+// `cancelado` (desmarcada sem nova data) fica FORA do resumo de propósito: não
+// é promessa cumprida nem quebrada, é a marcação sendo retirada — misturar
+// inflaria o "resolvidos" com algo que não é nem acerto nem falha.
+// Atribuído a quem MARCOU (`autor`), no período em que a marcação foi CRIADA
+// — não quando ela deveria acontecer, para não misturar marcação antiga que só
+// mudou de status agora com o trabalho do período consultado. Só HM: o
+// conceito de agendamento (reunião/entrevista) é da esteira comercial do HM.
+export type AtividadeAgendamentosResumo = {
+  realizados: number;
+  nao_compareceu: number;
+  remarcados: number;
+  em_aberto: number;
+};
+type AtividadeAgendamentosItem = { colaborador: string; resumo: AtividadeAgendamentosResumo };
+
+async function agendamentosNucleo(
+  f: { de?: string | null; ate?: string | null; produto?: string | null },
+  escopo: EscopoAtividade,
+): Promise<{ itens: AtividadeAgendamentosItem[] }> {
+  const de = f.de || null;
+  const ate = f.ate || null;
+  const produto = f.produto || null;
+  const modo = escopo.modo;
+  const equipeId = escopo.modo === "equipe" ? escopo.equipeId : null;
+  const nome = escopo.modo === "operador" ? escopo.nome : null;
+
+  const linhas = await query<{ colaborador: string; realizados: number; nao_compareceu: number; remarcados: number; em_aberto: number }>(
+    `select
+        btrim(i.autor)                                             as colaborador,
+        count(*) filter (where i.status = 'realizado')::int        as realizados,
+        count(*) filter (where i.status = 'nao_compareceu')::int   as nao_compareceu,
+        count(*) filter (where i.status = 'reagendado')::int       as remarcados,
+        count(*) filter (where i.status = 'agendado')::int         as em_aberto
+       from cs.hm_agendamentos i
+       join cs.contatos_hm ch on ch.id = i.contato_hm_id
+      ${SQL_RECORTE_AUTOR}
+        and ($7::text is null or ch.produto = $7)
+      group by btrim(i.autor)`,
+    [de, ate, ATORES_SISTEMA, modo, equipeId, nome, produto],
+  );
+
+  const itens: AtividadeAgendamentosItem[] = linhas.map((l) => ({
+    colaborador: l.colaborador,
+    resumo: { realizados: l.realizados, nao_compareceu: l.nao_compareceu, remarcados: l.remarcados, em_aberto: l.em_aberto },
+  }));
+  return { itens };
 }

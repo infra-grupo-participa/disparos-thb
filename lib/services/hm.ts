@@ -1,6 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
-import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, esteiraCompartilhada, nivelDe, podeAtribuirPara, podeRemanejarTravado, podeTravarAtribuicao, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
+import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, esteiraCompartilhada, nivelDe, podeAtribuirPara, podeRemanejarTravado, podeTravarAtribuicao, semBonusDeGerente, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
 import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 
 const log = logger("hm");
@@ -782,7 +782,30 @@ export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string, 
   // produto HM. Fora desse recorte (comercial, AURUM/ETHB, outras equipes em
   // outros eventos), a regra de sempre continua valendo.
   const esteira = esteiraCompartilhada(sessao as Ator, "HM", k.aba, k.produto);
-  return veredictoAcao(sessao, k, await canaisDoUsuario(sessao.id), esteira); // + canal→pessoa (0154)
+  // KELLY NÃO MANDA NA ATIVAÇÃO (12/08, achado do pentester + decisão do
+  // Marcio, textual): "a Kelly não manda na ativação. Manda no comercial —
+  // toda esteira do comercial é responsabilidade dela." `gerente_distribuidor`
+  // (lib/papeis.ts escopoAcao, linha ~405) devolve `{ modo: "tudo" }` para
+  // QUALQUER card, sem olhar a ABA — a Kelly (o bônus, zero linha em
+  // cs.usuario_funcoes) podia mover/editar/reatribuir qualquer card na
+  // Ativação de qualquer equipe, autoridade que hoje é só de master ou de
+  // quem tem a função HM:ativacao (Ana Camila/Thomas).
+  //
+  // Carve-out ESCOPADO À ABA (não ao produto, que já é o `semBonusDeGerente`
+  // de lib/papeis.ts — este é outro recorte, para outro caminho): zera o
+  // bônus só quando (a) o card está na aba "ativacao" e (b) a sessão não tem
+  // outra fonte de autoridade sobre ELA — já não é master (checado acima), já
+  // não está na equipe de ação livre (`acaoLivrePorEquipeEvento`, checado
+  // acima) e não tem a função própria (`esteira`, que resolve exatamente
+  // "esta sessão tem HM:ativacao?"). Fora da aba ativação — isto é, no
+  // comercial, que É a esteira dela — o bônus segue valendo normalmente.
+  //
+  // O que este carve-out NÃO decide (fora do escopo desta correção, decisão
+  // do dono): se a Kelly deve continuar VENDO a Ativação sem poder AGIR nela.
+  // `podeVerCardHm` não muda aqui — só a escrita.
+  const semAutoridadeNaAtivacao = k.aba === "ativacao" && !esteira;
+  const ator: Ator = semAutoridadeNaAtivacao ? semBonusDeGerente(sessao as Ator) : (sessao as Ator);
+  return veredictoAcao(ator, k, await canaisDoUsuario(sessao.id), esteira); // + canal→pessoa (0154)
 }
 
 // Colunas de cancelamento — Reclamada (pedido) e Reembolsado (fato).

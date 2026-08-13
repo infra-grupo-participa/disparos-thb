@@ -427,6 +427,14 @@ export function HmDrawer({
             `${c?.nome ?? "Este lead"} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
               "Registre o pagamento do saldo (valor cheio) antes de mover para a Ativação.",
           );
+        } else if (d?.reason === "entrevista_finalizada_travada") {
+          // 12/08: msgErroPermissao (app/_components/use-me.ts) é de outro agente
+          // nesta rodada — mensagem própria aqui, mesmo texto/critério do 403
+          // gêmeo da reunião (reuniao_finalizada_travada).
+          window.alert(
+            "A entrevista já foi finalizada e os dados dela ficam travados — data, remarcação e resultado não mudam mais.\n\n" +
+              "O resto da ficha continua editável. Se algo ficou errado no registro, fale com o administrador do Grupo Participa.",
+          );
         } else {
           // 403 de permissão vem com reason específico — mostra o MOTIVO
           // (ex.: "Você só pode atribuir para alguém da sua equipe.").
@@ -513,6 +521,14 @@ export function HmDrawer({
   // O master continua podendo corrigir, mesmo critério do card cancelado: erro
   // de digitação numa reunião realizada precisa de alguém que possa desfazer.
   const reuniaoTravada = (reuniaoFinalizada || c?.estagio_chave === "hm_reuniao_finalizada") && !ehMaster();
+  // ENTREVISTA FINALIZADA TRAVA A ENTREVISTA (12/08, mesmo pedido do Marcio, ver
+  // o comentário gêmeo em app/api/hm/contato/[id]/route.ts): a entrevista de
+  // ativação é o espelho da reunião comercial, e vira registro do mesmo jeito.
+  // `entrevista_resultado` é texto livre (sem os valores fixos de RESULTADOS),
+  // então o sinal de "já aconteceu" é a ETAPA — "Entrevista Finalizada"
+  // (chave hm_entrevista_realizada) ou a linha de chegada seguinte, "Ativação
+  // Realizada". O master corrige, mesmo critério da reunião e do cancelado.
+  const entrevistaTravada = (c?.estagio_chave === "hm_entrevista_realizada" || c?.estagio_chave === "hm_ativacao_realizada") && !ehMaster();
   const feitos = c ? ITENS_CHECKLIST.filter((i) => !!c[i.campo]).length : 0;
   const revogados = c ? ITENS_REVOGACAO.filter((i) => !!c[i.campo]).length : 0;
 
@@ -1246,13 +1262,25 @@ export function HmDrawer({
                 motivo={motivoAgenda}
                 onMotivo={setMotivoAgenda}
                 historico={agendamentos}
-                salvando={salvando || somenteLeitura}
+                salvando={salvando || somenteLeitura || entrevistaTravada}
                 onSalvar={(quando, motivo) => patch({ entrevista_em: quando, agendamento_motivo: motivo })}
                 onFechar={(status) => patch({ agendamento_tipo: "entrevista", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
               >
+                {/* Mesmo aviso da reunião finalizada — a entrevista virou registro. */}
+                {entrevistaTravada && (
+                  <p className="mt-1.5 flex items-start gap-1.5 rounded bg-slate-100 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <svg className="mt-0.5 h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                    <span>
+                      <strong>Entrevista finalizada — dados travados.</strong> O que
+                      foi registrado aqui não muda mais; o card segue normalmente
+                      na ativação. Precisa corrigir? Fale com o administrador do
+                      Grupo Participa.
+                    </span>
+                  </p>
+                )}
                 <LinkGravacao
                   atual={c.entrevista_gravacao_url}
-                  disabled={salvando || somenteLeitura}
+                  disabled={salvando || somenteLeitura || entrevistaTravada}
                   onSalvar={(v) => patch({ entrevista_gravacao_url: v })}
                 />
               </BlocoAgendamento>

@@ -293,15 +293,22 @@ export function AtividadeColaboradores({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:text-slate-500">
-                  <th className="px-4 py-2.5 font-medium">Colaborador</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Total</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Movimentações</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Notas</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Disparos</th>
-                  {comLigacoes && <th className="px-3 py-2.5 text-right font-medium">Ligações</th>}
-                  <th className="px-3 py-2.5 text-right font-medium" title="Atribuição de operador, tag, pagamento, cadastro…">Outras</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Cards</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Última</th>
+                  {/* 12/08, pedido do Marcio: "são operadores que não conhecem
+                      o sistema nem programação — a informação tem que ser
+                      tratada para uma linguagem mais humana". "Movimentações",
+                      "Disparos" e "Outras" eram o nome interno do bucket, não o
+                      que a pessoa fez. Cada cabeçalho agora diz a AÇÃO, e o
+                      `title` explica o que entra na conta — o número sozinho
+                      não ensina ninguém a interpretá-lo. */}
+                  <th className="px-4 py-2.5 font-medium">Quem</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Tudo que a pessoa registrou no período somado">Tudo</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Quantas vezes moveu um card de etapa no board">Moveu de etapa</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Anotações escritas na ficha do aluno">Anotou</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Mensagens de campanha enviadas por esta pessoa">Mandou mensagem</th>
+                  {comLigacoes && <th className="px-3 py-2.5 text-right font-medium" title="Atendimentos por telefone/WhatsApp registrados">Falou por telefone</th>}
+                  <th className="px-3 py-2.5 text-right font-medium" title="Atribuir operador, marcar tag, registrar pagamento, cadastrar — o que não cabe nas colunas anteriores">Outras ações</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Quantos alunos diferentes a pessoa tocou no período">Alunos tocados</th>
+                  <th className="px-4 py-2.5 text-right font-medium" title="Quando esta pessoa registrou alguma coisa pela última vez">Última vez</th>
                 </tr>
               </thead>
               <tbody>
