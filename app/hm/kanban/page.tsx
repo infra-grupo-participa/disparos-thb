@@ -88,6 +88,10 @@ type Card = {
    *  Opcional: rota antiga em cache/deploy parcial pode não mandar o campo — o
    *  card cai no fallback pela data (mesma leitura de antes), nunca quebra. */
   status_parcela?: "quitado" | "em_dia" | "atrasado" | "aguardando" | null;
+  /** Parcelas do razao (0214). Opcionais: rota antiga em cache nao devolve, e
+   *  nesse caso o selo simplesmente nao menciona parcelas. */
+  parcelas_pagas?: number | null;
+  parcelas_contratadas?: number | null;
   /** Quanto ainda falta receber. null = o sistema não sabe (nunca zero por
    *  omissão) — nesse caso o card fica calado em vez de inventar. */
   saldo: string | number | null;
@@ -222,43 +226,10 @@ function catLabel(cat: string | null): { txt: string; cls: string } | null {
 // FALLBACK: se `status_parcela` não vier (rota antiga em cache/deploy parcial),
 // cai na leitura antiga só pela data — pior que a reconciliada, mas nunca pior
 // que sumir o selo, e nunca volta a inventar um estado que a view não mandou.
-// A cor NÃO mora aqui (13/08): quem decide o tom é `estadoFinanceiroCard`
-// (card-sinais.tsx) — este helper só diz O QUE aconteceu (`atrasada`), a
-// precedência é quem decide se isso vira o selo do card ou fica em segundo
-// plano atrás de "conferir saldo"/"quitado".
-function parcelaStatus(card: Card): { txt: string; title: string; atrasada: boolean } | null {
-  if (!card.parcelado) return null;
-  const prev = card.pagamento_previsto_em ? new Date(card.pagamento_previsto_em) : null;
-
-  if (card.status_parcela === undefined) {
-    // Fallback (comportamento anterior à 0214): só a data, sem reconciliar com
-    // o razão. Mantido para não quebrar em deploy parcial — não é a leitura boa.
-    if (prev && prev.getTime() < Date.now()) {
-      return { txt: "Parcela atrasada", atrasada: true,
-        title: `Parcela vencida em ${prev.toLocaleDateString("pt-BR")} — a cobrança é do Financeiro (grupoparticipa.app.br)` };
-    }
-    return { txt: prev ? "Parcela em dia" : "Parcelando", atrasada: false,
-      title: prev ? `Próxima parcela combinada para ${prev.toLocaleDateString("pt-BR")}` : "Pagando em parcelas — sem data de vencimento combinada com o Financeiro" };
-  }
-
-  if (card.status_parcela === "atrasado") {
-    return { txt: "Parcela atrasada", atrasada: true,
-      title: `Parcela vencida em ${prev?.toLocaleDateString("pt-BR") ?? "?"} e nenhum pagamento caiu depois — a cobrança é do Financeiro (grupoparticipa.app.br)` };
-  }
-  if (card.status_parcela === "em_dia") {
-    // Pode ter vencido E ter pagamento depois (reconciliado) — é o caso que a
-    // 0214 existe para não gritar mais. O tooltip explica por que não é mais "atrasada".
-    const pagouDepois = prev && prev.getTime() < Date.now();
-    return { txt: "Parcela em dia", atrasada: false,
-      title: pagouDepois
-        ? `Venceu em ${prev!.toLocaleDateString("pt-BR")}, mas caiu pagamento depois da data — não está atrasada`
-        : prev ? `Próxima parcela combinada para ${prev.toLocaleDateString("pt-BR")}` : "Pagando em parcelas" };
-  }
-  // aguardando (ou quitado, que nunca chega aqui — o badge de quitado tem
-  // prioridade e é decidido antes de chamar parcelaStatus, ver CardItem).
-  return { txt: "Parcelando", atrasada: false,
-    title: "Pagando em parcelas — sem data de vencimento combinada com o Financeiro" };
-}
+// `parcelaStatus` foi removido em 13/08: a leitura de parcela virou parte do
+// estado de ADIMPLÊNCIA (estadoFinanceiroCard, card-sinais.tsx), que lê
+// `status_parcela` direto da view. Ter dois lugares decidindo "está atrasada?"
+// era o caminho para os dois divergirem.
 
 // Posição onde o card cairá: entre quais dois cards da coluna o cursor está.
 // O índice é visual (conta o próprio card arrastado, que continua na lista
@@ -1561,7 +1532,6 @@ function CardItem({
   // diferente em cada um (ver o comentário no tipo Card, acima).
   const { produto } = useProdutoHm();
   const cat = catLabel(card.categoria_entrada);
-  const parcela = parcelaStatus(card);
   // EXPLICAÇÃO DO CRÉDITO PRÓ-RATA: some enquanto a rota não manda os campos
   // (undefined em ambos os lados ⇒ nem valor nem pendência — nunca afirma o que
   // não pode confirmar). Assim que o backend somar credito_obs/aurum_* ao
@@ -1634,8 +1604,10 @@ function CardItem({
     conferirSaldo: card.conferir_saldo,
     pendenteCredito,
     creditoObsTexto,
-    aptoAtivacao: card.apto_ativacao,
-    parcela,
+    statusParcela: card.status_parcela,
+    previstoEm: card.pagamento_previsto_em,
+    parcelasPagas: card.parcelas_pagas,
+    parcelasContratadas: card.parcelas_contratadas,
     saldoTxt,
     quitadoTitle: card.pagamento_em ? `Saldo quitado — pago em ${fmtDataHora(card.pagamento_em)}` : "Saldo quitado",
   });
@@ -1784,12 +1756,14 @@ function CardItem({
               <span className="truncate">com {card.responsavel ?? "colega"}</span>
             </span>
           )}
-          {/* Situação financeira: "quanto ela deve? em que pé está?" — a
-              pergunta do dia todo. UM selo só (13/08) — antes havia até três
-              badges independentes aqui ("conferir saldo" podia aparecer ao
-              lado de "Saldo pago" no MESMO card, se contradizendo). A
-              precedência (conferir saldo > quitado > parcela atrasada >
-              saldo pago > parcela em dia > deve R$X) mora em
+          {/* ADIMPLÊNCIA: "cobro ou não cobro?" — a pergunta que o operador faz
+              o dia todo, respondida sem abrir a ficha. UM selo só (13/08) —
+              antes havia até três badges independentes aqui ("conferir saldo"
+              podia aparecer ao lado de "Saldo pago" no MESMO card, se
+              contradizendo), e "Saldo pago" pintava de verde quem ainda devia
+              o resto. A
+              precedência (conferir saldo > quitado > atrasado > em dia >
+              sem data combinada) mora em
               `estadoFinanceiroCard` (card-sinais.tsx) — a MESMA função que a
               tabela usa, para as duas telas nomearem a mesma coisa igual.
               Some sob cancelado (`estado` já vem null, calculado acima) e

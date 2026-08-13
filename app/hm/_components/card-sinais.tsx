@@ -67,40 +67,113 @@ export type Tom = keyof typeof TOM;
 //   7. nada — sem saldo, sem parcela: o card não afirma o que não sabe.
 export type EstadoFinanceiro = { txt: string; tom: Tom; icon: "ok" | "alerta" | "relogio"; title: string };
 
+// 13/08, segunda passada — o eixo é ADIMPLÊNCIA, não "o que aconteceu com o
+// pagamento". Pedido textual do Marcio: "ao invés de 'saldo pago', coloca uma
+// lógica: a pessoa está em dia; a pessoa está devendo tanto ou tem parcela
+// atrasada. É literalmente jogo rápido — bater o olho e ver: caraca, esse cara
+// tá devendo, vou cobrar ele; esse tá em dia, beleza."
+//
+// "Saldo pago" saiu do vocabulário: dizia o que o SISTEMA registrou, não o que
+// o operador precisa decidir. Quem lê o board está perguntando "cobro ou não
+// cobro?", e é essa a pergunta que o selo passa a responder.
+//
+// MEDIDO EM PRODUÇÃO (251 cards ativos do HM) antes de desenhar:
+//   27  atrasados — cobrar agora
+//  148  devendo SEM data combinada — ninguém marcou quando paga. Era o maior
+//       grupo do board e não tinha nome: aparecia como um "deve R$ X" cinza,
+//       igual a quem tem tudo combinado. É a fila de trabalho do comercial.
+//   12  em dia, dentro do combinado
+//   58  quitados
+// E a suposição que o dado derrubou: dos 27 atrasados **só 1 está parcelando**.
+// O atraso aqui é de UMA data combinada, não de carnê — por isso o selo fala em
+// data, e só menciona parcelas quando elas existem de verdade.
+//
+// A cor é a urgência, e o operador lê sem decorar legenda:
+//   rose    atrasado          → cobrar agora
+//   âmbar   sem data / conferir → falta combinar, ou o número não é confiável
+//   índigo  em dia            → combinado e sendo cumprido (ainda deve)
+//   verde   quitado           → não deve mais nada
+// Verde só quando NÃO HÁ o que cobrar — foi por isso que "Saldo pago" saiu do
+// verde: a pessoa seguia devendo o resto e o card dizia que estava tudo certo.
 export function estadoFinanceiroCard(p: {
   quitado: boolean;
   conferirSaldo: boolean;
   pendenteCredito: boolean;
   creditoObsTexto: string | null;
-  aptoAtivacao: boolean;
-  /** null = não está parcelando. */
-  parcela: { txt: string; title: string; atrasada: boolean } | null;
+  /** `status_parcela` da cs.vw_hm_financeiro (0214) — já reconciliado com a razão. */
+  statusParcela?: "quitado" | "em_dia" | "atrasado" | "aguardando" | null;
+  /** `pagamento_previsto_em`: a data que a operação combinou com o aluno. */
+  previstoEm: string | null;
+  parcelasPagas?: number | null;
+  parcelasContratadas?: number | null;
   /** Já formatado em BRL (ex. "R$ 14.303"), ou null quando o sistema não sabe. */
   saldoTxt: string | null;
   quitadoTitle: string;
 }): EstadoFinanceiro | null {
+  const fmtData = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : null;
+  // Só menciona parcelas quando a pessoa está mesmo num parcelamento — dizer
+  // "0 de 12" para quem não pagou nenhuma é ruído, e é a maioria dos casos.
+  const parcelas =
+    p.parcelasContratadas && p.parcelasContratadas > 1 && (p.parcelasPagas ?? 0) > 0
+      ? `${p.parcelasPagas} de ${p.parcelasContratadas} parcelas pagas`
+      : null;
+
+  // 1. O sistema não confia no próprio número — afirmar qualquer estado de
+  //    adimplência ao lado seria o card se contradizendo.
   if (p.conferirSaldo) {
     return {
       txt: "Conferir saldo", tom: "atencao", icon: "alerta",
       title: "Saldo zerado por dupla contagem do crédito pró-rata — não é quitação. O comercial precisa decidir quanto cobrar antes de dar como pago.",
     };
   }
-  if (p.pendenteCredito && p.saldoTxt) {
-    return {
-      txt: `Deve ${p.saldoTxt}`, tom: "atencao", icon: "alerta",
-      title: `Ainda falta receber ${p.saldoTxt} · Crédito pró-rata sem explicação registrada`,
-    };
-  }
+  // 2. Não deve mais nada.
   if (p.quitado) return { txt: "Quitado", tom: "positivo", icon: "ok", title: p.quitadoTitle };
-  if (p.parcela?.atrasada) return { txt: p.parcela.txt, tom: "atencao", icon: "alerta", title: p.parcela.title };
-  if (p.aptoAtivacao) return { txt: "Saldo pago", tom: "positivo", icon: "ok", title: "Pagamento do saldo confirmado" };
-  if (p.parcela) return { txt: p.parcela.txt, tom: "contexto", icon: "relogio", title: p.parcela.title };
-  if (p.saldoTxt) {
+
+  const quanto = p.saldoTxt ? ` · deve ${p.saldoTxt}` : "";
+  const credito = p.creditoObsTexto ? ` · Por que o crédito: ${p.creditoObsTexto}` : "";
+
+  // 3. ATRASADO — a data combinada venceu e a razão não registrou pagamento
+  //    depois dela. É o card que o operador tem de pegar hoje.
+  if (p.statusParcela === "atrasado") {
+    const d = fmtData(p.previstoEm);
     return {
-      txt: `Deve ${p.saldoTxt}`, tom: "neutro", icon: "relogio",
-      title: `Ainda falta receber ${p.saldoTxt}` + (p.creditoObsTexto ? ` · Por que o crédito: ${p.creditoObsTexto}` : ""),
+      txt: `Atrasado${quanto}`, tom: "bloqueio", icon: "alerta",
+      title: `Combinou pagar${d ? ` em ${d}` : ""} e não pagou${p.saldoTxt ? ` — falta ${p.saldoTxt}` : ""}.`
+        + (parcelas ? ` ${parcelas}.` : "") + " Cobrar." + credito,
     };
   }
+  // 4. EM DIA — tem data combinada e está sendo cumprida. Continua devendo, por
+  //    isso não é verde: verde é "não há o que cobrar".
+  if (p.statusParcela === "em_dia") {
+    const d = fmtData(p.previstoEm);
+    return {
+      txt: `Em dia${quanto}`, tom: "contexto", icon: "relogio",
+      title: `Dentro do combinado${d ? ` (próximo pagamento em ${d})` : ""}.`
+        + (parcelas ? ` ${parcelas}.` : "") + credito,
+    };
+  }
+  // 5. DEVE E NINGUÉM COMBINOU NADA — 148 cards hoje. Não é "em dia" (não há
+  //    combinado para cumprir) nem atraso (não há prazo vencido): é trabalho
+  //    parado esperando o comercial marcar uma data.
+  if (p.saldoTxt && !p.previstoEm) {
+    return {
+      txt: `Sem data · deve ${p.saldoTxt}`, tom: "atencao", icon: "alerta",
+      title: `Deve ${p.saldoTxt} e não há data de pagamento combinada. Combinar uma data com o aluno.`
+        + (parcelas ? ` ${parcelas}.` : "") + credito,
+    };
+  }
+  // 6. Deve, tem data, e o status ainda não diz atraso nem cumprimento
+  //    (`aguardando`: a data combinada ainda não chegou).
+  if (p.saldoTxt) {
+    const d = fmtData(p.previstoEm);
+    return {
+      txt: `Em dia${quanto}`, tom: "contexto", icon: "relogio",
+      title: `Deve ${p.saldoTxt}${d ? `, com pagamento combinado para ${d}` : ""} — o prazo ainda não venceu.`
+        + (parcelas ? ` ${parcelas}.` : "") + credito,
+    };
+  }
+  // 7. Sem saldo conhecido: o card não afirma o que não sabe.
   return null;
 }
 
