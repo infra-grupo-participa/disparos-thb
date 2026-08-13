@@ -330,7 +330,6 @@ export default function HmKanbanPage() {
   // certo se um dia a lista de eventos-livres mudar.
   const cardDeColega = (c: Card) => ehCardDeColega(c, "HM", produto);
   // Aba "Equipes" do alternador: master (gere) e gestor (vê a própria equipe).
-  const podeConfigEquipes = podeDistribuir();
   const [colunas, setColunas] = useState<Coluna[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [socios, setSocios] = useState<Socio[]>([]);
@@ -722,7 +721,7 @@ export default function HmKanbanPage() {
             <Button variant="secondary" size="sm" className="alvo-toque" onClick={() => setCadastrando(true)}>+ Cadastrar</Button>
           )}
           {/* A outra leitura da mesma esteira — os filtros viajam na URL */}
-          <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} podeConfig={podeConfigEquipes} />
+          <HmVisao atual="kanban" filtros={{ responsavel: filtroResp, canal: filtroCanal, turma: filtroTurma }} />
           {/* Relatório da esteira — sai com os filtros que estão valendo. O servidor
               recorta por equipe: só o master baixa a esteira INTEIRA; para os demais
               o rótulo não promete o que o arquivo não traz. */}

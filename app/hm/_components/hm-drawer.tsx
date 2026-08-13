@@ -12,6 +12,8 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
+// A cor da marca de cada portal — a MESMA que o operador vê no topo da tela.
+import { PORTAIS, type PortalId } from "@/lib/marcas";
 
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
 
@@ -23,6 +25,9 @@ type Contato = {
   // Dono por id + trava do admin (0142) — decidem o que o OPERADOR pode fazer
   // com a atribuição. Opcionais: a rota pode ainda não devolvê-los (em voo).
   responsavel_id?: string | null; atribuicao_admin?: boolean;
+  // 13/08: usado no bloco "esta pessoa em cada portal" para dizer se ela já
+  // virou aluno na base NESTE portal. A ficha (hm-ficha.ts) já devolve k.aluno_id.
+  aluno_id?: string | null;
   // Equipe dona do card (0140/0146) — a ficha (hm-ficha.ts) já devolve.
   equipe_id?: string | null; equipe_nome?: string | null; equipe_cor?: string | null;
   // DUPLO RESPONSÁVEL (0211/0212, 12/08): dono POR ABA, carimbado uma vez ao
@@ -726,39 +731,112 @@ export function HmDrawer({
                 </div>
               )}
 
-              {/* A MESMA pessoa em outro board (0164). Vem ANTES da etapa de
-                  propósito: saber que ela já está em "Acesso Liberado" no HM muda
-                  como o operador do Aurum conduz — tem de ler antes de mexer aqui.
-                  Clicar leva ao card dela no outro board, que rola e destaca. */}
-              {outrosPortais.length > 0 && (
-                <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-2.5 dark:border-indigo-500/30 dark:bg-indigo-500/10">
-                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
-                    Esta pessoa também está em
-                  </p>
-                  <ul className="space-y-1.5">
-                    {outrosPortais.map((o) => (
-                      <li key={o.outro_produto}>
-                        <Link
-                          href={`/${o.outro_produto.toLowerCase()}/kanban?card=${o.comprador_id}`}
-                          className="group block rounded-md px-1.5 py-1 transition hover:bg-indigo-100/70 dark:hover:bg-indigo-500/15"
-                          title={`Abrir o card de ${c.nome} no board ${o.outro_produto}`}
-                        >
-                          <span className="flex items-center gap-1.5 text-xs font-semibold text-indigo-800 dark:text-indigo-200">
-                            {o.outro_produto} · {o.outro_estagio ?? "—"}
-                            {o.outro_aba && <span className="font-normal text-indigo-500 dark:text-indigo-300/70">({o.outro_aba === "ativacao" ? "Ativação" : "Comercial"})</span>}
-                            <svg className="h-3 w-3 opacity-0 transition group-hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
-                          </span>
-                          <span className="mt-0.5 block text-[11px] text-indigo-600/80 dark:text-indigo-300/70">
-                            {o.outro_responsavel ? `com ${o.outro_responsavel}` : "sem operador"}
-                            {o.outro_pagamento_em ? ` · pagou em ${fmt(o.outro_pagamento_em)}` : ""}
-                            {o.outro_tem_matricula ? " · já é aluno na base" : ""}
-                          </span>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              {/* A SITUAÇÃO DELA EM CADA PORTAL (13/08, pedido do Marcio:
+                  "quero que você diferencie a situação dela no HM e a situação
+                  dela no AURUM... uma diferenciação visual mesmo, pra gente
+                  saber o que é o quê").
+
+                  Antes isto era um bloco índigo único listando "os outros
+                  boards" — tudo da mesma cor, e o portal em que você ESTÁ nem
+                  aparecia. Quem abria a ficha de alguém que existe no HM e no
+                  Aurum via dois textos parecidos e tinha de adivinhar qual era
+                  qual.
+
+                  Agora cada portal usa A COR DA PRÓPRIA MARCA (lib/marcas.ts —
+                  a mesma que o operador já vê no topo da tela: HM âmbar, Aurum
+                  ouro, ETHB teal), e o portal ATUAL entra na lista, em primeiro
+                  e marcado como "você está aqui". A diferenciação deixa de
+                  depender de ler o texto: é a cor da faixa.
+
+                  Só aparece quando a pessoa existe em mais de um portal — para
+                  quem só tem um card, seria uma caixa dizendo o óbvio. */}
+              {outrosPortais.length > 0 && (() => {
+                const idDoProduto: Record<string, PortalId> = { HM: "hm", AURUM: "aurum", ETHB: "ethb" };
+                const linhas = [
+                  {
+                    produto: produtoBoard,
+                    aqui: true,
+                    estagio: c.estagio_nome,
+                    aba: c.estagio_aba,
+                    responsavel: c.responsavel,
+                    pagamento_em: c.pagamento_em,
+                    tem_matricula: !!c.aluno_id,
+                    comprador_id: c.comprador_id as string,
+                  },
+                  ...outrosPortais.map((o) => ({
+                    produto: o.outro_produto,
+                    aqui: false,
+                    estagio: o.outro_estagio,
+                    aba: o.outro_aba,
+                    responsavel: o.outro_responsavel,
+                    pagamento_em: o.outro_pagamento_em,
+                    tem_matricula: o.outro_tem_matricula,
+                    comprador_id: o.comprador_id,
+                  })),
+                ];
+                return (
+                  <div className="rounded-lg border border-slate-200 p-2.5 dark:border-slate-800">
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                      Esta pessoa em cada portal
+                    </p>
+                    <ul className="space-y-1.5">
+                      {linhas.map((l) => {
+                        const marca = PORTAIS[idDoProduto[l.produto] ?? "hm"];
+                        const conteudo = (
+                          <>
+                            <span className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100">
+                              <span className="inline-flex items-center gap-1">
+                                {/* A cor da marca é o portador: o operador
+                                    reconhece o portal sem ler. */}
+                                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: marca.cor }} aria-hidden="true" />
+                                {marca.nome}
+                              </span>
+                              <span className="font-normal text-slate-400 dark:text-slate-500">·</span>
+                              <span className="font-normal">{l.estagio ?? "sem etapa"}</span>
+                              {l.aba && (
+                                <span className="rounded px-1 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200 dark:text-slate-400 dark:ring-slate-700">
+                                  {l.aba === "ativacao" ? "Ativação" : "Comercial"}
+                                </span>
+                              )}
+                              {l.aqui ? (
+                                <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
+                                  você está aqui
+                                </span>
+                              ) : (
+                                <svg className="h-3 w-3 opacity-0 transition group-hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7M9 7h8v8" /></svg>
+                              )}
+                            </span>
+                            <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">
+                              {l.responsavel ? `com ${l.responsavel}` : "sem operador"}
+                              {l.pagamento_em ? ` · pagou em ${fmt(l.pagamento_em)}` : ""}
+                              {l.tem_matricula ? " · já é aluno na base" : ""}
+                            </span>
+                          </>
+                        );
+                        return (
+                          <li
+                            key={l.produto}
+                            className="rounded-md border-l-[3px] pl-2"
+                            style={{ borderLeftColor: marca.cor }}
+                          >
+                            {l.aqui ? (
+                              <div className="px-1.5 py-1">{conteudo}</div>
+                            ) : (
+                              <Link
+                                href={`/${l.produto.toLowerCase()}/kanban?card=${l.comprador_id}`}
+                                className="group block rounded-md px-1.5 py-1 transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                title={`Abrir ${c.nome} no portal ${marca.nome}`}
+                              >
+                                {conteudo}
+                              </Link>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })()}
 
               {/* ACORDO DO SALDO — o gargalo. Vive logo no topo da ficha (antes
                   de Etapa/Turma/Operador): "quanto ela deve" é uma das

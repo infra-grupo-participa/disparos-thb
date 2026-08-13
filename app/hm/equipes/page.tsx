@@ -142,7 +142,7 @@ export default function HmEquipesPage() {
             </p>
           )}
         </div>
-        <HmVisao atual="equipes" filtros={{}} podeConfig />
+        <HmVisao atual="equipes" filtros={{}} />
       </div>
 
       {carregando ? (
