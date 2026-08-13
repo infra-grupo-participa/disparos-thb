@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -388,12 +388,17 @@ function lerVistos(): Record<string, string> {
 }
 
 const PRESETS: Record<VisaoId, string[]> = {
-  comercial: ["nome", "telefone", "etapa", "esteira", "dias", "responsavel", "equipe", "entrada", "acordo", "meio", "previsao", "link", "saldo"],
+  // "credito" antes de "saldo" (13/08, pedido do Marcio): o comercial explica o
+  // pró-rata pelo que lê aqui — o crédito tem de estar na MESMA linha de onde
+  // ele lê "quanto ela deve", não só dentro da ficha.
+  comercial: ["nome", "telefone", "etapa", "esteira", "dias", "responsavel", "equipe", "entrada", "acordo", "meio", "previsao", "link", "credito", "saldo"],
   ativacao: ["nome", "etapa", "esteira", "dias", "responsavel", "equipe", "checklist", "grupo_informes", "pendencia", "entrevista", "na_base", "socios"],
   agenda: ["nome", "responsavel", "equipe", "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas", "no_shows"],
   // A visão da Jusy/Isabela: a história financeira em linha — sinal → o que já
-  // entrou → parcelas → o que falta → cancelamento (ordem decidida em 14/07).
-  financeiro: ["nome", "origem", "sinal_pago_em", "recebido", "parcelas", "saldo", "situacao_hotmart", "ultimo_pagamento", "forma_obs", "cancelado", "hotmart_cancelado", "cancelamento_em"],
+  // entrou → o crédito (e o porquê) → parcelas → o que falta → cancelamento
+  // (ordem decidida em 14/07; "credito" entrou em 13/08 pelo mesmo motivo do
+  // preset "comercial" acima).
+  financeiro: ["nome", "origem", "sinal_pago_em", "recebido", "credito", "parcelas", "saldo", "situacao_hotmart", "ultimo_pagamento", "forma_obs", "cancelado", "hotmart_cancelado", "cancelamento_em"],
   // A auditoria: as colunas do XLSX, na mesma ordem (+ a Turma atual, editável).
   tudo: ["nome", "telefone", "email", "etapa", "esteira", "dias", "responsavel", "equipe", "entrada", "turma_origem", "turma",
     "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas",
@@ -1247,10 +1252,35 @@ export default function HmTabelaPage() {
         );
       },
     },
+    // Crédito pró-rata + o PORQUÊ (13/08, pedido do Marcio: "o comercial vai
+    // explicar o motivo do pró-rata com base nessa observação"). HM e AURUM têm
+    // fontes diferentes do mesmo par (valor, motivo) — unificado aqui em vez de
+    // a tabela mostrar só o número do HM e ficar muda no board do Aurum.
+    // Sem empilhar coluna nova: o motivo vive no tooltip da MESMA célula, e o
+    // ícone de alerta substitui o de "tem nota" quando falta preencher — quem
+    // tem crédito e não tem explicação é a pendência que o Marcio pediu para
+    // contar (ver o memo da 0-conta em disparos-brain).
     credito: {
       id: "credito", label: "Crédito pró-rata", dir: true,
-      sortVal: (l) => num(l.credito),
-      render: (l) => <Dinheiro v={num(l.credito)} />,
+      sortVal: (l) => (produto === "AURUM" ? num(l.aurum_credito) : num(l.credito)),
+      render: (l) => {
+        const valor = produto === "AURUM" ? num(l.aurum_credito) : num(l.credito);
+        const obs = produto === "AURUM" ? (l.aurum_excecao ? l.aurum_excecao_motivo : l.aurum_obs) : l.credito_obs;
+        const pendente = faltaExplicarCredito(valor, obs);
+        return (
+          <span
+            className={cn("inline-flex items-center gap-1 whitespace-nowrap tabular-nums", pendente && "font-medium text-amber-700 dark:text-amber-300")}
+            title={obs ? `Por que este crédito: ${obs}` : pendente ? "Crédito sem explicação registrada — confira antes de cobrar." : undefined}
+          >
+            {valor === null ? <span className="text-slate-300 dark:text-slate-600">—</span> : brl(valor)}
+            {pendente ? (
+              <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+            ) : obs ? (
+              <svg className="h-3 w-3 shrink-0 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" /></svg>
+            ) : null}
+          </span>
+        );
+      },
     },
     valor_total: { id: "valor_total", label: "Valor total", dir: true, sortVal: (l) => num(l.valor_total), render: (l) => <Dinheiro v={num(l.valor_total)} /> },
     valor_pago: { id: "valor_pago", label: "Valor pago", dir: true, sortVal: (l) => num(l.valor_pago), render: (l) => <Dinheiro v={num(l.valor_pago)} /> },

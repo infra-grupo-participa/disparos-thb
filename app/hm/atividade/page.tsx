@@ -6,6 +6,7 @@ import { HmVisao } from "@/app/hm/_components/hm-visao";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { useMe } from "@/app/_components/use-me";
 import { AtividadeColaboradores } from "@/app/_components/atividade-colaboradores";
+import { AtividadeDesempenho } from "@/app/_components/atividade-desempenho";
 import { Card, Spinner, cn } from "@/app/_components/ui";
 
 // Registro de atividade por colaborador (A1). Responde "quem fez o quê" na
@@ -22,6 +23,13 @@ export default function HmAtividadePage() {
   // O board vai no endpoint (0164): sem `?produto=`, a Atividade do Aurum
   // mostrava o movimento do HM — esta tela não usa o useFetchHm.
   const endpoint = produto === "HM" ? "/api/hm/atividade" : `/api/hm/atividade?produto=${produto}`;
+  // O dashboard de desempenho NÃO segue o atalho acima de propósito: quando
+  // `?produto=` falta, guardProdutoOpcional devolve produto=null e a query
+  // deixa de filtrar `ch.produto` — quem vende HM E AURUM teria o dinheiro dos
+  // dois boards somado num placar só (exatamente o que o pedido do Marcio,
+  // 12/08, proíbe: "sem isso o dinheiro do AURUM entra no placar do HM").
+  // Aqui o produto vai SEMPRE explícito, mesmo para HM.
+  const endpointDesempenho = `/api/hm/atividade/desempenho?produto=${produto}`;
 
   return (
     <div>
@@ -37,6 +45,12 @@ export default function HmAtividadePage() {
         </div>
         <HmVisao atual="atividade" filtros={{}} podeConfig={podeDistribuir()} />
       </div>
+
+      {/* O CARRO-CHEFE (pedido do Marcio, 12/08 à noite): dinheiro fechado por
+          comercial, saldos pagos, tempo mediano até o saldo — e, em eixo
+          separado, quantos alunos cada ativador levou até a quitação. Período
+          próprio (30 dias por padrão), independente da tabela de ações abaixo. */}
+      <AtividadeDesempenho endpoint={endpointDesempenho} />
 
       {/* Diferenciação visual de desempenho (pedido do Marcio, 12/08): "preciso
           que tenha uma diferenciação visual pra gente entender quem tá

@@ -15,7 +15,7 @@
 import { podeVerPorEscopo } from "@/lib/services/visibilidade";
 import {
   ehEquipeDeAtivacao, escopoAcao, escopoDisparo, escopoVisibilidade, esteiraCompartilhada,
-  nivelDe, podeAtribuirPara, podeGerirAcesso,
+  nivelDe, podeAtribuirPara, podeGerirAcesso, podeEscreverEscopoHm, veredictoEscopoCamposHm,
   podeRemanejarTravado, podeTravarAtribuicao, podeVerTudo, semBonusDeGerente, temFuncao, type Ator,
 } from "@/lib/papeis";
 
@@ -191,6 +191,82 @@ ok("master segue agindo na Ativação de qualquer equipe (carve-out não é dele
   escopoAcao(master).modo, "tudo");
 ok("Ana Camila (função HM:ativacao) segue agindo na Ativação — esteira própria, não o bônus da Kelly",
   podeVerPorEscopo(escopoAcao(anaAtivacao), cardJusyAtivacao, [], esteiraCompartilhada(anaAtivacao, "HM", cardJusyAtivacao.aba, cardJusyAtivacao.produto)), true);
+
+// ===== Separação dura COMERCIAL × ATIVAÇÃO (13/08 23h, pedido literal do =====
+// Marcio depois de "3 problemas absurdos" no mesmo dia, "principalmente com a
+// Ana Camila"): "se uma pessoa for associada a alguém no comercial, o pessoal
+// da ativação NÃO pode mudar o pessoal do comercial, e vice-versa [...] vai
+// ter um cara responsável pelo comercial e um cara responsável pela ativação."
+//
+// Até 12/08 só responsavel_comercial_id era protegido (trigger, 0212) — o
+// dono VIGENTE, a etapa comercial e os campos da reunião (de um lado) e o
+// dono/checklist/entrevista da ativação (do outro) ficavam abertos para
+// qualquer sessão com autoridade de ESCREVER no card por QUALQUER caminho,
+// sem olhar a aba do CAMPO. `podeEscreverEscopoHm`/`veredictoEscopoCamposHm`
+// fecham isso — reutiliza `soAtivacao`/`soComercial`/`anaAtivacao`, definidos
+// acima para a esteira compartilhada (mesmas pessoas, mesmo cenário de
+// funções granulares por portal).
+console.log("\n== separação dura comercial×ativação no card do HM (13/08 23h) ==");
+
+ok("SÓ ativação: NÃO escreve em campo comercial",
+  podeEscreverEscopoHm(soAtivacao, "comercial"), false);
+ok("SÓ ativação: escreve em campo de ativação (o que É dela)",
+  podeEscreverEscopoHm(soAtivacao, "ativacao"), true);
+ok("SÓ comercial: NÃO escreve em campo de ativação",
+  podeEscreverEscopoHm(soComercial, "ativacao"), false);
+ok("SÓ comercial: escreve em campo comercial (o que É dela)",
+  podeEscreverEscopoHm(soComercial, "comercial"), true);
+ok("as DUAS funções (Ana Camila/Thomas hoje): escreve no comercial — não regride quem já trabalha",
+  podeEscreverEscopoHm(anaAtivacao, "comercial"), true);
+ok("as DUAS funções: escreve na ativação também",
+  podeEscreverEscopoHm(anaAtivacao, "ativacao"), true);
+ok("master: escreve em qualquer escopo, sempre acima de tudo",
+  podeEscreverEscopoHm(master, "comercial") && podeEscreverEscopoHm(master, "ativacao"), true);
+ok("NENHUMA função (Kelly, gerente do comercial sem cs.usuario_funcoes): regra não se aplica — não regride o card-level",
+  podeEscreverEscopoHm(kelly, "comercial") && podeEscreverEscopoHm(kelly, "ativacao"), true);
+ok("operador comum do GP sem função nenhuma: mesma rede de segurança da Kelly",
+  podeEscreverEscopoHm(operadorGP, "comercial") && podeEscreverEscopoHm(operadorGP, "ativacao"), true);
+// Sessão ausente cai no ramo "nenhuma função" (mesmo caso de Kelly): o corte
+// é por FUNÇÃO, não por ausência de sessão — a rota nunca chega aqui sem
+// sessão (guard() já barrou antes). Documentado, não é uma trava de auth.
+ok("sessão ausente cai no ramo 'nenhuma função' (sem sessão a checagem nem roda na prática)",
+  podeEscreverEscopoHm(null, "comercial"), true);
+
+console.log("\n== o veredicto por CAMPO (o que a rota chama de verdade) ==");
+// O buraco nomeado pelo pedido: responsavel_id VIGENTE + reunião, para quem
+// só tem ativação; responsavel_ativacao_id + checklist/entrevista, para quem
+// só tem comercial.
+ok("SÓ ativação tentando mexer no responsável VIGENTE (comercial) → recusa",
+  veredictoEscopoCamposHm(soAtivacao, ["responsavel_id"]), "sem_permissao_comercial");
+ok("SÓ ativação tentando mexer na reunião → recusa",
+  veredictoEscopoCamposHm(soAtivacao, ["reuniao_resultado"]), "sem_permissao_comercial");
+ok("SÓ ativação escrevendo o checklist dela → ok",
+  veredictoEscopoCamposHm(soAtivacao, ["ativ_searchie", "pendencia"]), "ok");
+ok("SÓ comercial tentando assumir a ativação → recusa",
+  veredictoEscopoCamposHm(soComercial, ["responsavel_ativacao_id"]), "sem_permissao_ativacao");
+ok("SÓ comercial tentando mexer no checklist de ativação → recusa",
+  veredictoEscopoCamposHm(soComercial, ["ativ_comunidade"]), "sem_permissao_ativacao");
+ok("SÓ comercial escrevendo o dono vigente e a reunião dela → ok",
+  veredictoEscopoCamposHm(soComercial, ["responsavel_id", "reuniao_resultado"]), "ok");
+ok("Ana Camila (as duas funções) escreve nos dois escopos no MESMO body",
+  veredictoEscopoCamposHm(anaAtivacao, ["responsavel_id", "responsavel_ativacao_id", "ativ_searchie", "reuniao_resultado"]), "ok");
+ok("master escreve em tudo",
+  veredictoEscopoCamposHm(master, ["responsavel_id", "responsavel_ativacao_id", "ativ_searchie"]), "ok");
+ok("campo genérico (observações) não aciona a checagem para NINGUÉM — não é o escopo do pedido",
+  veredictoEscopoCamposHm(soAtivacao, ["observacoes", "tags"]), "ok");
+
+console.log("\n== a ABA de destino do estagio_chave conta como campo (2ª metade do buraco) ==");
+// "a etapa da aba comercial" era citada como parte do buraco de quem só tem
+// ativação — mover o card DE VOLTA (ou dentro) do comercial é, na prática,
+// mexer no trabalho do comercial mesmo sem nomear nenhum campo do comercial.
+ok("SÓ ativação movendo o card PARA uma etapa da aba comercial → recusa",
+  veredictoEscopoCamposHm(soAtivacao, [], "comercial"), "sem_permissao_comercial");
+ok("SÓ ativação movendo o card dentro da própria aba (ativação) → ok",
+  veredictoEscopoCamposHm(soAtivacao, [], "ativacao"), "ok");
+ok("SÓ comercial movendo o card PARA a ativação → recusa",
+  veredictoEscopoCamposHm(soComercial, [], "ativacao"), "sem_permissao_ativacao");
+ok("estágio de destino fora das duas abas (ex.: cancelamento) não aciona a checagem",
+  veredictoEscopoCamposHm(soAtivacao, [], "cancelamento"), "ok");
 
 console.log(falhas === 0 ? "\nTODOS OS CASOS PASSARAM\n" : `\n${falhas} CASO(S) FALHARAM\n`);
 process.exit(falhas === 0 ? 0 : 1);

@@ -10,7 +10,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
@@ -532,6 +532,29 @@ export function HmDrawer({
   const feitos = c ? ITENS_CHECKLIST.filter((i) => !!c[i.campo]).length : 0;
   const revogados = c ? ITENS_REVOGACAO.filter((i) => !!c[i.campo]).length : 0;
 
+  // EXPLICAÇÃO DO CRÉDITO PRÓ-RATA (13/08, pedido do Marcio: "o comercial vai
+  // explicar o motivo do pró-rata com base nessa observação — me garante que
+  // isso está em dia"). HM (credito_obs) e AURUM (obs/excecao_motivo) são fontes
+  // diferentes do mesmo par (valor, motivo) — mesma regra de pendência da
+  // tabela (faltaExplicarCredito, card-sinais.tsx), para as duas telas nunca
+  // discordarem sobre quem está sem explicação.
+  //
+  // `mostrarCreditoHm` esconde o bloco quando não há narrativa de pró-rata a
+  // explicar: saldo informado À MÃO pelo Victor (vence o cálculo) ou quitado
+  // sem histórico registrado. Antes a caixa (vazia) aparecia SEMPRE — some
+  // nesses dois casos, e é o espaço que a explicação em destaque ganhou.
+  const manualSaldo = fin?.saldo_a_pagar_manual != null;
+  const quitadoSemManual = jaPagou && !manualSaldo;
+  const creditoHmValor = prorata?.credito != null ? num(prorata.credito) : num(fin?.credito);
+  const mostrarCreditoHm = !aurum && !manualSaldo && (!quitadoSemManual || !!creditoObs.trim());
+  const pendenteCreditoHm = mostrarCreditoHm && faltaExplicarCredito(creditoHmValor, creditoObs);
+  // AURUM: a exceção (gratuidade/cancelado/revisar) sempre precisa do motivo —
+  // é ele que justifica "não cobrar"; fora da exceção só é pendência se HÁ
+  // crédito a abater.
+  const aurumMotivo = aurum ? (aurum.excecao ? aurum.excecao_motivo : aurum.obs) : null;
+  const mostrarCreditoAurum = !!aurum && (aurum.excecao || num(aurum.credito) > 0 || !!aurum.obs?.trim());
+  const pendenteCreditoAurum = mostrarCreditoAurum && (aurum?.excecao ? !aurumMotivo?.trim() : faltaExplicarCredito(num(aurum?.credito), aurumMotivo));
+
   async function reverter() {
     await patch({ reverter: true });
   }
@@ -838,24 +861,88 @@ export function HmDrawer({
                 {/* Saldo a pagar manual removido (30/07): o saldo é calculado pelo
                     pró-rata sobre o que a Hotmart registrou — não se digita à mão. */}
 
-                {/* Motivo do crédito pró-rata (cs.contatos_hm.credito_obs, novo
-                    campo): o valor do crédito é calculado à mão (planilha/analista)
-                    — este texto é o PORQUÊ daquele número, o mesmo padrão do `obs`
-                    e `excecao_motivo` que já existem na ficha do Aurum. Editável
-                    por quem pode mexer no card; grava no blur, como os campos
-                    vizinhos deste bloco. */}
-                <label className="mb-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                  Motivo do crédito (pró-rata)
-                  <textarea
-                    value={creditoObs}
-                    disabled={somenteLeitura}
-                    onChange={(e) => setCreditoObs(e.target.value)}
-                    onBlur={() => patch({ credito_obs: creditoObs || null })}
-                    rows={2}
-                    placeholder="Ex.: dias não usados na turma anterior, desconto combinado com o Victor…"
-                    className={fieldClass}
-                  />
-                </label>
+                {/* POR QUE ESTE CRÉDITO — destacada, na mesma altura em que o
+                    comercial acabou de ler o valor acima (13/08). Antes era um
+                    <textarea> com rótulo genérico igual a "Como vai pagar" —
+                    lia como só mais um campo de formulário, não como a resposta
+                    de "por que este número". Âmbar quando falta preencher e HÁ
+                    crédito a explicar (pendência, não erro); índigo quando está
+                    em dia. AURUM é leitura (a planilha do Victor é a fonte, não
+                    esta tela); HM continua editável, grava no blur. */}
+                {mostrarCreditoAurum && (
+                  <div className={cn(
+                    "mb-2 rounded-md border px-2.5 py-2",
+                    pendenteCreditoAurum
+                      ? "border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10"
+                      : "border-indigo-200 bg-indigo-50/70 dark:border-indigo-500/30 dark:bg-indigo-500/10",
+                  )}>
+                    <p className={cn(
+                      "mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide",
+                      pendenteCreditoAurum ? "text-amber-700 dark:text-amber-300" : "text-indigo-600 dark:text-indigo-300",
+                    )}>
+                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-5M12 8h.01" /></svg>
+                      Por que {aurum?.excecao ? "não cobrar" : "este crédito"}
+                    </p>
+                    {pendenteCreditoAurum ? (
+                      <p className="text-[12px] font-medium text-amber-800 dark:text-amber-300">
+                        Sem explicação registrada na planilha do Victor — confira com ele antes de cobrar.
+                      </p>
+                    ) : (
+                      <p className="text-[12px] text-slate-700 dark:text-slate-200">{aurumMotivo}</p>
+                    )}
+                  </div>
+                )}
+                {mostrarCreditoHm && (
+                  <div className={cn(
+                    "mb-2 rounded-md border px-2.5 py-2",
+                    pendenteCreditoHm
+                      ? "border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10"
+                      : "border-indigo-200 bg-indigo-50/70 dark:border-indigo-500/30 dark:bg-indigo-500/10",
+                  )}>
+                    <label className="block">
+                      <span className={cn(
+                        "mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide",
+                        pendenteCreditoHm ? "text-amber-700 dark:text-amber-300" : "text-indigo-600 dark:text-indigo-300",
+                      )}>
+                        <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-5M12 8h.01" /></svg>
+                        Por que este crédito
+                      </span>
+                      {/* A CONTA, escrita pelo sistema (13/08). Medido em produção:
+                          88 pessoas têm crédito pró-rata e ZERO tinham o motivo
+                          preenchido — o campo nasceu ontem (0207) e ninguém escreveu.
+                          Deixar o comercial cobrar sem nada para dizer é o problema
+                          que o Marcio levantou.
+
+                          O sistema explica a ARITMÉTICA (o que é fato: quanto pagou,
+                          quando, quantos dias usou, quanto sobra); o campo de texto
+                          abaixo segue sendo do humano, para a EXCEÇÃO (desconto
+                          combinado, acordo com o Victor). Não escrevemos no
+                          `credito_obs` de ninguém: dado calculado não pode se
+                          disfarçar de anotação de pessoa. */}
+                      {prorata && num(prorata.credito) > 0 && (
+                        <p className="mb-1.5 rounded bg-white/70 px-2 py-1.5 text-[11px] leading-relaxed text-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
+                          <span className="font-semibold">Conta do sistema:</span>{" "}
+                          do acesso anterior{c.turma_origem ? ` (turma ${c.turma_origem})` : ""}, usou{" "}
+                          <strong>{prorata.dias_usados} dias</strong> a {brl(num(prorata.valor_dia))}/dia
+                          {" "}= {brl(num(prorata.consumido))} consumidos. Sobram{" "}
+                          <strong>{prorata.dias_restantes} dias</strong>, que viram o crédito de{" "}
+                          <strong>{brl(num(prorata.credito))}</strong>.
+                        </p>
+                      )}
+                      <textarea
+                        value={creditoObs}
+                        disabled={somenteLeitura}
+                        onChange={(e) => setCreditoObs(e.target.value)}
+                        onBlur={() => patch({ credito_obs: creditoObs || null })}
+                        rows={2}
+                        placeholder={pendenteCreditoHm
+                          ? "Pendente — o comercial vai cobrar sem saber explicar. Ex.: dias não usados na turma anterior…"
+                          : "Ex.: dias não usados na turma anterior, desconto combinado com o Victor…"}
+                        className={fieldClass}
+                      />
+                    </label>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">

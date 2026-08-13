@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { GRANULARIDADES, type Granularidade } from "@/lib/validators";
+import { escopoVisibilidade, type Ator, type EscopoVisibilidade } from "@/lib/papeis";
 
 // Registro de atividade por colaborador (A1). A captura já existe — cada linha
 // de cs.interacoes é assinada por quem a fez (`autor`). Aqui está a LEITURA:
@@ -658,4 +659,286 @@ async function agendamentosNucleo(
     resumo: { realizados: l.realizados, nao_compareceu: l.nao_compareceu, remarcados: l.remarcados, em_aberto: l.em_aberto },
   }));
   return { itens };
+}
+
+// ===== Desempenho comercial × ativação (D-desempenho, pedido do Marcio 12/08 =
+// à noite) ====================================================================
+// "O dashboard é nosso carro-chefe: bater o olho e entender quem tá performando
+// bem, quem não tá tanto." Diferente do resto deste arquivo (que agrega por
+// AUTOR — texto livre assinado em cs.interacoes), aqui a agregação é por
+// RESPONSÁVEL — uma FK de verdade (cs.contatos_hm.responsavel_comercial_id /
+// responsavel_ativacao_id, histórico imutável por aba, 0211/0212). É a
+// diferença entre "quem mexeu no card" e "de quem é o resultado do card" — e é
+// esta segunda pergunta que uma KPI de vendas responde.
+//
+// Duplo responsável, dois eixos SEPARADOS (nunca somados num número só):
+//   COMERCIAL  → quem vendeu (fechou o card). KPI é dinheiro: quanto entrou,
+//                dos pagamentos atribuídos ao card que ele fechou, e quanto
+//                tempo levou até o aluno quitar o saldo.
+//   ATIVAÇÃO   → quem libera o acesso depois da venda. KPI não é dinheiro (a
+//                ativação não fecha venda) — é quantos alunos ela levou até a
+//                quitação enquanto era a responsável, e em quanto tempo.
+// Um card pode ter os dois preenchidos (histórico por aba, 0211) — a mesma
+// quitação NUNCA aparece como "dinheiro do ativador": o ativador é medido pelo
+// CARD chegar lá, não pelo valor do pagamento (isso seria contar o mesmo real
+// duas vezes, uma vez como venda e outra como ativação).
+
+const numero = (v: unknown): number => {
+  if (v === null || v === undefined) return 0;
+  const n = typeof v === "string" ? Number(v) : (v as number);
+  return Number.isFinite(n) ? n : 0;
+};
+const numeroOuNull = (v: unknown): number | null => {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "string" ? Number(v) : (v as number);
+  return Number.isFinite(n) ? n : null;
+};
+
+// Achata EscopoVisibilidade (lib/papeis.ts — a MESMA função que rege o que o
+// board/kanban deixa cada nível enxergar) em 3 parâmetros de bind. Nunca
+// reimplementar a regra aqui: a visibilidade sai da sessão do servidor, e
+// escopoVisibilidade já decide master=tudo, quem-tem-equipe=equipe (com
+// equipeId eventualmente null, que não casa ninguém — fail-closed) e
+// sem-equipe=operador. Ver o comentário da própria função em lib/papeis.ts.
+function paramsRecorteResponsavel(escopo: EscopoVisibilidade): { modo: string; usuarioId: string | null; equipeId: string | null } {
+  if (escopo.modo === "tudo") return { modo: "tudo", usuarioId: null, equipeId: null };
+  if (escopo.modo === "equipe") return { modo: "equipe", usuarioId: escopo.usuarioId, equipeId: escopo.equipeId };
+  return { modo: "operador", usuarioId: escopo.usuarioId, equipeId: null };
+}
+
+// O WHERE do recorte por RESPONSÁVEL — mesmo espírito de SQL_RECORTE_AUTOR,
+// mas por FK (uuid), não por nome. `coluna` é sempre um dos 2 literais fixos
+// abaixo (nunca vindo de request) — identificador de coluna não é bind param,
+// então isto NÃO é injeção: é escolha de uma string interna, não da query.
+function sqlRecorteResponsavel(coluna: "responsavel_comercial_id" | "responsavel_ativacao_id", pModo: number, pUsuario: number, pEquipe: number): string {
+  return `
+        and ($${pModo}::text = 'tudo'
+             or ($${pModo} = 'equipe' and (
+                   ch.${coluna} = $${pUsuario}::uuid
+                   or exists (select 1 from cs.usuarios ur where ur.id = ch.${coluna} and ur.equipe_id = $${pEquipe}::uuid)
+                 ))
+             or ($${pModo} = 'operador' and ch.${coluna} = $${pUsuario}::uuid))`;
+}
+
+export type DesempenhoComercial = {
+  usuario_id: string | null;
+  pessoa: string;
+  /** Cards distintos com AO MENOS UM pagamento no período (não é "cards atribuídos hoje" — é quem gerou caixa). */
+  cards: number;
+  /** Soma de TODOS os pagamentos do período atribuídos ao card que ele fechou (sinal+saldo+compra_cheia+mensalidade). Nunca inclui `ajuste` (correção manual, não é venda nova). */
+  total_fechado: number;
+  total_sinal: number;
+  /** O pedido literal do Marcio: "quanto de saldo ele conseguiu de quem estava com ele". `categoria='saldo'` é a diferença paga de uma vez (cs.hm_pagamentos, ver 0075/fn_hm_natureza_pagamento). */
+  total_saldo: number;
+  total_compra_cheia: number;
+  total_mensalidade: number;
+  /** Quantos saldos (categoria='saldo') o comercial recebeu no período — base do tempo médio abaixo. */
+  n_saldos: number;
+  /** Dos `n_saldos`, quantos têm entrada_em/criado_em anterior ao pagamento (prazo computável — timestamp corrompido/retroativo fica de fora, nunca inventa um dia negativo). */
+  n_saldos_com_prazo_valido: number;
+  /** MEDIANA de dias entre a entrada do card (entrada_em, ou criado_em quando nula) e o pagamento do saldo — mediana, não média: com N pequeno por pessoa, um outlier (aluno que demorou 400 dias) distorceria a média inteira. null = nenhum saldo com prazo computável no período. */
+  mediana_dias_ate_saldo: number | null;
+};
+
+export type DesempenhoAtivacao = {
+  usuario_id: string | null;
+  pessoa: string;
+  /** Cards quitados no período enquanto ele era o responsável de ativação — o resultado do trabalho de ativação, não o dinheiro (ver o cabeçalho da seção: dinheiro é métrica do comercial). */
+  alunos_ativados: number;
+  n_com_prazo_valido: number;
+  /** MEDIANA de dias entre a entrada do card e a quitação. */
+  mediana_dias_ate_quitacao: number | null;
+};
+
+export type Desempenho = {
+  de: string | null;
+  ate: string | null;
+  comercial: DesempenhoComercial[];
+  ativacao: DesempenhoAtivacao[];
+};
+
+// Dinheiro fechado por responsável COMERCIAL, com o mesmo filtro de produto
+// (`cs.fn_hm_pagamento_do_produto`) que o resto do financeiro do HM usa (0196/
+// 0197/0199, e o histórico financeiro da ficha, hoje) — sem ele, o dinheiro do
+// AURUM entraria no placar de quem vende HM (comprador com card nos dois
+// boards, 0163). `categoria in (...)` exclui `ajuste` de propósito: é correção
+// manual de abertura de conta (0075), não uma venda que o comercial fechou.
+async function desempenhoComercialDinheiroNucleo(
+  f: { de?: string | null; ate?: string | null; produto?: string | null },
+  escopo: EscopoVisibilidade,
+): Promise<{ usuario_id: string | null; pessoa: string; cards: number; total_fechado: number; total_sinal: number; total_saldo: number; total_compra_cheia: number; total_mensalidade: number }[]> {
+  const { modo, usuarioId, equipeId } = paramsRecorteResponsavel(escopo);
+  const rows = await query<Record<string, unknown>>(
+    `select ch.responsavel_comercial_id                                          as usuario_id,
+            coalesce(u.nome, 'Sem responsável comercial')                        as pessoa,
+            count(distinct ch.id)::int                                           as cards,
+            coalesce(sum(p.valor), 0)                                            as total_fechado,
+            coalesce(sum(p.valor) filter (where p.categoria = 'sinal'), 0)       as total_sinal,
+            coalesce(sum(p.valor) filter (where p.categoria = 'saldo'), 0)       as total_saldo,
+            coalesce(sum(p.valor) filter (where p.categoria = 'compra_cheia'), 0) as total_compra_cheia,
+            coalesce(sum(p.valor) filter (where p.categoria = 'mensalidade'), 0) as total_mensalidade
+       from cs.hm_pagamentos p
+       join cs.contatos_hm ch
+         on ch.comprador_id = p.comprador_id
+        and cs.fn_hm_pagamento_do_produto(p.oferta_codigo, ch.produto)
+       left join cs.usuarios u on u.id = ch.responsavel_comercial_id
+      where p.categoria in ('sinal','saldo','compra_cheia','mensalidade')
+        and ($1::timestamptz is null or p.pago_em >= $1)
+        and ($2::timestamptz is null or p.pago_em <  $2)
+        and ($3::text is null or ch.produto = $3)
+        ${sqlRecorteResponsavel("responsavel_comercial_id", 4, 5, 6)}
+      group by ch.responsavel_comercial_id, u.nome
+      order by total_fechado desc nulls last`,
+    [f.de || null, f.ate || null, f.produto || null, modo, usuarioId, equipeId],
+  );
+  return rows.map((r) => ({
+    usuario_id: (r.usuario_id as string | null) ?? null,
+    pessoa: r.pessoa as string,
+    cards: numero(r.cards),
+    total_fechado: numero(r.total_fechado),
+    total_sinal: numero(r.total_sinal),
+    total_saldo: numero(r.total_saldo),
+    total_compra_cheia: numero(r.total_compra_cheia),
+    total_mensalidade: numero(r.total_mensalidade),
+  }));
+}
+
+// Tempo até o saldo — mediana de dias entre a entrada do card e o pagamento do
+// PRIMEIRO saldo (categoria='saldo') no período, por responsável comercial.
+// `entrada_em` (0180) é quando a entrada que produziu o card foi paga; cai para
+// `criado_em` nos cards que nasceram antes da coluna existir (backfill de
+// 0180 já cobriu 230/230 — o coalesce é rede de segurança, não caminho normal).
+// Prazo NEGATIVO (saldo pago antes da "entrada" registrada — dado retroativo/
+// import) fica de fora da mediana: contar um prazo negativo mentiria a
+// eficiência do time. `n_saldos` conta TODO saldo do período (não filtra pelo
+// prazo); `n_saldos_com_prazo_valido` é o denominador real da mediana — os dois
+// aparecem para a tela nunca confundir "0 saldos" com "saldos sem prazo".
+async function desempenhoComercialTempoNucleo(
+  f: { de?: string | null; ate?: string | null; produto?: string | null },
+  escopo: EscopoVisibilidade,
+): Promise<{ usuario_id: string | null; pessoa: string; n_saldos: number; n_saldos_com_prazo_valido: number; mediana_dias_ate_saldo: number | null }[]> {
+  const { modo, usuarioId, equipeId } = paramsRecorteResponsavel(escopo);
+  const rows = await query<Record<string, unknown>>(
+    `with primeiro_saldo as (
+        select ch.id as contato_hm_id, ch.responsavel_comercial_id, min(p.pago_em) as saldo_pago_em
+          from cs.hm_pagamentos p
+          join cs.contatos_hm ch
+            on ch.comprador_id = p.comprador_id
+           and cs.fn_hm_pagamento_do_produto(p.oferta_codigo, ch.produto)
+         where p.categoria = 'saldo'
+           and ($1::timestamptz is null or p.pago_em >= $1)
+           and ($2::timestamptz is null or p.pago_em <  $2)
+           and ($3::text is null or ch.produto = $3)
+           ${sqlRecorteResponsavel("responsavel_comercial_id", 4, 5, 6)}
+         group by ch.id, ch.responsavel_comercial_id
+     ), dias as (
+        select ps.responsavel_comercial_id,
+               case when ps.saldo_pago_em >= coalesce(ch.entrada_em, ch.criado_em)
+                    then extract(epoch from (ps.saldo_pago_em - coalesce(ch.entrada_em, ch.criado_em))) / 86400.0
+                    else null end as dias
+          from primeiro_saldo ps
+          join cs.contatos_hm ch on ch.id = ps.contato_hm_id
+     )
+     select d.responsavel_comercial_id                                           as usuario_id,
+            coalesce(u.nome, 'Sem responsável comercial')                        as pessoa,
+            count(*)::int                                                       as n_saldos,
+            count(d.dias)::int                                                  as n_saldos_com_prazo_valido,
+            percentile_cont(0.5) within group (order by d.dias) filter (where d.dias is not null) as mediana_dias_ate_saldo
+       from dias d
+       left join cs.usuarios u on u.id = d.responsavel_comercial_id
+      group by d.responsavel_comercial_id, u.nome`,
+    [f.de || null, f.ate || null, f.produto || null, modo, usuarioId, equipeId],
+  );
+  return rows.map((r) => ({
+    usuario_id: (r.usuario_id as string | null) ?? null,
+    pessoa: r.pessoa as string,
+    n_saldos: numero(r.n_saldos),
+    n_saldos_com_prazo_valido: numero(r.n_saldos_com_prazo_valido),
+    mediana_dias_ate_saldo: numeroOuNull(r.mediana_dias_ate_saldo),
+  }));
+}
+
+// Ativação: quantos cards um responsável de ativação levou até a QUITAÇÃO no
+// período (`quitado_em`), e em quanto tempo (mediana, entrada→quitação). Nunca
+// dinheiro — a ativação não vende, libera acesso; o card pode até ter sido
+// fechado por OUTRO comercial (histórico por aba, 0211) e isso é o ponto: os
+// dois eixos medem coisas diferentes do MESMO card sem duplicar o resultado.
+async function desempenhoAtivacaoNucleo(
+  f: { de?: string | null; ate?: string | null; produto?: string | null },
+  escopo: EscopoVisibilidade,
+): Promise<DesempenhoAtivacao[]> {
+  const { modo, usuarioId, equipeId } = paramsRecorteResponsavel(escopo);
+  const rows = await query<Record<string, unknown>>(
+    `with quit as (
+        select ch.responsavel_ativacao_id,
+               case when ch.quitado_em >= coalesce(ch.entrada_em, ch.criado_em)
+                    then extract(epoch from (ch.quitado_em - coalesce(ch.entrada_em, ch.criado_em))) / 86400.0
+                    else null end as dias
+          from cs.contatos_hm ch
+         where ch.quitado_em is not null
+           and ($1::timestamptz is null or ch.quitado_em >= $1)
+           and ($2::timestamptz is null or ch.quitado_em <  $2)
+           and ($3::text is null or ch.produto = $3)
+           ${sqlRecorteResponsavel("responsavel_ativacao_id", 4, 5, 6)}
+     )
+     select q.responsavel_ativacao_id                                           as usuario_id,
+            coalesce(u.nome, 'Sem responsável de ativação')                     as pessoa,
+            count(*)::int                                                       as alunos_ativados,
+            count(q.dias)::int                                                  as n_com_prazo_valido,
+            percentile_cont(0.5) within group (order by q.dias) filter (where q.dias is not null) as mediana_dias_ate_quitacao
+       from quit q
+       left join cs.usuarios u on u.id = q.responsavel_ativacao_id
+      group by q.responsavel_ativacao_id, u.nome
+      order by alunos_ativados desc`,
+    [f.de || null, f.ate || null, f.produto || null, modo, usuarioId, equipeId],
+  );
+  return rows.map((r) => ({
+    usuario_id: (r.usuario_id as string | null) ?? null,
+    pessoa: r.pessoa as string,
+    alunos_ativados: numero(r.alunos_ativados),
+    n_com_prazo_valido: numero(r.n_com_prazo_valido),
+    mediana_dias_ate_quitacao: numeroOuNull(r.mediana_dias_ate_quitacao),
+  }));
+}
+
+// Porta única do dashboard: junta dinheiro+tempo do comercial (2 queries, por
+// granularidade de GROUP BY diferente — dinheiro soma pagamentos, tempo soma
+// cards únicos) num só registro por pessoa, e devolve a ativação à parte. Em
+// SÉRIE — mesmo motivo documentado no topo do arquivo (Supavisor em modo
+// transação não tolera Promise.all).
+export async function desempenhoHm(
+  f: { de?: string | null; ate?: string | null; produto?: string | null },
+  ator: Ator,
+): Promise<Desempenho> {
+  const escopo = escopoVisibilidade(ator);
+  const dinheiro = await desempenhoComercialDinheiroNucleo(f, escopo);
+  const tempo = await desempenhoComercialTempoNucleo(f, escopo);
+  const ativacao = await desempenhoAtivacaoNucleo(f, escopo);
+
+  const tempoPorUsuario = new Map(tempo.map((t) => [t.usuario_id, t]));
+  // UNION dos dois conjuntos de chaves: alguém pode ter fechado dinheiro sem
+  // nenhum saldo no período (n_saldos=0) ou — mais raro, mas possível se um
+  // saldo foi pago sem nenhum OUTRO pagamento no card no período — aparecer só
+  // no tempo. Nenhuma pessoa com atividade real fica de fora por causa da
+  // interseção dos dois SELECTs.
+  const chaves = new Set<string | null>([...dinheiro.map((d) => d.usuario_id), ...tempo.map((t) => t.usuario_id)]);
+  const comercial: DesempenhoComercial[] = [...chaves].map((usuarioId) => {
+    const d = dinheiro.find((x) => x.usuario_id === usuarioId);
+    const t = tempoPorUsuario.get(usuarioId);
+    return {
+      usuario_id: usuarioId,
+      pessoa: d?.pessoa ?? t?.pessoa ?? "Sem responsável comercial",
+      cards: d?.cards ?? 0,
+      total_fechado: d?.total_fechado ?? 0,
+      total_sinal: d?.total_sinal ?? 0,
+      total_saldo: d?.total_saldo ?? 0,
+      total_compra_cheia: d?.total_compra_cheia ?? 0,
+      total_mensalidade: d?.total_mensalidade ?? 0,
+      n_saldos: t?.n_saldos ?? 0,
+      n_saldos_com_prazo_valido: t?.n_saldos_com_prazo_valido ?? 0,
+      mediana_dias_ate_saldo: t?.mediana_dias_ate_saldo ?? null,
+    };
+  }).sort((a, b) => b.total_fechado - a.total_fechado);
+
+  return { de: f.de || null, ate: f.ate || null, comercial, ativacao };
 }

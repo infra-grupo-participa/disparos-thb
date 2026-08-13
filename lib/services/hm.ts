@@ -1,6 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
-import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, esteiraCompartilhada, nivelDe, podeAtribuirPara, podeRemanejarTravado, podeTravarAtribuicao, semBonusDeGerente, type Ator, type Papel, type TipoEquipe } from "@/lib/papeis";
+import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, esteiraCompartilhada, nivelDe, podeAtribuirPara, podeRemanejarTravado, podeTravarAtribuicao, semBonusDeGerente, veredictoEscopoCamposHm, type Ator, type Papel, type TipoEquipe, type VeredictoCampoHm } from "@/lib/papeis";
 import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 
 const log = logger("hm");
@@ -193,8 +193,17 @@ export async function moverEstagioHm(
     // É a mesma família do incidente que derrubou o board em 10/08 (ver 0168):
     // não é hipótese, é a primeira pessoa com card nos dois boards passando por
     // aqui. `limit 1` sozinho não bastaria — escolheria o saldo do board errado.
+    //
+    // 13/08 (item 2c, triagem): `cs.fn_hm_pode_finalizar` tinha o MESMO risco
+    // por dentro — o ramo "o comercial registrou como parcelado" lia
+    // `select ... from cs.contatos_hm where comprador_id = $1` sem produto NEM
+    // limit dentro de um `coalesce((select ...))` — subquery escalar, não
+    // `exists`. Para quem tem os dois cards, a chamada sem o 2º argumento
+    // (`p_produto`, migration 0221) derrubava esta rota com
+    // `ERROR 21000: more than one row returned by a subquery used as an
+    // expression` antes mesmo de chegar no `faltam` acima.
     const g = await queryOne<{ pode: boolean; faltam: number | null }>(
-      `select cs.fn_hm_pode_finalizar($1) as pode,
+      `select cs.fn_hm_pode_finalizar($1, $2) as pode,
               (select greatest(coalesce(f.saldo_a_perseguir,0),0)
                  from cs.vw_hm_financeiro f
                  join cs.contatos_hm ch2 on ch2.id = f.contato_hm_id
@@ -419,18 +428,32 @@ export async function reverterEstagioHm(compradorId: string, autor = "cs"): Prom
 // A partir daqui o aluno é marcado como cancelado — nunca apagado: some das
 // telas do GPS, mantém turma, validade, sócios e histórico, e o Thomas recebe a
 // pendência de remover os acessos. Se ele voltar, é o MESMO cadastro que revive.
+// `produto` (13/08, item 2c da triagem): sem ele, tanto o `ch` abaixo quanto
+// `cs.fn_hm_cancelar` resolviam o card por comprador_id sem produto — para as
+// 15 pessoas com card no HM e no AURUM, confirmar o cancelamento de UM board
+// podia cair no OUTRO (o desempate de `fn_hm_cancelar` prefere HM quando não
+// recebe o produto). `fn_hm_cancelar` já aceita o 4º argumento desde a 0197;
+// só faltava esta função repassar.
 export async function confirmarCancelamentoHm(
   compradorId: string,
   motivo: string | null,
   autor = "cs",
+  produto?: string | null,
 ): Promise<{ ok: boolean; resultado?: string }> {
-  const ch = await queryOne<{ id: string }>(`select id from cs.contatos_hm where comprador_id = $1`, [compradorId]);
+  const ch = await queryOne<{ id: string }>(
+    `select id
+       from cs.contatos_hm
+      where comprador_id = $1 and (($2::text is null) or coalesce(produto, 'HM') = $2)
+      order by criado_em asc
+      limit 1`,
+    [compradorId, produto ?? null],
+  );
   if (!ch) return { ok: false };
 
   try {
     const r = await queryOne<{ resultado: string }>(
-      `select cs.fn_hm_cancelar($1, $2, 'manual') as resultado`,
-      [compradorId, motivo],
+      `select cs.fn_hm_cancelar($1, $2, 'manual', $3) as resultado`,
+      [compradorId, motivo, produto ?? null],
     );
     await addInteracaoHm(
       ch.id,
@@ -450,10 +473,21 @@ export async function confirmarCancelamentoHm(
 
 // Cancelamento confirmado por engano (ou negado pela Hotmart depois de já ter
 // sido lançado). Desfaz o FATO — o pedido e o histórico continuam registrados.
-export async function desfazerCancelamentoHm(compradorId: string, autor = "cs"): Promise<boolean> {
+//
+// `produto` (13/08, item 2c): MESMO motivo de confirmarCancelamentoHm — sem
+// ele, `ch` (o card que recebe o UPDATE do card em si) e `fn_hm_descancelar`
+// (que reflete na base THB) resolviam por comprador_id sem produto. A versão
+// antiga de `fn_hm_descancelar` (migration 0221 fecha) fazia pior:
+// `where comprador_id = ...` sem NEM o `id = v_card_id` — desfazer o
+// cancelamento de UM board reabria o OUTRO junto, silenciosamente.
+export async function desfazerCancelamentoHm(compradorId: string, autor = "cs", produto?: string | null): Promise<boolean> {
   const ch = await queryOne<{ id: string; aluno_id: string | null }>(
-    `select id, aluno_id from cs.contatos_hm where comprador_id = $1`,
-    [compradorId],
+    `select id, aluno_id
+       from cs.contatos_hm
+      where comprador_id = $1 and (($2::text is null) or coalesce(produto, 'HM') = $2)
+      order by criado_em asc
+      limit 1`,
+    [compradorId, produto ?? null],
   );
   if (!ch) return false;
 
@@ -466,7 +500,7 @@ export async function desfazerCancelamentoHm(compradorId: string, autor = "cs"):
 
   // A base é de outro domínio: uma falha lá não pode travar a correção do card.
   try {
-    await query(`select cs.fn_hm_descancelar($1)`, [compradorId]);
+    await query(`select cs.fn_hm_descancelar($1, $2)`, [compradorId, produto ?? null]);
   } catch (e) {
     log.error("falha ao desfazer o cancelamento na base THB", e, { compradorId });
     await addInteracaoHm(ch.id, "sistema", "Cancelamento desfeito no card, mas a base THB não respondeu — confira o aluno", autor);
@@ -808,6 +842,34 @@ export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string, 
   return veredictoAcao(ator, k, await canaisDoUsuario(sessao.id), esteira); // + canal→pessoa (0154)
 }
 
+// Gate de CAMPO (12/08 23h, separação dura comercial×ativação — lib/papeis.ts
+// tem a regra e o "porquê" completos). Roda DEPOIS de podeAgirCardHm nas
+// MESMAS rotas de escrita: aquele autoriza o CARD; este autoriza o CAMPO —
+// mesmo card autorizado, um `responsavel_id`/`reuniao_*` no body de quem só
+// tem HM:ativacao (ou um `responsavel_ativacao_id`/checklist/entrevista de
+// quem só tem HM:comercial) cai aqui.
+//
+// `camposPresentes`: as CHAVES do body cuja escrita foi pedida (valor !==
+// undefined) — a rota monta essa lista, não esta função: ela não conhece o
+// schema do PATCH/lote, só o NOME dos campos. `estagioChaveDestino`: o
+// `estagio_chave` pedido, se houver — único motivo desta função tocar banco
+// (resolver a ABA do estágio de destino via o cache de cs.estagios já usado
+// por moverEstagioHm). Sem destino, ou destino que não resolve, a
+// classificação some (nem comercial nem ativação) e a checagem cai só nos
+// NOMES de campo.
+export async function veredictoCamposHm(
+  sessao: Ator,
+  camposPresentes: readonly string[],
+  estagioChaveDestino?: string | null,
+): Promise<VeredictoCampoHm> {
+  let abaDestino: string | null = null;
+  if (estagioChaveDestino) {
+    const est = await estagioPorChave(estagioChaveDestino);
+    abaDestino = est?.aba ?? null;
+  }
+  return veredictoEscopoCamposHm(sessao, camposPresentes, abaDestino);
+}
+
 // Colunas de cancelamento — Reclamada (pedido) e Reembolsado (fato).
 export const HM_ESTAGIOS_CANCELAMENTO = [HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO];
 
@@ -867,17 +929,28 @@ function fmtBr(iso: string | Date): string {
 // sistema esquecia que houve remarcação; era impossível saber quem está enrolando.
 // Agora a data vigente continua no card (é o que a agenda lê) e cada marcação vira
 // uma linha em cs.hm_agendamentos, com o motivo de a anterior ter caído.
+// `produto` (13/08, mesma classe de bug que a 0196/0197/0218/0220 fecharam):
+// sem ele, o `select ... where comprador_id = $1` resolvia o card de QUALQUER
+// board da pessoa — para as 15 pessoas com card no HM e no AURUM, marcar uma
+// reunião/entrevista pelo board errado gravava no card que o planner
+// escolhesse. Default 'HM' preserva quem tem um card só; `order by`+`limit`
+// como rede para dado legado com produto nulo/divergente.
 export async function agendarHm(
   compradorId: string,
   tipo: TipoAgendamento,
   quando: string | null,
   motivo: string | null,
   autor = "cs",
+  produto?: string | null,
 ): Promise<{ reagendou: boolean; vezes: number }> {
   const col = tipo === "reuniao" ? "reuniao_em" : "entrevista_em";
   const ch = await queryOne<{ id: string; atual: string | null }>(
-    `select id, ${col} as atual from cs.contatos_hm where comprador_id = $1`,
-    [compradorId],
+    `select id, ${col} as atual
+       from cs.contatos_hm
+      where comprador_id = $1 and coalesce(produto, 'HM') = coalesce($2, 'HM')
+      order by criado_em asc
+      limit 1`,
+    [compradorId, produto ?? null],
   );
   if (!ch) return { reagendou: false, vezes: 0 };
 
@@ -928,14 +1001,23 @@ export async function agendarHm(
 // Fecha a marcação vigente: aconteceu, o aluno não veio, ou foi cancelada. O
 // no-show é o dado que faltava — é ele que distingue "remarcou porque surgiu algo"
 // de "não apareceu e sumiu".
+// `produto`: mesmo motivo/mesma rede de segurança de agendarHm, acima.
 export async function fecharAgendamentoHm(
   compradorId: string,
   tipo: TipoAgendamento,
   status: StatusAgendamento,
   motivo: string | null,
   autor = "cs",
+  produto?: string | null,
 ): Promise<boolean> {
-  const ch = await queryOne<{ id: string }>(`select id from cs.contatos_hm where comprador_id = $1`, [compradorId]);
+  const ch = await queryOne<{ id: string }>(
+    `select id
+       from cs.contatos_hm
+      where comprador_id = $1 and coalesce(produto, 'HM') = coalesce($2, 'HM')
+      order by criado_em asc
+      limit 1`,
+    [compradorId, produto ?? null],
+  );
   if (!ch) return false;
 
   const fechou = await query(

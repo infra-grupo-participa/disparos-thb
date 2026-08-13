@@ -98,6 +98,15 @@ export type LinhaEsteira = {
    *  saía em nenhum relatório (0 cards preenchidos por falta de visibilidade de
    *  quem cobra é parte do diagnóstico). Direto de cs.contatos_hm.credito_obs. */
   credito_obs: string | null;
+  // ----- crédito do AURUM (0158, 13/08) -----
+  // Overlay por DOCUMENTO (fora de cs.contatos_hm — a mesma fonte que a ficha do
+  // Aurum lê, hm-ficha.ts): a planilha do Victor, não a compra da Hotmart. Null
+  // para quem não é do Aurum. Existe para a tabela/board pararem de silenciar o
+  // "porquê" do crédito Aurum, que hoje só a ficha mostra (e só em exceção).
+  aurum_credito: string | null;
+  aurum_excecao: boolean;
+  aurum_excecao_motivo: string | null;
+  aurum_obs: string | null;
   // ----- o saldo pela RÉGUA (cs.vw_hm_financeiro, 0078) -----
   // `saldo_a_pagar` (fn_hm_prorata) só existe para quem tem crédito informado — o
   // lead novo ficava sem saldo nenhum na tela, embora o dele seja o mais simples:
@@ -256,9 +265,16 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             k.pagamento_em, k.pagamento_forma, k.pagamento_parcelas, k.apto_ativacao,
             ch.valor_total, ch.valor_pago, ch.aluno_id,
             pr.saldo_a_pagar, pr.credito, ch.credito_obs,
+            aur.credito as aurum_credito, coalesce(aur.excecao, false) as aurum_excecao,
+            aur.excecao_motivo as aurum_excecao_motivo, aur.obs as aurum_obs,
             fin.publico, fin.saldo_a_perseguir, fin.pacote_regra,
             fin.situacao as situacao_financeira, fin.quitado,
-            cs.fn_hm_pode_finalizar(k.comprador_id) as pode_finalizar,
+            -- 0221: com o produto. A funcao ganhou p_produto (default HM); sem
+            -- passa-lo, a linha do board do AURUM decidia "pode finalizar?" lendo a
+            -- forma de pagamento do card do HM da mesma pessoa. k.produto e o
+            -- board da PROPRIA linha -- nao o filtro da requisicao, que ja limita o
+            -- conjunto mas nao sobrevive a uma consulta consolidada.
+            cs.fn_hm_pode_finalizar(k.comprador_id, coalesce(k.produto, 'HM')) as pode_finalizar,
             fin.ultimo_pagamento_em, fin.parcelas_pagas, fin.parcelas_contratadas,
             fin.valor_parcela, fin.pago_pct, fin.status_parcela,
             fin.ultimo_abatimento_em, fin.ultimo_abatimento_valor, fin.ultimo_abatimento_categoria,
@@ -288,6 +304,17 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
        left join cs.vw_compradores_duplicados dup on dup.comprador_id = k.comprador_id
        left join lateral cs.fn_hm_prorata(k.comprador_id) pr on true
        left join cs.vw_hm_financeiro fin on fin.contato_hm_id = k.contato_hm_id
+       -- AURUM (0158/13-08): mesmo casamento por CPF normalizado que a ficha usa
+       -- (hm-ficha.ts) — a compra da Hotmart não carrega o crédito do Aurum, só a
+       -- planilha do Victor. LATERAL com LIMIT 1: nunca mais de uma linha por CPF
+       -- (a lição da 0168 — subquery escalar de 2 linhas derruba a view inteira).
+       left join public.compradores co on co.id = k.comprador_id
+       left join lateral (
+         select a.credito, a.excecao, a.excecao_motivo, a.obs
+           from cs.vw_aurum_saldo a
+          where a.documento = regexp_replace(coalesce(co.documento, ''), '[^0-9]', '', 'g')
+          limit 1
+       ) aur on true
        left join lateral (
          select count(*)::int as qtd from cs.hm_socios s where s.contato_hm_id = ch.id
        ) so on true

@@ -24,6 +24,17 @@ export function ehEstagioCancelamento(chave: string | null | undefined): boolean
 export const TITLE_CARD_CANCELADO =
   "Card cancelado — só o administrador do Grupo Participa acessa";
 
+// ===== Explicação do crédito pró-rata (13/08) ================================
+// O crédito pró-rata (HM: cs.contatos_hm.credito_obs · AURUM: cs.vw_aurum_saldo.obs
+// / excecao_motivo) é calculado à mão — quem cobra o aluno depende deste texto
+// para justificar o número. Card com crédito > 0 e SEM o motivo preenchido é o
+// caso perigoso: o comercial vai cobrar um valor que não sabe explicar. Regra
+// única para as três telas (ficha, board, tabela) — decidir em cada uma por
+// conta própria é o jeito de uma dizer "pendente" e a outra não.
+export function faltaExplicarCredito(credito: number | null | undefined, obs: string | null | undefined): boolean {
+  return !!credito && credito > 0 && !obs?.trim();
+}
+
 // ===== Recompra (pedido do Marcio, 27/07 — "por ora") ========================
 // Quem JÁ ERA ALUNO antes de comprar o HM. A identificação vem das tags:
 //   • "Origem Txx" — a turma de onde a pessoa veio (renovação), OU

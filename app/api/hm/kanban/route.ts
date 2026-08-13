@@ -86,6 +86,15 @@ export async function GET(req: Request) {
             -- faz o dia todo e que só existia dentro da ficha. Vai para o card.
             -- null = o sistema não sabe (não é zero) — o card então não afirma nada.
             fin.saldo_a_perseguir as saldo,
+            -- EXPLICAÇÃO DO CRÉDITO PRÓ-RATA (13/08, pedido do Marcio): "eles vão
+            -- explicar o motivo do pró-rata com base nessa observação". O card
+            -- precisa sinalizar quando HÁ crédito e NÃO há explicação — medido em
+            -- produção: 88 pessoas com crédito e ZERO com o motivo preenchido.
+            -- fin e ch2 ja estao no FROM; o LATERAL do Aurum e o mesmo de
+            -- lib/services/hm-relatorio.ts (casa por documento, não por id).
+            fin.credito, ch2.credito_obs,
+            au.credito as aurum_credito, au.excecao as aurum_excecao,
+            au.excecao_motivo as aurum_excecao_motivo, au.obs as aurum_obs,
             -- Parcelando: pagou ≥1 parcela e ainda deve. O espelho no Comercial mostra
             -- esse card em "Pagamento Parcelado", não em "Pagamento Realizado" (0108).
             (fin.situacao = 'mensalidade_em_curso') as parcelado,
@@ -115,6 +124,16 @@ export async function GET(req: Request) {
        join cs.contatos_hm ch2 on ch2.id = k.contato_hm_id
        left join cs.vw_hm_financeiro fin on fin.contato_hm_id = k.contato_hm_id
        left join cs.vw_hm_credito_duplo cd on cd.comprador_id = k.comprador_id
+       -- Aurum casa por DOCUMENTO (a view é overlay da planilha do Victor, não
+       -- tem comprador_id). O limit 1 e obrigatorio: subquery escalar sem limite
+       -- derruba a query inteira com ERROR 21000 (a lição da 0168/0201).
+       left join public.compradores co_doc on co_doc.id = k.comprador_id
+       left join lateral (
+         select a.credito, a.excecao, a.excecao_motivo, a.obs
+           from cs.vw_aurum_saldo a
+          where a.documento = regexp_replace(coalesce(co_doc.documento, ''), '[^0-9]', '', 'g')
+          limit 1
+       ) au on true
        left join lateral (
          select string_agg(o.outro_produto || ': ' || coalesce(o.outro_estagio, '?'), ' · '
                            order by o.outro_produto) as resumo
