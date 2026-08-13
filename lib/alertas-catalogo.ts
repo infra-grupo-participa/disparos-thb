@@ -32,6 +32,17 @@ export const EXPLICACAO: Record<string, { titulo: string; acao: string }> = {
     titulo: "Oferta fora do catálogo",
     acao: "Alguém pagou numa oferta que o sistema não conhece: o card não anda e o pagamento não entra no razão. Cadastrar em public.hm_product_catalog com a categoria certa (sinal, diferenca ou compra_cheia) — ao cadastrar, o pagamento é lançado sozinho.",
   },
+  // 0230: receita que o razão ignora DE PROPÓSITO. Não é defeito — é dinheiro
+  // que a operação precisa enxergar e que, até a auditoria de 12/08, não
+  // aparecia em lugar nenhum: nem em saldo, nem no board, nem no export.
+  // Aviso (não crítico) porque não há nada quebrado para consertar: o alerta
+  // existe para o número ser conhecido. Crítico aqui viraria ruído, e alerta que
+  // grita sem motivo treina o time a ignorar o painel (lição dos 13 falsos
+  // positivos de "Reclamada", 0208).
+  compra_fora_do_razao: {
+    titulo: "Receita que não entra no saldo",
+    acao: "Compra aprovada numa categoria que não abate o pacote de 15k (renovação, reserva). Ela não vira card nem pagamento — de propósito, senão marcaria como quitado quem não pagou o pacote. Está aqui só para o dinheiro ser visível: conferir se a receita foi reconhecida fora do sistema e dar baixa. Se a categoria estiver errada no catálogo, corrigir lá é o que faz o pagamento entrar no razão.",
+  },
   cancelamento_ambiguo: {
     titulo: "Cancelamento sem board definido",
     acao: "A pessoa cancelou a assinatura na Hotmart, mas tem card em mais de um board e o evento não diz qual. O sistema não escolheu de propósito — decidir na mão qual produto perde o acesso.",
