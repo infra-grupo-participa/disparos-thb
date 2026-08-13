@@ -53,11 +53,21 @@ export async function GET(req: Request) {
   // `qtd` alimenta a régua de canais fixos — o placar do canal inteiro, sem os
   // filtros da tela (mesma regra da rota do kanban).
   const tagRows = await query<{ tag: string; eh_turma: boolean; qtd: number }>(
+    // 13/08 — `and produto = $2`. Faltava, e a régua do board do AURUM contava
+    // os cards do HM junto: o canal "ETHB SP" aparecia com 50 num board de 35
+    // cards. São 35 PESSOAS; as outras 15 linhas são o card que essas mesmas
+    // pessoas têm no HM (as 15 de sempre, card por pessoa × produto desde a
+    // 0163). O mesmo filtro conserta a LISTA de canais logo abaixo, que oferecia
+    // no Aurum canais que só existem no HM — e filtrar por eles não devolvia nada.
+    //
+    // "Placar do canal INTEIRO" segue valendo para o que a frase quis dizer:
+    // ignora os filtros DA TELA. O produto não é filtro de tela, é o board.
     `select t as tag, t ~ $1 as eh_turma, count(*)::int as qtd
        from cs.contatos_hm, unnest(tags) t
+      where coalesce(produto, 'HM') = $2
       group by t
       order by tag`,
-    [RE_TURMA],
+    [RE_TURMA, produto],
   );
 
   return NextResponse.json({

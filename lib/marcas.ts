@@ -70,8 +70,14 @@ export const PORTAIS: Record<PortalId, Marca> = {
     cor: "#CA8A04", // amarelo-ouro (yellow-600)
     desc: "Aurum — o nível premium dos alunos: comercial, reunião e ativação da jornada de ponta.",
     gradiente: "from-yellow-600 to-amber-400",
-    logo: null, // → public/marcas/aurum.svg (enquanto não houver, cai no monograma "AUR")
-    logoRatio: null,
+    // 13/08: a marca chegou. O PNG original tinha 3786x1008 e **4,4 MB** — 120x
+    // as outras marcas (HM 37 KB, HT 63 KB) — e o <Image> aqui roda com
+    // `unoptimized`, ou seja, o arquivo inteiro ia para o browser em TODA página.
+    // Reamostrado para 600x160 (3x o maior uso, que é h-10) e ficou em 57 KB.
+    logo: "/marcas/aurum.png",
+    logoRatio: [600, 160],
+    // Sem `logoNegativa`: diferente do HM e do HT, esta arte já traz o próprio
+    // fundo dourado — não precisa (nem deve ganhar) o bloco escuro por trás.
   },
   ethb: {
     evento: "ETHB",
