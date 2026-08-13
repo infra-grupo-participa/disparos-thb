@@ -24,6 +24,17 @@ export function ehEstagioCancelamento(chave: string | null | undefined): boolean
 export const TITLE_CARD_CANCELADO =
   "Card cancelado — só o administrador do Grupo Participa acessa";
 
+// ===== Explicação do crédito pró-rata (13/08) ================================
+// O crédito pró-rata (HM: cs.contatos_hm.credito_obs · AURUM: cs.vw_aurum_saldo.obs
+// / excecao_motivo) é calculado à mão — quem cobra o aluno depende deste texto
+// para justificar o número. Card com crédito > 0 e SEM o motivo preenchido é o
+// caso perigoso: o comercial vai cobrar um valor que não sabe explicar. Regra
+// única para as três telas (ficha, board, tabela) — decidir em cada uma por
+// conta própria é o jeito de uma dizer "pendente" e a outra não.
+export function faltaExplicarCredito(credito: number | null | undefined, obs: string | null | undefined): boolean {
+  return !!credito && credito > 0 && !obs?.trim();
+}
+
 // ===== Recompra (pedido do Marcio, 27/07 — "por ora") ========================
 // Quem JÁ ERA ALUNO antes de comprar o HM. A identificação vem das tags:
 //   • "Origem Txx" — a turma de onde a pessoa veio (renovação), OU
@@ -55,6 +66,61 @@ export function origemRecompra(tags: string[] | null | undefined): string | null
 export function ehAlunoAntigo(tags: string[] | null | undefined): boolean {
   if (!tags?.length) return false;
   return tags.some((t) => (TAGS_ALUNO_ANTIGO as readonly string[]).includes(t));
+}
+
+// ===== Aluno novo (0216, 12/08) ==============================================
+// O outro lado do mesmo par. A tag chamava "Lead novo" até a 0216 — o Marcio
+// trocou porque quem está neste board JÁ COMPROU o sinal; "lead" era vocabulário
+// do funil anterior vazando para dentro da esteira.
+//
+// Lê as DUAS grafias pelo mesmo motivo que cs.vw_hm_financeiro lê: a tela do
+// operador não pode ficar muda por causa de um card que escapou do backfill.
+export const TAGS_ALUNO_NOVO: readonly string[] = ["Aluno novo", "Lead novo"];
+
+export function ehAlunoNovo(tags: string[] | null | undefined): boolean {
+  if (!tags?.length) return false;
+  return tags.some((t) => TAGS_ALUNO_NOVO.includes(t));
+}
+
+// Pedido do Marcio (12/08): "eu preciso que esteja ESCANCARADO isso, a
+// diferença entre aluno novo e aluno antigo". Por isso os dois selos saíram do
+// "+N" (SelosExtras) e são renderizados sempre, lado a lado, com a mesma forma
+// e cores opostas: esmeralda = primeira vez, índigo = já era da casa.
+export function SeloAlunoNovo({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+        className,
+      )}
+      title="Aluno novo — primeira compra, nunca foi aluno THB nem Aurum. Nenhum acesso é pré-marcado: o checklist de ativação começa zerado e tudo precisa ser liberado."
+    >
+      {/* Estrela: chegou agora. Contrasta com o crachá do aluno antigo. */}
+      <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.4l6.1-.9L12 3Z" /></svg>
+      Aluno novo
+    </span>
+  );
+}
+
+// "Ninguém abriu esse card ainda" (0217). Fica ABSOLUTO no canto superior
+// direito do card — o pedido foi literalmente "uma tagzinha no topo superior
+// direito" — e some na primeira abertura. O pulso respeita `motion-safe`: quem
+// pediu menos animação no sistema operacional vê o selo parado, não some com ele.
+export function SeloCardNovo({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "pointer-events-none absolute -right-1.5 -top-2 z-10 inline-flex shrink-0 items-center gap-0.5",
+        "rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white",
+        "shadow-sm ring-2 ring-white motion-safe:animate-pulse dark:bg-indigo-500 dark:ring-slate-900",
+        className,
+      )}
+      title="Venda nova — ninguém da equipe abriu este card ainda. O selo some assim que alguém abrir a ficha."
+    >
+      <svg className="h-2 w-2 shrink-0" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
+      novo
+    </span>
+  );
 }
 
 // O selo vermelho de recompra — o MESMO nas três telas, para a marca ser

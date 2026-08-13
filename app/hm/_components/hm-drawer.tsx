@@ -10,7 +10,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
@@ -104,6 +104,34 @@ type Prorata = {
   consumido: string | null; credito: string | null; saldo_a_pagar: string | null;
 };
 type LinkSaldo = { codigo: string; valor: string; recorrente: boolean; link: string };
+// HISTÓRICO FINANCEIRO (12/08) — uma linha da razão (`cs.hm_pagamentos`).
+// Já vem filtrado por produto pela ficha: o card do HM nunca mostra o dinheiro
+// do Aurum. `valor` chega como string (numeric do Postgres).
+type Pagamento = {
+  categoria: string | null; valor: string | null; pago_em: string | null;
+  origem: string | null; transacao: string | null; oferta_codigo: string | null;
+  metodo_pagamento: string | null; parcela: number | null; obs: string | null; autor: string | null;
+};
+// Categoria em português de gente. O banco fala `diferenca`/`compra_cheia`; o
+// operador não. Cair no próprio código quando for categoria nova é melhor que
+// esconder a linha — dinheiro sem rótulo ainda é dinheiro que entrou.
+const ROTULO_CATEGORIA: Record<string, string> = {
+  sinal: "Entrada (sinal)",
+  saldo: "Pagamento do saldo",
+  diferenca: "Pagamento do saldo",
+  compra_cheia: "Compra à vista (valor cheio)",
+  mensalidade: "Mensalidade",
+  entrada: "Entrada",
+  renovacao: "Renovação",
+};
+const ROTULO_METODO: Record<string, string> = {
+  PIX: "Pix",
+  CREDIT_CARD: "Cartão de crédito",
+  BILLET: "Boleto",
+  HYBRID: "Pagamento híbrido (cartão + outro)",
+  HOTMART_INSTALLMENTS: "Parcelado pela Hotmart",
+  PAYPAL: "PayPal",
+};
 // Saldo do Aurum ETHB SP (0158): crédito pró-rata calculado FORA do banco (planilha
 // do Victor) e ingerido. `saldo_a_pagar` vem null nas exceções (gratuidade,
 // cancelado, em revisão) — nesse caso mostra-se o rótulo, nunca um valor.
@@ -184,11 +212,22 @@ function fmt(iso: string | null) {
 // ===== Timeline do card (auditoria) =========================================
 // Atores automáticos do sistema — não são gente; no rodapé viram "automático"
 // para não parecer que alguém da operação fez a ação.
-const ATORES_SISTEMA = new Set(["sistema", "make", "hotmart", "lead", "cs", "webhook"]);
+// `respondi` entrou na lista em 12/08: é o webhook do formulário, e sem ele aqui
+// aparecia como se fosse uma pessoa da equipe na atividade.
+const ATORES_SISTEMA = new Set(["sistema", "make", "hotmart", "lead", "cs", "webhook", "respondi"]);
 function autorLegivel(autor: string | null): string {
   const a = (autor ?? "").trim();
-  if (!a || ATORES_SISTEMA.has(a.toLowerCase()) || a.toLowerCase().startsWith("migration")) return "automático";
-  return a;
+  // "automático" dizia que ninguém fez, mas não dizia QUEM fez no lugar da gente.
+  // Nomear a fonte é o que permite o operador entender sem perguntar: pagamento
+  // que caiu da Hotmart, resposta que veio do formulário, regra do próprio board.
+  if (!a) return "pelo sistema";
+  const k = a.toLowerCase();
+  if (k === "hotmart") return "pela Hotmart";
+  if (k === "respondi") return "pelo formulário";
+  if (k === "make" || k === "webhook") return "por uma automação";
+  if (ATORES_SISTEMA.has(k) || k.startsWith("migration")) return "pelo sistema";
+  // Gente também vira frase ("por Kelly") para a linha ler igual nos dois casos.
+  return `por ${a}`;
 }
 // Cor da barra/ponto por tipo de interação — leitura rápida do que é cada linha.
 function corTimeline(tipo: string): string {
@@ -200,13 +239,19 @@ function corTimeline(tipo: string): string {
     default: return "#94a3b8";                 // slate — sistema/outros
   }
 }
+// 12/08, pedido do Marcio: "lembra que são operadores que não conhecem o sistema
+// nem programação — a informação tem que ser tratada para uma linguagem mais
+// humana, não linguagem de máquina". "Ação do sistema" e "Resposta do lead" eram
+// o vocabulário de quem escreveu o banco, não o de quem opera o board.
 function rotuloTipo(tipo: string): string {
   switch (tipo) {
-    case "mudanca_estagio": return "Mudança de etapa";
-    case "nota": return "Anotação";
-    case "resposta": return "Resposta do lead";
-    case "disparo": return "Disparo enviado";
-    case "sistema": return "Ação do sistema";
+    case "mudanca_estagio": return "Mudou de etapa";
+    case "nota": return "Anotação da equipe";
+    case "resposta": return "O aluno respondeu";
+    case "disparo": return "Mensagem enviada";
+    // O sistema faz isso sozinho quando a Hotmart avisa de um pagamento, de um
+    // cancelamento ou quando uma regra do board dispara. Ninguém da equipe fez.
+    case "sistema": return "Feito automaticamente";
     default: return tipo;
   }
 }
@@ -254,6 +299,11 @@ export function HmDrawer({
   const [saldoCheio, setSaldoCheio] = useState<string | null>(null);
   const [outrosPortais, setOutrosPortais] = useState<OutroPortal[]>([]);
   const [links, setLinks] = useState<LinkSaldo[]>([]);
+  // Histórico financeiro (12/08): a razão do card. Fechado por padrão — a ficha
+  // já é longa e a pergunta do dia a dia ("quanto deve, quando pagou a última")
+  // é respondida pelo resumo, que fica sempre visível no cabeçalho do bloco.
+  const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
+  const [verFinanceiro, setVerFinanceiro] = useState(false);
   const [acordo, setAcordo] = useState("");
   const [previsao, setPrevisao] = useState("");
   const [pendencia, setPendencia] = useState("");
@@ -293,6 +343,7 @@ export function HmDrawer({
       setSaldoCheio(d.saldoCheio ?? null);
       setOutrosPortais(d.outrosPortais ?? []);
       setLinks(d.linksSaldo ?? []);
+      setPagamentos(d.pagamentos ?? []);
       setSocios(d.socios ?? []);
       setAgendamentos(d.agendamentos ?? []);
       setVersoes(d.versoes ?? []);
@@ -376,6 +427,14 @@ export function HmDrawer({
             `${c?.nome ?? "Este lead"} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
               "Registre o pagamento do saldo (valor cheio) antes de mover para a Ativação.",
           );
+        } else if (d?.reason === "entrevista_finalizada_travada") {
+          // 12/08: msgErroPermissao (app/_components/use-me.ts) é de outro agente
+          // nesta rodada — mensagem própria aqui, mesmo texto/critério do 403
+          // gêmeo da reunião (reuniao_finalizada_travada).
+          window.alert(
+            "A entrevista já foi finalizada e os dados dela ficam travados — data, remarcação e resultado não mudam mais.\n\n" +
+              "O resto da ficha continua editável. Se algo ficou errado no registro, fale com o administrador do Grupo Participa.",
+          );
         } else {
           // 403 de permissão vem com reason específico — mostra o MOTIVO
           // (ex.: "Você só pode atribuir para alguém da sua equipe.").
@@ -449,8 +508,52 @@ export function HmDrawer({
   // escrita da ficha (campos, etapa, sócios, pagamento) — timeline e histórico
   // continuam abertos, que é o ponto de ver o card do colega.
   const somenteLeitura = travadoCancelado || cardDeColega;
+  // REUNIÃO FINALIZADA TRAVA A REUNIÃO (12/08, pedido do Marcio): "como a
+  // reunião foi finalizada a gente não precisa mais mexer... não quero que o
+  // pessoal da ativação mexa aí. Alguns cards de algumas etapas podem ser
+  // truncados, não podem ser mais alterados — a gente evita que o pessoal mexa
+  // e cause problema."
+  //
+  // Trava SÓ o bloco da reunião, não a ficha: o card segue andando na ativação
+  // (é justamente o que acontece depois da reunião). O que congela é o registro
+  // do que já aconteceu — data, remarcação e resultado.
+  //
+  // O master continua podendo corrigir, mesmo critério do card cancelado: erro
+  // de digitação numa reunião realizada precisa de alguém que possa desfazer.
+  const reuniaoTravada = (reuniaoFinalizada || c?.estagio_chave === "hm_reuniao_finalizada") && !ehMaster();
+  // ENTREVISTA FINALIZADA TRAVA A ENTREVISTA (12/08, mesmo pedido do Marcio, ver
+  // o comentário gêmeo em app/api/hm/contato/[id]/route.ts): a entrevista de
+  // ativação é o espelho da reunião comercial, e vira registro do mesmo jeito.
+  // `entrevista_resultado` é texto livre (sem os valores fixos de RESULTADOS),
+  // então o sinal de "já aconteceu" é a ETAPA — "Entrevista Finalizada"
+  // (chave hm_entrevista_realizada) ou a linha de chegada seguinte, "Ativação
+  // Realizada". O master corrige, mesmo critério da reunião e do cancelado.
+  const entrevistaTravada = (c?.estagio_chave === "hm_entrevista_realizada" || c?.estagio_chave === "hm_ativacao_realizada") && !ehMaster();
   const feitos = c ? ITENS_CHECKLIST.filter((i) => !!c[i.campo]).length : 0;
   const revogados = c ? ITENS_REVOGACAO.filter((i) => !!c[i.campo]).length : 0;
+
+  // EXPLICAÇÃO DO CRÉDITO PRÓ-RATA (13/08, pedido do Marcio: "o comercial vai
+  // explicar o motivo do pró-rata com base nessa observação — me garante que
+  // isso está em dia"). HM (credito_obs) e AURUM (obs/excecao_motivo) são fontes
+  // diferentes do mesmo par (valor, motivo) — mesma regra de pendência da
+  // tabela (faltaExplicarCredito, card-sinais.tsx), para as duas telas nunca
+  // discordarem sobre quem está sem explicação.
+  //
+  // `mostrarCreditoHm` esconde o bloco quando não há narrativa de pró-rata a
+  // explicar: saldo informado À MÃO pelo Victor (vence o cálculo) ou quitado
+  // sem histórico registrado. Antes a caixa (vazia) aparecia SEMPRE — some
+  // nesses dois casos, e é o espaço que a explicação em destaque ganhou.
+  const manualSaldo = fin?.saldo_a_pagar_manual != null;
+  const quitadoSemManual = jaPagou && !manualSaldo;
+  const creditoHmValor = prorata?.credito != null ? num(prorata.credito) : num(fin?.credito);
+  const mostrarCreditoHm = !aurum && !manualSaldo && (!quitadoSemManual || !!creditoObs.trim());
+  const pendenteCreditoHm = mostrarCreditoHm && faltaExplicarCredito(creditoHmValor, creditoObs);
+  // AURUM: a exceção (gratuidade/cancelado/revisar) sempre precisa do motivo —
+  // é ele que justifica "não cobrar"; fora da exceção só é pendência se HÁ
+  // crédito a abater.
+  const aurumMotivo = aurum ? (aurum.excecao ? aurum.excecao_motivo : aurum.obs) : null;
+  const mostrarCreditoAurum = !!aurum && (aurum.excecao || num(aurum.credito) > 0 || !!aurum.obs?.trim());
+  const pendenteCreditoAurum = mostrarCreditoAurum && (aurum?.excecao ? !aurumMotivo?.trim() : faltaExplicarCredito(num(aurum?.credito), aurumMotivo));
 
   async function reverter() {
     await patch({ reverter: true });
@@ -758,24 +861,88 @@ export function HmDrawer({
                 {/* Saldo a pagar manual removido (30/07): o saldo é calculado pelo
                     pró-rata sobre o que a Hotmart registrou — não se digita à mão. */}
 
-                {/* Motivo do crédito pró-rata (cs.contatos_hm.credito_obs, novo
-                    campo): o valor do crédito é calculado à mão (planilha/analista)
-                    — este texto é o PORQUÊ daquele número, o mesmo padrão do `obs`
-                    e `excecao_motivo` que já existem na ficha do Aurum. Editável
-                    por quem pode mexer no card; grava no blur, como os campos
-                    vizinhos deste bloco. */}
-                <label className="mb-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                  Motivo do crédito (pró-rata)
-                  <textarea
-                    value={creditoObs}
-                    disabled={somenteLeitura}
-                    onChange={(e) => setCreditoObs(e.target.value)}
-                    onBlur={() => patch({ credito_obs: creditoObs || null })}
-                    rows={2}
-                    placeholder="Ex.: dias não usados na turma anterior, desconto combinado com o Victor…"
-                    className={fieldClass}
-                  />
-                </label>
+                {/* POR QUE ESTE CRÉDITO — destacada, na mesma altura em que o
+                    comercial acabou de ler o valor acima (13/08). Antes era um
+                    <textarea> com rótulo genérico igual a "Como vai pagar" —
+                    lia como só mais um campo de formulário, não como a resposta
+                    de "por que este número". Âmbar quando falta preencher e HÁ
+                    crédito a explicar (pendência, não erro); índigo quando está
+                    em dia. AURUM é leitura (a planilha do Victor é a fonte, não
+                    esta tela); HM continua editável, grava no blur. */}
+                {mostrarCreditoAurum && (
+                  <div className={cn(
+                    "mb-2 rounded-md border px-2.5 py-2",
+                    pendenteCreditoAurum
+                      ? "border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10"
+                      : "border-indigo-200 bg-indigo-50/70 dark:border-indigo-500/30 dark:bg-indigo-500/10",
+                  )}>
+                    <p className={cn(
+                      "mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide",
+                      pendenteCreditoAurum ? "text-amber-700 dark:text-amber-300" : "text-indigo-600 dark:text-indigo-300",
+                    )}>
+                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-5M12 8h.01" /></svg>
+                      Por que {aurum?.excecao ? "não cobrar" : "este crédito"}
+                    </p>
+                    {pendenteCreditoAurum ? (
+                      <p className="text-[12px] font-medium text-amber-800 dark:text-amber-300">
+                        Sem explicação registrada na planilha do Victor — confira com ele antes de cobrar.
+                      </p>
+                    ) : (
+                      <p className="text-[12px] text-slate-700 dark:text-slate-200">{aurumMotivo}</p>
+                    )}
+                  </div>
+                )}
+                {mostrarCreditoHm && (
+                  <div className={cn(
+                    "mb-2 rounded-md border px-2.5 py-2",
+                    pendenteCreditoHm
+                      ? "border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10"
+                      : "border-indigo-200 bg-indigo-50/70 dark:border-indigo-500/30 dark:bg-indigo-500/10",
+                  )}>
+                    <label className="block">
+                      <span className={cn(
+                        "mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide",
+                        pendenteCreditoHm ? "text-amber-700 dark:text-amber-300" : "text-indigo-600 dark:text-indigo-300",
+                      )}>
+                        <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-5M12 8h.01" /></svg>
+                        Por que este crédito
+                      </span>
+                      {/* A CONTA, escrita pelo sistema (13/08). Medido em produção:
+                          88 pessoas têm crédito pró-rata e ZERO tinham o motivo
+                          preenchido — o campo nasceu ontem (0207) e ninguém escreveu.
+                          Deixar o comercial cobrar sem nada para dizer é o problema
+                          que o Marcio levantou.
+
+                          O sistema explica a ARITMÉTICA (o que é fato: quanto pagou,
+                          quando, quantos dias usou, quanto sobra); o campo de texto
+                          abaixo segue sendo do humano, para a EXCEÇÃO (desconto
+                          combinado, acordo com o Victor). Não escrevemos no
+                          `credito_obs` de ninguém: dado calculado não pode se
+                          disfarçar de anotação de pessoa. */}
+                      {prorata && num(prorata.credito) > 0 && (
+                        <p className="mb-1.5 rounded bg-white/70 px-2 py-1.5 text-[11px] leading-relaxed text-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
+                          <span className="font-semibold">Conta do sistema:</span>{" "}
+                          do acesso anterior{c.turma_origem ? ` (turma ${c.turma_origem})` : ""}, usou{" "}
+                          <strong>{prorata.dias_usados} dias</strong> a {brl(num(prorata.valor_dia))}/dia
+                          {" "}= {brl(num(prorata.consumido))} consumidos. Sobram{" "}
+                          <strong>{prorata.dias_restantes} dias</strong>, que viram o crédito de{" "}
+                          <strong>{brl(num(prorata.credito))}</strong>.
+                        </p>
+                      )}
+                      <textarea
+                        value={creditoObs}
+                        disabled={somenteLeitura}
+                        onChange={(e) => setCreditoObs(e.target.value)}
+                        onBlur={() => patch({ credito_obs: creditoObs || null })}
+                        rows={2}
+                        placeholder={pendenteCreditoHm
+                          ? "Pendente — o comercial vai cobrar sem saber explicar. Ex.: dias não usados na turma anterior…"
+                          : "Ex.: dias não usados na turma anterior, desconto combinado com o Victor…"}
+                        className={fieldClass}
+                      />
+                    </label>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
@@ -853,6 +1020,117 @@ export function HmDrawer({
                           : "Clique para copiar e marcar como enviado."}
                     </p>
                   </div>
+                )}
+              </div>
+
+              {/* HISTÓRICO FINANCEIRO (12/08, pedido do Marcio) — "toda a linha
+                  do tempo do pagamento dele", dentro do card do aluno.
+                  Três decisões:
+                  · O RESUMO fica sempre aberto (último pagamento + quanto falta):
+                    é o "acesso rápido" pedido. A lista completa é que colapsa —
+                    a ficha já é longa e ninguém abre 12 linhas de parcela todo dia.
+                  · Vem da RAZÃO (cs.hm_pagamentos), não dos campos do card: é a
+                    mesma fonte que o board e o XLSX leem. Duas fontes divergiriam.
+                  · Já chega filtrado por produto — o card do HM não mostra a
+                    mensalidade do Aurum (a regra da 0196/0197, agora na tela). */}
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    Histórico financeiro
+                  </p>
+                  {pagamentos.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setVerFinanceiro((v) => !v)}
+                      className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                      aria-expanded={verFinanceiro}
+                      title="Ver todos os pagamentos registrados neste card"
+                    >
+                      {verFinanceiro ? "Ocultar" : `Ver os ${pagamentos.length}`}
+                    </button>
+                  )}
+                </div>
+
+                {pagamentos.length === 0 ? (
+                  // Nenhum pagamento na razão não é o mesmo que "não pagou": pode
+                  // ser card criado à mão, ou compra numa categoria que não entra
+                  // no razão (renovação/reserva). O texto não afirma nem nega.
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                    Nenhum pagamento registrado na razão para este card.
+                  </p>
+                ) : (
+                  <>
+                    {/* ACESSO RÁPIDO: o último pagamento e o que ainda falta. */}
+                    {(() => {
+                      const ultimo = pagamentos[0];
+                      const total = pagamentos.reduce((s, p) => s + num(p.valor), 0);
+                      const falta = fin?.saldo_a_perseguir != null ? num(fin.saldo_a_perseguir) : null;
+                      return (
+                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                          <div className="rounded bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
+                            <p className="text-slate-400 dark:text-slate-500">Último pagamento</p>
+                            <p className="font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+                              {brl(num(ultimo.valor))}
+                            </p>
+                            <p className="text-slate-500 dark:text-slate-400">
+                              {ultimo.pago_em ? fmt(ultimo.pago_em) : "sem data"}
+                              {ultimo.metodo_pagamento ? ` · ${ROTULO_METODO[ultimo.metodo_pagamento] ?? ultimo.metodo_pagamento}` : ""}
+                            </p>
+                          </div>
+                          <div className="rounded bg-slate-50 px-2 py-1.5 dark:bg-slate-800/60">
+                            <p className="text-slate-400 dark:text-slate-500">
+                              {falta != null && falta > 0 ? "Ainda deve" : "Total pago"}
+                            </p>
+                            <p className={cn(
+                              "font-semibold tabular-nums",
+                              falta != null && falta > 0
+                                ? "text-amber-700 dark:text-amber-300"
+                                : "text-emerald-700 dark:text-emerald-300",
+                            )}>
+                              {falta != null && falta > 0 ? brl(falta) : brl(total)}
+                            </p>
+                            <p className="text-slate-500 dark:text-slate-400">
+                              {/* `falta` nulo é "o sistema não sabe" (exceção do
+                                  Aurum, lead sem lastro) — não vira R$ 0,00. */}
+                              {falta == null
+                                ? "saldo não calculado"
+                                : falta > 0
+                                  ? `de ${brl(total + falta)} · ${pagamentos.length} pagamento${pagamentos.length > 1 ? "s" : ""}`
+                                  : `em ${pagamentos.length} pagamento${pagamentos.length > 1 ? "s" : ""}`}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* A LINHA DO TEMPO — do mais recente para o mais antigo. */}
+                    {verFinanceiro && (
+                      <ul className="mt-2 space-y-1.5 border-t border-slate-100 pt-2 dark:border-slate-800">
+                        {pagamentos.map((p, i) => (
+                          <li key={`${p.transacao ?? "x"}-${p.parcela ?? 0}-${i}`} className="flex items-start justify-between gap-2 text-[11px]">
+                            <div className="min-w-0">
+                              <p className="font-medium text-slate-700 dark:text-slate-200">
+                                {ROTULO_CATEGORIA[p.categoria ?? ""] ?? p.categoria ?? "Pagamento"}
+                                {p.parcela && p.parcela > 1 ? <span className="font-normal text-slate-400 dark:text-slate-500"> · parcela {p.parcela}</span> : null}
+                              </p>
+                              <p className="truncate text-slate-500 dark:text-slate-400">
+                                {p.pago_em ? fmt(p.pago_em) : "sem data"}
+                                {p.metodo_pagamento ? ` · ${ROTULO_METODO[p.metodo_pagamento] ?? p.metodo_pagamento}` : ""}
+                                {/* `origem` é de onde o dinheiro foi registrado —
+                                    "hotmart" é automático; qualquer outra coisa
+                                    foi alguém que lançou, e o nome importa. */}
+                                {p.origem && p.origem !== "hotmart" ? ` · lançado por ${p.autor ?? p.origem}` : ""}
+                              </p>
+                              {p.obs && <p className="truncate text-slate-400 dark:text-slate-500" title={p.obs}>{p.obs}</p>}
+                            </div>
+                            <span className="shrink-0 font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+                              {brl(num(p.valor))}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -1028,15 +1306,29 @@ export function HmDrawer({
                 motivo={motivoAgenda}
                 onMotivo={setMotivoAgenda}
                 historico={agendamentos}
-                salvando={salvando || somenteLeitura}
+                salvando={salvando || somenteLeitura || reuniaoTravada}
                 onSalvar={(quando, motivo) => patch({ reuniao_em: quando, agendamento_motivo: motivo })}
                 onFechar={(status) => patch({ agendamento_tipo: "reuniao", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
               >
+                {/* A reunião acabou: o bloco vira registro. Diz POR QUE está
+                    travado — campo desabilitado sem explicação é o que faz o
+                    operador achar que o sistema quebrou e chamar o suporte. */}
+                {reuniaoTravada && (
+                  <p className="mt-1.5 flex items-start gap-1.5 rounded bg-slate-100 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <svg className="mt-0.5 h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                    <span>
+                      <strong>Reunião finalizada — dados travados.</strong> O que
+                      foi combinado aqui não muda mais; o card segue normalmente
+                      na ativação. Precisa corrigir? Fale com o administrador do
+                      Grupo Participa.
+                    </span>
+                  </p>
+                )}
                 <select
                   value={c.reuniao_resultado ?? ""}
                   onChange={(e) => patch({ reuniao_resultado: e.target.value || null })}
                   className={cn(fieldClass, "mt-1.5")}
-                  disabled={salvando || somenteLeitura}
+                  disabled={salvando || somenteLeitura || reuniaoTravada}
                 >
                   <option value="">— Status da reunião —</option>
                   {RESULTADOS.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -1057,13 +1349,25 @@ export function HmDrawer({
                 motivo={motivoAgenda}
                 onMotivo={setMotivoAgenda}
                 historico={agendamentos}
-                salvando={salvando || somenteLeitura}
+                salvando={salvando || somenteLeitura || entrevistaTravada}
                 onSalvar={(quando, motivo) => patch({ entrevista_em: quando, agendamento_motivo: motivo })}
                 onFechar={(status) => patch({ agendamento_tipo: "entrevista", agendamento_status: status, agendamento_motivo: motivoAgenda || null })}
               >
+                {/* Mesmo aviso da reunião finalizada — a entrevista virou registro. */}
+                {entrevistaTravada && (
+                  <p className="mt-1.5 flex items-start gap-1.5 rounded bg-slate-100 px-2 py-1.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <svg className="mt-0.5 h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                    <span>
+                      <strong>Entrevista finalizada — dados travados.</strong> O que
+                      foi registrado aqui não muda mais; o card segue normalmente
+                      na ativação. Precisa corrigir? Fale com o administrador do
+                      Grupo Participa.
+                    </span>
+                  </p>
+                )}
                 <LinkGravacao
                   atual={c.entrevista_gravacao_url}
-                  disabled={salvando || somenteLeitura}
+                  disabled={salvando || somenteLeitura || entrevistaTravada}
                   onSalvar={(v) => patch({ entrevista_gravacao_url: v })}
                 />
               </BlocoAgendamento>
@@ -1469,8 +1773,9 @@ export function HmDrawer({
                       <li key={i} className="relative border-l-2 pl-3" style={{ borderColor: corTimeline(it.tipo) }}>
                         <span className="absolute -left-[5px] top-1 h-2 w-2 rounded-full" style={{ backgroundColor: corTimeline(it.tipo) }} />
                         <p className="text-xs leading-snug text-slate-700 dark:text-slate-200">{it.descricao || rotuloTipo(it.tipo)}</p>
-                        {/* Rodapé: autor + data/hora. Autor 'sistema'/atores automáticos
-                            aparecem como "automático" para não confundir com gente. */}
+                        {/* Rodapé: quem fez + quando, em frase ("por Kelly",
+                            "pela Hotmart", "pelo sistema") — o operador precisa
+                            distinguir o que a equipe fez do que caiu sozinho. */}
                         <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
                           <span className="font-medium text-slate-500 dark:text-slate-400">{autorLegivel(it.autor)}</span>
                           <span className="tabular-nums"> · {fmt(it.criado_em)}</span>

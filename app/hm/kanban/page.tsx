@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, TITLE_CARD_CANCELADO, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -52,10 +52,29 @@ type Card = {
   responsavel_comercial?: string | null;
   responsavel_ativacao_id?: string | null;
   responsavel_ativacao?: string | null;
+  // EXPLICAÇÃO DO CRÉDITO PRÓ-RATA (13/08, pedido do Marcio): o motivo do
+  // crédito (HM: cs.contatos_hm.credito_obs · AURUM: cs.vw_aurum_saldo.obs/
+  // excecao_motivo — a mesma unificação de lib/services/hm-relatorio.ts) vira
+  // sinal no card. Todos OPCIONAIS: a rota deste board (app/api/hm/kanban/
+  // route.ts) ainda não devolve estes campos — falta somar ao SELECT o mesmo
+  // LATERAL que hm-relatorio.ts já tem para o Aurum. Até lá, undefined faz o
+  // sinal ficar CALADO (ver faltaExplicarCredito/pendenteCredito abaixo) —
+  // nunca inventa uma pendência que o card não sabe se existe.
+  credito?: string | number | null;
+  credito_obs?: string | null;
+  aurum_credito?: string | number | null;
+  aurum_excecao?: boolean;
+  aurum_excecao_motivo?: string | null;
+  aurum_obs?: string | null;
   // Atribuição travada pelo admin (0142): operador comum não mexe. inbox_status
   // dá o selo de conversa pendente no card.
   atribuicao_admin: boolean;
   inbox_status: string | null;
+  /** 0217: quando alguém abriu esse card pela PRIMEIRA vez. null = ninguém
+   *  olhou ainda → selo "NOVO" pulsando no canto superior direito.
+   *  Opcional: rota antiga em cache não manda o campo. Nesse caso o card não
+   *  afirma nada — ausência de dado nunca vira "é novo". */
+  visto_em?: string | null;
   tags: string[];
   apto_ativacao: boolean;
   reuniao_em: string | null;
@@ -1535,8 +1554,22 @@ function CardItem({
   /** Alvo do deep-link ?card= (0164): pulsa por alguns segundos para o olho achar. */
   destacado?: boolean;
 }) {
+  // 0187: mesmo drawer/board serve HM/Aurum/ETHB — o crédito vem de fonte
+  // diferente em cada um (ver o comentário no tipo Card, acima).
+  const { produto } = useProdutoHm();
   const cat = catLabel(card.categoria_entrada);
   const parcela = parcelaStatus(card);
+  // EXPLICAÇÃO DO CRÉDITO PRÓ-RATA: some enquanto a rota não manda os campos
+  // (undefined em ambos os lados ⇒ nem valor nem pendência — nunca afirma o que
+  // não pode confirmar). Assim que o backend somar credito_obs/aurum_* ao
+  // SELECT do board, o sinal liga sozinho, sem tocar neste componente de novo.
+  const creditoValor = produto === "AURUM"
+    ? (card.aurum_credito != null ? Number(card.aurum_credito) : null)
+    : (card.credito != null ? Number(card.credito) : null);
+  const creditoObsTexto = produto === "AURUM"
+    ? (card.aurum_excecao ? card.aurum_excecao_motivo : card.aurum_obs) ?? null
+    : card.credito_obs ?? null;
+  const pendenteCredito = faltaExplicarCredito(creditoValor, creditoObsTexto);
   // Verde é "não deve mais nada". Quem está em conferência não entra: ali o zero é
   // aritmética, não quitação — e um verde errado faz o time parar de cobrar.
   const verde = card.quitado && !card.conferir_saldo;
@@ -1551,6 +1584,16 @@ function CardItem({
   // Aluno antigo (0213): sinal PRÓPRIO, separado de recompra — dispara a
   // auto-marcação dos acessos e precisa dizer isso, não só "já foi cliente".
   const alunoAntigo = ehAlunoAntigo(card.tags);
+  // Aluno novo (0216): o outro lado do par. Os dois saíram do "+N" e ficam
+  // sempre à vista — o pedido do Marcio foi "escancarado", e um selo que só
+  // aparece no hover não escancara nada. Antigo VENCE novo se por algum motivo
+  // as duas tags coexistirem: quem já foi da casa tem acesso pré-marcado, e
+  // essa é a informação que muda o que o operador faz.
+  const alunoNovo = !alunoAntigo && ehAlunoNovo(card.tags);
+  // 0217: ninguém abriu esse card ainda. `=== null` de propósito — `undefined`
+  // é rota antiga em cache e não pode virar "é novo" (todo card do board
+  // nasceria pulsando num deploy parcial).
+  const naoVisto = card.visto_em === null;
   // O card tem equipe? A borda esquerda é DELA (modelo de acesso, mais importante
   // que qualquer outro sinal). `equipe_cor` nula NÃO apaga a faixa: cai no cinza
   // padrão — antes o card de uma equipe sem cor parecia do pool sem ser.
@@ -1582,7 +1625,8 @@ function CardItem({
   // sinalizada pela borda superior vermelha mesmo com o selo colapsado.
   const extras: { key: string; rotulo: string; el: React.ReactNode }[] = [];
   if (recompra) extras.push({ key: "recompra", rotulo: `Recompra (${recompra})`, el: <SeloRecompra origem={recompra} /> });
-  if (alunoAntigo) extras.push({ key: "aluno_antigo", rotulo: "Aluno antigo — acessos pré-marcados", el: <SeloAlunoAntigo /> });
+  // Aluno antigo NÃO entra mais aqui (12/08): saiu do "+N" para a primeira
+  // linha, ao lado do "Aluno novo". Ver o par renderizado abaixo.
   if (cat) extras.push({
     key: "cat", rotulo: `Entrada: ${cat.txt}`,
     el: <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", cat.cls)}>{cat.txt}</span>,
@@ -1651,8 +1695,19 @@ function CardItem({
               : "border-slate-200 dark:border-slate-800",
       )}
     >
+      {/* 0217: "ninguém visualizou o card dela ainda". Absoluto no canto
+          superior direito, fora do fluxo dos selos — o card não tem mais espaço
+          na primeira linha, e o pedido era justamente que ele saltasse por cima
+          de tudo. Some sozinho na primeira abertura da ficha. */}
+      {naoVisto && !cancelado && <SeloCardNovo />}
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
+          {/* ALUNO NOVO × ALUNO ANTIGO, escancarado (12/08). Sempre o primeiro
+              par de selos: é o que muda o roteiro do operador (quem é antigo já
+              tem os 3 acessos pré-marcados) e o que muda o dinheiro (o antigo
+              tem crédito pró-rata; o novo, não). */}
+          {alunoNovo && <SeloAlunoNovo />}
+          {alunoAntigo && <SeloAlunoAntigo />}
           {selecionavel && (
             <input
               type="checkbox"
@@ -1729,9 +1784,17 @@ function CardItem({
               vira "R$ 0,00", fica calado. */}
           {saldoNum !== null && saldoNum > 0 && !card.quitado && (
             <span
-              className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-              title={`Ainda falta receber ${saldoNum.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`}
+              className={cn(
+                "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+                // Pendência (13/08): tem crédito pró-rata sem explicação registrada —
+                // o MESMO badge vira o sinal, sem empilhar selo novo (o tooltip é o
+                // "porquê"; o âmbar substitui o cinza neutro quando falta preencher).
+                pendenteCredito ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+              )}
+              title={`Ainda falta receber ${saldoNum.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`
+                + (creditoObsTexto ? ` · Por que o crédito: ${creditoObsTexto}` : pendenteCredito ? " · Crédito pró-rata sem explicação registrada" : "")}
             >
+              {pendenteCredito && <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>}
               deve {saldoNum.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })}
             </span>
           )}

@@ -164,6 +164,11 @@ export function msgErroPermissao(reason?: string | null): string | null {
       return "Não é possível assumir este card para você — ele é de outra equipe (ou a atribuição foi travada pelo administrador). Você pode movê-lo e editá-lo normalmente; só a reatribuição para si é que fica bloqueada. Fale com o administrador do Grupo Participa se precisar mudar o dono.";
     case "cancelamento_so_admin_gp":
       return "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.";
+    case "reuniao_finalizada_travada":
+      // 12/08: a reunião já aconteceu; data, remarcação e resultado viram
+      // registro. O card continua editável no resto — o texto precisa deixar
+      // isso claro, senão o operador acha que a ficha inteira congelou.
+      return "A reunião já foi finalizada e os dados dela ficam travados — data, remarcação e resultado não mudam mais. O resto da ficha continua editável. Se algo ficou errado no registro da reunião, fale com o administrador do Grupo Participa.";
     case "responsavel_comercial_imutavel":
       // Espelho do errcode `restrict_violation` que a trigger
       // cs.fn_hm_congela_comercial (0212) devolve se algo tentar reescrever
@@ -183,9 +188,19 @@ export function msgErroPermissao(reason?: string | null): string | null {
     case "cadastro_manual_so_admin":
       return "Cards nascem da compra na Hotmart. O cadastro manual é restrito ao administrador do Grupo Participa.";
     case "sem_permissao_ativacao":
-      // "Assumir a ativação" (12/08): só quem tem a função HM:ativacao ou é
-      // master/gestor. Espelha a checagem de app/api/hm/contato/[id]/route.ts.
-      return "Só quem tem a função de Ativação (ou é gestor/administrador) pode assumir a ativação deste aluno.";
+      // Dois gates devolvem este mesmo reason, e a mensagem precisa servir aos dois:
+      //   · "Assumir a ativação" (12/08) — só quem tem a função HM:ativacao;
+      //   · escopo de CAMPO (13/08) — quem só tem a função de Comercial não
+      //     escreve em campo da ativação (checklist de acesso, entrevista).
+      // O texto diz a REGRA, não o caminho: o operador não sabe qual gate barrou,
+      // e "você não tem permissão" seco é o que faz ele abrir chamado.
+      return "Esta parte do card é da Ativação — só quem tem essa função (ou é gestor/administrador) mexe aqui. O trabalho do Comercial no mesmo card continua liberado para você.";
+    case "sem_permissao_comercial":
+      // O espelho do de cima (13/08). Existe para quando alguém tiver SÓ a função
+      // de Ativação — hoje ninguém tem (Ana Camila e Thomas têm as duas), então a
+      // mensagem é preventiva: no dia em que a operação separar de verdade, ela
+      // já está aqui, em vez de o operador levar um erro genérico.
+      return "Esta parte do card é do Comercial — quem vendeu, a reunião e a etapa comercial. Só quem tem essa função (ou é gestor/administrador) altera. O seu trabalho na Ativação segue liberado.";
     case "fora_da_ativacao":
       return "Este card ainda não chegou na Ativação — só é possível assumir a ativação quando o aluno está nessa aba.";
     case "card_de_outro_operador":

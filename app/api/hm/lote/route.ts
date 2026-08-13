@@ -4,7 +4,7 @@ import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { query } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { parseBody, HmLoteSchema } from "@/lib/validators";
-import { addTagHm, moverEstagioHm, removeTagHm, atribuirResponsavelHm, podeAgirCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
+import { addTagHm, moverEstagioHm, removeTagHm, atribuirResponsavelHm, podeAgirCardHm, cancelamentoBloqueado, veredictoCamposHm, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
 import { ehMaster } from "@/lib/papeis";
 
 export const runtime = "nodejs";
@@ -43,6 +43,20 @@ export async function POST(req: Request) {
   // Trava dos cancelados: destino Reclamada/Reembolsado ou card já lá = só MASTER.
   const souMaster = ehMaster(sessao);
   const destinoCancel = !!b.estagio_chave && HM_ESTAGIOS_CANCELAMENTO.includes(b.estagio_chave);
+
+  // SEPARAÇÃO DURA COMERCIAL × ATIVAÇÃO (13/08 — mesma regra do PATCH da
+  // ficha, lib/papeis.ts). Uma checagem só, ANTES do loop: a classificação
+  // (quais campos o BODY toca, e a aba do `estagio_chave` de destino) não
+  // muda card a card — é sobre o ATOR e o body, não sobre cada comprador. Se
+  // o lote pede campo fora do escopo da sessão, recusa o lote inteiro (400
+  // silencioso card a card seria pior aqui: um `ativ_searchie=true` aplicado
+  // em 40 de 50 cards por alguém sem função de ativação não é "falha
+  // nominal", é o mesmo furo em escala).
+  const camposLote = Object.keys(b).filter((k) => k !== "compradorIds" && (b as Record<string, unknown>)[k] !== undefined);
+  const veredictoCampo = await veredictoCamposHm(sessao, camposLote, b.estagio_chave ?? null);
+  if (veredictoCampo !== "ok") {
+    return NextResponse.json({ ok: false, reason: veredictoCampo }, { status: 403 });
+  }
 
   // Nome de cada um antes de começar: a falha é reportada pela pessoa
   // ("Fulano — falta a pesquisa"), não por um uuid que ninguém reconhece.

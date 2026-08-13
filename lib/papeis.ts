@@ -157,6 +157,83 @@ export function ehEquipeDeAtivacao(u: Ator | null | undefined): boolean {
   return temFuncao(u, "HM", "ativacao") || !!u?.equipe_ativacao;
 }
 
+// ===== Separação dura COMERCIAL × ATIVAÇÃO no card do HM (12/08 23h) =======
+// Pedido literal do Marcio, depois de "3 problemas absurdos" no mesmo dia:
+// "se uma pessoa for associada a alguém no comercial, o pessoal da ativação
+// NÃO pode mudar o pessoal do comercial, e vice-versa [...] vai ter um cara
+// responsável pelo comercial e um cara responsável pela ativação. A gente vai
+// medir a KPI deles com base nisso."
+//
+// Até aqui só `responsavel_comercial_id` era intocável (imutável por
+// trigger, `fn_hm_congela_comercial`, 0212) — o dono VIGENTE
+// (`responsavel_id`), a etapa da aba comercial e os campos da reunião
+// seguiam abertos para QUALQUER sessão com autoridade de ESCREVER no card por
+// qualquer caminho (dono, equipe, ação livre do GP — `acaoLivrePorEquipeEvento`
+// — ou a esteira compartilhada, `esteiraCompartilhada`), sem olhar se o CAMPO
+// era da aba dela. Espelho para o outro lado: `responsavel_ativacao_id` e o
+// checklist/entrevista da ativação.
+//
+// Este gate é um SEGUNDO pedágio, ortogonal ao de `podeAgirCardHm`/
+// `escopoAcao` (lib/services/hm.ts): aquele pergunta "posso escrever NESTE
+// card"; este pergunta "posso escrever NESTE campo do card", e roda DEPOIS —
+// mesmo um "ok" no primeiro pode cair aqui.
+export type EscopoCampoHm = "comercial" | "ativacao";
+
+// Campos do PATCH/lote da ficha que são exclusivos de uma aba — só os que o
+// pedido nomeou como o buraco. O resto da ficha (observações, tags, acordo do
+// saldo, crédito pró-rata, travas operacionais etc.) continua compartilhado:
+// não fazia parte do pedido, e travar mais do que ele alcança é escopo que
+// ninguém aprovou.
+export const CAMPOS_HM_COMERCIAL: readonly string[] = [
+  "responsavel_id", "responsavel",
+  "reuniao_em", "reuniao_resultado", "reuniao_gravacao_url",
+];
+export const CAMPOS_HM_ATIVACAO: readonly string[] = [
+  "responsavel_ativacao_id",
+  "entrevista_em", "entrevista_resultado", "entrevista_gravacao_url",
+  "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa",
+  "grupo_informes", "pendencia",
+  "rev_searchie", "rev_comunidade", "rev_grupo", "rev_pesquisa",
+];
+
+// "Esta SESSÃO pode escrever em campos deste escopo?" — a regra central:
+//   · master → sempre (acima de tudo, item (e) do pedido).
+//   · as DUAS funções no mesmo portal (Ana Camila/Thomas hoje) → sempre, nos
+//     dois escopos — "não regride quem já trabalha" (item (d) do pedido).
+//   · SÓ uma das duas → só no escopo que tem.
+//   · NENHUMA das duas (Kelly — gerente do comercial sem nenhuma linha em
+//     cs.usuario_funcoes —, gestor comum, operador comum do GP sem função no
+//     HM) → esta regra NÃO se aplica; o card-level (escopoAcao/
+//     podeAgirCardHm/ação livre do GP/esteira) decide como já decidia. O
+//     pedido define o corte para quem JÁ tem uma função HM — travar quem
+//     nunca teve `cs.usuario_funcoes` regrediria a Kelly e qualquer operador
+//     comum do GP que hoje edita a ficha pela ação livre da equipe principal.
+export function podeEscreverEscopoHm(sessao: Ator | null | undefined, escopo: EscopoCampoHm): boolean {
+  if (ehMaster(sessao)) return true;
+  const comercial = temFuncao(sessao, "HM", "comercial");
+  const ativacao = temFuncao(sessao, "HM", "ativacao");
+  if (comercial === ativacao) return true; // as duas OU nenhuma: sem corte aqui
+  return escopo === "comercial" ? comercial : ativacao;
+}
+
+export type VeredictoCampoHm = "ok" | "sem_permissao_comercial" | "sem_permissao_ativacao";
+
+// A resposta pronta para a rota: quais campos do BODY tocam cada aba + (opcional)
+// a aba de DESTINO de um `estagio_chave` pedido (resolver a aba do estágio pede
+// banco — quem chama, em lib/services/hm.ts, resolve e passa aqui). Pura e
+// testável sem servidor (scripts/test-papeis.ts).
+export function veredictoEscopoCamposHm(
+  sessao: Ator | null | undefined,
+  camposPresentes: readonly string[],
+  abaDestino?: string | null,
+): VeredictoCampoHm {
+  const tocaComercial = camposPresentes.some((c) => CAMPOS_HM_COMERCIAL.includes(c)) || abaDestino === "comercial";
+  const tocaAtivacao = camposPresentes.some((c) => CAMPOS_HM_ATIVACAO.includes(c)) || abaDestino === "ativacao";
+  if (tocaComercial && !podeEscreverEscopoHm(sessao, "comercial")) return "sem_permissao_comercial";
+  if (tocaAtivacao && !podeEscreverEscopoHm(sessao, "ativacao")) return "sem_permissao_ativacao";
+  return "ok";
+}
+
 // ===== Equipes / níveis de acesso ==========================================
 // A equipe é ortogonal ao papel: o papel diz o que a pessoa FAZ, a equipe diz
 // de quem são os cards que ela VÊ. 'principal' = Grupo Participa, a

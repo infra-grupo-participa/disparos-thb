@@ -180,7 +180,7 @@ export function HmNotificacoes() {
         onClick={alternar}
         aria-haspopup="true"
         aria-expanded={aberto}
-        aria-label={temNaoLida ? `Notificações de automação — ${naoLidas} não lida(s)` : "Notificações de automação"}
+        aria-label={temNaoLida ? `O que mudou sozinho — ${naoLidas} novidade(s) que você ainda não viu` : "O que mudou sozinho"}
         className={cn(
           "alvo-toque relative flex h-9 w-9 items-center justify-center rounded-full border shadow-card transition",
           temNaoLida
@@ -209,27 +209,27 @@ export function HmNotificacoes() {
         {/* aria-live: o contador é anunciado sem depender da animação — cobre
             quem desativou movimento e quem usa leitor de tela. */}
         <span aria-live="polite" role="status" className="sr-only">
-          {temNaoLida ? `${naoLidas} ação${naoLidas > 1 ? "ões" : ""} de automação não lida${naoLidas > 1 ? "s" : ""}` : ""}
+          {temNaoLida ? `${naoLidas} novidade${naoLidas > 1 ? "s" : ""} que você ainda não viu` : ""}
         </span>
       </button>
 
       {aberto && (
         <div className="absolute right-0 top-full mt-2 w-80 max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-pop dark:border-slate-700 dark:bg-slate-900">
           <div className="border-b border-slate-100 px-3 py-2.5 dark:border-slate-800">
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Ações da automação</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">O que mudou sozinho</p>
             <p className="text-xs text-slate-400 dark:text-slate-500">
-              O que o sistema (Make, Hotmart, resposta do lead…) fez sozinho — os cards não sumiram, foi a automação que mexeu.
+              Coisas que aconteceram sem ninguém da equipe mexer: pagamento que caiu na Hotmart, resposta que chegou, card que andou por uma regra do sistema. Se um card sumiu do lugar, foi aqui.
             </p>
           </div>
           <div className="max-h-80 overflow-y-auto">
             {itens.length === 0 ? (
-              <p className="px-3 py-6 text-center text-xs text-slate-400 dark:text-slate-500">Nenhuma ação de automação por aqui ainda.</p>
+              <p className="px-3 py-6 text-center text-xs text-slate-400 dark:text-slate-500">Nada mudou sozinho por aqui ainda.</p>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {itens.map((it) => {
                   const linha = (
                     <>
-                      <p className="text-sm text-slate-700 dark:text-slate-200">{it.descricao ?? "Ação da automação"}</p>
+                      <p className="text-sm text-slate-700 dark:text-slate-200">{it.descricao ?? "O sistema fez uma alteração neste card"}</p>
                       <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
                         {it.card_nome ? `${it.card_nome} · ` : ""}{fmtRelativo(it.criado_em)}
                       </p>

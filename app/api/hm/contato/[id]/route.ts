@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
 import { guardProdutoOpcional, produtoDaRequisicao } from "@/lib/produto-hm";
-import { ehMaster, nivelDe, temFuncao } from "@/lib/papeis";
+import { ehMaster, nivelDe, temFuncao, podeEscreverEscopoHm, CAMPOS_HM_COMERCIAL, CAMPOS_HM_ATIVACAO } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, podeAgirCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
+import { moverEstagioHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, podeAgirCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, veredictoCamposHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -40,6 +40,26 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const ficha = await fichaHm(params.id, produtoFicha);
   if (!ficha) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
+  // 0217: abrir a ficha É a visualização. Marca a PRIMEIRA (o `is null` no WHERE
+  // torna a escrita idempotente: quem abrir depois não sobrescreve quem chegou
+  // primeiro, e o UPDATE nem acontece nas outras 297 aberturas do dia).
+  //
+  // Depois do gate de visibilidade e do gate de cancelado, de propósito: quem
+  // levou 403 não olhou o card, e marcar como visto ali apagaria o selo sem
+  // ninguém ter visto nada.
+  //
+  // Falha aqui não pode derrubar a ficha — o selo é sinalização, o conteúdo é o
+  // trabalho. Se o UPDATE cair, o card só continua marcado como novo.
+  const cardId = (ficha.contato as { contato_hm_id?: string } | null)?.contato_hm_id;
+  if (cardId) {
+    await query(
+      `update cs.contatos_hm
+          set visto_em = now(), visto_por = $2
+        where id = $1 and visto_em is null`,
+      [cardId, sessao.nome || "operador"],
+    ).catch(() => undefined);
+  }
+
   return NextResponse.json({ ok: true, ...ficha });
 }
 
@@ -69,14 +89,27 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
 
-  const atual = await queryOne<{ id: string; estagio_chave: string | null; estagio_aba: string | null; reuniao_em: string | null; responsavel_id: string | null; atribuicao_admin: boolean; responsavel_ativacao_id: string | null }>(
+  const atual = await queryOne<{ id: string; estagio_chave: string | null; estagio_aba: string | null; reuniao_em: string | null; reuniao_resultado: string | null; responsavel_id: string | null; atribuicao_admin: boolean; responsavel_ativacao_id: string | null; entrevista_realizada: boolean }>(
     // 0187: `and ch.produto = $2` — sem isso, `atual.id` (usado no UPDATE lá
     // embaixo) podia ser o card de OUTRO board. É aqui que a escrita é ancorada.
     // `estagio_aba` (assumir ativação, 12/08): só se decide se o card está na
     // aba ativação DEPOIS de ler o estágio atual — não dá para saber pelo body.
     // `responsavel_ativacao_id` atual: para a nota da timeline dizer "assumiu de
     // Fulano" e o resumoEdicao não confundir "vazio" com "trocou de dono".
-    `select ch.id, est.chave as estagio_chave, est.aba as estagio_aba, ch.reuniao_em, ch.responsavel_id, ch.atribuicao_admin, ch.responsavel_ativacao_id
+    // `entrevista_realizada` (13/08, item 2a — achado da validação final): a
+    // trava da entrevista ancorava só na ETAPA (`hm_entrevista_realizada` /
+    // `hm_ativacao_realizada`) — quem não é master movia o card PARA FORA
+    // dessa etapa (2 cliques), editava a entrevista e devolvia; a trava nunca
+    // via. A da reunião não tem esse furo porque ancora no VALOR de
+    // `reuniao_resultado` (Realizada/Realizada-pago), que a etapa não apaga.
+    // Aqui o equivalente é o FATO em `cs.hm_agendamentos` — sobrevive a
+    // qualquer arrasto de etapa, porque nenhum caminho do PATCH escreve nessa
+    // tabela além de `fecharAgendamentoHm`.
+    `select ch.id, est.chave as estagio_chave, est.aba as estagio_aba, ch.reuniao_em, ch.reuniao_resultado, ch.responsavel_id, ch.atribuicao_admin, ch.responsavel_ativacao_id,
+            exists (
+              select 1 from cs.hm_agendamentos ag
+               where ag.contato_hm_id = ch.id and ag.tipo = 'entrevista' and ag.status = 'realizado'
+            ) as entrevista_realizada
        from cs.contatos_hm ch left join cs.estagios est on est.id = ch.estagio_id
       where ch.comprador_id = $1 and ch.produto = $2`,
     [compradorId, produtoCard],
@@ -101,6 +134,56 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // quem não é MASTER (admin do GP) — e mandar um card PARA essas colunas também
   // é só do master. As demais equipes veem, mas não alteram nem confirmam/desfazem.
   const souMaster = ehMaster(sessao);
+
+  // REUNIÃO FINALIZADA É REGISTRO, NÃO CAMPO (12/08, pedido do Marcio): "como a
+  // reunião foi finalizada a gente não precisa mais mexer — não quero que o
+  // pessoal da ativação mexa aí". Depois da reunião o card VIVE na ativação, e
+  // ali qualquer um do fluxo abriria a ficha e reescreveria data ou resultado
+  // de um evento que já aconteceu.
+  //
+  // Trava só os três campos da reunião — o resto da ficha continua editável, que
+  // é o trabalho da ativação. O master corrige (mesmo critério do cancelado).
+  //
+  // Aqui, no SERVIDOR: o `disabled` da tela é conforto, não regra. Quem chamar a
+  // rota direto (ou com a aba aberta de antes da trava) leva 403 igual.
+  //
+  // ⚠️ Calculado FORA do `if (!souMaster)` (0219, achado do pentester): o gate
+  // de nome de campo abaixo não é o único jeito de escrever nestas colunas —
+  // `desfazer_edicao`/`restaurar_versao` (mais abaixo) também escrevem, e
+  // precisam da MESMA resposta a "a reunião/entrevista já terminou?" para
+  // saber quais colunas excluir do restore. Ver o bloco de versão/desfazer.
+  const reuniaoFinalizada = atual.reuniao_resultado === "Realizada"
+    || atual.reuniao_resultado === "Realizada/pago"
+    || atual.estagio_chave === "hm_reuniao_finalizada";
+  // ENTREVISTA FINALIZADA É REGISTRO, NÃO CAMPO (12/08, mesmo pedido do Marcio
+  // que travou a reunião — "algumas etapas podem ser truncadas... evita que o
+  // pessoal mexa e cause problema"). A entrevista de ativação é o espelho
+  // exato da reunião comercial (mesmo formato: data, resultado, gravação) e
+  // tem a mesma etapa de chegada dedicada — `hm_entrevista_realizada`, cujo
+  // nome na tela é "Entrevista Finalizada" (renomeada na 0042). Diferente da
+  // reunião, `entrevista_resultado` é texto livre (sem os valores fixos de
+  // RESULTADOS) — por isso o sinal de "já aconteceu" é só a ETAPA: o card
+  // está em "Entrevista Finalizada" ou já passou dela, para "Ativação
+  // Realizada" (a linha de chegada seguinte na mesma aba).
+  //
+  // Trava só os três campos da entrevista — o resto da ficha (checklist,
+  // acordo do saldo, etc.) segue editável, que é o trabalho da ativação
+  // continuando depois da entrevista. O master corrige, mesmo critério da
+  // reunião e do cancelado.
+  //
+  // ⚠️ 13/08 (item 2a): NÃO ancora mais na etapa. Ancorada só em
+  // `estagio_chave`, a trava tinha um furo de 2 passos: mover o card para
+  // FORA de `hm_entrevista_realizada`/`hm_ativacao_realizada` (arrasto livre,
+  // sem passar pela trava — ela só olha campos NOMEADOS de
+  // entrevista/reunião, não o próprio `estagio_chave`), editar
+  // `entrevista_resultado`/`entrevista_gravacao_url` com o card já fora
+  // dessas etapas (a checagem abaixo lia `entrevistaFinalizada = false`) e
+  // devolver o card. A da reunião nunca teve esse furo porque ancora no VALOR
+  // de `reuniao_resultado` — a etapa some, o valor não. Aqui o equivalente é
+  // o FATO em `cs.hm_agendamentos` (`entrevista_realizada`, resolvido na
+  // query de `atual` acima): sobrevive a qualquer arrasto de etapa.
+  const entrevistaFinalizada = atual.entrevista_realizada;
+
   if (!souMaster) {
     const jaCancelado = atual.estagio_chave !== null && HM_ESTAGIOS_CANCELAMENTO.includes(atual.estagio_chave);
     const vaiCancelar = !!b.confirmar_cancelamento || !!b.desfazer_cancelamento
@@ -108,6 +191,40 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (jaCancelado || vaiCancelar) {
       return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
     }
+
+    const mexeNaReuniao = b.reuniao_em !== undefined
+      || b.reuniao_resultado !== undefined
+      || b.reuniao_gravacao_url !== undefined
+      || (b.agendamento_status !== undefined && b.agendamento_tipo === "reuniao");
+    if (reuniaoFinalizada && mexeNaReuniao) {
+      return NextResponse.json({ ok: false, reason: "reuniao_finalizada_travada" }, { status: 403 });
+    }
+
+    const mexeNaEntrevista = b.entrevista_em !== undefined
+      || b.entrevista_resultado !== undefined
+      || b.entrevista_gravacao_url !== undefined
+      || (b.agendamento_status !== undefined && b.agendamento_tipo === "entrevista");
+    if (entrevistaFinalizada && mexeNaEntrevista) {
+      return NextResponse.json({ ok: false, reason: "entrevista_finalizada_travada" }, { status: 403 });
+    }
+  }
+
+  // SEPARAÇÃO DURA COMERCIAL × ATIVAÇÃO (13/08, pedido literal do Marcio —
+  // lib/papeis.ts tem a regra completa e o porquê). Gate de CAMPO, roda DEPOIS
+  // do gate de CARD (podeAgirCardHm, lá em cima): mesmo card autorizado — por
+  // dono, equipe, ação livre da equipe principal do GP ou esteira
+  // compartilhada — um `responsavel_id`/campo de reunião no body de quem só
+  // tem HM:ativacao, ou um `responsavel_ativacao_id`/checklist/entrevista de
+  // quem só tem HM:comercial, cai aqui. `camposPresentes`: as CHAVES do body
+  // cuja escrita foi pedida — inclui `reuniao_em`/`entrevista_em` também
+  // quando chegam por `agendamento_tipo` (fecharAgendamentoHm), que não tem
+  // nome de campo próprio no body.
+  const camposPresentes = Object.keys(b).filter((k) => (b as Record<string, unknown>)[k] !== undefined);
+  if (b.agendamento_tipo === "reuniao") camposPresentes.push("reuniao_em");
+  if (b.agendamento_tipo === "entrevista") camposPresentes.push("entrevista_em");
+  const veredictoCampo = await veredictoCamposHm(sessao, camposPresentes, b.estagio_chave ?? null);
+  if (veredictoCampo !== "ok") {
+    return NextResponse.json({ ok: false, reason: veredictoCampo }, { status: 403 });
   }
 
   // Desfazer o último movimento (miss click) — ação isolada, ignora os demais campos.
@@ -118,10 +235,46 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   // Histórico de versões (0097). Desfazer = recuperar a versão mais recente;
   // restaurar_versao recupera uma específica. Ambos por cs.fn_hm_versao_restaurar.
+  //
+  // ⚠️ 0219 (achado do pentester): "desfazer edição"/"restaurar versão" escreve
+  // nas MESMAS colunas que a trava da reunião/entrevista finalizada protege
+  // (reuniao_resultado, reuniao_gravacao_url, entrevista_resultado,
+  // entrevista_gravacao_url) — SEM passar pelo gate por nome de campo lá em
+  // cima, porque o body não menciona esses nomes. `colunasTravadas` é a MESMA
+  // resposta (reuniaoFinalizada/entrevistaFinalizada, calculados fora do
+  // `if (!souMaster)` acima) — o 4º argumento da função faz o snapshot
+  // ignorar essas colunas quando quem pediu não é master. Master continua
+  // restaurando tudo (mesmo critério do cancelado e da trava original).
+  //
+  // ⚠️ 13/08: MESMO bypass, para a separação comercial×ativação — sem isso,
+  // "desfazer edição" reescrevia `responsavel_id`/`responsavel` (comercial) ou
+  // `ativ_*`/`grupo_informes`/`pendencia`/`rev_*` (ativação) de quem não tem a
+  // função daquele escopo, sem passar pelo gate de NOME de campo acima (o
+  // body de `desfazer_edicao` não menciona esses nomes — é o MESMO desenho de
+  // furo que o 0219 fechou para reunião/entrevista). Reaproveita o mesmo
+  // parâmetro da função — `fn_hm_versao_restaurar` já ignora qualquer coluna
+  // que não estiver no snapshot, então listar CAMPOS_HM_COMERCIAL/
+  // CAMPOS_HM_ATIVACAO inteiros é seguro mesmo quando a versão não tocou
+  // metade deles.
   if (b.desfazer_edicao || b.restaurar_versao !== undefined) {
+    // `Set` deduplica: reuniao_resultado/reuniao_gravacao_url (e os gêmeos da
+    // entrevista) podem entrar por DUAS regras ao mesmo tempo (etapa
+    // finalizada + escopo sem função) — sem dedup a mensagem da timeline
+    // listaria a mesma coluna repetida.
+    const colunasTravadas = souMaster
+      ? []
+      : Array.from(new Set([
+          ...(reuniaoFinalizada ? ["reuniao_resultado", "reuniao_gravacao_url"] : []),
+          ...(entrevistaFinalizada ? ["entrevista_resultado", "entrevista_gravacao_url"] : []),
+          ...(!podeEscreverEscopoHm(sessao, "comercial") ? CAMPOS_HM_COMERCIAL : []),
+          ...(!podeEscreverEscopoHm(sessao, "ativacao") ? CAMPOS_HM_ATIVACAO : []),
+        ]));
     const r = await queryOne<{ res: { ok: boolean; reason?: string } }>(
-      `select cs.fn_hm_versao_restaurar($1, $2, $3) as res`,
-      [compradorId, b.restaurar_versao ?? null, operador],
+      // 0220: `produtoCard` no 5o argumento — sem ele a funcao resolvia o card
+      // por comprador_id sem produto e, para quem tem card no HM E no AURUM,
+      // restaurava por cima do board errado (achado no ensaio da 0219).
+      `select cs.fn_hm_versao_restaurar($1, $2, $3, $4, $5) as res`,
+      [compradorId, b.restaurar_versao ?? null, operador, colunasTravadas.length ? colunasTravadas : null, produtoCard],
     );
     const res = r?.res ?? { ok: false, reason: "nada_a_recuperar" };
     return NextResponse.json({ ok: res.ok === true, reason: res.ok ? undefined : (res.reason ?? "nada_a_recuperar") });
@@ -209,7 +362,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // campos. Só quando há edição de campo — mudança de etapa e agendamento têm
   // desfazer próprio e não entram aqui.
   if (sets.length || b.responsavel !== undefined || b.responsavel_id !== undefined || b.responsavel_ativacao_id !== undefined) {
-    await query(`select cs.fn_hm_undo_registrar($1, $2, $3)`, [compradorId, resumoEdicao(b), operador]);
+    // 0220: o retrato e do CARD deste board, nunca de um card qualquer da pessoa.
+    await query(`select cs.fn_hm_undo_registrar($1, $2, $3, $4)`, [compradorId, resumoEdicao(b), operador, produtoCard]);
   }
 
   if (sets.length) {
@@ -295,14 +449,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // vezes o aluno já remarcou — quem remarca três vezes não é "um agendamento",
   // é um sinal. `agendamento_motivo` explica por que a anterior caiu.
   if (b.reuniao_em !== undefined) {
-    await agendarHm(compradorId, "reuniao", b.reuniao_em || null, b.agendamento_motivo ?? null, operador);
+    // 13/08 (item 2b): `produtoCard` no 6º argumento — sem ele, agendarHm
+    // resolvia o card por comprador_id sem produto e, para as 15 pessoas com
+    // card no HM e no AURUM, marcava a reunião pelo board errado.
+    await agendarHm(compradorId, "reuniao", b.reuniao_em || null, b.agendamento_motivo ?? null, operador, produtoCard);
     // Agendou estando em "Contato Inicial" → avança para "Reunião Agendada".
     if (b.reuniao_em && atual.estagio_chave === "hm_comprou") {
       await moverEstagioHm(compradorId, "hm_reuniao_agendada", operador, undefined, produtoCard);
     }
   }
   if (b.entrevista_em !== undefined) {
-    await agendarHm(compradorId, "entrevista", b.entrevista_em || null, b.agendamento_motivo ?? null, operador);
+    await agendarHm(compradorId, "entrevista", b.entrevista_em || null, b.agendamento_motivo ?? null, operador, produtoCard);
     if (b.entrevista_em && atual.estagio_chave && ["hm_pendente_liberacao", "hm_apto_ativacao", "hm_acesso_liberado", "hm_pagamento_realizado", "hm_comprou", "hm_reuniao_agendada", "hm_reuniao_finalizada", "hm_ativacao_contato"].includes(atual.estagio_chave)) {
       await moverEstagioHm(compradorId, HM_STAGE_ENTREVISTA, operador, undefined, produtoCard);
     }
@@ -310,7 +467,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   // Fechar a marcação vigente: aconteceu, o aluno não veio, ou foi cancelada.
   if (b.agendamento_status && b.agendamento_tipo) {
-    await fecharAgendamentoHm(compradorId, b.agendamento_tipo, b.agendamento_status, b.agendamento_motivo ?? null, operador);
+    // 13/08 (item 2b): mesmo motivo — `produtoCard` também aqui.
+    await fecharAgendamentoHm(compradorId, b.agendamento_tipo, b.agendamento_status, b.agendamento_motivo ?? null, operador, produtoCard);
   }
 
   // (Pagamento do saldo manual removido em 30/07: pagamento vira aluno ativo SÓ
@@ -325,13 +483,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (atual.estagio_chave !== HM_STAGE_REEMBOLSADO) {
       await moverEstagioHm(compradorId, HM_STAGE_REEMBOLSADO, operador, undefined, produtoCard);
     }
-    const r = await confirmarCancelamentoHm(compradorId, b.cancelamento_motivo ?? null, operador);
+    // 13/08 (item 2c): `produtoCard` — sem ele, confirmar o cancelamento de UM
+    // board podia cancelar o OUTRO (desempate de fn_hm_cancelar prefere HM).
+    const r = await confirmarCancelamentoHm(compradorId, b.cancelamento_motivo ?? null, operador, produtoCard);
     if (!r.ok) return NextResponse.json({ ok: false, reason: "falha_ao_cancelar" }, { status: 500 });
   }
 
   // Enganou-se, ou a Hotmart negou o reembolso depois de lançado: o aluno volta.
   if (b.desfazer_cancelamento) {
-    const ok = await desfazerCancelamentoHm(compradorId, operador);
+    const ok = await desfazerCancelamentoHm(compradorId, operador, produtoCard);
     if (!ok) return NextResponse.json({ ok: false, reason: "falha_ao_desfazer" }, { status: 500 });
   }
 

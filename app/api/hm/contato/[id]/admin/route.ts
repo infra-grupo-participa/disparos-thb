@@ -58,7 +58,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const tocaCard = b.valor_total !== undefined || b.valor_pago !== undefined
     || b.pagamento_em !== undefined || b.cancelamento_em !== undefined || b.turma_origem !== undefined;
   if (tocaCard) {
-    await query(`select cs.fn_hm_undo_registrar($1, $2, $3)`, [compradorId, "edição administrativa", sessao.nome || "admin"]);
+    // 0220: mesmo motivo da rota irmã — o retrato é do card deste board.
+    await query(`select cs.fn_hm_undo_registrar($1, $2, $3, $4)`, [compradorId, "edição administrativa", sessao.nome || "admin", produtoCard]);
   }
 
   // Identidade + financeiro — na fonte, via definer.
