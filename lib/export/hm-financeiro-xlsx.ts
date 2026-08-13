@@ -81,7 +81,11 @@ const STATUS_PARCELA: Record<string, string> = {
   aguardando: "Sem previsão combinada",
 };
 const PUBLICO: Record<string, string> = {
-  lead_novo: "Lead novo",
+  // 13/08: a CHAVE segue `lead_novo` (é o valor que cs.vw_hm_financeiro calcula,
+  // e renomear coluna de view por causa de rótulo é trocar o pneu andando). O
+  // RÓTULO acompanha a tela: quem está neste board já comprou. A planilha e o
+  // board não podem chamar a mesma pessoa de coisas diferentes.
+  lead_novo: "Aluno novo",
   aluno_base: "Aluno da base",
   nao_classificado: "Não classificado",
 };
