@@ -172,7 +172,7 @@ export default function AdminPage() {
             <div className="min-w-0 flex-1">
               <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Saúde do dinheiro</h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Pagamento que entrou sem achar card, oferta fora do catálogo, cancelamento sem board — mais os cancelamentos vindos da Hotmart.
+                Pagou e não apareceu, oferta que o sistema não conhece, cancelamento sem produto definido — mais os cancelamentos vindos da Hotmart.
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -233,7 +233,7 @@ export default function AdminPage() {
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Canal de aquisição → pessoa</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Quem <strong>cuida</strong> de cada canal. A pessoa passa a <strong>ver e trabalhar</strong> os cards com aquela tag (além do pool e dos cards dela), em qualquer equipe.
+              Quem <strong>cuida</strong> de cada canal. A pessoa passa a <strong>ver e trabalhar</strong> as fichas com aquela tag (além das que estão sem dono e das dela), em qualquer equipe.
             </p>
           </div>
         </div>

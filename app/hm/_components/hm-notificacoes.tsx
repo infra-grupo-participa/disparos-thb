@@ -144,9 +144,9 @@ const CLASSIFICACAO: Record<TipoNotificacao, ClassificacaoTipo> = {
   boleto: { titulo: "Boleto gerado — ainda não pago", tom: "atencao", acao: "Acompanhar se o pagamento cai.", Icon: IconBoleto },
   cancelamento: { titulo: "Cancelamento / reembolso", tom: "bloqueio", acao: "Conferir se precisa de contato de retenção.", Icon: IconCancelado },
   formulario: { titulo: "Respondeu formulário", tom: "acao", acao: "Dar sequência com a pessoa.", Icon: IconFormulario },
-  entrada: { titulo: "Nova entrada na esteira", tom: "positivo", Icon: IconEntrada },
+  entrada: { titulo: "Nova entrada na Jornada", tom: "positivo", Icon: IconEntrada },
   aluno: { titulo: "Acesso liberado na base", tom: "positivo", Icon: IconAluno },
-  etapa: { titulo: "Card mudou de etapa", tom: "contexto", Icon: IconEtapa },
+  etapa: { titulo: "Aluno mudou de etapa", tom: "contexto", Icon: IconEtapa },
   outro: { titulo: "Atualização automática", tom: "neutro", Icon: IconGenerico },
 };
 
@@ -432,7 +432,7 @@ export function HmNotificacoes() {
                   </p>
                   <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                     {doDia.map((it) => {
-                      const descricao = it.descricao ?? "O sistema fez uma alteração neste card";
+                      const descricao = it.descricao ?? "O sistema fez uma alteração nesta ficha";
                       const tipo = classificarTipo(descricao);
                       const cls = CLASSIFICACAO[tipo];
                       const corpo = corpoDaNotificacao(descricao, tipo);

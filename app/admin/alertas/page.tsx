@@ -5,7 +5,7 @@ import { Button, Card, PageHeader, Spinner, cn } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
 // Do arquivo PURO, nunca do service: o service importa lib/db (pg) e isto é
 // client component — o bundle do navegador não pode puxar o driver do Postgres.
-import { EXPLICACAO, type Alerta, type CancelamentoHotmart, type CategoriaAlerta } from "@/lib/alertas-catalogo";
+import { EXPLICACAO, type Alerta, type CancelamentoHotmart, type CategoriaAlerta, type ReceitaForaDoSaldo } from "@/lib/alertas-catalogo";
 
 // Saúde do dinheiro (11/08). O monitor cs.hm_alertas existia desde a 0188 e não
 // tinha tela: os alertas nasciam no banco e ninguém via. Esta página é a casa deles
@@ -26,6 +26,22 @@ function quando(v: string): string {
   const d = new Date(v);
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+// Uma data `date` do Postgres chega aqui como "2026-06-25T00:00:00.000Z" —
+// JSON não tem tipo data, então o driver serializa o Date inteiro. Colar
+// "T12:00:00" no fim disso produz "Invalid Date", que foi exatamente o que
+// apareceu na tela ("desde Invalid Date") com a bateria acusando zero erro:
+// texto errado não é exceção de JavaScript.
+// Corta os 10 primeiros caracteres (a parte do dia) e ancora ao meio-dia, para
+// o fuso não empurrar a data um dia para trás. Devolve "" quando não dá —
+// nunca uma data inventada.
+function dataCurta(v: string | null): string {
+  if (!v) return "";
+  const dia = v.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return "";
+  const d = new Date(`${dia}T12:00:00`);
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("pt-BR");
 }
 
 // ---- Ícones por categoria (13/08: "bota ícones para indicar as coisas") ----
@@ -104,6 +120,7 @@ const badgeAviso = "rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semib
 export default function AlertasPage() {
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [cancelamentos, setCancelamentos] = useState<CancelamentoHotmart[]>([]);
+  const [receitaFora, setReceitaFora] = useState<ReceitaForaDoSaldo | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [baixando, setBaixando] = useState<string | null>(null);
@@ -121,6 +138,7 @@ export default function AlertasPage() {
       if (!d.ok) { setErro("O servidor respondeu, mas sem os dados."); return; }
       setAlertas(d.alertas ?? []);
       setCancelamentos(d.cancelamentos ?? []);
+      setReceitaFora(d.receitaFora ?? null);
     } catch {
       setErro("Sem conexão com o servidor.");
     } finally {
@@ -189,6 +207,26 @@ export default function AlertasPage() {
             </span>
             <button onClick={carregar} className="text-xs text-slate-400 underline hover:text-slate-600">atualizar</button>
           </div>
+
+          {/* 0234 — o que era 27 alertas vermelhos. Eles saíram da fila porque
+              não havia o que fazer com eles (é receita que NÃO abate o pacote
+              de propósito), mas o dinheiro não pode sumir da vista junto: uma
+              linha informativa, cor de contexto, sem botão. Número é
+              informação; alerta é tarefa. Não podem parecer a mesma coisa. */}
+          {receitaFora && (
+            <div className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                {receitaFora.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </span>
+              <span>
+                entraram em {receitaFora.compras} compra{receitaFora.compras === 1 ? "" : "s"} que não abatem o pacote
+                {dataCurta(receitaFora.desde) && ` — desde ${dataCurta(receitaFora.desde)}`}.
+              </span>
+              <span className="text-slate-400 dark:text-slate-500">
+                Renovação e reserva não entram no saldo de ninguém. Não é erro, e não há o que resolver aqui — está escrito só para o dinheiro ser conhecido.
+              </span>
+            </div>
+          )}
 
           {/* Críticos: item a item — cada um é uma decisão diferente, e são só 3. */}
           {criticos.length > 0 && (
@@ -307,7 +345,7 @@ export default function AlertasPage() {
               <thead className="border-b border-slate-200 text-[11px] uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-2 font-medium">Pessoa</th>
-                  <th className="px-3 py-2 font-medium">Board</th>
+                  <th className="px-3 py-2 font-medium">Produto</th>
                   <th className="px-3 py-2 font-medium">Evento</th>
                   <th className="px-3 py-2 font-medium">Etapa agora</th>
                   <th className="px-3 py-2 font-medium">Quando</th>

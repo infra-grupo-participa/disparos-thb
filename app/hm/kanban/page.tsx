@@ -668,14 +668,14 @@ export default function HmKanbanPage() {
     // Ativação e a ordem dele pertence à fila de lá. Reordenar aqui não teria
     // onde ser gravado — ignora o gesto vertical.
     if (!mudouDeColuna && ehEspelho(card, aba)) return;
-    // Arrastar o espelho para outra coluna do Comercial tira o card da Ativação
+    // Arrastar o espelho para outra coluna do Comercial tira o aluno da Ativação
     // e apaga o pagamento — nunca é o que a pessoa quis fazer sem pensar.
     // Cancelamento é a exceção: lá o pagamento é preservado (o servidor sabe).
     if (mudouDeColuna && ehEspelho(card, aba) && estagioChave !== "hm_cancelamento") {
       const etapa = card.estagio_nome ?? "Ativação";
       const ok = window.confirm(
         `${card.nome} já quitou o saldo e está em "${etapa}" na Ativação.\n\n` +
-          "Trazê-lo de volta ao Comercial desfaz o pagamento e tira o card da Ativação. Continuar?",
+          "Trazê-lo de volta ao Comercial desfaz o pagamento e tira o aluno da Ativação. Continuar?",
       );
       if (!ok) return;
     }
@@ -708,7 +708,7 @@ export default function HmKanbanPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {totalComercial + totalAtivacao} aluno(s) — arraste entre as etapas, e para cima/baixo para ordenar a fila.
+            {totalComercial + totalAtivacao} {totalComercial + totalAtivacao === 1 ? "aluno" : "alunos"} — arraste entre as etapas, e para cima/baixo para ordenar a fila.
           </p>
         </div>
         {/* Wrap aqui também: são até 5 botões e, sem quebra, no celular eles
@@ -728,8 +728,8 @@ export default function HmKanbanPage() {
           <a
             href={`/api/hm/kanban/export?${paramsFiltro.toString()}`}
             title={podeVerTudo()
-              ? "Baixar o relatório da esteira inteira (resumo + uma aba por etapa)"
-              : "Baixar o relatório da SUA visão da esteira (o pool + os cards que você vê), resumo + uma aba por etapa"}
+              ? "Baixar o relatório da Jornada inteira (resumo + uma aba por etapa)"
+              : "Baixar o relatório da SUA visão da Jornada (quem está sem dono + os alunos que você vê), resumo + uma aba por etapa"}
           >
             <Button variant="secondary" size="sm" className="alvo-toque">Jornada .xlsx</Button>
           </a>
@@ -737,8 +737,8 @@ export default function HmKanbanPage() {
           <a
             href={`/api/hm/financeiro/export?${paramsFiltro.toString()}`}
             title={podeVerTudo()
-              ? "Baixar o financeiro (resumo, carteira, a receber, razão de pagamentos e cancelamentos)"
-              : "Baixar o financeiro da SUA visão da esteira (resumo, carteira, a receber, pagamentos e cancelamentos dos cards que você vê)"}
+              ? "Baixar o financeiro (resumo, carteira, a receber, pagamentos e cancelamentos)"
+              : "Baixar o financeiro da SUA visão da Jornada (resumo, carteira, a receber, pagamentos e cancelamentos dos alunos que você vê)"}
           >
             <Button variant="secondary" size="sm" className="alvo-toque">Financeiro .xlsx</Button>
           </a>
@@ -972,7 +972,7 @@ export default function HmKanbanPage() {
                     className="flex max-h-[70vh] min-h-[72px] flex-col gap-2 overflow-y-auto p-2"
                   >
                     {doCol.length === 0 && sociosDaCol.length === 0 && marca < 0 ? (
-                      <p className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-600">Sem cards</p>
+                      <p className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-600">Ninguém nesta etapa</p>
                     ) : (
                       doCol.map((card, i) => (
                         <Fragment key={card.comprador_id}>
@@ -1684,7 +1684,7 @@ function CardItem({
               : "border-slate-200 dark:border-slate-800",
       )}
     >
-      {/* 0217: "ninguém visualizou o card dela ainda". Absoluto no canto
+      {/* 0217: "ninguém abriu a ficha dela ainda". Absoluto no canto
           superior direito, fora do fluxo dos selos — o card não tem mais espaço
           na primeira linha, e o pedido era justamente que ele saltasse por cima
           de tudo. Some sozinho na primeira abertura da ficha. */}
@@ -1814,7 +1814,7 @@ function CardItem({
           sempre à vista (sem abrir a ficha). O dado já vinha da API sem
           aparecer em lugar nenhum do board. */}
       {card.ultima_msg && (
-        <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400" title="Última interação registrada na timeline deste card">
+        <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400" title="Última interação registrada no histórico deste aluno">
           <svg className="h-3 w-3 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.76.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Z" /></svg>
           <span className="truncate">{card.ultima_msg.replace(/^Respondeu:\s*/, "")}</span>
         </p>

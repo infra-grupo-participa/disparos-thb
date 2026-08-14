@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
-import type { Alerta, CancelamentoHotmart } from "@/lib/alertas-catalogo";
+import type { Alerta, CancelamentoHotmart, ReceitaForaDoSaldo } from "@/lib/alertas-catalogo";
 
-export type { Alerta, CancelamentoHotmart } from "@/lib/alertas-catalogo";
+export type { Alerta, CancelamentoHotmart, ReceitaForaDoSaldo } from "@/lib/alertas-catalogo";
 export { EXPLICACAO } from "@/lib/alertas-catalogo";
 
 // O monitor de dinheiro (cs.hm_alertas) existe desde a 0188 e nunca teve tela: os
@@ -20,6 +20,22 @@ export async function listarAlertasAbertos(): Promise<Alerta[]> {
       order by (severidade = 'critico') desc, detectado_em desc
       limit 200`,
   );
+}
+
+// 0234 — os 27 alertas "compra fora do razão" saíram da fila (não havia o que
+// fazer com eles) e viraram ESTE número. Sem esta função a receita some da
+// vista, que é pior do que os 27 avisos: alerta chato a gente ignora, dinheiro
+// invisível a gente esquece que existe.
+//
+// É receita real, aprovada, que NÃO abate o pacote de 15k de propósito
+// (renovação, reserva). `desde` vem junto porque valor sem janela não quer
+// dizer nada.
+export async function receitaForaDoSaldo(): Promise<ReceitaForaDoSaldo | null> {
+  const r = await query<{ compras: number; total: string; desde: string | null }>(
+    `select compras, total, desde from cs.fn_hm_receita_fora_do_saldo()`,
+  );
+  if (r.length === 0 || !r[0].compras) return null;
+  return { compras: r[0].compras, total: Number(r[0].total), desde: r[0].desde };
 }
 
 export async function resolverAlerta(id: string): Promise<boolean> {

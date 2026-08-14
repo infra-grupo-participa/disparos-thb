@@ -48,7 +48,7 @@ type Tag = {
 // board também precisa aparecer na legenda, ela é sobre o SIGNIFICADO, não sobre
 // o que está em uso agora). Quando a API traz `categoria_descricao`, ela vence.
 const CATEGORIAS: { valor: string; rotulo: string; cor: string; descricaoPadrao: string }[] = [
-  { valor: "publico", rotulo: "Público", cor: "#10b981", descricaoPadrao: "Quem é a pessoa — aluno, lead, cliente VIP." },
+  { valor: "publico", rotulo: "Público", cor: "#10b981", descricaoPadrao: "Quem é a pessoa — aluno novo, aluno antigo, cliente VIP." },
   { valor: "canal", rotulo: "Canal", cor: "#3b82f6", descricaoPadrao: "Por onde o contato chegou até nós." },
   { valor: "turma", rotulo: "Turma", cor: "#7c3aed", descricaoPadrao: "De qual turma/edição a pessoa veio." },
   { valor: "origem_base", rotulo: "Origem/Base", cor: "#f59e0b", descricaoPadrao: "Qual a base dele no THB como um todo." },

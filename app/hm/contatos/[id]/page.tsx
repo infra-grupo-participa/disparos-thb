@@ -453,7 +453,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
               </div>
             ) : somenteLeitura ? (
               // Ficha de colega: registrar pagamento é agir — o formulário some.
-              <p className="text-sm text-slate-400 dark:text-slate-500">Saldo em aberto — o registro do pagamento é do dono do card ou do gestor.</p>
+              <p className="text-sm text-slate-400 dark:text-slate-500">Saldo em aberto — o registro do pagamento é de quem cuida do aluno ou do gestor.</p>
             ) : (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-end gap-3">

@@ -425,7 +425,7 @@ export default function KanbanPage() {
 
                 <div data-col-scroll className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto p-2">
                   {doCol.length === 0 ? (
-                    <p className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-600">Sem cards</p>
+                    <p className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-600">Ninguém nesta etapa</p>
                   ) : (
                     doCol.map((card) => (
                       <CardItem
