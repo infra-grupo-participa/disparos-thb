@@ -273,7 +273,7 @@ const LENTES: Lente[] = [
     // O contrário: a Hotmart devolveu o dinheiro e o card não sabe. Não deveria
     // acontecer (o webhook faz o caminho inteiro), mas se acontecer é grave — o
     // aluno segue com acesso a um curso que ele não pagou mais.
-    id: "hotmart_cancelou_e_card_nao_sabe", grupo: "Cancelamento", label: "Hotmart cancelou e o card não registrou",
+    id: "hotmart_cancelou_e_card_nao_sabe", grupo: "Cancelamento", label: "Hotmart cancelou e a ficha não registrou",
     test: (l) => !!l.hotmart_cancelado_em && !l.cancelamento_efetivado_em,
   },
   {
@@ -1394,7 +1394,7 @@ export default function HmTabelaPage() {
           return (
             <span
               className="whitespace-nowrap font-medium text-amber-600 dark:text-amber-400"
-              title="Confirmamos o cancelamento aqui, mas a Hotmart nunca avisou que o reembolso saiu. Ou ainda não saiu, ou o card foi marcado por engano."
+              title="Confirmamos o cancelamento aqui, mas a Hotmart nunca avisou que o reembolso saiu. Ou ainda não saiu, ou alguém marcou por engano aqui."
             >
               ⚠ sem confirmação
             </span>
@@ -1594,7 +1594,7 @@ export default function HmTabelaPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {linhas.length} aluno(s) — a Jornada em linhas: ordene, filtre, edite na célula e aja em lote.
+            {linhas.length} {linhas.length === 1 ? "aluno" : "alunos"} — a Jornada em linhas: ordene, filtre, edite na célula e aja em lote.
           </p>
         </div>
         {/* flex-wrap (11/08): sem ele, "+ Cadastrar" + abas + os dois botões de
@@ -1614,8 +1614,8 @@ export default function HmTabelaPage() {
           <a
             href={`/api/hm/kanban/export?${paramsFiltro.toString()}`}
             title={podeVerTudo()
-              ? "Baixar o relatório da esteira inteira (resumo + uma aba por etapa)"
-              : "Baixar o relatório da SUA visão da esteira (o pool + os cards que você vê), resumo + uma aba por etapa"}
+              ? "Baixar o relatório da Jornada inteira (resumo + uma aba por etapa)"
+              : "Baixar o relatório da SUA visão da Jornada (quem está sem dono + os alunos que você vê), resumo + uma aba por etapa"}
           >
             <Button variant="secondary" size="sm" className="alvo-toque">Jornada .xlsx</Button>
           </a>
@@ -1625,8 +1625,8 @@ export default function HmTabelaPage() {
           <a
             href={`/api/hm/financeiro/export?${paramsFiltro.toString()}`}
             title={podeVerTudo()
-              ? "Baixar o financeiro (resumo, carteira, a receber, razão de pagamentos e cancelamentos)"
-              : "Baixar o financeiro da SUA visão da esteira (resumo, carteira, a receber, pagamentos e cancelamentos dos cards que você vê)"}
+              ? "Baixar o financeiro (resumo, carteira, a receber, pagamentos e cancelamentos)"
+              : "Baixar o financeiro da SUA visão da Jornada (resumo, carteira, a receber, pagamentos e cancelamentos dos alunos que você vê)"}
           >
             <Button variant={visao === "financeiro" ? "primary" : "secondary"} size="sm">Financeiro .xlsx</Button>
           </a>
@@ -1885,7 +1885,7 @@ export default function HmTabelaPage() {
                   {visiveis.length === 0 ? (
                     <tr>
                       <td colSpan={colunas.length + 2} className="px-4 py-10 text-center text-slate-400 dark:text-slate-500">
-                        {lente ? "Ninguém nesta lente — contagem zero também é informação." : "Nenhum lead com esses filtros."}
+                        {lente ? "Ninguém nesta lente — contagem zero também é informação." : "Nenhum aluno com esses filtros."}
                       </td>
                     </tr>
                   ) : (
@@ -1996,7 +1996,7 @@ export default function HmTabelaPage() {
             {/* O rodapé onde o dinheiro aparece somado — recalculado a cada
                 filtro/lente/busca, sempre sobre o que está na tela. */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
-              <span className="font-semibold text-slate-800 dark:text-slate-100">{visiveis.length} aluno(s)</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-100">{visiveis.length} {visiveis.length === 1 ? "aluno" : "alunos"}</span>
               <span>
                 · saldo a receber <strong className="tabular-nums text-slate-800 dark:text-slate-100">{brl(totSaldo)}</strong>
                 {/* O sufixo só aparece quando a soma é incompleta — no caso normal

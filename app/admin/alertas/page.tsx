@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card, PageHeader, Spinner, cn } from "@/app/_components/ui";
 import { PageFade } from "@/app/_components/anim";
 // Do arquivo PURO, nunca do service: o service importa lib/db (pg) e isto é
 // client component — o bundle do navegador não pode puxar o driver do Postgres.
-import { EXPLICACAO, type Alerta, type CancelamentoHotmart } from "@/lib/alertas-catalogo";
+import { EXPLICACAO, type Alerta, type CancelamentoHotmart, type CategoriaAlerta, type ReceitaForaDoSaldo } from "@/lib/alertas-catalogo";
 
 // Saúde do dinheiro (11/08). O monitor cs.hm_alertas existia desde a 0188 e não
 // tinha tela: os alertas nasciam no banco e ninguém via. Esta página é a casa deles
@@ -14,6 +14,13 @@ import { EXPLICACAO, type Alerta, type CancelamentoHotmart } from "@/lib/alertas
 //
 // A régua é: aqui só entra o que EXIGE uma pessoa. Alerta que o sistema consegue
 // verificar sozinho se fecha sozinho (catalogar a oferta baixa o oferta_orfa).
+//
+// Redesenho de 13/08 (pedido do Marcio: "bater o olho e já entender, não bater o
+// olho e ficar tentando entender"). O que mudou: 105 cards planos viraram 3
+// críticos (item a item — cada um é uma decisão diferente) + blocos por tipo
+// para os avisos (mesma explicação repetida 74 e 27 vezes não é 101
+// informações, é 2). Identificador técnico (chave, tabela, uuid) some da
+// primeira leitura e mora num "detalhes técnicos" que abre sob demanda.
 
 function quando(v: string): string {
   const d = new Date(v);
@@ -21,9 +28,99 @@ function quando(v: string): string {
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+// Uma data `date` do Postgres chega aqui como "2026-06-25T00:00:00.000Z" —
+// JSON não tem tipo data, então o driver serializa o Date inteiro. Colar
+// "T12:00:00" no fim disso produz "Invalid Date", que foi exatamente o que
+// apareceu na tela ("desde Invalid Date") com a bateria acusando zero erro:
+// texto errado não é exceção de JavaScript.
+// Corta os 10 primeiros caracteres (a parte do dia) e ancora ao meio-dia, para
+// o fuso não empurrar a data um dia para trás. Devolve "" quando não dá —
+// nunca uma data inventada.
+function dataCurta(v: string | null): string {
+  if (!v) return "";
+  const dia = v.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return "";
+  const d = new Date(`${dia}T12:00:00`);
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("pt-BR");
+}
+
+// ---- Ícones por categoria (13/08: "bota ícones para indicar as coisas") ----
+// Mesma família visual do resto do sistema — traço, sem preenchimento, sem lib
+// externa (ver app/_components/ajuda.tsx, copiavel.tsx). Não é severidade: é
+// "que tipo de coisa é essa" — dinheiro, cadastro, integração ou pessoa.
+function IconeDinheiro({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="12" y1="2" x2="12" y2="22" />
+      <path d="M17 6.5H9.5a3 3 0 0 0 0 6h5a3 3 0 0 1 0 6H6" />
+    </svg>
+  );
+}
+function IconeCadastro({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20.59 13.41 12.42 21.58a2 2 0 0 1-2.83 0L2 14V2h12l6.59 6.59a2 2 0 0 1 0 2.82z" />
+      <circle cx="7.5" cy="7.5" r="1.5" />
+    </svg>
+  );
+}
+function IconeIntegracao({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M13 2 3 14h7l-1 8 11-13h-8l1-7z" />
+    </svg>
+  );
+}
+function IconePessoa({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+const ICONE: Record<CategoriaAlerta, (props: { className?: string }) => React.JSX.Element> = {
+  dinheiro: IconeDinheiro,
+  cadastro: IconeCadastro,
+  integracao: IconeIntegracao,
+  pessoa: IconePessoa,
+};
+
+function Seta({ className }: { className?: string }) {
+  return (
+    <svg className={cn("h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180", className)} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+// Selo de "detalhes técnicos" — tabela, chave, id. O suporte precisa, o
+// operador não; por isso mora atrás de um toggle, não na primeira leitura.
+function DetalhesTecnicos({ chave, tipo }: { chave: string | null; tipo: string }) {
+  if (!chave) return null;
+  return (
+    <details className="group/tec mt-1.5">
+      <summary className="alvo-toque inline-flex cursor-pointer list-none items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+        <svg className="h-3 w-3 shrink-0 transition-transform group-open/tec:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+        detalhes técnicos
+      </summary>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        <code className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">{chave}</code>
+        <span className="text-[11px] text-slate-400">tipo: {tipo}</span>
+      </div>
+    </details>
+  );
+}
+
+const badgeCritico = "rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950 dark:text-rose-300";
+const badgeAviso = "rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950 dark:text-amber-300";
+
 export default function AlertasPage() {
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [cancelamentos, setCancelamentos] = useState<CancelamentoHotmart[]>([]);
+  const [receitaFora, setReceitaFora] = useState<ReceitaForaDoSaldo | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [baixando, setBaixando] = useState<string | null>(null);
@@ -41,6 +138,7 @@ export default function AlertasPage() {
       if (!d.ok) { setErro("O servidor respondeu, mas sem os dados."); return; }
       setAlertas(d.alertas ?? []);
       setCancelamentos(d.cancelamentos ?? []);
+      setReceitaFora(d.receitaFora ?? null);
     } catch {
       setErro("Sem conexão com o servidor.");
     } finally {
@@ -66,6 +164,22 @@ export default function AlertasPage() {
   const criticos = alertas.filter((a) => a.severidade === "critico");
   const avisos = alertas.filter((a) => a.severidade !== "critico");
 
+  // Um tipo de problema = um bloco, não N cards (13/08). 74 "sem_canal" e 27
+  // "compra_fora_do_razao" repetiam a mesma explicação; agrupado, a explicação
+  // aparece uma vez e o que muda por item (o `detalhe`, vindo do banco) fica
+  // na lista que abre sob demanda. Maior contagem primeiro — problema mais
+  // espalhado primeiro.
+  const gruposAviso = useMemo(() => {
+    const porTipo = new Map<string, Alerta[]>();
+    for (const a of avisos) {
+      const arr = porTipo.get(a.tipo);
+      if (arr) arr.push(a); else porTipo.set(a.tipo, [a]);
+    }
+    return [...porTipo.entries()]
+      .map(([tipo, itens]) => ({ tipo, itens }))
+      .sort((a, b) => b.itens.length - a.itens.length);
+  }, [avisos]);
+
   return (
     <PageFade>
       <PageHeader
@@ -87,60 +201,141 @@ export default function AlertasPage() {
             <span className={cn("font-semibold", criticos.length > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400")}>
               {criticos.length === 0 ? "Nenhum alerta crítico" : `${criticos.length} crítico${criticos.length > 1 ? "s" : ""}`}
             </span>
-            <span className="text-slate-500 dark:text-slate-400">{avisos.length} aviso{avisos.length === 1 ? "" : "s"}</span>
+            <span className="text-slate-500 dark:text-slate-400">
+              {avisos.length} aviso{avisos.length === 1 ? "" : "s"}
+              {gruposAviso.length > 1 && ` em ${gruposAviso.length} tipos`}
+            </span>
             <button onClick={carregar} className="text-xs text-slate-400 underline hover:text-slate-600">atualizar</button>
           </div>
 
-          <div className="space-y-2">
-            {[...criticos, ...avisos].map((a) => {
-              const ex = EXPLICACAO[a.tipo];
-              const critico = a.severidade === "critico";
-              return (
-                <Card
-                  key={a.id}
-                  className={cn("p-3.5", critico && "border-rose-300 dark:border-rose-900/70")}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={cn(
-                          "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                          critico
-                            ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-                            : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-                        )}>
-                          {critico ? "crítico" : "aviso"}
+          {/* 0234 — o que era 27 alertas vermelhos. Eles saíram da fila porque
+              não havia o que fazer com eles (é receita que NÃO abate o pacote
+              de propósito), mas o dinheiro não pode sumir da vista junto: uma
+              linha informativa, cor de contexto, sem botão. Número é
+              informação; alerta é tarefa. Não podem parecer a mesma coisa. */}
+          {receitaFora && (
+            <div className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                {receitaFora.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </span>
+              <span>
+                entraram em {receitaFora.compras} compra{receitaFora.compras === 1 ? "" : "s"} que não abatem o pacote
+                {dataCurta(receitaFora.desde) && ` — desde ${dataCurta(receitaFora.desde)}`}.
+              </span>
+              <span className="text-slate-400 dark:text-slate-500">
+                Renovação e reserva não entram no saldo de ninguém. Não é erro, e não há o que resolver aqui — está escrito só para o dinheiro ser conhecido.
+              </span>
+            </div>
+          )}
+
+          {/* Críticos: item a item — cada um é uma decisão diferente, e são só 3. */}
+          {criticos.length > 0 && (
+            <div className="mb-3 space-y-2">
+              {criticos.map((a) => {
+                const ex = EXPLICACAO[a.tipo];
+                const Icone = ex ? ICONE[ex.categoria] : null;
+                return (
+                  <Card key={a.id} className="border-rose-300 p-3.5 dark:border-rose-900/70">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                          {Icone ? <Icone className="h-4 w-4" /> : null}
                         </span>
-                        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                          {ex?.titulo ?? a.tipo}
-                        </h2>
-                        {a.chave && (
-                          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">{a.chave}</code>
-                        )}
-                        <span className="text-[11px] text-slate-400">{quando(a.detectado_em)}</span>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={badgeCritico}>crítico</span>
+                            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                              {ex?.titulo ?? a.tipo}
+                            </h2>
+                            <span className="text-[11px] text-slate-400">{quando(a.detectado_em)}</span>
+                          </div>
+                          <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">{a.detalhe}</p>
+                          {ex && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400"><strong>O que fazer:</strong> {ex.acao}</p>}
+                          <DetalhesTecnicos chave={a.chave} tipo={a.tipo} />
+                        </div>
                       </div>
-                      <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">{a.detalhe}</p>
-                      {ex && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400"><strong>O que fazer:</strong> {ex.acao}</p>}
+                      <Button
+                        variant="secondary"
+                        onClick={() => baixar(a.id)}
+                        disabled={baixando === a.id}
+                        title="Marcar como resolvido — some da lista"
+                        className="alvo-toque shrink-0 text-xs"
+                      >
+                        {baixando === a.id ? "…" : "Resolvido"}
+                      </Button>
                     </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() => baixar(a.id)}
-                      disabled={baixando === a.id}
-                      title="Marcar como resolvido — some da lista"
-                      className="alvo-toque shrink-0 text-xs"
-                    >
-                      {baixando === a.id ? "…" : "Resolvido"}
-                    </Button>
-                  </div>
-                </Card>
-              );
-            })}
-            {alertas.length === 0 && (
-              <Card className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                Nada pendente. Todo pagamento que entrou achou o card dele.
-              </Card>
-            )}
-          </div>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Avisos: um bloco por tipo. Abre para ver os itens; a explicação
+              (que era repetida em cada card) aparece uma vez no cabeçalho. */}
+          {gruposAviso.length > 0 && (
+            <div className="space-y-2">
+              {gruposAviso.map(({ tipo, itens }) => {
+                const ex = EXPLICACAO[tipo];
+                const Icone = ex ? ICONE[ex.categoria] : null;
+                return (
+                  <details key={tipo} className="group overflow-hidden rounded-xl border border-amber-200/70 bg-white shadow-card dark:border-amber-900/40 dark:bg-slate-900">
+                    <summary className="alvo-toque flex cursor-pointer list-none items-start gap-3 p-3.5 [&::-webkit-details-marker]:hidden">
+                      <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                        {Icone ? <Icone className="h-4 w-4" /> : null}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={badgeAviso}>aviso</span>
+                          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                            {ex?.titulo ?? tipo}
+                          </h2>
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                            {itens.length}×
+                          </span>
+                        </div>
+                        {ex && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400"><strong>O que fazer:</strong> {ex.acao}</p>}
+                      </div>
+                      <Seta className="mt-1.5" />
+                    </summary>
+                    <div className="space-y-1.5 border-t border-amber-100 px-3.5 pb-3 pt-2.5 dark:border-amber-900/30">
+                      {itens.map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex flex-wrap items-start justify-between gap-2 rounded-lg bg-amber-50/60 px-2.5 py-2 dark:bg-amber-500/5"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-slate-600 dark:text-slate-300">{a.detalhe}</p>
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
+                              {a.chave && (
+                                <code className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">{a.chave}</code>
+                              )}
+                              <span className="text-[11px] text-slate-400">{quando(a.detectado_em)}</span>
+                            </div>
+                          </div>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => baixar(a.id)}
+                            disabled={baixando === a.id}
+                            title="Marcar como resolvido — some da lista"
+                            className="alvo-toque shrink-0"
+                          >
+                            {baixando === a.id ? "…" : "Resolvido"}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          )}
+
+          {alertas.length === 0 && (
+            <Card className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">
+              Nada pendente. Todo pagamento que entrou achou o card dele.
+            </Card>
+          )}
 
           <h2 className="mb-2 mt-8 text-sm font-semibold text-slate-700 dark:text-slate-200">
             Cancelamentos vindos da Hotmart <span className="font-normal text-slate-400">(30 dias)</span>
@@ -150,7 +345,7 @@ export default function AlertasPage() {
               <thead className="border-b border-slate-200 text-[11px] uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-2 font-medium">Pessoa</th>
-                  <th className="px-3 py-2 font-medium">Board</th>
+                  <th className="px-3 py-2 font-medium">Produto</th>
                   <th className="px-3 py-2 font-medium">Evento</th>
                   <th className="px-3 py-2 font-medium">Etapa agora</th>
                   <th className="px-3 py-2 font-medium">Quando</th>

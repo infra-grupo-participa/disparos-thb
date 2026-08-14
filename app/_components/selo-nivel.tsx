@@ -51,16 +51,16 @@ const ICONE: Record<Nivel, React.ReactNode> = {
 
 function tituloDe(nivel: Nivel, u: UsuarioSeloNivel): string {
   if (u.gerente_distribuidor) {
-    return "Gerente — vê e trabalha a esteira INTEIRA (todas as equipes) e distribui card para qualquer pessoa, travando a atribuição para o operador não desfazer. NÃO gere contas, portais nem equipes.";
+    return "Gerente — vê e trabalha a Jornada INTEIRA (todas as equipes) e distribui ficha para qualquer pessoa, travando a atribuição para o operador não desfazer. NÃO gere contas, portais nem equipes.";
   }
   if (nivel === "master") {
-    return "Master — Administrador da equipe Grupo Participa (principal). Vê e gere tudo: contas, equipes, canais e todos os cards.";
+    return "Master — Administrador da equipe Grupo Participa (principal). Vê e gere tudo: contas, equipes, canais e todas as fichas.";
   }
   if (nivel === "gestor") {
     const motivo = u.papel === "admin" ? "é Administrador de uma equipe" : "tem a estrela de líder";
-    return `Gestor — ${motivo}. Vê e distribui os cards da PRÓPRIA equipe (e puxa do pool).`;
+    return `Gestor — ${motivo}. Vê e distribui as fichas da PRÓPRIA equipe (e puxa das que estão sem dono).`;
   }
-  return "Operador — vê o pool e os cards atribuídos a ele; assume só para si.";
+  return "Operador — vê as fichas sem dono e as atribuídas a ele; assume só para si.";
 }
 
 // O selo em si. Reusado pelo SeloNivel e pela LegendaNiveis, para a legenda

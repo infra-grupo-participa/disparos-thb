@@ -134,7 +134,7 @@ export default function HmEquipesPage() {
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {podeEditar
               ? "Quem é de cada equipe, o cargo de cada um e quais canais caem direto para cada equipe."
-              : "Quem faz parte da sua equipe — são as pessoas para quem você pode distribuir cards. A composição é gerida pelo Grupo Participa."}
+              : "Quem faz parte da sua equipe — são as pessoas para quem você pode distribuir fichas. A composição é gerida pelo Grupo Participa."}
           </p>
           {podeEditar && (
             <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
@@ -169,11 +169,11 @@ export default function HmEquipesPage() {
                         type="color"
                         value={eq.cor}
                         onChange={(e) => patchEquipe(eq.id, { cor: e.target.value })}
-                        title="Cor da equipe (borda e selo do card na Jornada)"
+                        title="Cor da equipe (borda e selo da ficha na Jornada)"
                         className="h-5 w-5 shrink-0 cursor-pointer rounded border border-slate-300 bg-transparent dark:border-slate-600"
                       />
                     ) : (
-                      <span className="h-4 w-4 shrink-0 rounded" style={{ backgroundColor: eq.cor }} title="Cor da equipe (borda e selo do card na Jornada)" />
+                      <span className="h-4 w-4 shrink-0 rounded" style={{ backgroundColor: eq.cor }} title="Cor da equipe (borda e selo da ficha na Jornada)" />
                     )}
                     <span className="font-semibold text-slate-800 dark:text-slate-100">{eq.nome}</span>
                     {eq.tipo === "principal" && (
@@ -219,7 +219,7 @@ export default function HmEquipesPage() {
                               <button
                                 type="button"
                                 onClick={() => membro(eq.id, u.id, "vincular", undefined, !u.lider_equipe)}
-                                title={u.lider_equipe ? "Tirar como líder da equipe" : "Tornar líder desta equipe (vira gestor: vê e distribui os cards dela)"}
+                                title={u.lider_equipe ? "Tirar como líder da equipe" : "Tornar líder desta equipe (vira gestor: vê e distribui as fichas dela)"}
                                 className={cn("rounded-md p-1.5 transition",
                                   u.lider_equipe
                                     ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10"
@@ -404,11 +404,11 @@ function ModalConfirmarRemover({ usuario, equipeNome, onClose, onConfirmar }: { 
       <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm animate-fade-in rounded-xl border border-slate-200 bg-white p-6 shadow-pop dark:border-slate-800 dark:bg-slate-900">
         <h2 id="titulo-remover-membro" className="text-lg font-semibold text-slate-900 dark:text-slate-100">Tirar {usuario.nome} de {equipeNome}?</h2>
         <ul className="mt-3 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
-          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Ela deixa de ver e distribuir os cards <strong>desta equipe</strong> — sobram os alunos sem dono e os que já são dela.</li>
+          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Ela deixa de ver e distribuir as fichas <strong>desta equipe</strong> — sobram os alunos sem dono e os que já são dela.</li>
           {usuario.lider_equipe && (
             <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Perde a estrela de líder junto (ninguém lidera equipe nenhuma).</li>
           )}
-          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> Os cards que já são dela <strong>não mudam de dono</strong>.</li>
+          <li className="flex gap-2"><span aria-hidden className="text-rose-500">•</span> As fichas que já são dela <strong>não mudam de dono</strong>.</li>
         </ul>
         <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">Pode adicionar de volta a qualquer momento.</p>
         <div className="mt-5 flex justify-end gap-2">

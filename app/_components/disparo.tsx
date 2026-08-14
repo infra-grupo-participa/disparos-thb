@@ -425,7 +425,7 @@ export function Disparo({ selecaoInicial, aoFechar }: { selecaoInicial?: Selecio
       <div className={wrap}>
         <EmptyState
           title="Ninguém selecionado"
-          description="Vá em Leads, selecione os destinatários e clique em “Disparar” para começar."
+          description="Vá na lista de contatos, selecione os destinatários e clique em “Disparar” para começar."
           action={
             <Link href={`${base}/contatos`}>
               <Button variant="primary">Ir para Contatos</Button>

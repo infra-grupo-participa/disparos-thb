@@ -117,7 +117,7 @@ export function TagPicker({ opcoes, jaTem = [], onEscolher, disabled, rotulo = "
             ))}
             {filtradas.length === 0 && !podeCriar && (
               <p className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
-                {q ? "Nenhuma tag encontrada." : "Todas as tags já estão no card."}
+                {q ? "Nenhuma tag encontrada." : "Todas as tags já estão nesta ficha."}
               </p>
             )}
             {podeCriar && (

@@ -12,6 +12,11 @@ export type Alerta = {
   detectado_em: string;
 };
 
+// 0234 — o que sobrou dos 27 alertas que não pediam ação: um número.
+// Mora aqui (arquivo puro) porque a tela é client component; o service só
+// reexporta. Ver lib/services/hm-alertas.ts.
+export type ReceitaForaDoSaldo = { compras: number; total: number; desde: string | null };
+
 export type CancelamentoHotmart = {
   contato_hm_id: string;
   nome: string;
@@ -25,12 +30,35 @@ export type CancelamentoHotmart = {
   origem: string | null;
 };
 
-// O que cada tipo significa e o que fazer — a tela não pode exigir que o operador
-// conheça o schema para entender o alerta.
-export const EXPLICACAO: Record<string, { titulo: string; acao: string }> = {
+// A família de cada tipo de alerta — usada só para escolher o ícone (13/08,
+// pedido do Marcio: "bota ícones para indicar as coisas"). Não é severidade
+// (isso já vem do banco em a.severidade) nem texto: é só "que tipo de coisa
+// é essa" para quem bate o olho reconhecer antes de ler.
+export type CategoriaAlerta = "dinheiro" | "cadastro" | "integracao" | "pessoa";
+
+// O que cada tipo significa e o que fazer.
+//
+// 13/08 — DIVISÃO DE TRABALHO ENTRE OS DOIS TEXTOS. Na tela, o alerta crítico
+// mostra `detalhe` (vem do banco, é específico: nome, valor, data) e logo
+// abaixo este `acao`. Até hoje os dois diziam A MESMA COISA — o webhook
+// aparecia com "não há pagamento perdido por causa disso" no detalhe e "não há
+// pagamento perdido por causa disto" no O QUE FAZER, uma linha depois. Quem lê
+// duas vezes a mesma frase para de ler.
+//
+//   detalhe  = O QUE ACONTECEU  (banco, específico)
+//   acao     = O QUE EU FAÇO    (aqui, imperativo, nunca repete o de cima)
+//
+// E termina dizendo QUEM RESOLVE. Metade destes alertas o operador não tem como
+// resolver sozinho (não existe tela para cadastrar oferta nem para recalcular
+// canal) — sem essa linha ele fica tentando, ou ignora tudo.
+//
+// Nada de nome de tabela, de função ou de arquivo aqui: isso vive atrás de
+// "detalhes técnicos", que abre fechado. Ver docs/padrao-visual.md.
+export const EXPLICACAO: Record<string, { titulo: string; acao: string; categoria: CategoriaAlerta }> = {
   oferta_orfa: {
-    titulo: "Oferta fora do catálogo",
-    acao: "Alguém pagou numa oferta que o sistema não conhece: o card não anda e o pagamento não entra no razão. Cadastrar em public.hm_product_catalog com a categoria certa (sinal, diferenca ou compra_cheia) — ao cadastrar, o pagamento é lançado sozinho.",
+    titulo: "Oferta que o sistema não conhece",
+    acao: "Peça ao time técnico para cadastrar essa oferta e dizer o que ela é: sinal, diferença ou compra cheia. Feito isso o pagamento entra sozinho e o aluno aparece na Jornada — não precisa lançar nada na mão.",
+    categoria: "cadastro",
   },
   // 0230: receita que o razão ignora DE PROPÓSITO. Não é defeito — é dinheiro
   // que a operação precisa enxergar e que, até a auditoria de 12/08, não
@@ -44,31 +72,39 @@ export const EXPLICACAO: Record<string, { titulo: string; acao: string }> = {
   // ninguém consegue PROVAR que não há. É o alerta que devolve a capacidade de
   // investigar.
   webhook_sem_log: {
-    titulo: "Webhook sem registro bruto",
-    acao: "As compras continuam entrando normalmente — não há pagamento perdido por causa disto. O que parou foi o log bruto que guarda cada evento da Hotmart, e sem ele não dá para investigar um pagamento que alguém jure ter feito. Peça ao time técnico para conferir a edge function do webhook. O alerta se fecha sozinho quando o log voltar a receber.",
+    titulo: "Não dá para auditar pagamento",
+    acao: "Nada a fazer na operação: siga trabalhando normalmente. Quem resolve é o time técnico, e o aviso some sozinho quando o registro voltar. Enquanto durar, se um aluno jurar que pagou e não aparecer, confira direto na Hotmart — aqui não tem como conferir.",
+    categoria: "integracao",
   },
-  compra_fora_do_razao: {
-    titulo: "Receita que não entra no saldo",
-    acao: "Compra aprovada numa categoria que não abate o pacote de 15k (renovação, reserva). Ela não vira card nem pagamento — de propósito, senão marcaria como quitado quem não pagou o pacote. Está aqui só para o dinheiro ser visível: conferir se a receita foi reconhecida fora do sistema e dar baixa. Se a categoria estiver errada no catálogo, corrigir lá é o que faz o pagamento entrar no razão.",
-  },
+  // 0234 — `compra_fora_do_razao` SAIU daqui. Eram 27 alertas dizendo a mesma
+  // coisa sobre dinheiro que o saldo ignora DE PROPÓSITO (renovação, reserva):
+  // nada quebrado, nada para resolver, e mesmo assim 27 linhas vermelhas na
+  // tela. Virou um número em "Saúde do dinheiro" — ver cs.fn_hm_receita_fora_do_saldo().
+  // Alerta que grita sem ter o que fazer treina o time a ignorar o painel
+  // inteiro (mesma lição dos 13 falsos "Reclamada" do 0208).
   cancelamento_ambiguo: {
-    titulo: "Cancelamento sem board definido",
-    acao: "A pessoa cancelou a assinatura na Hotmart, mas tem card em mais de um board e o evento não diz qual. O sistema não escolheu de propósito — decidir na mão qual produto perde o acesso.",
+    titulo: "Cancelou, mas não disse de qual produto",
+    acao: "Escolha na mão qual acesso cai. O sistema não escolhe sozinho de propósito: chutar aqui tira o produto errado de quem está pagando em dia.",
+    categoria: "pessoa",
   },
   card_faltando: {
-    titulo: "Pagou e não tem card",
-    acao: "Existe pagamento sem card na esteira. Conferir o cadastro do comprador e criar o card, senão ninguém vai atrás desse dinheiro.",
+    titulo: "Pagou e não apareceu",
+    acao: "Confira o cadastro do comprador na Hotmart — normalmente é e-mail diferente do que ele usa aqui. Achando a pessoa, crie a ficha dela na Jornada; se não achar, chame o time técnico.",
+    categoria: "dinheiro",
   },
   reembolso_sem_baixa: {
-    titulo: "Reembolso sem baixa",
-    acao: "O card está em Reclamada/Reembolsado mas a compra segue aprovada no banco — o razão ainda conta esse valor como recebido. Conferir na Hotmart.",
+    titulo: "Devolveu o dinheiro só de um lado",
+    acao: "Confira na Hotmart se o reembolso saiu mesmo. Se saiu, chame o time técnico para dar baixa — até lá o sistema segue contando esse valor como recebido. Se não saiu, devolva a ficha para a etapa em que ela estava.",
+    categoria: "dinheiro",
   },
   sem_canal: {
-    titulo: "Card sem canal de aquisição",
-    acao: "O card não tem tag de canal: ele some da régua do board e das contagens por campanha. Rodar cs.fn_sync_hm_atm() ou conferir a oferta de entrada.",
+    titulo: "Aluno sem origem",
+    acao: "Não some da Jornada, mas não conta em nenhuma campanha e some da régua de canais lá em cima. São muitos de uma vez — o time técnico recalcula todos juntos, não vale corrigir um a um.",
+    categoria: "cadastro",
   },
   monitor_falhou: {
-    titulo: "O próprio monitor falhou",
-    acao: "A rotina de verificação não completou. Enquanto isso, nenhum dos outros alertas é confiável.",
+    titulo: "A checagem automática não terminou",
+    acao: "Não confie nesta tela enquanto isto estiver aqui — nem no que ela mostra, nem no que ela deixou de mostrar. Quem resolve: time técnico.",
+    categoria: "integracao",
   },
 };

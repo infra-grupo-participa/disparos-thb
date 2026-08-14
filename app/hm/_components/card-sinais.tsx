@@ -206,7 +206,7 @@ export function ehEstagioCancelamento(chave: string | null | undefined): boolean
 }
 
 export const TITLE_CARD_CANCELADO =
-  "Card cancelado — só o administrador do Grupo Participa acessa";
+  "Aluno cancelado — só o administrador do Grupo Participa acessa";
 
 // ===== Explicação do crédito pró-rata (13/08) ================================
 // O crédito pró-rata (HM: cs.contatos_hm.credito_obs · AURUM: cs.vw_aurum_saldo.obs
@@ -273,7 +273,10 @@ export function ehAlunoAntigo(tags: string[] | null | undefined): boolean {
 //
 // Lê as DUAS grafias pelo mesmo motivo que cs.vw_hm_financeiro lê: a tela do
 // operador não pode ficar muda por causa de um card que escapou do backfill.
-export const TAGS_ALUNO_NOVO: readonly string[] = ["Aluno novo", "Lead novo"];
+// Não é texto de tela — é o VALOR da tag gravado no banco. A grafia antiga
+// precisa continuar aqui para casar as fichas que ainda não passaram pelo
+// backfill do 0216.
+export const TAGS_ALUNO_NOVO: readonly string[] = ["Aluno novo", "Lead novo"]; // vocabulario-ok
 
 export function ehAlunoNovo(tags: string[] | null | undefined): boolean {
   if (!tags?.length) return false;
@@ -313,7 +316,7 @@ export function SeloCardNovo({ className }: { className?: string }) {
         "shadow-sm ring-2 ring-white motion-safe:animate-pulse dark:bg-indigo-500 dark:ring-slate-900",
         className,
       )}
-      title="Venda nova — ninguém da equipe abriu este card ainda. O selo some assim que alguém abrir a ficha."
+      title="Venda nova — ninguém da equipe abriu esta ficha ainda. O selo some assim que alguém abrir a ficha."
     >
       <svg className="h-2 w-2 shrink-0" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6" /></svg>
       novo

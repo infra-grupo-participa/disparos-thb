@@ -114,7 +114,7 @@ export const FilaItem = memo(function FilaItem({ c, ativo, slaMin, agoraMin, meu
           {/* Quem está com o lead — evita dois operadores respondendo a mesma conversa. */}
           {c.responsavel && (
             <span
-              title={comOutro ? `${c.responsavel} está atendendo este lead` : "Você está atendendo este lead"}
+              title={comOutro ? `${c.responsavel} está atendendo este lead` : "Você está atendendo esta pessoa"}
               className={cn(
                 "ml-1 mt-1 inline-flex max-w-[11rem] items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
                 comOutro ? "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",

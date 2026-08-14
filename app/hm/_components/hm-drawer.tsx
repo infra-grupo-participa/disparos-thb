@@ -425,7 +425,7 @@ export function HmDrawer({
         const d = await r.json().catch(() => ({}));
         if (d?.reason === "checklist_incompleto") {
           window.alert(
-            `${c?.nome ?? "Este lead"} ainda não pode entrar em "Ativação Realizada".\n\n` +
+            `${c?.nome ?? "Esta pessoa"} ainda não pode entrar em "Ativação Realizada".\n\n` +
               `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
               "Marque os itens do checklist de ativação aqui na ficha.",
           );
@@ -434,7 +434,7 @@ export function HmDrawer({
             ? ` Faltam ${d.faltam.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} do saldo.`
             : "";
           window.alert(
-            `${c?.nome ?? "Este lead"} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
+            `${c?.nome ?? "Esta pessoa"} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
               "Registre o pagamento do saldo (valor cheio) antes de mover para a Ativação.",
           );
         } else if (d?.reason === "entrevista_finalizada_travada") {
@@ -463,7 +463,7 @@ export function HmDrawer({
           : "";
         window.alert(
           `Pagamento parcial registrado.${falta}\n\n` +
-            "Como não cobre o pacote inteiro, o card continua no comercial e o saldo segue no contas a receber.",
+            "Como não cobre o pacote inteiro, o aluno continua no Comercial e o saldo segue no contas a receber.",
         );
       }
       await recarregar();
@@ -704,7 +704,7 @@ export function HmDrawer({
                             onClick={() => patch({ restaurar_versao: v.id })}
                             disabled={salvando || somenteLeitura}
                             className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-amber-800 transition hover:bg-amber-200/70 disabled:opacity-50 dark:text-amber-200 dark:hover:bg-amber-500/20"
-                            title="Restaurar o card para esta versão"
+                            title="Restaurar a ficha para esta versão"
                           >
                             Recuperar
                           </button>
@@ -1140,7 +1140,7 @@ export function HmDrawer({
                       onClick={() => setVerFinanceiro((v) => !v)}
                       className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                       aria-expanded={verFinanceiro}
-                      title="Ver todos os pagamentos registrados neste card"
+                      title="Ver todos os pagamentos registrados deste aluno"
                     >
                       {verFinanceiro ? "Ocultar" : `Ver os ${pagamentos.length}`}
                     </button>
@@ -1385,7 +1385,7 @@ export function HmDrawer({
                     onClick={() => patch({ responsavel_id: me.id })}
                     disabled={salvando}
                     className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline disabled:opacity-50 dark:text-brand-300"
-                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir este lead"}
+                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir para mim"}
                   >
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
                     {c.responsavel ? "Assumir para mim" : "Atribuir a mim"}

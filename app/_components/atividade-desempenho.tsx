@@ -167,9 +167,9 @@ export function AtividadeDesempenho({ endpoint }: { endpoint: string /* "/api/hm
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:text-slate-500">
                       <th className="py-2 pr-3 font-medium">Quem</th>
-                      <th className="px-3 py-2 text-right font-medium" title="Soma de sinal + saldo + compra cheia + mensalidade pagos no período, dos cards que este comercial fechou">Total fechado</th>
+                      <th className="px-3 py-2 text-right font-medium" title="Soma de sinal + saldo + compra cheia + mensalidade pagos no período, dos alunos que este comercial fechou">Total fechado</th>
                       <th className="px-3 py-2 text-right font-medium" title="Saldos (categoria 'saldo') pagos por quem já estava com este comercial — o pedido literal do Marcio">Saldos pagos</th>
-                      <th className="px-3 py-2 text-right font-medium" title="Mediana de dias entre a entrada do card e o pagamento do saldo — mediana, não média, para não distorcer com um caso fora da curva">Tempo até o saldo</th>
+                      <th className="px-3 py-2 text-right font-medium" title="Mediana de dias entre a entrada do aluno e o pagamento do saldo — mediana, não média, para não distorcer com um caso fora da curva">Tempo até o saldo</th>
                       <th className="py-2 pl-3 text-right font-medium">Como está</th>
                     </tr>
                   </thead>
@@ -218,17 +218,17 @@ export function AtividadeDesempenho({ endpoint }: { endpoint: string /* "/api/hm
           {/* ===== Ativação ===== */}
           <div className="p-4">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Ativação — quem tirou o aluno do papel</h3>
-            <p className="mb-2 text-xs text-slate-400 dark:text-slate-500">Não é dinheiro: é quantos alunos esta pessoa levou até a quitação enquanto era a responsável pela ativação daquele card.</p>
+            <p className="mb-2 text-xs text-slate-400 dark:text-slate-500">Não é dinheiro: é quantos alunos esta pessoa levou até a quitação enquanto era a responsável pela ativação deles.</p>
             {(ativacao ?? []).length === 0 ? (
-              <p className="py-6 text-center text-sm text-slate-400">Nenhum card quitado sob um responsável de ativação neste período.</p>
+              <p className="py-6 text-center text-sm text-slate-400">Nenhum aluno quitou sob um responsável de ativação neste período.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:text-slate-500">
                       <th className="py-2 pr-3 font-medium">Quem</th>
-                      <th className="px-3 py-2 text-right font-medium" title="Cards que quitaram o saldo no período enquanto esta pessoa era a responsável de ativação">Alunos ativados</th>
-                      <th className="px-3 py-2 text-right font-medium" title="Mediana de dias entre a entrada do card e a quitação">Tempo até quitar</th>
+                      <th className="px-3 py-2 text-right font-medium" title="Alunos que quitaram o saldo no período enquanto esta pessoa era a responsável de ativação">Alunos ativados</th>
+                      <th className="px-3 py-2 text-right font-medium" title="Mediana de dias entre a entrada do aluno e a quitação">Tempo até quitar</th>
                       <th className="py-2 pl-3 text-right font-medium">Como está</th>
                     </tr>
                   </thead>

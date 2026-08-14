@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guard } from "@/lib/guard";
-import { listarAlertasAbertos, listarCancelamentosHotmart, resolverAlerta } from "@/lib/services/hm-alertas";
+import { listarAlertasAbertos, listarCancelamentosHotmart, receitaForaDoSaldo, resolverAlerta } from "@/lib/services/hm-alertas";
 
 export const runtime = "nodejs";
 
@@ -10,11 +10,12 @@ export const runtime = "nodejs";
 export async function GET() {
   const g = await guard({ nivel: "master" });
   if (!g.ok) return g.res;
-  const [alertas, cancelamentos] = await Promise.all([
+  const [alertas, cancelamentos, receitaFora] = await Promise.all([
     listarAlertasAbertos(),
     listarCancelamentosHotmart(30),
+    receitaForaDoSaldo(),
   ]);
-  return NextResponse.json({ ok: true, alertas, cancelamentos });
+  return NextResponse.json({ ok: true, alertas, cancelamentos, receitaFora });
 }
 
 // PATCH /api/hm/alertas — baixa manual. O alerta cuja causa o sistema consegue
