@@ -48,6 +48,14 @@ const LINKS_HM: LinkDef[] = [
   // Atividade por colaborador. Desde 13/08 este é o ÚNICO caminho: a tira de
   // visões deixou de repetir destinos do menu.
   { sub: "/atividade", label: "Atividade", icon: iconeDe("/atividade") },
+  // Carteira do comercial (16/08). Fica ao lado de Atividade porque respondem
+  // perguntas vizinhas e complementares: Atividade é "o que cada um FEZ",
+  // Carteira é "quem é de cada um, quanto falta e quando paga". A separação
+  // importa — o painel de Atividade credita por `responsavel_comercial_id`, que
+  // a 0161 carimba na distribuidora; a Carteira reconstrói o dono pela linha do
+  // tempo (cs.vw_hm_carteira). Ver disparos-brain/"Carteira do card se perde na ativação".
+  { sub: "/carteira", label: "Carteira",
+    icon: "M21 12V7H5a2 2 0 0 1 0-4h14v4M3 5v14a2 2 0 0 0 2 2h16v-5M18 12a2 2 0 0 0 0 4h4v-4h-4Z" },
   // Inbox e Disparos (Fase 2): o HM ganhou conversa e envio como os demais portais.
   // O link fica visível a todos; as ações de disparo aparecem só p/ admin/disparador
   // (a tela genérica esconde via podeDisparar).
