@@ -15,8 +15,6 @@ import { useProdutoHm } from "@/app/hm/_components/use-produto";
 // A cor da marca de cada portal — a MESMA que o operador vê no topo da tela.
 import { PORTAIS, type PortalId } from "@/lib/marcas";
 
-const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
-
 type Estagio = { chave: string; nome: string; aba: string | null };
 type Contato = {
   comprador_id: string; nome: string; email: string | null; telefone: string | null;
@@ -284,7 +282,7 @@ export function HmDrawer({
   const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster, ehCardDeColega, ehEquipeDeAtivacao } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   // 0164: a mesma pessoa pode ter card em 2 boards — a ficha precisa saber QUAL abrir.
-  const { produto: produtoBoard, nome: nomePortal } = useProdutoHm();
+  const { produto: produtoBoard, nome: nomePortal, base } = useProdutoHm();
   const [c, setC] = useState<Contato | null>(null);
   // O GET pode ser RECUSADO (403 cancelamento_so_admin_gp num link colado, sessão
   // caída…). Sem este estado o drawer ficava no "Carregando…" para sempre.
@@ -497,6 +495,12 @@ export function HmDrawer({
   // ao Comercial conserva a data do pagamento como histórico, mas volta a pedir a
   // confirmação — senão o formulário de pagamento nunca mais reapareceria.
   const jaPagou = !!c?.apto_ativacao;
+  // Link de saldo do HM para o botão único "Abrir checkout Hotmart" (0255): não
+  // é mais o link fixo `off=2vibw97m` (R$14.700) — é o mesmo `links` que a
+  // ficha já calcula pelo saldo REAL desta pessoa (hm-ficha.ts), preferindo a
+  // opção à vista. Sem match dentro da tolerância, `links` vem vazio e a tela
+  // não pode oferecer link nenhum — errar o valor é pior que não mostrar.
+  const linkSaldoRecomendado = links.find((l) => !l.recorrente) ?? links[0] ?? null;
   // Reunião finalizada (0152): o bloco financeiro de cancelamento só aparece
   // depois que a reunião comercial foi de fato realizada — é a regra pedida
   // ("tem que vir após a reunião finalizada"). Vale o resultado OU já ter data.
@@ -1834,16 +1838,21 @@ export function HmDrawer({
                       do saldo ao aluno; assim que ele pagar, o card vai sozinho para a Ativação
                       (Pendente de Liberação) e o aluno é criado na base. Não há lançamento manual.
                     </p>
-                    {/* O checkout fixo é a oferta do HM (2vibw97m). No card do AURUM
-                        ele mandaria o aluno pagar o saldo ERRADO — some até o Aurum
-                        ter link próprio cadastrado (o comercial combina o pagamento
-                        pelo valor que o card já mostra). */}
+                    {/* No card do AURUM não há link de checkout próprio ainda — some
+                        até o Aurum ter um cadastrado (o comercial combina o
+                        pagamento pelo valor que o card já mostra). No HM, o link é
+                        o do SALDO REAL desta pessoa (0255) — nunca mais um valor
+                        fixo que erraria o valor de quem não bate com ele. */}
                     {aurum ? (
                       <p className="text-[11px] text-amber-800/80 dark:text-amber-200/80">
                         O Aurum ainda não tem link de checkout próprio — combine o pagamento pelo valor acima.
                       </p>
+                    ) : linkSaldoRecomendado ? (
+                      <a href={linkSaldoRecomendado.link} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
                     ) : (
-                      <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
+                      <p className="text-[11px] text-amber-800/80 dark:text-amber-200/80">
+                        Não existe link para este saldo — gerar um novo checkout na Hotmart.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -1899,7 +1908,7 @@ export function HmDrawer({
             </div>
 
             <div className="sticky bottom-0 flex flex-wrap gap-2 border-t border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-              <Link href={`/hm/contatos/${c.comprador_id}`} className="min-w-[7rem] flex-1">
+              <Link href={`${base}/contatos/${c.comprador_id}`} className="min-w-[7rem] flex-1">
                 <Button variant="secondary" className="w-full">Ficha completa</Button>
               </Link>
               {/* Download direto (o servidor devolve o arquivo com Content-Disposition) */}

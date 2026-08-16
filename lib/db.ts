@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 
 // Pool único reaproveitado entre hot-reloads do dev (evita esgotar conexões).
 // Conecta como role scoped `disparos_app` (GRANT só no schema cs) via pooler
@@ -35,4 +35,24 @@ export async function queryOne<T = Record<string, unknown>>(
 ): Promise<T | null> {
   const rows = await query<T>(text, params);
   return rows[0] ?? null;
+}
+
+// Transação explícita — para o caso raro em que duas escritas precisam nascer juntas ou
+// não nascer (numeração de protocolo + a linha que ela numera, lib/protocolo.ts). `query()`
+// acima usa o pool direto (uma conexão por chamada, sob o pooler Supavisor em modo
+// transação) e não serve para isto: TRANSAÇÃO exige o MESMO client do início ao commit.
+// Libera a conexão sempre, inclusive se `fn` lançar.
+export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("begin");
+    const resultado = await fn(client);
+    await client.query("commit");
+    return resultado;
+  } catch (erro) {
+    await client.query("rollback").catch(() => {});
+    throw erro;
+  } finally {
+    client.release();
+  }
 }

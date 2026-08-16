@@ -139,7 +139,7 @@ export default function HmReunioesPage() {
             As reuniões e entrevistas em uma lista — com operador, resultado, remarcações e a gravação.
           </p>
         </div>
-        <HmVisao atual="reunioes" filtros={{}} />
+        <HmVisao par="agenda" atual="reunioes" filtros={{}} />
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">

@@ -8,11 +8,11 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
-// Checkout Hotmart do saldo do HM — oferta 2vibw97m. É um link ÚNICO por trás de
-// qualquer valor (o cliente escolhe à vista ou parcelado no próprio checkout);
-// o VALOR exibido ao lado não é mais cravado aqui (0174) — vem de `saldoCheio`,
-// que o servidor calcula pela oferta de entrada que a pessoa pagou.
-const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
+// Link de saldo (0255): cada valor de saldo tem sua PRÓPRIA oferta na Hotmart
+// (cs.hm_ofertas_saldo, 0049) — não é mais um checkout fixo por trás de
+// qualquer valor. hm-ficha.ts escolhe pelo saldo REAL desta pessoa, com
+// tolerância; sem match, `links` vem vazio e a tela não pode chutar um link.
+type LinkSaldo = { codigo: string; valor: string; recorrente: boolean; link: string };
 
 type Contato = {
   comprador_id: string; nome: string; email: string | null; telefone: string | null;
@@ -105,7 +105,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   // master/gestor (nivel !== 'operador'). Duplicada aqui só para GATING de UI
   // (mostrar/esconder o botão); a permissão de verdade é sempre a da rota.
   const podeAssumirAtivacao = !!me && (!!me.funcoes?.includes("HM:ativacao") || nivel !== "operador");
-  const { produto: produtoBoard } = useProdutoHm(); // 0164: qual card abrir
+  const { produto: produtoBoard, base } = useProdutoHm(); // 0164: qual card abrir
   const [c, setC] = useState<Contato | null>(null);
   // 403 no GET (ex.: link direto para um card cancelado — só o master acessa):
   // guarda o MOTIVO para a tela não mentir "aluno não encontrado".
@@ -132,6 +132,8 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   // Null quando a régua ainda não sabe calcular (aluno da base sem crédito
   // pró-rata) — a tela diz "saldo a definir" (vocabulário da 0165).
   const [saldoCheio, setSaldoCheio] = useState<string | null>(null);
+  // Link de saldo sugerido pelo valor real desta pessoa (0255) — ver LinkSaldo acima.
+  const [links, setLinks] = useState<LinkSaldo[]>([]);
 
   const recarregar = useCallback(async () => {
     // 0164: sem o produto, quem tem card em 2 boards abriria um deles ao acaso.
@@ -147,6 +149,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
       setEntrevistaLocal(toLocalInput(d.contato.entrevista_em));
       setAurum(d.aurumSaldo ?? null);
       setSaldoCheio(d.saldoCheio ?? null);
+      setLinks(d.linksSaldo ?? []);
       // Sugestão do servidor para o bloco financeiro (15.000 quando a entrada
       // foi o sinal). O operador confere antes de confirmar.
       const sugestao = numOu0(d.financeiro?.valor_total) || numOu0(d.financeiro?.sugestao_valor_total);
@@ -203,22 +206,24 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
           <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
         </span>
         <p className="text-sm text-slate-600 dark:text-slate-300">{erroAcesso}</p>
-        <Link href="/hm/kanban" className="mt-3 inline-block text-sm font-medium text-brand underline dark:text-brand-300">Voltar à Jornada</Link>
+        <Link href={`${base}/kanban`} className="mt-3 inline-block text-sm font-medium text-brand underline dark:text-brand-300">Voltar à Jornada</Link>
       </div>
     );
   }
-  if (!c) return <div className="py-24 text-center text-slate-500">Aluno não encontrado. <Link href="/hm/kanban" className="text-brand underline">Voltar à Jornada</Link></div>;
+  if (!c) return <div className="py-24 text-center text-slate-500">Aluno não encontrado. <Link href={`${base}/kanban`} className="text-brand underline">Voltar à Jornada</Link></div>;
 
   const tags = c.tags ?? [];
   // A marca de pago é apto_ativacao; pagamento_em é o histórico (fica mesmo quando
   // o card é devolvido ao Comercial e o pagamento é desfeito).
   const jaPagou = !!c.apto_ativacao;
+  // Link do saldo REAL desta pessoa (0255) — ver comentário no topo do arquivo.
+  const linkSaldoRecomendado = links.find((l) => !l.recorrente) ?? links[0] ?? null;
 
   return (
     <div className="mx-auto max-w-3xl">
-      <Link href="/hm/kanban" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+      <Link href={`${base}/kanban`} className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-        Esteira HM
+        Voltar à Jornada
       </Link>
 
       {/* Cabeçalho */}
@@ -493,14 +498,20 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
                     Registrar pagamento realizado
                   </Button>
                 </div>
-                {/* 0165: SALDO_CHECKOUT é a oferta 2vibw97m, DO HM. No card do Aurum
-                    mandaria o aluno pagar o saldo errado — some até haver link próprio
-                    (mesma regra já aplicada no drawer). */}
-                {!aurum && (
-                  <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition hover:underline dark:text-brand-300">
+                {/* 0255: link fixo (2vibw97m) trocado pelo link do saldo REAL desta
+                    pessoa. No card do Aurum ainda não há link próprio — some (mesma
+                    regra já aplicada no drawer). Sem match dentro da tolerância,
+                    a tela avisa em vez de oferecer link de outro valor. */}
+                {!aurum && linkSaldoRecomendado && (
+                  <a href={linkSaldoRecomendado.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand transition hover:underline dark:text-brand-300">
                     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
                     Abrir checkout do saldo na Hotmart
                   </a>
+                )}
+                {!aurum && !linkSaldoRecomendado && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    Não existe link para este saldo — gerar um novo checkout na Hotmart.
+                  </p>
                 )}
                 <p className="text-xs text-slate-400 dark:text-slate-500">
                   {/* 0165: dizia "turma T39" — do HM. A turma sai do que a pessoa É

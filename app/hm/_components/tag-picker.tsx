@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { cn } from "@/app/_components/ui";
 import { TagChip } from "@/app/_components/tags";
+import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 // O seletor de tags (estilo Clint): um botão "+ Tag" que abre a busca; digitar
 // filtra o catálogo, e um nome que não existe vira a linha "criar" — criar É
@@ -33,6 +34,10 @@ type Props = {
 };
 
 export function TagPicker({ opcoes, jaTem = [], onEscolher, disabled, rotulo = "Tag" }: Props) {
+  // 16/08: era `/hm/tags` fixo — do AURUM/ETHB o clique caía no portal HM e,
+  // sem HM na whitelist da conta, `app/hm/layout.tsx` expulsava a pessoa para
+  // `/?sem_acesso=hm`. `base` resolve pela URL atual (useProdutoHm).
+  const { base } = useProdutoHm();
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState("");
   const raiz = useRef<HTMLDivElement>(null);
@@ -132,7 +137,7 @@ export function TagPicker({ opcoes, jaTem = [], onEscolher, disabled, rotulo = "
             )}
           </div>
           <Link
-            href="/hm/tags"
+            href={`${base}/tags`}
             className="block border-t border-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200"
           >
             Gerenciar tags →

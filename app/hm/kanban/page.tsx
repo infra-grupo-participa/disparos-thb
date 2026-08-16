@@ -705,7 +705,7 @@ export default function HmKanbanPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <MarcaPortal portal={portal} altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {nomePortal}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Jornada · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {totalComercial + totalAtivacao} {totalComercial + totalAtivacao === 1 ? "aluno" : "alunos"} — arraste entre as etapas, e para cima/baixo para ordenar a fila.

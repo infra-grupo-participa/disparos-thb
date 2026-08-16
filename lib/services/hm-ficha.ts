@@ -190,12 +190,24 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
   const alvo = saldoCheio?.valor
     ?? (prorata as { saldo_a_pagar?: string } | null)?.saldo_a_pagar
     ?? "14700";
+  // TOLERÂNCIA (16/08, achado do analista de dados): antes este `order by` sem
+  // filtro SEMPRE devolvia o vizinho mais próximo, mesmo quando o mais próximo
+  // era outra oferta a milhares de reais de distância — medido em produção: até
+  // R$487,67 de erro por pessoa em 11 saldos do CSV que não têm oferta própria
+  // aqui. `patch({oferta_saldo_codigo})` grava a oferta ERRADA no card e
+  // `fn_hm_valores_derivados` monta o pacote com ela — a pessoa aparece quitada
+  // com o valor errado. Cada saldo real bate quase exato com sua oferta
+  // cravada (arredondamento de centavos); qualquer diferença maior é OUTRA
+  // oferta, nunca a mesma com desconto. R$1,00 cobre o arredondamento sem
+  // abrir margem para sugerir link de outro valor.
+  const TOLERANCIA_LINK_SALDO = "1.00";
   const linksSaldo = await query(
     `select distinct on (recorrente) codigo, valor, recorrente, link
        from cs.hm_ofertas_saldo
       where ativo and valor is not null
+        and abs(valor - $1::numeric) <= $2::numeric
       order by recorrente, abs(valor - $1::numeric)`,
-    [alvo],
+    [alvo, TOLERANCIA_LINK_SALDO],
   );
 
   const timeline = await query(
