@@ -1204,13 +1204,33 @@ export default function HmTabelaPage() {
     // sozinho: o que a operação quer saber é se está no começo ou quase lá.
     recebido: {
       id: "recebido", label: "Já pago", dir: true,
-      sortVal: (l) => num(l.valor_pago),
+      // 16/08: passou a mostrar `pago_no_ciclo`, não `valor_pago`. `valor_pago` é o razão
+      // INTEIRO da pessoa — inclui o que ela pagou no programa anterior, que já está
+      // representado no crédito pró-rata que reduz o pacote dela. Mostrar os dois juntos
+      // conta o mesmo dinheiro duas vezes: 5 cards do HM apareciam com R$ 26.600,02 a mais,
+      // o pior deles com R$ 12.000,02 de diferença. Quando há diferença, o valor antigo vai
+      // no título — some do número, não do histórico.
+      sortVal: (l) => num(l.pago_no_ciclo) ?? num(l.valor_pago),
       render: (l) => {
-        const pago = num(l.valor_pago) ?? 0;
+        const pago = num(l.pago_no_ciclo) ?? num(l.valor_pago) ?? 0;
+        const totalRazao = num(l.valor_pago) ?? 0;
+        const anterior = totalRazao - pago;
         const pct = num(l.pago_pct);
         return (
           <div className="flex min-w-[7.5rem] flex-col items-end gap-0.5">
-            <span className="whitespace-nowrap font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">{brl(pago)}</span>
+            <span
+              className="whitespace-nowrap font-semibold tabular-nums text-emerald-700 dark:text-emerald-400"
+              title={anterior > 1
+                ? `Pago neste programa: ${brl(pago)}. Esta pessoa também pagou ${brl(anterior)} no ciclo anterior — aquele valor virou crédito pró-rata e já está descontado do pacote dela, por isso não é somado aqui.`
+                : undefined}
+            >
+              {brl(pago)}
+            </span>
+            {anterior > 1 && (
+              <span className="whitespace-nowrap text-[10px] text-slate-400 dark:text-slate-500">
+                + {brl(anterior)} no ciclo anterior
+              </span>
+            )}
             {pct !== null && (
               <span className="flex w-full items-center justify-end gap-1">
                 <span className="h-1 w-12 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">

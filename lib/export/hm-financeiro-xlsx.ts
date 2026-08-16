@@ -2,6 +2,16 @@ import ExcelJS from "exceljs";
 import type { LinhaEsteira } from "@/lib/services/hm-relatorio";
 import type { PagamentoHm, RelatorioFinanceiroHm } from "@/lib/services/hm-financeiro";
 
+// O RECEBIDO DE UM ALUNO É O DO CICLO, NUNCA O RAZÃO INTEIRO (16/08/2026).
+// `valor_pago` soma tudo o que a pessoa já pagou desde sempre — inclusive o programa
+// ANTERIOR, cujo valor já está representado no crédito pró-rata que reduz o pacote dela.
+// Somar os dois conta o mesmo dinheiro duas vezes e infla todo total deste arquivo.
+// Medido: 5 cards do HM com R$ 26.600,02 a mais, o pior com R$ 12.000,02 de diferença.
+// Ver disparos-brain/"Crédito do ciclo anterior não é pagamento deste".
+function recebidoNoCiclo(l: LinhaEsteira): number | null {
+  return n(l.pago_no_ciclo) ?? n(l.valor_pago);
+}
+
 // A planilha do financeiro. Cinco leituras do mesmo dinheiro:
 //
 //   Resumo         — quanto entrou, quanto falta, e o que está fora do lugar.
@@ -213,7 +223,7 @@ function resumo(wb: ExcelJS.Workbook, r: RelatorioFinanceiroHm, agora: Date) {
     return [
       PUBLICO[x] ?? x,
       ls.length,
-      ls.reduce((a, l) => a + (n(l.valor_pago) ?? 0), 0),
+      ls.reduce((a, l) => a + (recebidoNoCiclo(l) ?? 0), 0),
       somaSaldo(ls),
     ];
   }), { dinheiro: [3, 4] });
@@ -223,11 +233,11 @@ function resumo(wb: ExcelJS.Workbook, r: RelatorioFinanceiroHm, agora: Date) {
   // O canal é a tag "pelo fato" (0052), materializada na view (0094) — nunca o
   // texto da oferta. Quem não tem canal classificado aparece (não some do total).
   const canais = Array.from(new Set(r.linhas.map((l) => l.canal_aquisicao ?? "não identificado")));
-  const totalRecebido = r.linhas.reduce((a, l) => a + (n(l.valor_pago) ?? 0), 0);
+  const totalRecebido = r.linhas.reduce((a, l) => a + (recebidoNoCiclo(l) ?? 0), 0);
   secao(ws, "POR CANAL DE AQUISIÇÃO", ["Canal", "Vendas", "Recebido", "% do recebido"], canais
     .map((c) => {
       const ls = r.linhas.filter((l) => (l.canal_aquisicao ?? "não identificado") === c);
-      const receb = ls.reduce((a, l) => a + (n(l.valor_pago) ?? 0), 0);
+      const receb = ls.reduce((a, l) => a + (recebidoNoCiclo(l) ?? 0), 0);
       return [c, ls.length, receb, totalRecebido ? receb / totalRecebido : null] as unknown[];
     })
     .sort((a, b) => (b[2] as number) - (a[2] as number)),
@@ -279,20 +289,20 @@ function resumo(wb: ExcelJS.Workbook, r: RelatorioFinanceiroHm, agora: Date) {
       return [
         EVENTO[e] ?? e,
         ls.length,
-        ls.reduce((a, l) => a + (n(l.valor_pago) ?? 0), 0),
+        ls.reduce((a, l) => a + (recebidoNoCiclo(l) ?? 0), 0),
         "Confirmado pela Hotmart — o dinheiro voltou.",
       ];
     }),
     [
       "⚠ Confirmamos, a Hotmart não",
       semConfirma.length,
-      semConfirma.reduce((a, l) => a + (n(l.valor_pago) ?? 0), 0),
+      semConfirma.reduce((a, l) => a + (recebidoNoCiclo(l) ?? 0), 0),
       "Ou o reembolso não saiu (o dinheiro ainda é nosso), ou marcamos por engano e tiramos o acesso de quem paga.",
     ],
     [
       "⚠ Hotmart cancelou, o card não registrou",
       soHotmart.length,
-      soHotmart.reduce((a, l) => a + (n(l.valor_pago) ?? 0), 0),
+      soHotmart.reduce((a, l) => a + (recebidoNoCiclo(l) ?? 0), 0),
       "O dinheiro voltou e o aluno pode seguir com acesso.",
     ],
   ], {
@@ -380,7 +390,7 @@ const COLS_CARTEIRA: Col<LinhaEsteira>[] = [
       return c !== null && reg !== null ? c - reg : null;
     },
   },
-  { header: "Recebido", width: 14, get: (l) => n(l.valor_pago), fmt: "dinheiro" },
+  { header: "Recebido", width: 14, get: (l) => recebidoNoCiclo(l), fmt: "dinheiro" },
   { header: "% pago", width: 9, get: (l) => (n(l.pago_pct) !== null ? (n(l.pago_pct) as number) / 100 : null), fmt: "pct" },
   // Vazio aqui não é zero: é "não dá para calcular" (falta o crédito pró-rata).
   // Quem quitou também vem vazio — não deve nada.
@@ -424,7 +434,7 @@ const COLS_A_RECEBER: Col<LinhaEsteira>[] = [
       ? "Sem crédito pró-rata na ficha (valor pago e data da compra anterior). Ele deve; o sistema é que não sabe quanto."
       : ""),
   },
-  { header: "Recebido", width: 14, get: (l) => n(l.valor_pago), fmt: "dinheiro" },
+  { header: "Recebido", width: 14, get: (l) => recebidoNoCiclo(l), fmt: "dinheiro" },
   { header: "Parcelas pagas", width: 12, get: (l) => l.parcelas_pagas ?? 0 },
   { header: "Parcelas contratadas", width: 14, get: (l) => l.parcelas_contratadas ?? 0 },
   { header: "Último pagamento", width: 15, get: (l) => d(l.ultimo_pagamento_em), fmt: "data" },
@@ -476,7 +486,7 @@ const COLS_CANCELAMENTOS: Col<LinhaEsteira>[] = [
   { header: "Evento na Hotmart", width: 18, get: (l) => EVENTO[l.hotmart_cancelamento_evento ?? ""] ?? txt(l.hotmart_cancelamento_evento) },
   { header: "Transação", width: 20, get: (l) => txt(l.hotmart_cancelamento_transacao) },
   // O dinheiro que esta pessoa já tinha pagado — é o que está em jogo no reembolso.
-  { header: "Recebido", width: 14, get: (l) => n(l.valor_pago), fmt: "dinheiro" },
+  { header: "Recebido", width: 14, get: (l) => recebidoNoCiclo(l), fmt: "dinheiro" },
   { header: "Motivo", width: 40, get: (l) => txt(l.cancelamento_motivo) },
   { header: "Acessos revogados em", width: 17, get: (l) => d(l.acessos_revogados_em), fmt: "data" },
   { header: "Revogados por", width: 14, get: (l) => txt(l.acessos_revogados_por) },
