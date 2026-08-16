@@ -29,6 +29,9 @@ const SLACK_WEBHOOKS: Record<string, string> = {
   CLINICA: Deno.env.get("SLACK_WEBHOOK_EVENTS_CLINICA") ?? "",
   ETHB:    Deno.env.get("SLACK_WEBHOOK_EVENTS_ETHB")    ?? "",
   IMERSAO: Deno.env.get("SLACK_WEBHOOK_EVENTS_IMERSAO") ?? "",
+  // Sem env configurada o notifySlack apenas avisa no log e volta — a venda entra no
+  // banco do mesmo jeito. Notificação é secundária; gravar a compra é que é crítico.
+  AURUM:   Deno.env.get("SLACK_WEBHOOK_EVENTS_AURUM")   ?? "",
 };
 
 // Mapeamento product_id → chave do canal
@@ -37,6 +40,13 @@ const PRODUCT_CHANNEL: Record<string, string> = {
   "2414291": "HT",      // VIP - Holding Total
   "5064314": "HM",      // Holding Masters
   "3507214": "HM",      // Holding - Holding Masters
+  // [15/08/2026] O AURUM nunca esteve aqui — e o produto se chama "Aurum ", que não casa
+  // com nenhuma regra de nome do resolveChannel. Resultado: todo webhook do Aurum caía no
+  // `product_not_mapped`, devolvia HTTP 200 e era DESCARTADO. A Hotmart lê 200 como
+  // "recebido" e nunca reenvia. Nada era gravado: nem compra, nem comprador, nem log.
+  // Medido contra o export da Hotmart: 9 vendas aprovadas perdidas de 01/07 a 14/08,
+  // R$ 206.655,76 — inclusive os R$ 61.284,90 da Maria José Liberato Montanari em 14/08.
+  "3094405": "AURUM",   // Aurum
   "6990981": "HMAIS",   // Holding Mais
   "5682989": "CLINICA", // Clínica de Holding Familiar
   "5951389": "ETHB",    // Encontro do Time Holding Brasil
@@ -51,6 +61,7 @@ const CHANNEL_LABEL: Record<string, string> = {
   CLINICA: "Clínica em Holding Familiar - Porto Alegre",
   ETHB:    "Encontro do Time Holding Brasil",
   IMERSAO: "Imersão em Holding Familiar - Porto Alegre",
+  AURUM:   "Aurum",
 };
 
 function normalizeStr(s: string): string {
@@ -70,6 +81,7 @@ function resolveChannel(productId: string, productName: string): string | null {
   if (name.includes("clinica") || (name.includes("cl") && name.includes("nica"))) return "CLINICA";
   if (name.includes("encontro do time") || name.includes("ethb")) return "ETHB";
   if (name.includes("imersao") || (name.includes("imers") && name.includes("holding"))) return "IMERSAO";
+  if (name.includes("aurum")) return "AURUM";
 
   return null;
 }
@@ -293,6 +305,35 @@ async function notifySlack(channel: string, payload: {
 // atrapalha a notificação do Slack. Reusa o modelo existente (não cria compradores_ht).
 // Guarda o evento como a Hotmart mandou. Nunca derruba o webhook: se falhar, o
 // pagamento continua sendo processado — o log é para nós, não para ela.
+// [15/08/2026] Produto que a Hotmart manda e o webhook não conhece passa a ACENDER.
+// Antes era um console.log que ninguém lia, e a venda sumia — foi o caso do Aurum.
+// Idempotente por (tipo, chave): reabre só se o alerta anterior já foi resolvido.
+async function alertaProdutoNaoMapeado(
+  productId: string,
+  productName: string,
+  evento: string,
+): Promise<void> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return;
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: aberto } = await supabase.schema("cs").from("hm_alertas")
+      .select("id").eq("tipo", "produto_nao_mapeado").eq("chave", productId)
+      .is("resolvido_em", null).limit(1);
+    if (aberto && aberto.length > 0) return;
+
+    await supabase.schema("cs").from("hm_alertas").insert({
+      tipo: "produto_nao_mapeado",
+      chave: productId,
+      severidade: "critico",
+      detalhe: `A Hotmart avisou uma venda do produto ${productId} ("${productName}") e o sistema NAO conhece esse produto — a venda foi descartada e nao entrou em lugar nenhum (evento ${evento}). O payload foi guardado em cs.hotmart_eventos e pode ser reprocessado depois de mapear o produto. Precisa do time tecnico: adicionar o produto em PRODUCT_CHANNEL na edge function hotmart-events-webhook.`,
+    });
+  } catch (e) {
+    console.error("[alertaProdutoNaoMapeado] falhou:", e);
+  }
+}
+
 async function logEventoHotmart(
   evento: string,
   transacao: string | null,
@@ -903,7 +944,23 @@ serve(async (req) => {
   const channel = resolveChannel(productId, productName);
 
   if (!channel) {
-    console.log(`Produto não mapeado para nenhum canal: ${productId} (${productName})`);
+    // [15/08/2026] Isto era um descarte SILENCIOSO: console.log + HTTP 200. A Hotmart lê
+    // 200 como "recebido" e nunca reenvia, então a venda evaporava sem deixar rastro em
+    // lugar nenhum — nem em compras, nem em compradores, nem no log de eventos. Foi assim
+    // que o Aurum ficou fora do sistema inteiro (R$ 206.655,76 em 9 vendas, 01/07 a 14/08).
+    //
+    // Continua devolvendo 200 de propósito: erro aqui não é culpa da Hotmart e reenviar
+    // não resolveria — o produto seguiria não mapeado. O que muda é que agora FICA RASTRO:
+    // o payload cru vai para cs.hotmart_eventos (dá para reprocessar depois de mapear) e
+    // um alerta crítico acende no monitor com o id do produto que falta.
+    console.warn(`Produto não mapeado para nenhum canal: ${productId} (${productName})`);
+    await logEventoHotmart(
+      `${event}:PRODUTO_NAO_MAPEADO`,
+      String(purchase?.transaction ?? "") || null,
+      String(buyer?.email ?? "").trim() || null,
+      body,
+    );
+    await alertaProdutoNaoMapeado(productId, productName, event);
     return new Response(JSON.stringify({ ok: true, reason: "product_not_mapped" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
