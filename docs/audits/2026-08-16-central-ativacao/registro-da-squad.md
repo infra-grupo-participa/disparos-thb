@@ -980,4 +980,79 @@ RISCO RESIDUAL
 - Telas autenticadas sem prova visual até o João pôr a credencial — deploy é manual, o risco não chega ao ar sozinho.
 - `proximoProtocolo` conta por LIKE-prefixo sem índice pattern_ops — irrelevante no volume atual; revisar se emissão virar automática.
 - Webhook cego para ETHB/Fire/Transmissão (PRODUCT_CHANNEL) segue fora desta leva — mapeado, não corrigido; PR #32 pendente.
+
+### Frontend — acabamento no browser (17/08)
+
+Bloqueio de browser resolvido (`.env.local` com papel `disparos_ui_ro`, cookie de `.token.tmp`,
+dev server em :3005). Validei tudo em Chromium de verdade, dado de produção, nas três larguras
+pedidas — não é build verde, é tela vista.
+
+**Defeito confirmado do menu — 3 causas, não 1.** `app/_components/top-nav.tsx`:
+1. **Não cabia.** 5 itens Operação + 3 Gestão soltos + "Mais" (8 alvos + separadores) estourava
+   1440px; o nav rola (`overflow-x-auto`) mas sem indicar isso, "Mais" saía da viewport — Ofertas/
+   Acessos/Equipes ficavam inalcançáveis sem saber que precisava rolar. Fix: Gestão virou dropdown
+   igual Ajustes (`NavDropdown` genérico substitui o antigo `MenuMais`, top-nav.tsx:161-296).
+2. **Aurum sozinho ainda estourava depois do fix acima.** O logo da Aurum (`aurum.png`, proporção
+   3.75:1) rendeiza ~120px de largura contra ~64px do HM — sobrava só 704px de nav em vez de 749px.
+   Fix: `top-nav.tsx:257` — `comNome={false} className="max-w-[76px] object-contain"` no
+   `MarcaPortal` do cabeçalho (não mexi em `marca.tsx`, só no call site do header).
+3. **Dropdown clicava no vazio.** Achado testando o próprio fix: o painel do dropdown vivia
+   `absolute` dentro do `<nav overflow-x-auto>` — CSS trata overflow-x diferente de `visible` como
+   overflow-y também clipante, então o painel nunca pintava nem recebia clique (confirmado via
+   `elementFromPoint` batendo no `<main>` por trás). Fix: portal pro `document.body` com posição
+   `fixed` calculada do `getBoundingClientRect()` do botão (`top-nav.tsx:158-306`). Isso quebrou a
+   ordem de Tab (painel fica no fim do DOM) — adicionei foco automático no primeiro item ao abrir,
+   trap de Tab/Shift+Tab e setas dentro do painel, Escape devolve foco ao botão. Testado via
+   Playwright puro (sem confiar em screenshot): clique em item navega, Tab/ArrowDown/Home/End/
+   Escape percorrem e fecham corretamente.
+
+**Provado nas 3 larguras** (`nav-*.png` no scratchpad) em HM/Aurum/ETHB: 1280, 1440, 1920 —
+`navScrollWidth === navClientWidth` nas três (sem overflow), nenhum item escondido, "Mais"/"Gestão"
+sempre visíveis e clicáveis.
+
+**Capturas por rota (1440, dado de produção):**
+- `/hm/painel`, `/aurum/painel`, `/ethb/painel` — hierarquia dos KPI boa (valor + delta + seta +
+  sparkline), bloco "Desempenho comercial × ativação" bem separado do financeiro com o callout do
+  buraco de dono. ETHB sem dado ainda (zeros) renderiza limpo, sem quebra.
+- `/hm/relatorios` — tela enxuta, sem problema.
+- `/hm/ofertas` — **confirmado o defeito apontado**: 133 linhas sem paginação, página com 19995px
+  de altura. Adicionei paginação client-side (`app/hm/ofertas/page.tsx`: `Paginacao` novo
+  componente, `ITENS_POR_PAGINA=40`, reseta pra página 1 quando qualquer filtro muda). 4 páginas,
+  rodapé "Mostrando 1–40 de 133 ofertas" + Anterior/Próxima/números com janela (1 … atual±1 …
+  última). Zero dependência nova, zero toque em `lib/services/hm-ofertas.ts`.
+- `/hm/carteira`, `/aurum/carteira` — números batem com os KPI do topo, cards por comercial
+  coerentes. HM tem 234 linhas sem paginação (mesmo problema do Ofertas, users não pediu — **não
+  mexi**, reporto abaixo). Aurum (33 linhas) não precisa.
+- Tema escuro — contraste bom em todas as telas revisadas, sparklines legíveis, sem `!important`.
+- 390px — achei e corrigi um problema real: `app/_components/atividade-desempenho.tsx` tinha
+  `overflow-x-auto` na tabela mas `table w-full` sem `min-w`, então no mobile o texto ("Acima da
+  mediana do time") quebrava em 5-6 linhas por célula em vez de rolar. Fix: `min-w-[640px]`
+  (Comercial) e `min-w-[480px]` (Ativação) nas duas tabelas — agora rola horizontal, texto legível
+  numa linha.
+
+**Achado, não corrigido (fora do escopo frontend, relato conforme pedido):**
+- `lib/services/hm-carteira.ts:139` — `Parou de pagar — último em ${dm(r.ultimo_pagamento_em)}`
+  renderiza literalmente **"undefined/undefined"** na tela quando `dm()` recebe uma data que não
+  processa (visível em `/hm/carteira`, ex. "Leonel Silveira", "Ilone Maria Ferlin"). Bug de
+  formatação no service, não no componente.
+- `/hm/carteira` (234 linhas) e provavelmente outras listas grandes do portal têm o mesmo padrão
+  sem paginação que Ofertas tinha — não mexi por não estar no pedido explícito, mas fica registrado
+  porque é o mesmo defeito de UX.
+- Nav em 390px segue "espremido": mesmo com a consolidação de Gestão/Ajustes (9→7 alvos), a soma de
+  logo + seletor de portal + 5 ícones de Operação + 2 dropdowns + busca/ajuda/tema/avatar/sino não
+  cabe fisicamente num viewport de 390px — o nav vira uma faixa de ~15px de largura, rolável mas
+  praticamente invisível sem saber que está ali. Resolver de verdade pede um padrão de nav mobile
+  próprio (menu hamburger ou barra inferior) — redesenho maior que "acabamento", não fiz sem pedido
+  explícito.
+
+**Verificado:**
+- `npm run typecheck` → limpo (sem saída, exit 0).
+- `npm run lint` → "✔ No ESLint warnings or errors".
+- `node captura.tmp.js` nas 9 rotas → todas 200, zero erro de console.
+- Playwright: clique de mouse e teclado completo (Tab/ArrowDown/ArrowUp/Home/End/Escape) nos dois
+  dropdowns do nav, testado à parte de screenshot (hit-test real, não só visual).
+
+**Arquivos tocados:** `app/_components/top-nav.tsx`, `app/hm/ofertas/page.tsx`,
+`app/_components/atividade-desempenho.tsx`. Nenhum toque em `lib/services/*`, `lib/relatorios/*`,
+`db/migrations/*`, `app/api/*`.
 - `price_brl` segue nulo nas 96 linhas até alguém promover a planilha pela tela nova.

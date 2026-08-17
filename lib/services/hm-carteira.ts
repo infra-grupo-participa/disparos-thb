@@ -88,9 +88,27 @@ const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(
 const numOuNulo = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const txt = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const dm = (iso: string) => {
-  const [, m, d] = iso.slice(0, 10).split("-");
-  return `${d}/${m}`;
+// Só formata o que REALMENTE é uma data ISO. Antes, qualquer coisa fora do formato caía no
+// destructuring e a tela escrevia "undefined/undefined" no meio da frase de cobrança — o
+// operador lia isso como bug da tela e ignorava a linha inteira, inclusive a parte verdadeira
+// ("Parou de pagar — último em ..."). Data que não dá para ler vira um aviso explícito.
+const dm = (iso: string | Date | null | undefined) => {
+  // `timestamptz` volta do driver como Date, não como string ISO — era daí que vinham as 37
+  // linhas com "undefined/undefined" na Carteira (medido em 17/08): a data existia e estava
+  // certa no banco, só não era texto. Date entra pelo toISOString; o resto vira aviso honesto.
+  const s = iso instanceof Date ? iso.toISOString() : typeof iso === "string" ? iso : "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return `${m[3]}/${m[2]}`;
+  // `timestamptz` chega aqui já passado por String(Date) ("Sat Aug 15 2026 12:37:32 GMT+0000"),
+  // que não é ISO e não casa no regex acima — era daí que saíam as 37 linhas com
+  // "undefined/undefined" na Carteira (medido no browser em 17/08). A data existe e está certa
+  // no banco; só não chega como texto ISO. Só depois deste fallback é que vira aviso.
+  const t = Date.parse(s);
+  if (!Number.isNaN(t)) {
+    const d = new Date(t);
+    return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  }
+  return "data a conferir";
 };
 const diasEntre = (a: string, b: string) => Math.round((Date.parse(a) - Date.parse(b)) / 86_400_000);
 /** Datas digitadas à mão trazem ano de 5 dígitos e 2027 no meio de 2026 — a tela nunca calcula
@@ -101,8 +119,13 @@ const dataPlausivel = (iso: string | null): boolean => {
   return ano >= 2025 && ano <= 2026;
 };
 
+// Cada modo devolve EXATAMENTE tantos params quantos placeholders o seu `sql` usa — o driver
+// manda todos para o Postgres, e sobrar parâmetro é erro fatal, não excesso ignorado
+// (`08P01: bind message supplies 3 parameters, but prepared statement requires 1`). Foi assim
+// que a Carteira ficou em 500 para todo admin/master desde a 0245: o modo "tudo" não usa $2/$3
+// e mandava dois nulos assim mesmo. Medido no Chromium em 17/08/2026, com a tela na frente.
 function recorte(escopo: EscopoVisibilidade): { sql: string; params: (string | null)[] } {
-  if (escopo.modo === "tudo") return { sql: "", params: [null, null] };
+  if (escopo.modo === "tudo") return { sql: "", params: [] };
   if (escopo.modo === "equipe") {
     return {
       sql: `and (v.carteira_usuario_id = $2::uuid
@@ -111,7 +134,7 @@ function recorte(escopo: EscopoVisibilidade): { sql: string; params: (string | n
       params: [escopo.usuarioId, escopo.equipeId],
     };
   }
-  return { sql: "and v.carteira_usuario_id = $2::uuid", params: [escopo.usuarioId, null] };
+  return { sql: "and v.carteira_usuario_id = $2::uuid", params: [escopo.usuarioId] };
 }
 
 function cobrancaDe(r: {

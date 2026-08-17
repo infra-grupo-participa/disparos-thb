@@ -324,6 +324,19 @@ export default function OfertasPage() {
     setSoSemValor(false); setSoSemProduto(false);
   }
 
+  // Paginação client-side (17/08): o catálogo já passa de 130 linhas e só
+  // cresce — sem isso a tabela virava uma rolagem de tela inteira sem fim
+  // visível. 40 por página deixa ~4 páginas hoje sem escalonar demais o clique.
+  const ITENS_POR_PAGINA = 40;
+  const [pagina, setPagina] = useState(1);
+  useEffect(() => { setPagina(1); }, [busca, filtroProduto, filtroPapel, filtroOrigem, filtroAtivo, soSemValor, soSemProduto]);
+  const totalPaginas = Math.max(1, Math.ceil(ofertasFiltradas.length / ITENS_POR_PAGINA));
+  const paginaAtual = Math.min(pagina, totalPaginas);
+  const ofertasPagina = useMemo(
+    () => ofertasFiltradas.slice((paginaAtual - 1) * ITENS_POR_PAGINA, paginaAtual * ITENS_POR_PAGINA),
+    [ofertasFiltradas, paginaAtual],
+  );
+
   // ----- Importar -----
   const inputArquivoRef = useRef<HTMLInputElement>(null);
   const [arquivo, setArquivo] = useState<File | null>(null);
@@ -614,7 +627,7 @@ export default function OfertasPage() {
                 {ofertasFiltradas.length === 0 && !carregando ? (
                   <tr><td colSpan={9} className="px-3 py-10 text-center text-sm text-slate-400">Nenhuma oferta com esses filtros.</td></tr>
                 ) : (
-                  ofertasFiltradas.map((o) => (
+                  ofertasPagina.map((o) => (
                     <tr key={o.offer_code} className="border-b border-slate-100 last:border-0 dark:border-slate-800/70">
                       <td className={tdClass}>
                         <p className="font-medium text-slate-800 dark:text-slate-100">{o.nome_comercial ?? o.product_name ?? "— sem nome comercial —"}</p>
@@ -654,6 +667,16 @@ export default function OfertasPage() {
               </tbody>
             </table>
           </div>
+
+          {ofertasFiltradas.length > 0 && (
+            <Paginacao
+              paginaAtual={paginaAtual}
+              totalPaginas={totalPaginas}
+              total={ofertasFiltradas.length}
+              itensPorPagina={ITENS_POR_PAGINA}
+              onMudarPagina={setPagina}
+            />
+          )}
         </div>
       ) : (
         <div role="tabpanel">
@@ -756,6 +779,82 @@ function Placar({ rotulo, valor, tom, dica }: { rotulo: string; valor: number; t
         {valor}
       </p>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Paginação da tabela do catálogo — client-side, sobre a lista já filtrada.
+// ---------------------------------------------------------------------------
+function Paginacao({
+  paginaAtual, totalPaginas, total, itensPorPagina, onMudarPagina,
+}: {
+  paginaAtual: number;
+  totalPaginas: number;
+  total: number;
+  itensPorPagina: number;
+  onMudarPagina: (p: number) => void;
+}) {
+  const inicio = (paginaAtual - 1) * itensPorPagina + 1;
+  const fim = Math.min(total, paginaAtual * itensPorPagina);
+
+  // Janela de páginas clicáveis: sempre 1 e a última, mais um vizinho de cada
+  // lado da atual — evita uma fileira de dezenas de botões quando o catálogo
+  // crescer bem além de hoje.
+  const paginas: (number | "…")[] = [];
+  for (let p = 1; p <= totalPaginas; p++) {
+    if (p === 1 || p === totalPaginas || Math.abs(p - paginaAtual) <= 1) paginas.push(p);
+    else if (paginas[paginas.length - 1] !== "…") paginas.push("…");
+  }
+
+  return (
+    <nav aria-label="Paginação do catálogo" className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+      <p className="text-slate-500 dark:text-slate-400">
+        Mostrando <strong className="font-semibold text-slate-700 dark:text-slate-200">{inicio}–{fim}</strong> de{" "}
+        <strong className="font-semibold text-slate-700 dark:text-slate-200">{total}</strong> ofertas
+      </p>
+      {totalPaginas > 1 && (
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onMudarPagina(paginaAtual - 1)}
+            disabled={paginaAtual <= 1}
+            aria-label="Página anterior"
+            className="alvo-toque rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            ← Anterior
+          </button>
+          {paginas.map((p, i) =>
+            p === "…" ? (
+              <span key={`e${i}`} className="px-1.5 text-xs text-slate-400 dark:text-slate-500">…</span>
+            ) : (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onMudarPagina(p)}
+                aria-current={p === paginaAtual ? "page" : undefined}
+                className={cn(
+                  "alvo-toque min-w-[2rem] rounded-lg px-2 py-1.5 text-xs font-semibold transition",
+                  p === paginaAtual
+                    ? "bg-brand text-white shadow-card dark:bg-brand-500"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800",
+                )}
+              >
+                {p}
+              </button>
+            ),
+          )}
+          <button
+            type="button"
+            onClick={() => onMudarPagina(paginaAtual + 1)}
+            disabled={paginaAtual >= totalPaginas}
+            aria-label="Próxima página"
+            className="alvo-toque rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            Próxima →
+          </button>
+        </div>
+      )}
+    </nav>
   );
 }
 

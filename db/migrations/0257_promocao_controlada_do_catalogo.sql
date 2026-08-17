@@ -74,7 +74,10 @@ declare
   v_existe  boolean;
   v_ja_feito boolean;
 begin
-  select * into v from cs.oferta_planilha_staging where id = p_staging_id;
+  -- Toda referência a public.hm_product_catalog abaixo vai QUALIFICADA por alias
+  -- (`c.offer_code`): a função tem uma coluna OUT chamada `offer_code` e o Postgres
+  -- não resolve a ambiguidade sozinho — erro 42702 na primeira promoção real (17/08).
+  select * into v from cs.oferta_planilha_staging s where s.id = p_staging_id;
   if not found then
     return query select false, null::text, 'nenhuma'::text, 'linha de staging não encontrada';
     return;
@@ -92,18 +95,20 @@ begin
 
   -- Idempotência: já promovida antes (clique duplo / retry)?
   select exists(
-    select 1 from public.hm_product_catalog
-     where offer_code = v.offer_code and origem_ref = 'staging:' || v.id
+    select 1 from public.hm_product_catalog c
+     where c.offer_code = v.offer_code and c.origem_ref = 'staging:' || v.id
   ) into v_ja_feito;
   if v_ja_feito then
     return query select true, v.offer_code, 'ja_promovido'::text, null::text;
     return;
   end if;
 
-  select exists(select 1 from public.hm_product_catalog where offer_code = v.offer_code) into v_existe;
+  select exists(
+    select 1 from public.hm_product_catalog c where c.offer_code = v.offer_code
+  ) into v_existe;
 
   if not v_existe then
-    insert into public.hm_product_catalog
+    insert into public.hm_product_catalog as c
       (offer_code, nome_comercial, valor_tabela, explicacao, link, produto_checkout,
        origem_do_dado, origem_ref, atualizado_por, atualizado_em)
     values
@@ -117,16 +122,16 @@ begin
   -- Já existe: só entra onde a coluna está NULA hoje. `origem_do_dado`
   -- original NÃO muda aqui (a linha pode já ser 'migration'/'manual' — a
   -- planilha só está PREENCHENDO GAPS, não reclassificando a origem).
-  update public.hm_product_catalog set
-    nome_comercial   = coalesce(nome_comercial, nullif(v.produto_txt, '')),
-    valor_tabela     = coalesce(valor_tabela, v.valor_num_planilha),
-    explicacao       = coalesce(explicacao, nullif(v.explicacao_txt, '')),
-    link             = coalesce(link, v.link),
-    produto_checkout = coalesce(produto_checkout, v.produto_checkout),
-    origem_ref       = coalesce(origem_ref, 'staging:' || v.id),
+  update public.hm_product_catalog as c set
+    nome_comercial   = coalesce(c.nome_comercial, nullif(v.produto_txt, '')),
+    valor_tabela     = coalesce(c.valor_tabela, v.valor_num_planilha),
+    explicacao       = coalesce(c.explicacao, nullif(v.explicacao_txt, '')),
+    link             = coalesce(c.link, v.link),
+    produto_checkout = coalesce(c.produto_checkout, v.produto_checkout),
+    origem_ref       = coalesce(c.origem_ref, 'staging:' || v.id),
     atualizado_por   = p_por,
     atualizado_em    = now()
-  where offer_code = v.offer_code;
+  where c.offer_code = v.offer_code;
 
   return query select true, v.offer_code, 'atualizado'::text, null::text;
 end;

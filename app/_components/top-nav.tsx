@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import ThemeToggle from "./theme-toggle";
@@ -142,43 +143,140 @@ function NavGroup({ label, itens, base, portal, pathname }: { label: string; ite
   );
 }
 
-// Dropdown "Mais" — o grupo AJUSTES (configuração; a maioria gestor+/master).
-// Some INTEIRO quando não sobra item para o nível de quem olha (ex.: operador
-// só enxerga Tags/Templates dentro — se um dia nenhum dos dois for visível, o
-// botão não aparece; hoje sempre sobra pelo menos um). Mesmo padrão de
-// clique-fora e Escape do UserMenu, para não inventar um segundo jeito de
+// Ícone genérico de "mais opções" (⋯), usado no botão do dropdown de Ajustes.
+const ICONE_MAIS = "M5 13.5A1.5 1.5 0 1 0 5 10.5a1.5 1.5 0 0 0 0 3ZM12 13.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM19 13.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z";
+// Ícone de barras (mesmo do item "Painel"), usado no botão do dropdown de Gestão.
+const ICONE_GESTAO = GESTAO_HM[0].icon;
+
+// Dropdown de grupo — usado tanto para GESTÃO quanto para AJUSTES (17/08: a
+// 1440px, 5 itens de Operação + 3 de Gestão inline + o botão Mais não cabiam
+// — "Mais" saía da viewport e virava invisível sem rolar, escondendo Ofertas/
+// Acessos/Equipes de quem administra. Gestão também virou botão único: menos
+// itens soltos no cabeçalho, nada desaparece da tela sem indicação.)
+// Some INTEIRO quando não sobra item para o nível de quem olha. Mesmo padrão
+// de clique-fora e Escape do UserMenu, para não inventar um segundo jeito de
 // fechar dropdown no mesmo cabeçalho.
-function MenuMais({ itens, base, portal, pathname }: { itens: LinkDef[]; base: string; portal: string; pathname: string | null }) {
+const LARGURA_PAINEL = 208; // w-52
+
+function NavDropdown({
+  label, texto, icon, itens, base, portal, pathname,
+}: { label: string; texto: string; icon: string; itens: LinkDef[]; base: string; portal: string; pathname: string | null }) {
   const [aberto, setAberto] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  // Posição do painel em `fixed` (viewport), não `absolute` dentro do botão:
+  // o botão vive num <nav overflow-x-auto> (a rolagem horizontal do menu no
+  // mobile) — overflow-x diferente de visible faz o navegador tratar
+  // overflow-y também como clipante (regra do CSS Overflow), então um painel
+  // `absolute` ali dentro nunca pintava nem recebia clique, só existia no DOM.
+  // Portal pro <body> tira o painel dessa caixa sem tocar no scroll do nav.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const painelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function fora(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setAberto(false); }
+    function fora(e: MouseEvent) {
+      const alvo = e.target as Node;
+      if (wrapRef.current?.contains(alvo)) return;
+      if (painelRef.current?.contains(alvo)) return;
+      setAberto(false);
+    }
     function tecla(e: KeyboardEvent) { if (e.key === "Escape") setAberto(false); }
+    // Fecha (em vez de tentar reposicionar) em resize/rolagem do nav — evita o
+    // painel ficar "flutuando" fora do lugar depois que a página ou o próprio
+    // menu horizontal se mexem.
+    function fechar() { setAberto(false); }
     document.addEventListener("mousedown", fora);
     document.addEventListener("keydown", tecla);
-    return () => { document.removeEventListener("mousedown", fora); document.removeEventListener("keydown", tecla); };
+    window.addEventListener("resize", fechar);
+    window.addEventListener("scroll", fechar, true);
+    return () => {
+      document.removeEventListener("mousedown", fora);
+      document.removeEventListener("keydown", tecla);
+      window.removeEventListener("resize", fechar);
+      window.removeEventListener("scroll", fechar, true);
+    };
   }, []);
+
+  // O painel mora no <body> via portal (ver comentário acima) — no DOM ele
+  // fica DEPOIS de todo o cabeçalho, então Tab "solto" pularia os itens e ia
+  // direto pro próximo botão do menu. Ao abrir, foco vai pro primeiro item; e
+  // enquanto aberto, Tab/Shift+Tab ficam presos nos itens do próprio painel
+  // (mesmo padrão de menu que um <select> nativo) — Escape sempre devolve o
+  // foco pro botão que abriu.
+  useEffect(() => {
+    if (!aberto) return;
+    const t = setTimeout(() => {
+      painelRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [aberto]);
+
+  function teclaNoPainel(e: React.KeyboardEvent<HTMLDivElement>) {
+    const itensEl = Array.from(painelRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    if (itensEl.length === 0) return;
+    const atual = itensEl.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setAberto(false);
+      btnRef.current?.focus();
+      return;
+    }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const prox = e.shiftKey ? (atual - 1 + itensEl.length) % itensEl.length : (atual + 1) % itensEl.length;
+      itensEl[prox].focus();
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const prox = e.key === "ArrowDown" ? (atual + 1) % itensEl.length : (atual - 1 + itensEl.length) % itensEl.length;
+      itensEl[prox].focus();
+      return;
+    }
+    if (e.key === "Home") { e.preventDefault(); itensEl[0].focus(); }
+    if (e.key === "End") { e.preventDefault(); itensEl[itensEl.length - 1].focus(); }
+  }
+
+  function alternar() {
+    setAberto((v) => {
+      const abrindo = !v;
+      if (abrindo && btnRef.current) {
+        const r = btnRef.current.getBoundingClientRect();
+        const left = Math.min(r.left, window.innerWidth - LARGURA_PAINEL - 8);
+        setPos({ top: r.bottom + 6, left: Math.max(8, left) });
+      }
+      return abrindo;
+    });
+  }
 
   if (itens.length === 0) return null;
   const algumAtivo = itens.some((l) => !!pathname && pathname.startsWith(`/${portal}${l.sub}`));
 
   return (
-    <div ref={ref} className="relative shrink-0" role="group" aria-label="Ajustes">
+    <div ref={wrapRef} className="relative shrink-0" role="group" aria-label={label}>
       <button
+        ref={btnRef}
         type="button"
-        onClick={() => setAberto((v) => !v)}
+        onClick={alternar}
         aria-haspopup="menu"
         aria-expanded={aberto}
-        aria-label="Mais opções — Ajustes"
+        aria-label={`${texto} — abrir menu de ${label}`}
         className={linkClass(algumAtivo && !aberto)}
       >
-        <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg>
-        <span className="hidden md:block">Mais</span>
+        <Icon d={icon} />
+        <span className="hidden md:block">{texto}</span>
+        <svg className="hidden h-3.5 w-3.5 shrink-0 text-current opacity-60 md:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
       </button>
 
-      {aberto && (
-        <div role="menu" aria-label="Ajustes" className="absolute left-0 z-50 mt-1.5 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-pop dark:border-slate-700 dark:bg-slate-900">
+      {aberto && pos && typeof document !== "undefined" && createPortal(
+        <div
+          ref={painelRef}
+          role="menu"
+          aria-label={label}
+          onKeyDown={teclaNoPainel}
+          style={{ position: "fixed", top: pos.top, left: pos.left, width: LARGURA_PAINEL }}
+          className="z-50 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-pop dark:border-slate-700 dark:bg-slate-900"
+        >
           {itens.map((l) => {
             const active = !!pathname && pathname.startsWith(`/${portal}${l.sub}`);
             return (
@@ -199,7 +297,8 @@ function MenuMais({ itens, base, portal, pathname }: { itens: LinkDef[]; base: s
               </Link>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -243,8 +342,13 @@ export default function TopNav() {
       <div className="mx-auto flex min-w-0 max-w-7xl items-center gap-1.5 px-3 py-2.5 sm:gap-3 sm:px-6">
         {/* Marca do evento → home do portal atual. É ela que diz "você está no
             espaço do HM / do Seminário / do HT" antes de qualquer texto. */}
+        {/* comNome=false + max-w: a sigla ao lado ("HM"/"AUR"/"ETHB") já diz o
+            nome — no cabeçalho compacto, a marca só precisa ser reconhecível.
+            Sem o teto de largura, a arte da Aurum (proporção 3.75:1, bem mais
+            larga que a do HM) sozinha comia o espaço que sobrava para o "Mais"
+            a 1440px — o dropdown de Ajustes saía da tela sem aviso nenhum. */}
         <Link href={`${base}/kanban`} title={nome} className="flex shrink-0 items-center">
-          <MarcaPortal portal={portal} altura="h-8" />
+          <MarcaPortal portal={portal} altura="h-8" comNome={false} className="max-w-[76px] object-contain" />
         </Link>
 
         {/* Seletor de portal — leva à tela de seleção (troca de espaço). A cor
@@ -274,13 +378,13 @@ export default function TopNav() {
               {gestao.length > 0 && (
                 <>
                   <Separador />
-                  <NavGroup label="Gestão" itens={gestao} base={base} portal={portal} pathname={pathname} />
+                  <NavDropdown label="Gestão" texto="Gestão" icon={ICONE_GESTAO} itens={gestao} base={base} portal={portal} pathname={pathname} />
                 </>
               )}
               {ajustes.length > 0 && (
                 <>
                   <Separador />
-                  <MenuMais itens={ajustes} base={base} portal={portal} pathname={pathname} />
+                  <NavDropdown label="Ajustes" texto="Mais" icon={ICONE_MAIS} itens={ajustes} base={base} portal={portal} pathname={pathname} />
                 </>
               )}
             </>
