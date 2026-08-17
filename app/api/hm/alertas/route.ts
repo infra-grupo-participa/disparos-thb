@@ -30,10 +30,13 @@ export async function PATCH(req: Request) {
   } catch {
     return NextResponse.json({ ok: false, reason: "json_invalido" }, { status: 400 });
   }
+  // 0263: cs.hm_alertas.id é BIGINT, não UUID — a validação de formato UUID
+  // fazia TODA baixa manual de alerta dar 400, para os 5 tipos abertos hoje,
+  // não só o novo (socio_sem_titular).
   const id = (body as { id?: unknown } | null)?.id;
-  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) {
+  if ((typeof id !== "string" && typeof id !== "number") || !/^[0-9]+$/.test(String(id))) {
     return NextResponse.json({ ok: false, reason: "id_invalido" }, { status: 400 });
   }
-  const ok = await resolverAlerta(id);
+  const ok = await resolverAlerta(String(id));
   return NextResponse.json({ ok, reason: ok ? undefined : "ja_resolvido" }, { status: ok ? 200 : 409 });
 }

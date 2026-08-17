@@ -9,6 +9,9 @@ export type ContatoHmFicha = Record<string, unknown> & { nome?: string | null };
 export type FichaHm = {
   contato: ContatoHmFicha;
   socios: Record<string, unknown>[];
+  /** 0203 + webhook do Respondi (17/08): sócios ANTERIORES deste titular — quem
+   *  saiu e quando. Sem CPF (não usado na tela). Vazio quando nunca houve troca. */
+  historicoSocios: Record<string, unknown>[];
   prorata: Record<string, unknown> | null;
   /** 0231: a linha CONGELADA da planilha do Victor, quando existe — a mesma conta
    *  que gerou o link de pagamento enviado ao aluno. Null = o crédito é cálculo
@@ -151,6 +154,20 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
        from cs.hm_socios s
       where s.contato_hm_id = $1
       order by s.criado_em`,
+    [cardId],
+  );
+
+  // Histórico de sócios do titular (0203 + webhook do Respondi, 17/08): quem já
+  // foi sócio deste card e quando saiu. CPF de propósito FORA do select — a
+  // ficha não mostra documento de sócio arquivado, e mandar o dado sem uso
+  // exporia informação pessoal à toa. Só entra quem já foi SUBSTITUÍDO
+  // (substituido_em not null) — o vigente já aparece no bloco de sócios acima.
+  const historicoSocios = await query(
+    `select nome, criado_em, substituido_em
+       from cs.vw_hm_socios_historico_titular
+      where contato_hm_id = $1
+        and substituido_em is not null
+      order by criado_em desc`,
     [cardId],
   );
 
@@ -300,6 +317,6 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
     [compradorId, produtoCard],
   );
 
-  return { contato, socios, prorata, prorataFonte, linksSaldo, timeline, formularios, financeiro, aurumSaldo, pagamentos,
+  return { contato, socios, historicoSocios, prorata, prorataFonte, linksSaldo, timeline, formularios, financeiro, aurumSaldo, pagamentos,
            saldoCheio: saldoCheio?.valor ?? null, outrosPortais, agendamentos, versoes };
 }

@@ -265,8 +265,9 @@ export async function moverEstagioHm(
       if (r?.aluno_id) {
         await addInteracaoHm(ch.id, "sistema", "Aluno criado/atualizado na base THB", autor);
         // O sócio acompanha o titular: agora que ele é aluno, os convidados dele
-        // também entram na base (mesma turma, mesma validade).
-        await provisionarSociosHm(compradorId, autor);
+        // também entram na base (mesma turma, mesma validade). Produto explícito
+        // (0263/0221): sem ele, quem tem card em dois boards provisiona errado.
+        await provisionarSociosHm(compradorId, autor, ch.produto ?? "HM");
       }
     } catch (e) {
       log.error("falha ao provisionar aluno ao mover para pago", e, { compradorId });
@@ -369,7 +370,9 @@ export async function moverEstagioHm(
       );
       if (r?.aluno_id) {
         await addInteracaoHm(ch.id, "sistema", "Aluno criado/atualizado na base THB", autor);
-        await provisionarSociosHm(compradorId, autor);
+        // Produto explícito (0263/0221): sem ele, quem tem card em dois boards
+        // provisiona o sócio pelo comprador_id errado.
+        await provisionarSociosHm(compradorId, autor, ch.produto ?? "HM");
       }
     } catch (e) {
       log.error("falha ao provisionar aluno ao entrar na Ativação", e, { compradorId });
@@ -894,9 +897,13 @@ export async function cancelamentoBloqueado(sessao: SessaoEquipe, compradorId: s
 // efeito depois que o titular virou aluno: antes disso o sócio é um convidado do
 // card, e a base não pode saber dele. Silencioso e blindado: a base é de outro
 // domínio e nunca pode derrubar o cadastro de um sócio no kanban.
-export async function provisionarSociosHm(compradorId: string, autor = "cs"): Promise<number> {
+//
+// 0263: `produto` é OBRIGATÓRIO passar quando o chamador já sabe o board — sem
+// ele, cs.fn_hm_provisionar_socios(uuid,text) usa o default 'HM', e quem tem
+// card em dois boards (HM+AURUM) provisionaria pelo comprador_id errado (0221).
+export async function provisionarSociosHm(compradorId: string, autor = "cs", produto = "HM"): Promise<number> {
   try {
-    const r = await queryOne<{ n: number }>(`select cs.fn_hm_provisionar_socios($1) as n`, [compradorId]);
+    const r = await queryOne<{ n: number }>(`select cs.fn_hm_provisionar_socios($1, $2) as n`, [compradorId, produto]);
     const n = r?.n ?? 0;
     if (n > 0) {
       const ch = await queryOne<{ id: string }>(`select id from cs.contatos_hm where comprador_id = $1`, [compradorId]);

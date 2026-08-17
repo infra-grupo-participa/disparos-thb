@@ -26,6 +26,8 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   // base THB é exatamente o tipo de efeito colateral que a trava existe pra impedir.
   if (await cancelamentoBloqueado(sessao, params.id)) return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
 
-  const n = await provisionarSociosHm(params.id, sessao.nome || "cs");
+  // 0263: produto explícito — sem ele, quem tem card em dois boards (HM+AURUM)
+  // provisiona o sócio pelo comprador_id errado (0221).
+  const n = await provisionarSociosHm(params.id, sessao.nome || "cs", produtoCard);
   return NextResponse.json({ ok: true, provisionados: n });
 }

@@ -370,10 +370,27 @@ export const HmContatoPatchSchema = z.object({
 });
 // ----- Sócios do HM (aba "SÓCIOS T39") -----
 // O sócio tem checklist próprio: ele também é ativado, pendurado no titular.
+//
+// 0263: CPF e endereço entraram porque o webhook do Respondi passou a mandar o
+// formulário de sócios (esses campos já existem em cs.hm_socios desde a 0201).
+// CPF sempre OPCIONAL, nunca obrigatório — tornar obrigatório quebraria o
+// cadastro rápido pela ficha (em uso; hoje são 15 sócios com 0 CPF justamente
+// porque não havia campo). A escrita de fato é feita por cs.fn_hm_socio_upsert,
+// que é quem decide identidade (CPF > e-mail) — este schema só valida formato.
 export const HmSocioCriarSchema = z.object({
   nome: z.string().trim().min(2),
   email: z.string().trim().email().nullable().optional().or(z.literal("")),
   telefone: z.string().trim().nullable().optional(),
+  cpf: z.string().trim().nullable().optional(),
+  cep: z.string().trim().nullable().optional(),
+  cidade: z.string().trim().nullable().optional(),
+  estado: z.string().trim().nullable().optional(),
+  bairro: z.string().trim().nullable().optional(),
+  pais: z.string().trim().nullable().optional(),
+  endereco: z.string().trim().nullable().optional(),
+  numero: z.string().trim().nullable().optional(),
+  complemento: z.string().trim().nullable().optional(),
+  observacao: z.string().trim().nullable().optional(),
 });
 
 export const HmSocioPatchSchema = z.object({
@@ -381,6 +398,8 @@ export const HmSocioPatchSchema = z.object({
   nome: z.string().trim().min(2).optional(),
   email: z.string().trim().nullable().optional(),
   telefone: z.string().trim().nullable().optional(),
+  // 0263: opcional, sempre — mesma regra do schema de criação.
+  cpf: z.string().trim().nullable().optional(),
   link_facebook: z.string().nullable().optional(),
   ativ_searchie: z.boolean().optional(),
   ativ_comunidade: z.boolean().optional(),

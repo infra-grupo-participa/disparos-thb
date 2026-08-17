@@ -170,6 +170,11 @@ type Socio = {
   id: string; nome: string; email: string | null; telefone: string | null; link_facebook: string | null;
   ativ_searchie: boolean; ativ_comunidade: boolean; ativ_grupo: boolean; aluno_id: string | null;
 };
+// Sócio anterior deste titular (17/08, webhook do Respondi): quem saiu e
+// quando — a view cs.vw_hm_socios_historico_titular já filtra por card; a
+// ficha só lê o que já não é o vigente (o backend só devolve os arquivados).
+// Sem CPF: a ficha não expõe documento de sócio que já saiu.
+type SocioAnterior = { nome: string; criado_em: string; substituido_em: string };
 
 // Resultado da reunião comercial — os mesmos estados que a planilha usava, agora
 // como campo (e não texto solto misturado com a data).
@@ -210,6 +215,14 @@ function brl(v: number): string {
 
 function fmt(iso: string | null) {
   return iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+}
+// Só a data (dd/mm/aaaa), sem hora — para o histórico de sócio anterior, onde
+// só o dia importa. `substituido_em` é timestamptz (tem hora certa, ao
+// contrário de um `date` puro do Postgres), então dá para formatar direto.
+function fmtData(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
 }
 
 // ===== Timeline do card (auditoria) =========================================
@@ -322,6 +335,7 @@ export function HmDrawer({
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [motivoAgenda, setMotivoAgenda] = useState("");
   const [socios, setSocios] = useState<Socio[]>([]);
+  const [historicoSocios, setHistoricoSocios] = useState<SocioAnterior[]>([]);
   const [novoSocio, setNovoSocio] = useState({ nome: "", email: "", telefone: "" });
   const [catalogoTags, setCatalogoTags] = useState<TagOpcao[]>([]);
   // O histórico de versões da ficha (0097) — ver e recuperar, como na planilha.
@@ -353,6 +367,7 @@ export function HmDrawer({
       setLinks(d.linksSaldo ?? []);
       setPagamentos(d.pagamentos ?? []);
       setSocios(d.socios ?? []);
+      setHistoricoSocios(d.historicoSocios ?? []);
       setAgendamentos(d.agendamentos ?? []);
       setVersoes(d.versoes ?? []);
       setMotivoAgenda("");
@@ -1817,6 +1832,25 @@ export function HmDrawer({
                   Adicionar sócio
                 </Button>
                 </>)}
+
+                {/* Sócio anterior deste titular (17/08): discreto, atrás de um
+                    "detalhes" — não pode competir com o sócio vigente acima.
+                    Só aparece quando já houve troca (nunca uma seção vazia). */}
+                {historicoSocios.length > 0 && (
+                  <details className="group/hist mt-2.5 border-t border-slate-100 pt-2 dark:border-slate-800">
+                    <summary className="alvo-toque inline-flex cursor-pointer list-none items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+                      <svg className="h-3 w-3 shrink-0 transition-transform group-open/hist:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                      {historicoSocios.length === 1 ? "sócio anterior" : `sócios anteriores (${historicoSocios.length})`}
+                    </summary>
+                    <ul className="mt-1.5 space-y-1">
+                      {historicoSocios.map((h, i) => (
+                        <li key={`${h.nome}-${h.substituido_em}-${i}`} className="text-[11px] text-slate-500 dark:text-slate-400">
+                          sócio anterior: <span className="font-medium text-slate-600 dark:text-slate-300">{h.nome}</span>, trocado em {fmtData(h.substituido_em)}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
 
               {!jaPagou && !somenteLeitura && (

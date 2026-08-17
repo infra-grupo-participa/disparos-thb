@@ -107,4 +107,14 @@ export const EXPLICACAO: Record<string, { titulo: string; acao: string; categori
     acao: "Não confie nesta tela enquanto isto estiver aqui — nem no que ela mostra, nem no que ela deixou de mostrar. Quem resolve: time técnico.",
     categoria: "integracao",
   },
+  // 0263: webhook do Respondi (formulário de sócios) — titular não encontrado ou
+  // ambíguo (2+ cards HM) não escolhe sozinho (mesma lição do cancelamento_ambiguo,
+  // 0218): vira pendência + este alerta. Dono é a Equipe de Ativação porque é ela
+  // quem já trabalha a ficha do titular (checklist, acessos) — é quem tem contexto
+  // para achar a pessoa certa.
+  socio_sem_titular: {
+    titulo: "Sócio sem titular",
+    acao: "Confira o nome e o e-mail do titular que o formulário trouxe. Achando a ficha certa na Jornada, refaça o cadastro do sócio por lá. Quem resolve: Equipe de Ativação.",
+    categoria: "pessoa",
+  },
 };
