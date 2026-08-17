@@ -82,6 +82,10 @@ export async function GET(req: Request) {
             -- RECONCILIADO com cs.hm_pagamentos (a razão), não a data crua. Mesmo join
             -- que já lê fin acima (nenhum custo adicional): só mais uma coluna da view.
             fin.status_parcela,
+            -- D3 (0283): a régua de próxima cobrança/inadimplência — SÓ SINALIZA,
+            -- nunca move card (a leitura acontece aqui e no health-check/alerta;
+            -- nenhum caminho de escrita deste módulo usa estas 3 colunas).
+            fin.situacao, fin.proxima_cobranca_em, fin.dias_sem_pagar, fin.inadimplente,
             -- 13/08: adimplencia no card. parcelas_* so entram no rotulo quando
             -- a pessoa esta MESMO num parcelamento (contratadas > 1 e ao menos
             -- uma paga) -- dizer "0 de 12" para quem nao pagou nenhuma e ruido,

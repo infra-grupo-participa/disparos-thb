@@ -77,7 +77,13 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
             -- contatos_hm_kanban (nenhum campo credito_* insumo está — só o
             -- calculado sai via fn_hm_prorata, abaixo), então vem direto da
             -- tabela, no mesmo select que já busca atribuicao_admin/produto por ali.
-            ch.credito_obs
+            ch.credito_obs,
+            -- intencao_pagamento/_obs (0281) e contato_inicial_em (0280): mesmo
+            -- motivo do credito_obs acima — só existem na tabela, não na view do
+            -- kanban. Sem elas aqui a ficha reabria em branco (undefined) depois
+            -- do PATCH gravar, e a trava da 0284 então recusava o desfecho que o
+            -- operador tinha acabado de preencher.
+            ch.intencao_pagamento, ch.intencao_pagamento_obs, ch.contato_inicial_em
        from cs.contatos_hm_kanban k
        -- 0164: join pelo CARD. Com card por pessoa×produto, casar por comprador_id
        -- cruzaria o card do HM com o do Aurum (a mesma regressão da 0163).

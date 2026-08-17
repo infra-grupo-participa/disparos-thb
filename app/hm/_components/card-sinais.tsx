@@ -46,6 +46,14 @@ export const TOM = {
 } as const;
 export type Tom = keyof typeof TOM;
 
+// ===== Resultado da reunião comercial (17/08) ================================
+// Estados fixos que a planilha usava — vivia duplicado em hm-drawer.tsx E
+// tabela/page.tsx (mesmo texto hoje, mas duas fontes que podiam divergir a
+// qualquer PR seguinte). Este arquivo já é o lugar único de vocabulário
+// compartilhado entre board/tabela/ficha — RESULTADOS entra aqui, as duas
+// telas importam.
+export const RESULTADOS = ["Aguardando retorno", "Agendada", "Realizada", "Realizada/pago", "Reagendar", "Não respondeu"];
+
 // ===== Estado financeiro dominante do card (13/08) ===========================
 // A resposta a "em que pé está o dinheiro dela" — a segunda das três
 // perguntas que o card tem de responder batendo o olho (pedido do Marcio,
@@ -89,12 +97,19 @@ export type EstadoFinanceiro = { txt: string; tom: Tom; icon: "ok" | "alerta" | 
 // data, e só menciona parcelas quando elas existem de verdade.
 //
 // A cor é a urgência, e o operador lê sem decorar legenda:
-//   rose    atrasado          → cobrar agora
-//   âmbar   sem data / conferir → falta combinar, ou o número não é confiável
-//   índigo  em dia            → combinado e sendo cumprido (ainda deve)
-//   verde   quitado           → não deve mais nada
+//   rose    atrasado / inadimplente (≥60d) → cobrar agora, decisão do operador
+//   âmbar   sem data / conferir / 31-60d sem pagar → falta combinar, ou o
+//           número não é confiável, ou está esfriando
+//   índigo  em dia / parcelando        → combinado e sendo cumprido (ainda deve)
+//   verde   quitado                    → não deve mais nada
 // Verde só quando NÃO HÁ o que cobrar — foi por isso que "Saldo pago" saiu do
 // verde: a pessoa seguia devendo o resto e o card dizia que estava tudo certo.
+//
+// INADIMPLÊNCIA (17/08, contrato do backend em app/api/hm/kanban): `dias_sem_pagar`
+// e `inadimplente` chegam prontos da view — aqui só se traduz em selo, sem
+// recalcular nada. O rose de 60+ dias NUNCA afirma "cancelou" — o Marcio foi
+// explícito: inadimplência só sinaliza, quem decide é o operador. O texto diz
+// "decida" propositalmente, nunca "cancelado" nem "vai cancelar".
 export function estadoFinanceiroCard(p: {
   quitado: boolean;
   conferirSaldo: boolean;
@@ -109,8 +124,20 @@ export function estadoFinanceiroCard(p: {
   /** Já formatado em BRL (ex. "R$ 14.303"), ou null quando o sistema não sabe. */
   saldoTxt: string | null;
   quitadoTitle: string;
+  /** `situacao` da view (0. contrato kanban, 17/08): quando "mensalidade_em_curso",
+   *  mostra a próxima cobrança em vez do genérico "em dia". Opcional: undefined
+   *  enquanto o backend não mergeou — nesse caso cai no comportamento antigo. */
+  situacao?: "quitado" | "mensalidade_em_curso" | "saldo_parado" | "cancelado" | "oferta_enviada" | "incalculavel" | null;
+  /** Data (não formatada) da próxima cobrança — só usada quando `situacao` for
+   *  `mensalidade_em_curso`. */
+  proximaCobrancaEm?: string | null;
+  /** Dias sem pagar (backend, 17/08). null/undefined = sistema não sabe — não
+   *  vira selo (nunca inventa um "0 dias"). */
+  diasSemPagar?: number | null;
+  /** >=60 dias — o backend já aplica o corte; aqui só se traduz em selo. */
+  inadimplente?: boolean;
 }): EstadoFinanceiro | null {
-  const fmtData = (iso: string | null) =>
+  const fmtData = (iso: string | null | undefined) =>
     iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : null;
   // Só menciona parcelas quando a pessoa está mesmo num parcelamento — dizer
   // "0 de 12" para quem não pagou nenhuma é ruído, e é a maioria dos casos.
@@ -127,13 +154,33 @@ export function estadoFinanceiroCard(p: {
       title: "Saldo zerado por dupla contagem do crédito pró-rata — não é quitação. O comercial precisa decidir quanto cobrar antes de dar como pago.",
     };
   }
-  // 2. Não deve mais nada.
+  // 2. Não deve mais nada — nem quitado nem inadimplente coexistem, e "não
+  //    deve mais nada" é o fato mais forte.
   if (p.quitado) return { txt: "Quitado", tom: "positivo", icon: "ok", title: p.quitadoTitle };
+
+  // 3. INADIMPLENTE (≥60 dias sem pagar) — vence qualquer leitura de parcela:
+  //    a régua de dias é mais grave que "atrasado numa data combinada". Rose,
+  //    mas o texto pede DECISÃO, nunca afirma cancelamento.
+  if (p.inadimplente) {
+    const dias = p.diasSemPagar ?? null;
+    return {
+      txt: `Inadimplente${dias != null ? ` · ${dias}d` : ""}`, tom: "bloqueio", icon: "alerta",
+      title: `${dias != null ? `${dias} dias` : "Mais de 60 dias"} sem pagar. Não significa que cancelou — o operador precisa decidir o que fazer com este caso.`,
+    };
+  }
+  // 4. ESFRIANDO (31-60 dias sem pagar) — âmbar: ainda não é a régua de
+  //    inadimplência, mas já é hora de olhar antes que vire.
+  if (p.diasSemPagar != null && p.diasSemPagar >= 31) {
+    return {
+      txt: `Sem pagar há ${p.diasSemPagar}d`, tom: "atencao", icon: "alerta",
+      title: `${p.diasSemPagar} dias sem pagamento registrado. Ainda não é inadimplência (≥60d), mas está esfriando — vale contato.`,
+    };
+  }
 
   const quanto = p.saldoTxt ? ` · deve ${p.saldoTxt}` : "";
   const credito = p.creditoObsTexto ? ` · Por que o crédito: ${p.creditoObsTexto}` : "";
 
-  // 3. ATRASADO — a data combinada venceu e a razão não registrou pagamento
+  // 5. ATRASADO — a data combinada venceu e a razão não registrou pagamento
   //    depois dela. É o card que o operador tem de pegar hoje.
   if (p.statusParcela === "atrasado") {
     const d = fmtData(p.previstoEm);
@@ -143,7 +190,19 @@ export function estadoFinanceiroCard(p: {
         + (parcelas ? ` ${parcelas}.` : "") + " Cobrar." + credito,
     };
   }
-  // 4. EM DIA — tem data combinada e está sendo cumprida. Continua devendo, por
+  // 6. PARCELANDO — `situacao === "mensalidade_em_curso"` (contrato do
+  //    backend, 17/08): mostra a PRÓXIMA COBRANÇA no lugar do genérico "em
+  //    dia". Resolve os 30 cards que hoje não têm nenhuma data visível.
+  //    Índigo — mesma família de "em dia": combinado e sendo cumprido.
+  if (p.situacao === "mensalidade_em_curso") {
+    const d = fmtData(p.proximaCobrancaEm);
+    return {
+      txt: `Parcelando${d ? ` · próx. ${d}` : ""}${quanto}`, tom: "contexto", icon: "relogio",
+      title: `Mensalidade em curso${d ? ` — próxima cobrança em ${d}` : " — sem próxima cobrança calculada"}.`
+        + (parcelas ? ` ${parcelas}.` : "") + credito,
+    };
+  }
+  // 7. EM DIA — tem data combinada e está sendo cumprida. Continua devendo, por
   //    isso não é verde: verde é "não há o que cobrar".
   if (p.statusParcela === "em_dia") {
     const d = fmtData(p.previstoEm);
@@ -153,7 +212,7 @@ export function estadoFinanceiroCard(p: {
         + (parcelas ? ` ${parcelas}.` : "") + credito,
     };
   }
-  // 5. DEVE E NINGUÉM COMBINOU NADA — 148 cards hoje. Não é "em dia" (não há
+  // 8. DEVE E NINGUÉM COMBINOU NADA — 148 cards hoje. Não é "em dia" (não há
   //    combinado para cumprir) nem atraso (não há prazo vencido): é trabalho
   //    parado esperando o comercial marcar uma data.
   if (p.saldoTxt && !p.previstoEm) {
@@ -163,7 +222,7 @@ export function estadoFinanceiroCard(p: {
         + (parcelas ? ` ${parcelas}.` : "") + credito,
     };
   }
-  // 6. Deve, tem data, e o status ainda não diz atraso nem cumprimento
+  // 9. Deve, tem data, e o status ainda não diz atraso nem cumprimento
   //    (`aguardando`: a data combinada ainda não chegou).
   if (p.saldoTxt) {
     const d = fmtData(p.previstoEm);
@@ -173,24 +232,39 @@ export function estadoFinanceiroCard(p: {
         + (parcelas ? ` ${parcelas}.` : "") + credito,
     };
   }
-  // 7. Sem saldo conhecido: o card não afirma o que não sabe.
+  // 10. Sem saldo conhecido: o card não afirma o que não sabe.
   return null;
 }
 
-// ===== Precedência do card inteiro (13/08) ===================================
+// ===== Precedência da ficha inteira (13/08, atualizada 17/08) ================
 // Não só o financeiro — o CARD tem um estado dominante, e quando ele vale, o
 // resto se cala. Ordem (documentada aqui porque é regra, não acidente de
 // render; as telas que montam o card leem ISTO antes de decidir o que
 // desenhar):
 //   1. CANCELADO — não é cliente. Domina TUDO: identidade (aluno novo/antigo),
-//      financeiro (deve, quitado, parcela, conferir saldo, crédito pendente) e
-//      contexto (recompra, categoria de entrada, "card novo") somem. O que
-//      sobra: quem é (nome/avatar/contato), o motivo do cancelamento, tags,
-//      operador e "esta pessoa também está no outro board" — o resto mora na
-//      ficha, um clique adiante (é contexto, não ação).
-//   2. Estado financeiro (ver `estadoFinanceiroCard` acima) — um selo só.
-//   3. Identidade (aluno novo/antigo, pool, colega) — eixo independente do
+//      financeiro (deve, quitado, parcela, conferir saldo, crédito pendente),
+//      reunião (sem data/vencida) e contexto (recompra, categoria de entrada,
+//      "card novo") somem. O que sobra: quem é (nome/avatar/contato), o
+//      motivo do cancelamento, tags, operador e "esta pessoa também está no
+//      outro board" — o resto mora na ficha, um clique adiante (é contexto,
+//      não ação).
+//   2. SEM OPERADOR (ver SeloSemOperador) — ninguém é dono, ação urgente é
+//      associar um responsável. Vence "reunião em risco": sem dono, cobrar do
+//      operador uma decisão de reunião não tem quem a receba.
+//   3. REUNIÃO EM RISCO (17/08, ver `estadoReuniaoCard` abaixo) — card em
+//      "Reunião Agendada" sem `reuniao_em` OU com a data já vencida. É
+//      CÁLCULO DE TELA, nunca escrita: o sistema não afirma que a reunião não
+//      aconteceu, só cobra do operador uma decisão (marcar resultado/nova
+//      data). Ocupa o MESMO canto que "sem operador"/"novo" — só um selo cabe,
+//      e aqui a urgência é maior que "ninguém abriu ainda" (regra 4).
+//   4. Estado financeiro (ver `estadoFinanceiroCard` abaixo) — um selo só.
+//   5. Identidade (aluno novo/antigo, pool, colega) — eixo independente do
 //      financeiro, sempre visível exceto sob a regra 1.
+// O selo temporal genérico (`tempoTom`, "parado há Nd" em kanban/page.tsx)
+// não compete com a regra 3: onde `estadoReuniaoCard` já diz algo mais
+// específico ("pré-marcada como NÃO FEITA"), o genérico perde o sentido de
+// alarmar por cima — ele continua existindo (é "tempo na ETAPA", pergunta
+// diferente de "a reunião aconteceu?"), só não ganha destaque extra ali.
 
 // ===== Cancelamento (27/07) ==================================================
 // Espelho CLIENTE de lib/services/hm.ts (HM_ESTAGIOS_CANCELAMENTO) — não dá
@@ -404,6 +478,96 @@ export function SeloAlunoAntigo({ className }: { className?: string }) {
       {/* Selo/crachá: já É credenciado, não está entrando pela primeira vez. */}
       <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 3 6v6c0 5 4 8 9 10 5-2 9-5 9-10V6l-9-4Z" /><path d="m9 12 2 2 4-4" /></svg>
       Aluno antigo
+    </span>
+  );
+}
+
+// ===== Reunião em risco (17/08) ==============================================
+// Medido em produção: dos 11 cards em "Reunião Agendada", 3 não têm
+// `reuniao_em` e 8 têm data já vencida — hoje NENHUM dos dois mostra qualquer
+// sinal (o chip azul só renderiza `if (dataEtapa?.quando)`). Os dois casos são
+// a MESMA pergunta não respondida: "essa reunião aconteceu?" — o sistema não
+// pode afirmar que não (só o operador sabe), então ele COBRA a decisão em vez
+// de assumir um lado.
+//
+// Decisão do Marcio: **cálculo de tela, ZERO escrita no banco.** Nenhuma das
+// duas funções abaixo grava nada — só leem `estagio_chave` + `reuniao_em` e
+// devolvem o que mostrar. A ação (marcar resultado, remarcar) continua sendo
+// do operador, na ficha.
+export function ehReuniaoAgendadaSemData(estagioChave: string | null | undefined, reuniaoEm: string | null | undefined): boolean {
+  return estagioChave === "hm_reuniao_agendada" && !reuniaoEm;
+}
+export function ehReuniaoVencidaNaoTratada(estagioChave: string | null | undefined, reuniaoEm: string | null | undefined): boolean {
+  return estagioChave === "hm_reuniao_agendada" && !!reuniaoEm && new Date(reuniaoEm).getTime() < Date.now();
+}
+
+export type EstadoReuniao = { txt: string; title: string };
+
+// Irmã de `estadoFinanceiroCard`: mesma forma (função pura, um `EstadoReuniao
+// | null`), mesma disciplina de precedência (a primeira condição que servir
+// GANHA). As duas nunca competem entre si — ver a precedência do card
+// inteiro, acima — mas cada uma decide sozinha o SEU eixo.
+export function estadoReuniaoCard(p: { estagioChave: string | null | undefined; reuniaoEm: string | null | undefined }): EstadoReuniao | null {
+  // 1. Sem data nenhuma marcada — a pessoa entrou na etapa mas ninguém agendou.
+  if (ehReuniaoAgendadaSemData(p.estagioChave, p.reuniaoEm)) {
+    return {
+      txt: "Sem data marcada",
+      title: "Está em \"Reunião Agendada\" e ainda não tem reunião marcada. Marque a data da reunião na ficha.",
+    };
+  }
+  // 2. Data marcada, já passou, e a pessoa continua na mesma etapa — ninguém
+  //    registrou o desfecho (realizada, não compareceu, reagendou).
+  if (ehReuniaoVencidaNaoTratada(p.estagioChave, p.reuniaoEm)) {
+    return {
+      txt: "Pré-marcada como NÃO FEITA",
+      title: "A data da reunião já passou e ninguém registrou o que aconteceu com ela. O sistema NÃO afirma que a reunião não ocorreu — só está cobrando uma decisão sua: marque o resultado ou remarque na ficha.",
+    };
+  }
+  return null;
+}
+
+// "REUNIÃO SEM DATA" (17/08, F1) — mesmo padrão visual de SeloSemOperador:
+// rose forte, canto absoluto, `motion-safe:animate-pulse`. Entra na MESMA
+// disputa de canto (ver a precedência documentada acima e em SeloSemOperador)
+// — as telas devem checar reunião ANTES do financeiro/identidade e nunca
+// desenhar mais de um selo no canto ao mesmo tempo.
+export function SeloReuniaoSemData({ className, posicao = "absoluto" }: { className?: string; posicao?: "absoluto" | "inline" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm motion-safe:animate-pulse dark:bg-rose-500",
+        posicao === "absoluto"
+          ? "pointer-events-none absolute -right-1.5 -top-2 z-10 ring-2 ring-white dark:ring-slate-900"
+          : "ring-1 ring-rose-700/20 dark:ring-rose-300/20",
+        className,
+      )}
+      title="Reunião sem data marcada — abra a ficha e marque quando ela vai acontecer."
+    >
+      <svg className="h-2 w-2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
+      sem data
+    </span>
+  );
+}
+
+// "REUNIÃO VENCIDA, NINGUÉM DISSE O QUE ACONTECEU" (17/08, F2). Mesmo peso
+// visual de SeloReuniaoSemData (o outro lado do mesmo problema) — texto muda
+// para o vocabulário do Marcio: "Pré-marcada como NÃO FEITA". Nunca afirma
+// que não aconteceu de fato (isso seria o sistema mentindo) — o `title`
+// deixa isso explícito.
+export function SeloReuniaoVencida({ className, posicao = "absoluto" }: { className?: string; posicao?: "absoluto" | "inline" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm motion-safe:animate-pulse dark:bg-rose-500",
+        posicao === "absoluto"
+          ? "pointer-events-none absolute -right-1.5 -top-2 z-10 ring-2 ring-white dark:ring-slate-900"
+          : "ring-1 ring-rose-700/20 dark:ring-rose-300/20",
+        className,
+      )}
+      title="Pré-marcada como NÃO FEITA — a data já passou e ninguém registrou o resultado da reunião. O sistema não afirma que ela não aconteceu; marque o resultado ou remarque na ficha."
+    >
+      <svg className="h-2 w-2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
+      não feita
     </span>
   );
 }

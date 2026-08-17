@@ -10,7 +10,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito, RESULTADOS, estadoReuniaoCard } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 // A cor da marca de cada portal — a MESMA que o operador vê no topo da tela.
 import { PORTAIS, type PortalId } from "@/lib/marcas";
@@ -63,6 +63,11 @@ type Contato = {
   hotmart_cancelamento_transacao: string | null;
   rev_searchie: boolean; rev_comunidade: boolean; rev_grupo: boolean; rev_pesquisa: boolean;
   acessos_revogados_em: string | null; acessos_revogados_por: string | null;
+  // CONTRATO DO BACKEND (17/08, ficha em paralelo) — opcionais: undefined =
+  // rota antiga, e a ficha degrada (campo simplesmente não aparece), nunca quebra.
+  contato_inicial_em?: string | null;
+  intencao_pagamento?: "vai_pagar" | "indeciso" | "nao_vai_pagar" | null;
+  intencao_pagamento_obs?: string | null;
 };
 
 // Reembolso, chargeback e protesto acabam todos em "aluno sem acesso", mas são
@@ -176,9 +181,19 @@ type Socio = {
 // Sem CPF: a ficha não expõe documento de sócio que já saiu.
 type SocioAnterior = { nome: string; criado_em: string; substituido_em: string };
 
-// Resultado da reunião comercial — os mesmos estados que a planilha usava, agora
-// como campo (e não texto solto misturado com a data).
-const RESULTADOS = ["Aguardando retorno", "Agendada", "Realizada", "Realizada/pago", "Reagendar", "Não respondeu"];
+// RESULTADOS (17/08): saiu daqui — vivia duplicado com tabela/page.tsx (mesmo
+// texto hoje, duas fontes que podiam divergir). Importado de card-sinais.tsx.
+
+// F8 (17/08): a leitura do OPERADOR sobre a intenção do aluno — não é um
+// fato do sistema (diferente de `situacao`/`inadimplente`, calculados pela
+// view), é o julgamento de quem está no telefone. Por isso é campo livre da
+// ficha, igual a "Como vai pagar" / "O combinado" — grava por PATCH no
+// endpoint da ficha, mesmo caminho de sempre.
+const INTENCOES: { v: "vai_pagar" | "indeciso" | "nao_vai_pagar"; label: string }[] = [
+  { v: "vai_pagar", label: "Vai pagar" },
+  { v: "indeciso", label: "Indeciso" },
+  { v: "nao_vai_pagar", label: "Não vai pagar" },
+];
 
 const MEIOS: { v: string; label: string }[] = [
   { v: "avista", label: "À vista" },
@@ -327,6 +342,10 @@ export function HmDrawer({
   const [acordo, setAcordo] = useState("");
   const [previsao, setPrevisao] = useState("");
   const [pendencia, setPendencia] = useState("");
+  // F8 (17/08): intenção de pagamento — mesmo padrão de rascunho local da
+  // observação (grava no blur); o select grava direto (sem rascunho, como
+  // "Como vai pagar" acima).
+  const [intencaoObs, setIntencaoObs] = useState("");
   // Motivo do crédito pró-rata — o mesmo padrão de rascunho local (grava no
   // blur, um por abertura de card) já usado por acordo/previsão/pendência.
   const [creditoObs, setCreditoObs] = useState("");
@@ -381,6 +400,7 @@ export function HmDrawer({
         setPendencia(d.contato.pendencia ?? "");
         setGrupo(d.contato.grupo_informes ?? "");
         setCreditoObs(d.contato.credito_obs ?? "");
+        setIntencaoObs(d.contato.intencao_pagamento_obs ?? "");
         rascunhoIniciado.current = compradorId;
       }
     }
@@ -516,6 +536,10 @@ export function HmDrawer({
   // opção à vista. Sem match dentro da tolerância, `links` vem vazio e a tela
   // não pode oferecer link nenhum — errar o valor é pior que não mostrar.
   const linkSaldoRecomendado = links.find((l) => !l.recorrente) ?? links[0] ?? null;
+  // F4 (17/08, pedido do Marcio: "quando a gente clicasse no card, [ver] que
+  // a pessoa ainda não marcou a reunião"). Mesma função pura do board — a
+  // ficha não recalcula nada, só lê o mesmo resultado que o card já mostrou.
+  const estadoReuniaoFicha = estadoReuniaoCard({ estagioChave: c?.estagio_chave ?? null, reuniaoEm: c?.reuniao_em ?? null });
   // Reunião finalizada (0152): o bloco financeiro de cancelamento só aparece
   // depois que a reunião comercial foi de fato realizada — é a regra pedida
   // ("tem que vir após a reunião finalizada"). Vale o resultado OU já ter data.
@@ -673,6 +697,32 @@ export function HmDrawer({
                     Revisar antes de tratar
                   </p>
                   {c.revisar_motivo && <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">{c.revisar_motivo}</p>}
+                </div>
+              )}
+
+              {/* F4 (17/08, pedido do Marcio: "quando a gente clicasse no
+                  card, [ver] que a pessoa ainda não marcou a reunião"). Vale
+                  para os dois casos — sem data e vencida — com o MESMO texto
+                  que o card já mostra (estadoReuniaoCard, card-sinais.tsx).
+                  O CTA rola até o campo de data do bloco de reunião abaixo. */}
+              {estadoReuniaoFicha && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 dark:border-rose-500/30 dark:bg-rose-500/10">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-rose-700 dark:text-rose-300">
+                    <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
+                    Reunião: {estadoReuniaoFicha.txt}
+                  </p>
+                  <p className="mt-0.5 text-xs text-rose-600 dark:text-rose-400">{estadoReuniaoFicha.title}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById("hm-reuniao-data-input");
+                      el?.focus();
+                      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }}
+                    className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-rose-700 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 dark:text-rose-300"
+                  >
+                    Ir para o campo de data ↓
+                  </button>
                 </div>
               )}
 
@@ -1098,6 +1148,35 @@ export function HmDrawer({
                   />
                 </label>
 
+                {/* F8 (17/08) — a leitura do operador sobre a intenção do
+                    aluno. Select grava direto (mesmo padrão de "Como vai
+                    pagar"); a observação grava no blur (mesmo padrão de "O
+                    combinado" acima). */}
+                <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  Intenção de pagamento
+                  <select
+                    value={c.intencao_pagamento ?? ""}
+                    onChange={(e) => patch({ intencao_pagamento: e.target.value || null })}
+                    className={fieldClass}
+                    disabled={salvando || somenteLeitura}
+                  >
+                    <option value="">— sem leitura ainda —</option>
+                    {INTENCOES.map((i) => <option key={i.v} value={i.v}>{i.label}</option>)}
+                  </select>
+                </label>
+                <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  Observação sobre a intenção
+                  <textarea
+                    value={intencaoObs}
+                    disabled={somenteLeitura}
+                    onChange={(e) => setIntencaoObs(e.target.value)}
+                    onBlur={() => patch({ intencao_pagamento_obs: intencaoObs || null })}
+                    rows={2}
+                    placeholder="Disse que paga assim que receber o 13º…"
+                    className={fieldClass}
+                  />
+                </label>
+
                 {/* Link de saldo: o sistema escolhe pelo valor (cada saldo tem sua
                     própria oferta na Hotmart) — antes isso era procurado à mão.
                     Some depois de quitado: não há mais o que cobrar. */}
@@ -1248,6 +1327,41 @@ export function HmDrawer({
                   </>
                 )}
               </div>
+
+              {/* D1 (17/08, decisão do Marcio): "Contato Inicial" é só a pessoa
+                  ter chegado — ninguém falou com ela ainda. O operador manda a
+                  mensagem e sinaliza aqui; o backend carimba `contato_inicial_em`
+                  e avança o card para "Aguardando Retorno" sozinho (mesmo PATCH
+                  da ficha, campo `contato_inicial_sinalizado`, z.literal(true) —
+                  não existe desfazer por este caminho, então o botão só aparece
+                  enquanto o gesto ainda não foi feito). */}
+              {c.estagio_chave === "hm_comprou" && (
+                <div className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 dark:border-brand-500/30 dark:bg-brand-500/10">
+                  {c.contato_inicial_em ? (
+                    <p className="text-sm font-medium text-brand-800 dark:text-brand-200">
+                      Primeira mensagem enviada em {fmt(c.contato_inicial_em)}.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-brand-800 dark:text-brand-200">
+                        Ainda ninguém falou com {c.nome.split(" ")[0]}.
+                      </p>
+                      <p className="mt-0.5 text-xs text-brand-700/80 dark:text-brand-300/80">
+                        Mande a primeira mensagem e sinalize aqui — a ficha avança para &quot;Aguardando Retorno&quot; sozinha.
+                      </p>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="mt-1.5"
+                        disabled={salvando || somenteLeitura}
+                        onClick={() => patch({ contato_inicial_sinalizado: true })}
+                      >
+                        Sinalizar que já enviei a mensagem
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
 
               <Campo label="Etapa">
                 <select value={c.estagio_chave ?? ""} onChange={(e) => patch({ estagio_chave: e.target.value })} className={fieldClass} disabled={salvando || somenteLeitura}>
@@ -2054,8 +2168,17 @@ function BlocoAgendamento({
   return (
     <Campo label={`${rotulo} (data e hora)`}>
       <div className="flex items-center gap-2">
-        {/* `salvando` também carrega o modo leitura (card cancelado/de colega). */}
-        <input type="datetime-local" value={valor} onChange={(e) => onValor(e.target.value)} className={fieldClass} disabled={salvando} />
+        {/* `salvando` também carrega o modo leitura (card cancelado/de colega).
+            `id` só no bloco de reunião (17/08, F4): é o alvo do CTA "Ir para o
+            campo de data" do aviso no topo da ficha. */}
+        <input
+          id={tipo === "reuniao" ? "hm-reuniao-data-input" : undefined}
+          type="datetime-local"
+          value={valor}
+          onChange={(e) => onValor(e.target.value)}
+          className={fieldClass}
+          disabled={salvando}
+        />
         <Button
           variant={marcado && mudou ? "primary" : "secondary"}
           size="sm"

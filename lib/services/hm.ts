@@ -19,6 +19,9 @@ export const HM_STAGE_ACESSO = "hm_acesso_liberado";
 // A linha de chegada da esteira (0065): só entra quem cumpriu o checklist inteiro.
 export const HM_STAGE_ATIVACAO_REALIZADA = "hm_ativacao_realizada";
 export const HM_STAGE_ENTREVISTA = "hm_entrevista_agendada";
+// Trava de ENTRADA (D2/D4, 0284): exige resultado da reunião + desfecho
+// comercial. Cards já na etapa seguem livres — a checagem só roda ao entrar.
+export const HM_STAGE_REUNIAO_FINALIZADA = "hm_reuniao_finalizada";
 
 type EstagioHm = { id: number; chave: string; nome: string; aba: string | null; ordem: number };
 
@@ -45,6 +48,36 @@ async function carregarEstagios(): Promise<Map<string, EstagioHm>> {
 async function estagioPorChave(chave: string): Promise<EstagioHm | null> {
   const porChave = await carregarEstagios();
   return porChave.get(chave) ?? null;
+}
+
+// Chaves de estágio HM com `ordem` estritamente menor que o limite pedido —
+// FONTE ÚNICA de "que etapas contam como comercial cedo" (regra 9: agendar
+// reunião puxa o card para "Reunião Agendada" a partir de qualquer estágio
+// comercial de ordem < 20). Reusa o mesmo cache de carregarEstagios (TTL 5
+// min) — nenhuma query extra além da que a esteira já faz.
+//
+// Antes disto, tanto a rota da ficha (agendar entrevista) quanto a de
+// candidatos a agendamento tinham a lista de chaves DIGITADA à mão — um
+// array de 8 strings que ficou desatualizado assim que um estágio novo
+// entrou (hm_aguardando_pagamento, hm_aguardando_retorno, 0182/0056). Ler a
+// ORDEM do banco, e não copiar chaves, é o que garante que os dois pontos
+// nunca mais divergem entre si — mudar a esteira é migration, não deploy
+// destes dois arquivos.
+export async function chavesEstagioAntesDaOrdem(limite: number): Promise<string[]> {
+  const porChave = await carregarEstagios();
+  return Array.from(porChave.values())
+    .filter((e) => e.ordem < limite)
+    // Cancelamento (Reclamada/Reembolsado, HM_ESTAGIOS_CANCELAMENTO) nunca entra
+    // no corte por ordem, mesmo quando a ordem numérica dele é menor que o limite
+    // pedido (ex.: hm_cancelamento=50 e hm_reembolsado=55 entram em ordem<90). Um
+    // card cancelado é terminal: nenhuma leitura de "estágio antes de X" pode
+    // tratá-lo como comercial cedo e puxá-lo de volta pra esteira por efeito
+    // colateral de um agendamento (regressão real: master marcando entrevista
+    // puxava o card para fora do cancelamento). `moverEstagioHm` não tem guarda
+    // de saída de cancelamento — o filtro é aqui, na FONTE, pra valer pros dois
+    // usos hoje (20, 90) e pra qualquer limite futuro.
+    .filter((e) => !HM_ESTAGIOS_CANCELAMENTO.includes(e.chave))
+    .map((e) => e.chave);
 }
 
 // Busca por id serve à timeline (estágio anterior de uma interação antiga), que
@@ -95,7 +128,7 @@ const CHECKLIST: { col: string; label: string }[] = [
   { col: "ativ_pesquisa", label: "Pesquisa" },
 ];
 
-export type MoverErro = "estagio_invalido" | "checklist_incompleto" | "saldo_em_aberto";
+export type MoverErro = "estagio_invalido" | "checklist_incompleto" | "saldo_em_aberto" | "reuniao_sem_desfecho";
 export type MoverResultado = { ok: true } | { ok: false; reason: MoverErro; faltando?: string[]; faltam?: number };
 
 // Itens do checklist que ainda faltam. Lista vazia = ativação completa.
@@ -222,6 +255,22 @@ export async function moverEstagioHm(
   if (chave === HM_STAGE_ATIVACAO_REALIZADA) {
     const faltando = await checklistPendente(compradorId);
     if (faltando.length > 0) return { ok: false, reason: "checklist_incompleto", faltando };
+  }
+
+  // Trava de ENTRADA em "Reunião Finalizada" (D2/D4, 0284) — mesmo desenho da
+  // trava acima: guarda a PORTA, não prende quem já está lá. Exige (a) o
+  // resultado da reunião preenchido e (b) um desfecho comercial (intenção
+  // vai_pagar/indeciso, OU acordo preenchido, OU pagamento já registrado).
+  // Só `nao_vai_pagar` sozinho barra — os 42 cards que já estão na etapa hoje
+  // seguem livres, porque isto só roda no MOMENTO da entrada.
+  if (chave === HM_STAGE_REUNIAO_FINALIZADA) {
+    const r = await queryOne<{ res: { ok: boolean; faltando?: string[] } }>(
+      `select cs.fn_hm_pode_finalizar_reuniao($1, $2) as res`,
+      [compradorId, ch.produto ?? "HM"],
+    );
+    if (r?.res?.ok !== true) {
+      return { ok: false, reason: "reuniao_sem_desfecho", faltando: r?.res?.faltando ?? [] };
+    }
   }
 
   // Transição automática Comercial → Ativação ao confirmar o pagamento do saldo.
@@ -958,11 +1007,14 @@ export async function agendarHm(
   produto?: string | null,
 ): Promise<{ reagendou: boolean; vezes: number }> {
   const col = tipo === "reuniao" ? "reuniao_em" : "entrevista_em";
-  const ch = await queryOne<{ id: string; atual: string | null }>(
-    `select id, ${col} as atual
-       from cs.contatos_hm
-      where comprador_id = $1 and coalesce(produto, 'HM') = coalesce($2, 'HM')
-      order by criado_em asc
+  // `estagio_chave` (B4): só precisa para o ramo de DESMARCAR a reunião —
+  // saber se o card está em "Reunião Agendada" antes de decidir se ele volta
+  // para "Aguardando Retorno".
+  const ch = await queryOne<{ id: string; atual: string | null; estagio_chave: string | null }>(
+    `select ch.id, ch.${col} as atual, e.chave as estagio_chave
+       from cs.contatos_hm ch left join cs.estagios e on e.id = ch.estagio_id
+      where ch.comprador_id = $1 and coalesce(ch.produto, 'HM') = coalesce($2, 'HM')
+      order by ch.criado_em asc
       limit 1`,
     [compradorId, produto ?? null],
   );
@@ -987,6 +1039,16 @@ export async function agendarHm(
 
   if (!quando) {
     await addInteracaoHm(ch.id, "sistema", `${ROTULO[tipo]} desmarcada${motivo ? ` — ${motivo}` : ""}`, autor);
+    // B4: desmarcar a REUNIÃO não pode abandonar o card em "Reunião Agendada"
+    // sem reunião nenhuma marcada — era a fonte dos cards do alerta vermelho
+    // (card preso numa coluna que promete uma reunião que não existe mais).
+    // Volta para "Aguardando Retorno": o comercial já tinha tentado marcar,
+    // precisa retomar o contato. Só quando o card REALMENTE está na coluna da
+    // reunião agendada — desmarcar uma entrevista, ou uma reunião de um card
+    // que já saiu dessa etapa por outro caminho, não mexe no estágio.
+    if (tipo === "reuniao" && ch.estagio_chave === "hm_reuniao_agendada") {
+      await moverEstagioHm(compradorId, "hm_aguardando_retorno", autor, undefined, produto ?? undefined);
+    }
     return { reagendou: false, vezes: 0 };
   }
 
