@@ -59,7 +59,7 @@ begin
    limit 1;
 
   if not found then
-    return jsonb_build_object('ok', false, 'faltando', to_jsonb(array['card não encontrado']::text[]));
+    return jsonb_build_object('ok', false, 'faltando', to_jsonb(array['ficha nao encontrada']::text[]));
   end if;
 
   if v_reuniao_resultado is null or btrim(v_reuniao_resultado) = '' then
@@ -73,9 +73,9 @@ begin
   );
 
   if not (
-    v_intencao in ('vai_pagar', 'indeciso')
+    coalesce(v_intencao in ('vai_pagar', 'indeciso'), false)
     or (v_acordo is not null and btrim(v_acordo) <> '')
-    or v_tem_pagamento
+    or coalesce(v_tem_pagamento, false)
   ) then
     v_faltando := array_append(v_faltando, 'desfecho comercial (intenção de pagamento, acordo ou pagamento registrado)');
   end if;
@@ -84,6 +84,6 @@ begin
 end$fn$;
 
 comment on function cs.fn_hm_pode_finalizar_reuniao(uuid, text) is
-  '0284: trava de ENTRADA em hm_reuniao_finalizada (D2/D4) — exige reuniao_resultado preenchido E desfecho comercial (intencao_pagamento vai_pagar/indeciso OU acordo preenchido OU pagamento ja lancado). nao_vai_pagar sozinho NAO libera. So de entrada: card ja na etapa segue livre (D4, os 42 cards historicos nao sao tocados).';
+  '0284: trava de ENTRADA em hm_reuniao_finalizada (D2/D4) — exige reuniao_resultado preenchido E desfecho comercial (intencao_pagamento vai_pagar/indeciso OU acordo preenchido OU pagamento ja lancado). nao_vai_pagar sozinho NAO libera. Os coalesce(...) nos predicados nao sao decoracao: v_intencao IN (...) com valor NULL devolve NULL (nao false) e, dentro do not(... or ...), o IF nao dispararia — ficha SEM desfecho passaria pela trava. Corrigido na aplicacao em producao (17/08). So de entrada: card ja na etapa segue livre (D4, os 42 cards historicos nao sao tocados).';
 
 grant execute on function cs.fn_hm_pode_finalizar_reuniao(uuid, text) to disparos_app;
