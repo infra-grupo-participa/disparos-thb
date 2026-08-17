@@ -126,4 +126,13 @@ export const EXPLICACAO: Record<string, { titulo: string; acao: string; categori
     acao: "Associe esta pessoa a alguém do comercial — da sua equipe ou a você mesma. Quem resolve: quem gerencia a distribuição do HM/Aurum (Kelly).",
     categoria: "pessoa",
   },
+  // 0266: a régua da aba "Transações Inválidas" da planilha VENDAS AURUM —
+  // compra cancelada/reembolsada/em disputa não conta como dinheiro recebido.
+  // Crítico porque o valor pago aparece maior do que entrou: quem cobra pede
+  // menos do que deveria, e o relatório de recebido mente para cima.
+  pagamento_de_transacao_invalida: {
+    titulo: "Dinheiro que voltou ainda conta como pago",
+    acao: "Confira na Hotmart se a compra foi mesmo devolvida e, se foi, estorne o lançamento na ficha da pessoa. Quem resolve: financeiro (Fernanda).",
+    categoria: "dinheiro",
+  },
 };
