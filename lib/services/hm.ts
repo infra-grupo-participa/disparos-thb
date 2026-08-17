@@ -789,9 +789,13 @@ export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string, p
   // + ramo canal→pessoa (0154) + ramo esteira compartilhada (12/08, lib/papeis.ts):
   // Ativação/HM de outra equipe entra pela MESMA porta que o canal — o card
   // continua "de outro operador" para tudo que não é este ramo específico.
+  // `poolRestrito=true` (0265): card LIVRE (sem operador) só abre para quem
+  // `podeVerTudo` — o operador comum não abre mais a ficha de um card que
+  // ainda não foi distribuído pela Kelly.
   return podeVerPorEscopo(
     escopo, k, await canaisDoUsuario(sessao.id),
     esteiraCompartilhada(sessao as Ator, "HM", k.aba, k.produto),
+    true,
   );
 }
 
@@ -842,7 +846,10 @@ export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string, 
   // `podeVerCardHm` não muda aqui — só a escrita.
   const semAutoridadeNaAtivacao = k.aba === "ativacao" && !esteira;
   const ator: Ator = semAutoridadeNaAtivacao ? semBonusDeGerente(sessao as Ator) : (sessao as Ator);
-  return veredictoAcao(ator, k, await canaisDoUsuario(sessao.id), esteira); // + canal→pessoa (0154)
+  // `poolRestrito=true` (0265): espelha podeVerCardHm — card LIVRE só é "ok"
+  // para quem `podeVerTudo`; operador comum recai em "sem_acesso" (nem
+  // enxerga que o card existe) em vez de "card_de_outro_operador".
+  return veredictoAcao(ator, k, await canaisDoUsuario(sessao.id), esteira, true); // + canal→pessoa (0154)
 }
 
 // Gate de CAMPO (12/08 23h, separação dura comercial×ativação — lib/papeis.ts

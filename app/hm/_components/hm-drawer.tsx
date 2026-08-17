@@ -10,7 +10,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 // A cor da marca de cada portal — a MESMA que o operador vê no topo da tela.
 import { PORTAIS, type PortalId } from "@/lib/marcas";
@@ -1362,6 +1362,14 @@ export function HmDrawer({
               </Campo>
 
               <Campo label="Operador (vigente)">
+                {/* SEM OPERADOR (17/08): o mesmo selo do board/tabela, aqui na
+                    ficha — o aviso "gritando" precisa seguir o card até onde a
+                    associação de fato acontece. `posicao="inline"`: a ficha não
+                    tem canto de card. `responsavel_id` (não `responsavel`
+                    texto): é a condição que a venda nova nasce nula. */}
+                {c.responsavel_id === null && (
+                  <SeloSemOperador posicao="inline" className="mb-1.5" />
+                )}
                 {podeDistribuir() ? (
                   // MASTER/GESTOR: o seletor distribui. A lista `responsaveis` já
                   // vem recortada do servidor (master = todos os ativos; gestor =
@@ -1403,11 +1411,12 @@ export function HmDrawer({
                     type="button"
                     onClick={() => patch({ responsavel_id: me.id })}
                     disabled={salvando}
-                    className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline disabled:opacity-50 dark:text-brand-300"
-                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir para mim"}
+                    aria-busy={salvando}
+                    className="mt-1.5 inline-flex items-center gap-1.5 rounded text-xs font-medium text-brand transition hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 dark:text-brand-300"
+                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Associe esse cliente a alguém da sua equipe ou a você mesma."}
                   >
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
-                    {c.responsavel ? "Assumir para mim" : "Atribuir a mim"}
+                    {c.responsavel ? "Assumir para mim" : "Associar a mim"}
                   </button>
                 )}
               </Campo>

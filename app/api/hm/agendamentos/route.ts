@@ -37,7 +37,9 @@ export async function GET(req: Request) {
        from cs.contatos_hm_kanban
       where reuniao_em is not null and ($1::text is null or $1 = 'reuniao')
         and produto = $5
-        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 2, usuario: 3, equipe: 4 })}
+        -- poolRestrito (0265): card livre do HM/AURUM/ETHB não é mais pool
+        -- visível a todos — mesma regra do board, a agenda não pode divergir.
+        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 2, usuario: 3, equipe: 4 }, { poolRestrito: true })}
      union all
      select comprador_id, nome, email, telefone, plano, responsavel, estagio_nome, estagio_aba,
             tags, turma, turma_origem, acordo, pagamento_meio, pagamento_previsto_em,
@@ -48,7 +50,9 @@ export async function GET(req: Request) {
        from cs.contatos_hm_kanban
       where entrevista_em is not null and ($1::text is null or $1 = 'entrevista')
         and produto = $5
-        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 2, usuario: 3, equipe: 4 })}
+        -- poolRestrito (0265): card livre do HM/AURUM/ETHB não é mais pool
+        -- visível a todos — mesma regra do board, a agenda não pode divergir.
+        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 2, usuario: 3, equipe: 4 }, { poolRestrito: true })}
      order by quando asc nulls last`,
     [tipo, verTudo, usuarioId, equipeId, produto],
   );

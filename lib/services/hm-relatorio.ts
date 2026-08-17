@@ -340,11 +340,14 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
         and ($3::text[] is null or k.tags && $3)
         and ($4::text is null or k.estagio_chave = $4)
         -- Escopo (predicado único, visibilidade.ts — igual à rota do kanban):
-        -- vejo tudo OU é card LIVRE OU é MEU ($6) OU é da minha equipe ($7).
+        -- vejo tudo OU é MEU ($6) OU é da minha equipe ($7) [OU esteira].
+        -- poolRestrito (0265): card LIVRE deixou de ser pool visível a todos
+        -- no HM/AURUM/ETHB — mesma regra do board, a tabela não pode divergir.
         and k.produto = $9                       -- board do produto (0155)
         and ${sqlEscopo(
           { rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags", aba: "k.estagio_aba", produto: "k.produto" },
           { verTudo: 5, usuario: 6, equipe: 7, abas: 10, produto: 11 },
+          { poolRestrito: true },
         )}
         -- Cancelados (Reclamada/Reembolsado, $8) são acesso SÓ do master, como
         -- nas rotas unitárias (403 na ficha): quem não vê tudo não recebe a

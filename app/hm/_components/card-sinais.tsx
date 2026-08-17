@@ -303,6 +303,46 @@ export function SeloAlunoNovo({ className }: { className?: string }) {
   );
 }
 
+// "SEM OPERADOR" (17/08, pedido do Marcio) ===================================
+// Toda venda nova hoje nasce carimbada para a Kelly — o card sempre teve dono,
+// então nada sinalizava "falta distribuir" e ela distribuía sem saber que
+// precisava. Agora o card de venda nova nasce com `responsavel_id === null`
+// de propósito, e este selo é o aviso "GRITANDO na tela" que o pedido pediu —
+// vermelho forte (família `bloqueio`, TOM acima), não âmbar: aqui não é "pare
+// e confira", é "ninguém é dono disto ainda", o mesmo tipo de impedimento de
+// ação que o selo de cancelado usa.
+//
+// PRECEDÊNCIA com SeloCardNovo (0217): os dois ocupam o MESMO canto absoluto
+// (topo direito) e um card recém-nascido sem dono tem as duas condições ao
+// mesmo tempo (`visto_em === null` E `responsavel_id === null`). Só cabe UM no
+// canto — "sem operador" VENCE "novo": a ação urgente é associar um
+// responsável (sem isso o card nem aparece pra quem devia agir); "ninguém
+// abriu ainda" é secundário e continua valendo por trás (o title de
+// SeloCardNovo não se perde, só o selo visual cede o canto). As telas que
+// renderizam os dois devem checar `semOperador` ANTES de `naoVisto` e nunca
+// desenhar as duas ao mesmo tempo.
+// `posicao`: "absoluto" (default) é o canto do CARD (board) — pointer-events-none,
+// só decorativo, disputa o canto com SeloCardNovo (ver precedência acima).
+// "inline" é para telas sem canto de card (tabela): mesmo selo, no fluxo normal
+// do texto, ao lado do nome — mesmo padrão de SeloRecompra/SeloAlunoAntigo ali.
+export function SeloSemOperador({ className, posicao = "absoluto" }: { className?: string; posicao?: "absoluto" | "inline" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-sm motion-safe:animate-pulse dark:bg-rose-500",
+        posicao === "absoluto"
+          ? "pointer-events-none absolute -right-1.5 -top-2 z-10 ring-2 ring-white dark:ring-slate-900"
+          : "ring-1 ring-rose-700/20 dark:ring-rose-300/20",
+        className,
+      )}
+      title="Associe esse cliente a alguém da sua equipe ou a você mesma."
+    >
+      <svg className="h-2 w-2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+      sem operador
+    </span>
+  );
+}
+
 // "Ninguém abriu esse card ainda" (0217). Fica ABSOLUTO no canto superior
 // direito do card — o pedido foi literalmente "uma tagzinha no topo superior
 // direito" — e some na primeira abertura. O pulso respeita `motion-safe`: quem

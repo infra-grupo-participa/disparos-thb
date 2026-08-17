@@ -47,9 +47,11 @@ export async function GET(req: Request) {
   // RECORTADA por nível (regra única em listaResponsaveis, visibilidade.ts —
   // a mesma do board): master = todos + legados; gestor = a própria equipe;
   // operador = só ele. A UI confia nesta lista para o seletor de atribuição.
+  // `funcao: "comercial"` (0265): mesma lista do board — ver comentário em
+  // app/api/hm/kanban/route.ts.
   const responsaveis = await listaResponsaveis(g.sessao, "HM", {
     sql: `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''`,
-  });
+  }, "comercial");
   // `qtd` alimenta a régua de canais fixos — o placar do canal inteiro, sem os
   // filtros da tela (mesma regra da rota do kanban).
   const tagRows = await query<{ tag: string; eh_turma: boolean; qtd: number }>(

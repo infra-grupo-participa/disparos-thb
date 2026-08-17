@@ -117,4 +117,13 @@ export const EXPLICACAO: Record<string, { titulo: string; acao: string; categori
     acao: "Confira o nome e o e-mail do titular que o formulário trouxe. Achando a ficha certa na Jornada, refaça o cadastro do sócio por lá. Quem resolve: Equipe de Ativação.",
     categoria: "pessoa",
   },
+  // 0265: venda nova de HM/AURUM deixou de nascer com dono (o carimbo
+  // automático da 0161/0212 foi desligado) — o card fica na fila de entrada
+  // até a gestão distribuir. Crítico porque enquanto ninguém distribui,
+  // ninguém trabalha o lead: dinheiro parado sem ninguém sabendo.
+  venda_sem_operador: {
+    titulo: "Venda sem operador",
+    acao: "Associe esta pessoa a alguém do comercial — da sua equipe ou a você mesma. Quem resolve: quem gerencia a distribuição do HM/Aurum (Kelly).",
+    categoria: "pessoa",
+  },
 };

@@ -101,6 +101,8 @@ export async function notificacoesHm(
         -- aba/produto do CARD + os placeholders abas/produto: os QUATRO juntos,
         -- ou o ramo da esteira compartilhada não é emitido (visibilidade.ts).
         -- est.aba é o mesmo estagio_aba que o kanban passa como k.estagio_aba.
+        -- poolRestrito (0265): mesma regra do kanban — card livre do
+        -- HM/AURUM/ETHB não é mais pool visível a todos.
         and ${sqlEscopo(
           {
             rid: "ch.responsavel_id",
@@ -111,6 +113,7 @@ export async function notificacoesHm(
             produto: "ch.produto",
           },
           { verTudo: 3, usuario: 4, equipe: 5, abas: 7, produto: 8 },
+          { poolRestrito: true },
         )}
       order by i.criado_em desc
       limit $6`,

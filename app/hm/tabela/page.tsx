@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -835,7 +835,12 @@ export default function HmTabelaPage() {
                 usar em seguida, e copiar não pode custar abrir a ficha. */}
             <ContatoDoNome telefone={l.telefone} email={l.email} />
             {/* Recompra (27/07) e aluno antigo (0213): os MESMOS selos do board,
-                na coluna fixa — visíveis em qualquer visão e scroll horizontal. */}
+                na coluna fixa — visíveis em qualquer visão e scroll horizontal.
+                SEM OPERADOR (17/08) vem primeiro — é o selo de maior urgência
+                (mesma precedência do board, card-sinais.tsx). */}
+            {l.responsavel_id === null && !linhaBloqueada(l) && (
+              <SeloSemOperador posicao="inline" className="mt-0.5 self-start" />
+            )}
             {recompra && <SeloRecompra origem={recompra} className="mt-0.5 self-start" />}
             {alunoAntigo && <SeloAlunoAntigo className="mt-0.5 self-start" />}
           </div>
@@ -912,15 +917,25 @@ export default function HmTabelaPage() {
               <span className="truncate text-slate-700 dark:text-slate-200">{l.responsavel}</span>
             </>
           ) : me?.id ? (
+            // "Associar a mim" (17/08, pedido do Marcio): 1 clique, sem abrir a
+            // ficha. Rose quando é de fato SEM OPERADOR (`responsavel_id` null,
+            // mesma condição do SeloSemOperador) — teal (cor de pool) nos demais
+            // casos em que só o texto está vazio.
             <button
               type="button"
               disabled={salvando === l.comprador_id}
+              aria-busy={salvando === l.comprador_id}
               onClick={(e) => { e.stopPropagation(); patch(l.comprador_id, l.nome, { responsavel_id: me.id }); }}
-              className="inline-flex items-center gap-1 rounded-md border border-dashed border-teal-400 px-2 py-0.5 text-[11px] font-medium text-teal-700 transition hover:bg-teal-50 disabled:opacity-50 dark:border-teal-500/50 dark:text-teal-300 dark:hover:bg-teal-500/10"
-              title="Sem dono — clique para assumir este aluno"
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-[11px] font-medium transition disabled:opacity-50 focus:outline-none focus-visible:ring-2",
+                l.responsavel_id === null
+                  ? "border-rose-400 text-rose-700 hover:bg-rose-50 focus-visible:ring-rose-500 dark:border-rose-500/50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                  : "border-teal-400 text-teal-700 hover:bg-teal-50 focus-visible:ring-teal-500 dark:border-teal-500/50 dark:text-teal-300 dark:hover:bg-teal-500/10",
+              )}
+              title="Associe esse cliente a alguém da sua equipe ou a você mesma. Clique para assumir."
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
-              Assumir
+              Associar a mim
             </button>
           ) : (
             <span className="text-slate-400">—</span>

@@ -74,9 +74,24 @@ export function sqlCardLivre(a: ColunasEscopo): string {
 // `produto` (text) da esteira compartilhada.
 // NULL-safe por construção: `eq = $x::uuid` com $x nulo é unknown e NÃO casa —
 // gestor sem equipe vê só o pool, nunca "null = null" virando vazamento.
+//
+// `poolRestrito` (0265, pedido do Marcio — caso da Kelly): SÓ o HM liga isto.
+// Em todo portal genérico (HT/SEM/CNHF) e no board padrão do HM/AURUM, card
+// LIVRE (sem responsável/equipe/texto) é o comportamento histórico — visível a
+// QUALQUER operador, é o pool de onde qualquer um se serve. A venda nova de
+// HM/AURUM deixou de ser carimbada com dono (0265, cs.fn_hm_carimba_equipe_
+// padrao) — ela agora NASCE livre, e livre não pode mais significar "todo
+// mundo vê": é a FILA DE ENTRADA da gestão, que só quem `verTudo` (master +
+// gerente_distribuidor, ou seja, a Kelly) enxerga até ela distribuir. Por
+// isso, com `poolRestrito=true`, o ramo `sqlCardLivre` SAI do OR geral — quem
+// não é `verTudo` não ganha mais o card livre pelo ramo pool (o `$verTudo`
+// já cobre quem deve ver). Omitido/false = comportamento de sempre — é assim
+// que todo chamador que não é o board do HM continua igual sem precisar saber
+// que este parâmetro existe.
 export function sqlEscopo(
   a: ColunasEscopo,
   p: { verTudo: number; usuario: number; equipe: number; abas?: number; produto?: number },
+  opts?: { poolRestrito?: boolean },
 ): string {
   // Ramo canal→pessoa (0154): reusa o placeholder $usuario — sem novo parâmetro.
   // Card com alguma tag atribuída a mim em cs.usuario_canais entra na minha visão.
@@ -102,8 +117,10 @@ export function sqlEscopo(
   const ramoEsteira = a.aba && a.produto && p.abas !== undefined && p.produto !== undefined
     ? `\n       or (${a.aba} = any($${p.abas}::text[]) and ${a.produto} = $${p.produto}::text)`
     : "";
-  return `($${p.verTudo}::boolean
-       or ${sqlCardLivre(a)}
+  // Card livre: fora do OR quando poolRestrito — só $verTudo alcança (ver o
+  // comentário acima). Dentro do OR (comportamento de sempre) nos demais casos.
+  const ramoLivre = opts?.poolRestrito ? "" : `\n       or ${sqlCardLivre(a)}`;
+  return `($${p.verTudo}::boolean${ramoLivre}
        or ${a.eq} = $${p.equipe}::uuid
        or ${a.rid} = $${p.usuario}::uuid${ramoCanal}${ramoEsteira})`;
 }
@@ -146,9 +163,14 @@ export function podeVerPorEscopo(
   c: CardVisibilidade,
   canais?: string[],
   esteira?: boolean,
+  // `poolRestrito` (0265, mesmo parâmetro/motivo de sqlEscopo acima): card
+  // livre deixa de abrir para todo mundo — só quem já é `escopo.modo==="tudo"`
+  // (retornado na linha de cima) alcança. Omitido/false = comportamento de
+  // sempre (pool visível a qualquer operador).
+  poolRestrito?: boolean,
 ): boolean {
   if (escopo.modo === "tudo") return true;
-  if (ehCardLivre(c)) return true;
+  if (!poolRestrito && ehCardLivre(c)) return true;
   // Ramo canal→pessoa: card com alguma tag que EU cuido entra na minha visão
   // (mesma regra do SQL). fail-closed: sem canais ou sem tags, não abre nada.
   if (canais && canais.length && c.tags && c.tags.some((t) => canais.includes(t))) return true;
@@ -191,11 +213,18 @@ export type VeredictoAcao = "ok" | "card_de_outro_operador" | "sem_acesso";
 // escrita como o resto da regra: quem ganha o ramo pode ver E mover o card.
 // Card de OUTRA equipe que caiu aqui só pelo ramo esteira nunca vira
 // "card_de_outro_operador": ele É a esteira compartilhada, não um card de colega.
-export function veredictoAcao(sessao: Ator, c: CardVisibilidade, canais?: string[], esteira?: boolean): VeredictoAcao {
+// `poolRestrito` (0265): mesmo parâmetro de podeVerPorEscopo, propagado para os
+// DOIS lados — card livre do HM sem `verTudo` não abre nem em leitura nem em
+// ação; sem isto o operador comum receberia "card_de_outro_operador" (403) em
+// vez de "sem_acesso" (404-like) para um card que, na nova regra, ele nem
+// deveria enxergar que existe.
+export function veredictoAcao(
+  sessao: Ator, c: CardVisibilidade, canais?: string[], esteira?: boolean, poolRestrito?: boolean,
+): VeredictoAcao {
   // Canal→pessoa (0154): quem cuida do canal AGE no card como se fosse dele —
   // o ramo entra tanto na ação quanto na leitura, então nunca vira "card de colega".
-  if (podeVerPorEscopo(escopoAcao(sessao), c, canais, esteira)) return "ok";
-  return podeVerPorEscopo(escopoVisibilidade(sessao), c, canais, esteira) ? "card_de_outro_operador" : "sem_acesso";
+  if (podeVerPorEscopo(escopoAcao(sessao), c, canais, esteira, poolRestrito)) return "ok";
+  return podeVerPorEscopo(escopoVisibilidade(sessao), c, canais, esteira, poolRestrito) ? "card_de_outro_operador" : "sem_acesso";
 }
 
 // Lista de responsáveis para os seletores de atribuição, RECORTADA por nível
@@ -208,10 +237,27 @@ export function veredictoAcao(sessao: Ator, c: CardVisibilidade, canais?: string
 // pode oferecer um destino que atribuirResponsavel(Hm) vai recusar
 // (destino_fora_da_equipe / destino_sem_portal) — oferecer quem o backend
 // recusa é fazer o operador descobrir o limite errando.
+//
+// `funcao` (0265, pedido do Marcio — "só quem é do comercial no dropdown, tipo
+// a Jusy, a Kelly e o Jonathan"): filtro OPCIONAL adicional por
+// `cs.usuario_funcoes(portal, funcao)`. Critério é FUNÇÃO, não papel — quem
+// não tem a função não entra na lista, mesmo sendo membro ativo do portal.
+// Omitido = comportamento de sempre (todo mundo com o portal, sem olhar
+// função) — os chamadores que não passam nada (filtro "responsável" da tela,
+// que é conveniência de busca, não atribuição) continuam iguais.
+// Duas exceções deliberadas ao corte por função, as DUAS já preexistentes ao
+// filtro (não são regressão nova):
+//   · master sempre aparece — é quem distribui e precisa poder se auto-listar
+//     como destino em qualquer portal, função ou não;
+//   · os LEGADOS por texto (`legados.sql`) não têm `usuario_id`/função — são
+//     donos históricos que já existem em cards antigos; continuam aparecendo
+//     sempre, senão um card legado ficaria com um responsável que nem existe
+//     mais como opção no próprio seletor.
 export async function listaResponsaveis(
   sessao: Ator & { nome?: string | null },
   portal: string,
   legados: { sql: string; params?: unknown[] },
+  funcao?: "comercial" | "ativacao",
 ): Promise<string[]> {
   const nivel = nivelDe(sessao);
   const TEM_PORTAL = (alias: string, p: number) =>
@@ -223,11 +269,27 @@ export async function listaResponsaveis(
   // de atribuição: a tela esconderia um direito que o backend já concede.
   if (nivel === "master" || !!sessao.gerente_distribuidor) {
     // Placeholders dos legados vêm ANTES ($1..$n); o portal entra por último —
-    // assim o SQL de cada módulo não precisa saber em que posição ele caiu.
-    const params = [...(legados.params ?? []), portal];
+    // e `funcao` (quando presente) logo depois, no fim de tudo — assim o SQL
+    // de cada módulo não precisa saber em que posição os dois caíram.
+    const params = [...(legados.params ?? []), portal, ...(funcao ? [funcao] : [])];
+    const pPortal = (legados.params ?? []).length + 1;
+    const pFuncao = pPortal + 1;
+    // TEM_FUNCAO: cada usuário ATIVO candidato entra se é MASTER (mesma
+    // condição de nivelDe em lib/papeis.ts: admin da equipe principal — quem
+    // distribui precisa poder se autolistar como destino, função ou não) OU
+    // tem a função pedida em cs.usuario_funcoes. Os legados por texto (union
+    // abaixo) não passam por este filtro — não têm usuario_id/função, são
+    // donos históricos e continuam aparecendo sempre (ver comentário da função).
+    const TEM_FUNCAO = funcao
+      ? `and (eq.tipo = 'principal' and u.papel = 'admin'
+             or exists (select 1 from cs.usuario_funcoes uf where uf.usuario_id = u.id and uf.portal = $${pPortal} and uf.funcao = $${pFuncao}))`
+      : "";
     const rows = await query<{ responsavel: string }>(
       `select responsavel from (
-          select nome as responsavel from cs.usuarios u where u.ativo and ${TEM_PORTAL("u", params.length)}
+          select u.nome as responsavel
+            from cs.usuarios u
+            left join cs.equipes eq on eq.id = u.equipe_id
+           where u.ativo and ${TEM_PORTAL("u", pPortal)} ${TEM_FUNCAO}
           union
           ${legados.sql}
        ) u

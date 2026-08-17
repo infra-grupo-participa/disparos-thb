@@ -75,7 +75,10 @@ export async function POST(req: Request) {
           where v.comprador_id = any($1::uuid[]) and v.telefone is not null and v.telefone <> ''
             and not coalesce(v.nao_contatar, false)
             and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
-            and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
+            -- poolRestrito (0265): card do HM sem operador não é mais pool —
+            -- disparo para ele passa a exigir estar distribuído (ou ser quem
+            -- podeVerTudo), mesma regra do board.
+            and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 }, { poolRestrito: true })}
             and v.comprador_id not in (
               select dc.comprador_id from cs.disparo_contatos dc
                 join cs.disparos d on d.id = dc.disparo_id

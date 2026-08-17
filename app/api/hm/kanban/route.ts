@@ -159,11 +159,16 @@ export async function GET(req: Request) {
         and ($2::text[] is null or k.tags && $2)
         and ($3::text[] is null or k.tags && $3)
         and k.produto = $7                       -- board do produto (0155)
-        -- Escopo (predicado único, visibilidade.ts): vejo tudo OU é card LIVRE
-        -- (sem id, sem equipe E sem texto órfão) OU é MEU OU é da minha equipe.
+        -- Escopo (predicado único, visibilidade.ts): vejo tudo OU é MEU OU é
+        -- da minha equipe (OU esteira). poolRestrito (0265): card LIVRE (sem
+        -- id, sem equipe, sem texto órfão) deixou de ser "pool visível a
+        -- todos" no HM/AURUM/ETHB — a venda nova nasce sem operador (fila de
+        -- entrada da gestão) e só quem verTudo (master + Kelly,
+        -- gerente_distribuidor) enxerga até ser distribuída.
         and ${sqlEscopo(
           { rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags", aba: "k.estagio_aba", produto: "k.produto" },
           { verTudo: 4, usuario: 5, equipe: 6, abas: 8, produto: 9 },
+          { poolRestrito: true },
         )}
       order by k.ordem, k.atualizado_em desc nulls last, k.nome`,
     f,
@@ -190,9 +195,14 @@ export async function GET(req: Request) {
          or exists (
               select 1 from cs.contatos_hm_kanban tk
                where tk.comprador_id = s.titular_comprador_id
+                 -- poolRestrito (0265): o sócio herda a visibilidade do
+                 -- TITULAR — se o card do titular está na fila sem dono
+                 -- (invisível ao operador comum), o sócio pendurado nele
+                 -- também fica, pela mesma regra.
                  and ${sqlEscopo(
                    { rid: "tk.responsavel_id", eq: "tk.equipe_id", nome: "tk.responsavel", tags: "tk.tags", aba: "tk.estagio_aba", produto: "tk.produto" },
                    { verTudo: 1, usuario: 2, equipe: 3, abas: 5, produto: 6 },
+                   { poolRestrito: true },
                  )})
       order by s.titular_nome, s.nome`,
     // O sócio herda a visibilidade do TITULAR — inclusive pelo ramo esteira: os
@@ -206,9 +216,16 @@ export async function GET(req: Request) {
   // visibilidade.ts): master = todos + legados; gestor = a própria equipe;
   // operador = só ele. O seletor não pode oferecer destino que
   // atribuirResponsavelHm vai recusar.
+  // `funcao: "comercial"` (0265, pedido do Marcio: "só quem é do comercial no
+  // dropdown, tipo a Jusy, a Kelly e o Jonathan"): o dropdown "Operador
+  // (vigente)" da ficha do HM É `responsavel_id` — o campo comercial (ver
+  // CAMPOS_HM_COMERCIAL em lib/papeis.ts). Esta MESMA lista também alimenta o
+  // filtro "responsável" da tela (conveniência de busca) — restringir por
+  // função aqui restringe os dois juntos, de propósito: não faz sentido
+  // filtrar a tela por alguém que não pode mais ser destino de atribuição.
   const responsaveis = await listaResponsaveis(sessao, "HM", {
     sql: `select distinct responsavel from cs.contatos_hm where responsavel is not null and responsavel <> ''`,
-  });
+  }, "comercial");
   // `qtd` alimenta a régua de canais fixos: o placar do canal INTEIRO, sem os
   // filtros da tela — o número é "quantas vendas o evento fez", não "quantas
   // estou vendo agora".
