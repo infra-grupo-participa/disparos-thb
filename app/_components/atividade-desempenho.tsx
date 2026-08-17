@@ -162,8 +162,11 @@ export function AtividadeDesempenho({ endpoint }: { endpoint: string /* "/api/hm
             {comercialRankeado.length === 0 ? (
               <p className="py-6 text-center text-sm text-slate-400">Nenhum pagamento atribuído a um responsável comercial neste período.</p>
             ) : (
+              // min-w força rolagem horizontal (não o texto espremendo em coluna de
+              // 40px) abaixo de ~640px — sem isso "Acima da mediana do time" quebrava
+              // em 5 linhas por célula no celular.
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:text-slate-500">
                       <th className="py-2 pr-3 font-medium">Quem</th>
@@ -223,7 +226,7 @@ export function AtividadeDesempenho({ endpoint }: { endpoint: string /* "/api/hm
               <p className="py-6 text-center text-sm text-slate-400">Nenhum aluno quitou sob um responsável de ativação neste período.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[480px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:text-slate-500">
                       <th className="py-2 pr-3 font-medium">Quem</th>

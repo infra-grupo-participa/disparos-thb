@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, TITLE_CARD_CANCELADO, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -835,7 +835,12 @@ export default function HmTabelaPage() {
                 usar em seguida, e copiar não pode custar abrir a ficha. */}
             <ContatoDoNome telefone={l.telefone} email={l.email} />
             {/* Recompra (27/07) e aluno antigo (0213): os MESMOS selos do board,
-                na coluna fixa — visíveis em qualquer visão e scroll horizontal. */}
+                na coluna fixa — visíveis em qualquer visão e scroll horizontal.
+                SEM OPERADOR (17/08) vem primeiro — é o selo de maior urgência
+                (mesma precedência do board, card-sinais.tsx). */}
+            {l.responsavel_id === null && !linhaBloqueada(l) && (
+              <SeloSemOperador posicao="inline" className="mt-0.5 self-start" />
+            )}
             {recompra && <SeloRecompra origem={recompra} className="mt-0.5 self-start" />}
             {alunoAntigo && <SeloAlunoAntigo className="mt-0.5 self-start" />}
           </div>
@@ -912,15 +917,25 @@ export default function HmTabelaPage() {
               <span className="truncate text-slate-700 dark:text-slate-200">{l.responsavel}</span>
             </>
           ) : me?.id ? (
+            // "Associar a mim" (17/08, pedido do Marcio): 1 clique, sem abrir a
+            // ficha. Rose quando é de fato SEM OPERADOR (`responsavel_id` null,
+            // mesma condição do SeloSemOperador) — teal (cor de pool) nos demais
+            // casos em que só o texto está vazio.
             <button
               type="button"
               disabled={salvando === l.comprador_id}
+              aria-busy={salvando === l.comprador_id}
               onClick={(e) => { e.stopPropagation(); patch(l.comprador_id, l.nome, { responsavel_id: me.id }); }}
-              className="inline-flex items-center gap-1 rounded-md border border-dashed border-teal-400 px-2 py-0.5 text-[11px] font-medium text-teal-700 transition hover:bg-teal-50 disabled:opacity-50 dark:border-teal-500/50 dark:text-teal-300 dark:hover:bg-teal-500/10"
-              title="Sem dono — clique para assumir este aluno"
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-[11px] font-medium transition disabled:opacity-50 focus:outline-none focus-visible:ring-2",
+                l.responsavel_id === null
+                  ? "border-rose-400 text-rose-700 hover:bg-rose-50 focus-visible:ring-rose-500 dark:border-rose-500/50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                  : "border-teal-400 text-teal-700 hover:bg-teal-50 focus-visible:ring-teal-500 dark:border-teal-500/50 dark:text-teal-300 dark:hover:bg-teal-500/10",
+              )}
+              title="Associe esse cliente a alguém da sua equipe ou a você mesma. Clique para assumir."
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
-              Assumir
+              Associar a mim
             </button>
           ) : (
             <span className="text-slate-400">—</span>
@@ -1204,13 +1219,33 @@ export default function HmTabelaPage() {
     // sozinho: o que a operação quer saber é se está no começo ou quase lá.
     recebido: {
       id: "recebido", label: "Já pago", dir: true,
-      sortVal: (l) => num(l.valor_pago),
+      // 16/08: passou a mostrar `pago_no_ciclo`, não `valor_pago`. `valor_pago` é o razão
+      // INTEIRO da pessoa — inclui o que ela pagou no programa anterior, que já está
+      // representado no crédito pró-rata que reduz o pacote dela. Mostrar os dois juntos
+      // conta o mesmo dinheiro duas vezes: 5 cards do HM apareciam com R$ 26.600,02 a mais,
+      // o pior deles com R$ 12.000,02 de diferença. Quando há diferença, o valor antigo vai
+      // no título — some do número, não do histórico.
+      sortVal: (l) => num(l.pago_no_ciclo) ?? num(l.valor_pago),
       render: (l) => {
-        const pago = num(l.valor_pago) ?? 0;
+        const pago = num(l.pago_no_ciclo) ?? num(l.valor_pago) ?? 0;
+        const totalRazao = num(l.valor_pago) ?? 0;
+        const anterior = totalRazao - pago;
         const pct = num(l.pago_pct);
         return (
           <div className="flex min-w-[7.5rem] flex-col items-end gap-0.5">
-            <span className="whitespace-nowrap font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">{brl(pago)}</span>
+            <span
+              className="whitespace-nowrap font-semibold tabular-nums text-emerald-700 dark:text-emerald-400"
+              title={anterior > 1
+                ? `Pago neste programa: ${brl(pago)}. Esta pessoa também pagou ${brl(anterior)} no ciclo anterior — aquele valor virou crédito pró-rata e já está descontado do pacote dela, por isso não é somado aqui.`
+                : undefined}
+            >
+              {brl(pago)}
+            </span>
+            {anterior > 1 && (
+              <span className="whitespace-nowrap text-[10px] text-slate-400 dark:text-slate-500">
+                + {brl(anterior)} no ciclo anterior
+              </span>
+            )}
             {pct !== null && (
               <span className="flex w-full items-center justify-end gap-1">
                 <span className="h-1 w-12 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
@@ -1591,7 +1626,7 @@ export default function HmTabelaPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <MarcaPortal portal={portal} altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {nomePortal}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Jornada · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {linhas.length} {linhas.length === 1 ? "aluno" : "alunos"} — a Jornada em linhas: ordene, filtre, edite na célula e aja em lote.

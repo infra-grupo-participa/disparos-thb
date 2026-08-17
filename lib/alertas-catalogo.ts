@@ -107,4 +107,32 @@ export const EXPLICACAO: Record<string, { titulo: string; acao: string; categori
     acao: "Não confie nesta tela enquanto isto estiver aqui — nem no que ela mostra, nem no que ela deixou de mostrar. Quem resolve: time técnico.",
     categoria: "integracao",
   },
+  // 0263: webhook do Respondi (formulário de sócios) — titular não encontrado ou
+  // ambíguo (2+ cards HM) não escolhe sozinho (mesma lição do cancelamento_ambiguo,
+  // 0218): vira pendência + este alerta. Dono é a Equipe de Ativação porque é ela
+  // quem já trabalha a ficha do titular (checklist, acessos) — é quem tem contexto
+  // para achar a pessoa certa.
+  socio_sem_titular: {
+    titulo: "Sócio sem titular",
+    acao: "Confira o nome e o e-mail do titular que o formulário trouxe. Achando a ficha certa na Jornada, refaça o cadastro do sócio por lá. Quem resolve: Equipe de Ativação.",
+    categoria: "pessoa",
+  },
+  // 0265: venda nova de HM/AURUM deixou de nascer com dono (o carimbo
+  // automático da 0161/0212 foi desligado) — o card fica na fila de entrada
+  // até a gestão distribuir. Crítico porque enquanto ninguém distribui,
+  // ninguém trabalha o lead: dinheiro parado sem ninguém sabendo.
+  venda_sem_operador: {
+    titulo: "Venda sem operador",
+    acao: "Associe esta pessoa a alguém do comercial — da sua equipe ou a você mesma. Quem resolve: quem gerencia a distribuição do HM/Aurum (Kelly).",
+    categoria: "pessoa",
+  },
+  // 0266: a régua da aba "Transações Inválidas" da planilha VENDAS AURUM —
+  // compra cancelada/reembolsada/em disputa não conta como dinheiro recebido.
+  // Crítico porque o valor pago aparece maior do que entrou: quem cobra pede
+  // menos do que deveria, e o relatório de recebido mente para cima.
+  pagamento_de_transacao_invalida: {
+    titulo: "Dinheiro que voltou ainda conta como pago",
+    acao: "Confira na Hotmart se a compra foi mesmo devolvida e, se foi, estorne o lançamento na ficha da pessoa. Quem resolve: financeiro (Fernanda).",
+    categoria: "dinheiro",
+  },
 };

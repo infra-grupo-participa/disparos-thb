@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import type { Alerta, CancelamentoHotmart, ReceitaForaDoSaldo } from "@/lib/alertas-catalogo";
+import { EXPLICACAO, type Alerta, type CancelamentoHotmart, type ReceitaForaDoSaldo } from "@/lib/alertas-catalogo";
 
 export type { Alerta, CancelamentoHotmart, ReceitaForaDoSaldo } from "@/lib/alertas-catalogo";
 export { EXPLICACAO } from "@/lib/alertas-catalogo";
@@ -13,13 +13,22 @@ export { EXPLICACAO } from "@/lib/alertas-catalogo";
 // consegue resolver sozinho, mais o registro dos cancelamentos que a Hotmart mandou.
 
 export async function listarAlertasAbertos(): Promise<Alerta[]> {
-  return query<Alerta>(
+  const alertas = await query<Alerta>(
     `select id::text, tipo, chave, severidade, detalhe, detectado_em
        from cs.hm_alertas
       where resolvido_em is null
       order by (severidade = 'critico') desc, detectado_em desc
       limit 200`,
   );
+  // 0263: existem tipos abertos em produção (ex.: aluno_sem_base, crítico) sem
+  // entrada em EXPLICACAO — a tela mostra o alerta sem ícone, sem título e sem
+  // "o que fazer". Isto não corrige o catálogo (seria inventar a regra de quem
+  // gera o tipo); só avisa no log do servidor para não passar em silêncio.
+  const semCatalogo = new Set(alertas.filter((a) => !EXPLICACAO[a.tipo]).map((a) => a.tipo));
+  for (const tipo of semCatalogo) {
+    console.warn(`[hm-alertas] tipo "${tipo}" aberto em produção sem entrada em lib/alertas-catalogo.ts`);
+  }
+  return alertas;
 }
 
 // 0234 — os 27 alertas "compra fora do razão" saíram da fila (não havia o que
@@ -38,10 +47,13 @@ export async function receitaForaDoSaldo(): Promise<ReceitaForaDoSaldo | null> {
   return { compras: r[0].compras, total: Number(r[0].total), desde: r[0].desde };
 }
 
+// 0263: cs.hm_alertas.id é BIGINT (não UUID) — `$1::uuid` fazia toda baixa
+// manual de alerta dar erro de cast antes mesmo de chegar no update, para os
+// 5 tipos abertos hoje, não só o novo (socio_sem_titular).
 export async function resolverAlerta(id: string): Promise<boolean> {
   const r = await query(
     `update cs.hm_alertas set resolvido_em = now()
-      where id = $1::uuid and resolvido_em is null
+      where id = $1::bigint and resolvido_em is null
       returning id`,
     [id],
   );

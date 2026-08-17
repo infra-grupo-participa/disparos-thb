@@ -35,16 +35,44 @@ export type FiltrosVisaoHm = { responsavel?: string[]; canal?: string[]; turma?:
 //
 // Reuniões saiu daqui e entrou no menu do topo (é um relatório, não uma leitura
 // da lista); Atividade e Equipes já estavam lá. Nada ficou inalcançável.
-const VISOES = [
+const VISOES_JORNADA = [
   { id: "kanban", label: "Jornada", sub: "/kanban" },
   { id: "tabela", label: "Tabela", sub: "/tabela" },
 ] as const;
 
-// `atual` aceita as telas que ainda RENDERIZAM a tira (reunioes/atividade/
-// equipes continuam mostrando o alternador para voltar à lista) — nelas
-// nenhuma das duas fica marcada, que é o correto: você não está em nenhuma
-// das duas leituras.
-export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela" | "atividade" | "reunioes" | "equipes"; filtros: FiltrosVisaoHm }) {
+// 16/08 — o mesmo alternador, para o par Agenda/Reuniões. Agendamentos é o
+// calendário (o que VAI acontecer); Reuniões é a mesma agenda em lista (o que
+// JÁ aconteceu, com resultado e gravação). É a MESMA relação de Jornada⇄Tabela
+// — duas leituras de um assunto só —, por isso ganha o mesmo componente em vez
+// de reinventar um segundo alternador.
+const VISOES_AGENDA = [
+  { id: "agendamentos", label: "Calendário", sub: "/agendamentos" },
+  { id: "reunioes", label: "Lista", sub: "/reunioes" },
+] as const;
+
+const ICONES_JORNADA: Record<string, JSX.Element> = {
+  kanban: <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="14" rx="1.5" /><rect x="14" y="3" width="7" height="9" rx="1.5" /></svg>,
+  tabela: <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>,
+};
+
+const ICONES_AGENDA: Record<string, JSX.Element> = {
+  agendamentos: <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>,
+  reunioes: <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>,
+};
+
+type Props =
+  // `atual` aceita as telas que ainda RENDERIZAM a tira (atividade/equipes
+  // continuam mostrando o alternador para voltar à Jornada) — nelas nenhuma
+  // das duas fica marcada, que é o correto: você não está em nenhuma das duas
+  // leituras.
+  | { par?: "jornada"; atual: "kanban" | "tabela" | "atividade" | "equipes"; filtros: FiltrosVisaoHm }
+  | { par: "agenda"; atual: "agendamentos" | "reunioes"; filtros: FiltrosVisaoHm };
+
+export function HmVisao(props: Props) {
+  const { atual, filtros } = props;
+  const par = props.par ?? "jornada";
+  const VISOES = par === "agenda" ? VISOES_AGENDA : VISOES_JORNADA;
+  const ICONES = par === "agenda" ? ICONES_AGENDA : ICONES_JORNADA;
   const { base } = useProdutoHm();
   // Filtro multi-valor = parâmetro repetido (?canal=A&canal=B) — o formato que
   // as rotas leem com getAll.
@@ -84,13 +112,8 @@ export function HmVisao({ atual, filtros }: { atual: "kanban" | "tabela" | "ativ
             ? "bg-white text-slate-900 shadow-card dark:bg-slate-700 dark:text-slate-100"
             : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200",
         );
-        // Só dois ícones — a tira só tem duas leituras desde 13/08. Os ramos
-        // de reunioes/equipes saíram junto com os destinos.
-        const icone = v.id === "kanban" ? (
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="14" rx="1.5" /><rect x="14" y="3" width="7" height="9" rx="1.5" /></svg>
-        ) : (
-          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
-        );
+        // Só duas leituras por par — Jornada⇄Tabela ou Calendário⇄Lista.
+        const icone = ICONES[v.id];
         // A visão ativa não é um link para si mesma — é onde a pessoa já está.
         return ativa ? (
           <span key={v.id} className={cls} aria-current="page">

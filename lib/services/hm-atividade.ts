@@ -723,6 +723,27 @@ function sqlRecorteResponsavel(coluna: "responsavel_comercial_id" | "responsavel
 export type DesempenhoComercial = {
   usuario_id: string | null;
   pessoa: string;
+  /**
+   * B3 (16/08): de onde saiu a atribuição de carteira que sustenta este número — a mesma
+   * escada de cs.vw_hm_carteira (0240→0245): atribuicao > nota > operacao > etapa_venda >
+   * triagem > campo > sem_dono. Quando os cards da pessoa vieram de degraus diferentes, os
+   * valores distintos aparecem concatenados (nunca escolhido um e escondido o resto).
+   */
+  carteira_origem: string | null;
+  /** O texto de lastro por trás da(s) origem(ns) acima — uma frase por origem distinta. */
+  carteira_lastro: string | null;
+  /**
+   * Dos `cards` abaixo, quantos têm lastro FORTE (carteira_confirmada = degrau 1-4 da escada:
+   * atribuição/nota/operação/etapa de venda) vs FRACO (triagem/campo — o gesto da
+   * distribuidora, não prova venda). Medido em produção (16/08): 174 pessoas divergem entre
+   * `responsavel_comercial_id` e a carteira reconstruída — a tela não pode afirmar "de quem é"
+   * sem mostrar de onde tirou isso.
+   */
+  cards_confirmados: number;
+  cards_nao_confirmados: number;
+  /** Dos `cards`, quantos têm o carimbo automático da 0161 (venda nova carimbada na
+   *  distribuidora) — é o principal motivo de `responsavel_comercial_id` mentir sozinho. */
+  cards_carimbo_automatico: number;
   /** Cards distintos com AO MENOS UM pagamento no período (não é "cards atribuídos hoje" — é quem gerou caixa). */
   cards: number;
   /** Soma de TODOS os pagamentos do período atribuídos ao card que ele fechou (sinal+saldo+compra_cheia+mensalidade). Nunca inclui `ajuste` (correção manual, não é venda nova). */
@@ -757,43 +778,83 @@ export type Desempenho = {
   ativacao: DesempenhoAtivacao[];
 };
 
-// Dinheiro fechado por responsável COMERCIAL, com o mesmo filtro de produto
+// O WHERE do recorte por CARTEIRA — mesmo espírito de sqlRecorteResponsavel, mas contra
+// `v.carteira_usuario_id` (cs.vw_hm_carteira), não contra uma FK de cs.contatos_hm.
+// `coluna` não existe aqui porque só há uma coluna possível: a carteira reconstruída
+// pela linha do tempo. Ver o comentário de desempenhoComercialDinheiroNucleo (B3, 16/08).
+function sqlRecorteCarteira(pModo: number, pUsuario: number, pEquipe: number): string {
+  return `
+        and ($${pModo}::text = 'tudo'
+             or ($${pModo} = 'equipe' and (
+                   v.carteira_usuario_id = $${pUsuario}::uuid
+                   or exists (select 1 from cs.usuarios ur where ur.id = v.carteira_usuario_id and ur.equipe_id = $${pEquipe}::uuid)
+                 ))
+             or ($${pModo} = 'operador' and v.carteira_usuario_id = $${pUsuario}::uuid))`;
+}
+
+// Dinheiro fechado por CARTEIRA (B3, 16/08), com o mesmo filtro de produto
 // (`cs.fn_hm_pagamento_do_produto`) que o resto do financeiro do HM usa (0196/
 // 0197/0199, e o histórico financeiro da ficha, hoje) — sem ele, o dinheiro do
 // AURUM entraria no placar de quem vende HM (comprador com card nos dois
 // boards, 0163). `categoria in (...)` exclui `ajuste` de propósito: é correção
 // manual de abertura de conta (0075), não uma venda que o comercial fechou.
+//
+// ANTES desta migration o crédito saía de `ch.responsavel_comercial_id` — e esse campo
+// NÃO é quem vendeu: a 0161 carimba toda venda nova na distribuidora (Kelly) e a
+// ativação sobrescreve o dono quando o card avança (131 dos 264 cards do HM ficam sem
+// `responsavel_comercial_id`; 32 cards com sinal têm "Kelly" sem ela ter vendido —
+// disparos-brain/"Carteira do card se perde na ativação"). `/carteira`, ao lado, já lia
+// `cs.vw_hm_carteira` (reconstrói o dono pela linha do tempo, 0240→0245) — duas telas do
+// mesmo sistema respondiam "de quem é a carteira" com números diferentes. Agora as duas
+// saem da MESMA fonte: divergência deixa de ser possível por construção.
+//
+// O antes×depois por pessoa (condição de aceite do bloco B3) está em
+// tmp/squad/central-ativacao-2026-08-16.md, seção "Backend — painel (16/08)" — rodar
+// antes de aplicar em produção; eu não tenho acesso a banco nesta sessão.
 async function desempenhoComercialDinheiroNucleo(
   f: { de?: string | null; ate?: string | null; produto?: string | null },
   escopo: EscopoVisibilidade,
-): Promise<{ usuario_id: string | null; pessoa: string; cards: number; total_fechado: number; total_sinal: number; total_saldo: number; total_compra_cheia: number; total_mensalidade: number }[]> {
+): Promise<{
+  usuario_id: string | null; pessoa: string; carteira_origem: string | null; carteira_lastro: string | null;
+  cards_confirmados: number; cards_nao_confirmados: number; cards_carimbo_automatico: number;
+  cards: number; total_fechado: number; total_sinal: number; total_saldo: number; total_compra_cheia: number; total_mensalidade: number;
+}[]> {
   const { modo, usuarioId, equipeId } = paramsRecorteResponsavel(escopo);
   const rows = await query<Record<string, unknown>>(
-    `select ch.responsavel_comercial_id                                          as usuario_id,
-            coalesce(u.nome, 'Sem responsável comercial')                        as pessoa,
-            count(distinct ch.id)::int                                           as cards,
+    `select v.carteira_usuario_id                                                as usuario_id,
+            coalesce(v.carteira_nome, 'Sem responsável comercial')                as pessoa,
+            string_agg(distinct v.carteira_origem, ', ' order by v.carteira_origem) as carteira_origem,
+            string_agg(distinct v.carteira_lastro, ' | ' order by v.carteira_lastro) as carteira_lastro,
+            count(distinct v.contato_hm_id) filter (where v.carteira_confirmada)::int     as cards_confirmados,
+            count(distinct v.contato_hm_id) filter (where not v.carteira_confirmada)::int as cards_nao_confirmados,
+            count(distinct v.contato_hm_id) filter (where v.carimbo_automatico)::int      as cards_carimbo_automatico,
+            count(distinct v.contato_hm_id)::int                                  as cards,
             coalesce(sum(p.valor), 0)                                            as total_fechado,
             coalesce(sum(p.valor) filter (where p.categoria = 'sinal'), 0)       as total_sinal,
             coalesce(sum(p.valor) filter (where p.categoria = 'saldo'), 0)       as total_saldo,
             coalesce(sum(p.valor) filter (where p.categoria = 'compra_cheia'), 0) as total_compra_cheia,
             coalesce(sum(p.valor) filter (where p.categoria = 'mensalidade'), 0) as total_mensalidade
        from cs.hm_pagamentos p
-       join cs.contatos_hm ch
-         on ch.comprador_id = p.comprador_id
-        and cs.fn_hm_pagamento_do_produto(p.oferta_codigo, ch.produto)
-       left join cs.usuarios u on u.id = ch.responsavel_comercial_id
+       join cs.vw_hm_carteira v
+         on v.comprador_id = p.comprador_id
+        and cs.fn_hm_pagamento_do_produto(p.oferta_codigo, v.produto)
       where p.categoria in ('sinal','saldo','compra_cheia','mensalidade')
         and ($1::timestamptz is null or p.pago_em >= $1)
         and ($2::timestamptz is null or p.pago_em <  $2)
-        and ($3::text is null or ch.produto = $3)
-        ${sqlRecorteResponsavel("responsavel_comercial_id", 4, 5, 6)}
-      group by ch.responsavel_comercial_id, u.nome
+        and ($3::text is null or v.produto = $3)
+        ${sqlRecorteCarteira(4, 5, 6)}
+      group by v.carteira_usuario_id, v.carteira_nome
       order by total_fechado desc nulls last`,
     [f.de || null, f.ate || null, f.produto || null, modo, usuarioId, equipeId],
   );
   return rows.map((r) => ({
     usuario_id: (r.usuario_id as string | null) ?? null,
     pessoa: r.pessoa as string,
+    carteira_origem: (r.carteira_origem as string | null) ?? null,
+    carteira_lastro: (r.carteira_lastro as string | null) ?? null,
+    cards_confirmados: numero(r.cards_confirmados),
+    cards_nao_confirmados: numero(r.cards_nao_confirmados),
+    cards_carimbo_automatico: numero(r.cards_carimbo_automatico),
     cards: numero(r.cards),
     total_fechado: numero(r.total_fechado),
     total_sinal: numero(r.total_sinal),
@@ -928,6 +989,11 @@ export async function desempenhoHm(
     return {
       usuario_id: usuarioId,
       pessoa: d?.pessoa ?? t?.pessoa ?? "Sem responsável comercial",
+      carteira_origem: d?.carteira_origem ?? null,
+      carteira_lastro: d?.carteira_lastro ?? null,
+      cards_confirmados: d?.cards_confirmados ?? 0,
+      cards_nao_confirmados: d?.cards_nao_confirmados ?? 0,
+      cards_carimbo_automatico: d?.cards_carimbo_automatico ?? 0,
       cards: d?.cards ?? 0,
       total_fechado: d?.total_fechado ?? 0,
       total_sinal: d?.total_sinal ?? 0,
@@ -941,4 +1007,57 @@ export async function desempenhoHm(
   }).sort((a, b) => b.total_fechado - a.total_fechado);
 
   return { de: f.de || null, ate: f.ate || null, comercial, ativacao };
+}
+
+// ===== Eventos automáticos — "o time trabalhou" × "o robô rodou" (16/08, para o Relatório
+// de Ações do Comercial) =====================================================================
+// `atividadeHm` já EXCLUI autor automático do recorte por colaborador (SQL_RECORTE_AUTOR,
+// $3=ATORES_SISTEMA) — sem isso o relatório contaria webhook/Make como trabalho humano. O
+// que faltava era o outro lado: quantos eventos automáticos aconteceram no período, PARA
+// MOSTRAR separado — nunca somado ao total de gente. Medido em produção pelo orquestrador
+// em 16/08: de 6.094 interações do HM, 3.748 (61,5%) são de autor automático/legado; somar
+// os dois faria o relatório dizer que o comercial trabalhou o triplo do que trabalhou, e
+// esse relatório vira conversa de avaliação com pessoa (pedido literal do João).
+export type AtividadeAutomaticoResumo = { autor: string; rotulo: "automacao" | "legado"; total: number };
+
+// Semente medida em 16/08 (a mesma consulta abaixo, rodada pelo orquestrador): quem hoje
+// ainda GERA evento (automação) e quem é rastro de gente que já saiu do fluxo mas não se
+// apaga do histórico (legado). Autor fora desta lista mas dentro de ATORES_SISTEMA cai em
+// "legado" por padrão — mais seguro rotular "legado" um automático desconhecido do que
+// "automação" um humano que a lista de exclusão pegou por engano.
+const ROTULO_AUTOR_AUTOMATICO: Record<string, "automacao" | "legado"> = {
+  sistema: "automacao",
+  make: "automacao",
+  hotmart: "automacao",
+  respondi: "automacao",
+  cs: "legado",
+  lead: "legado",
+};
+
+/** Contagem de eventos automáticos/legados no período, por autor — mesmo recorte de
+ *  data e produto de `atividadeHm`, mas SEM recorte por nível: automação não pertence a
+ *  ninguém, e escondê-la de um operador não faz sentido (ele não "vê o trabalho de um
+ *  colega" — vê que o robô rodou). */
+export async function atividadeAutomaticaHm(
+  f: { de?: string | null; ate?: string | null; produto?: string | null },
+): Promise<{ itens: AtividadeAutomaticoResumo[]; total: number }> {
+  const rows = await query<{ autor: string; total: number }>(
+    `select btrim(lower(i.autor)) as autor, count(*)::int as total
+       from cs.interacoes i
+       join cs.contatos_hm ch on ch.id = i.contato_hm_id
+      where i.autor is not null
+        and btrim(lower(i.autor)) = any($3::text[])
+        and ($1::timestamptz is null or i.criado_em >= $1)
+        and ($2::timestamptz is null or i.criado_em <  $2)
+        and ($4::text is null or ch.produto = $4)
+      group by btrim(lower(i.autor))
+      order by count(*) desc`,
+    [f.de || null, f.ate || null, ATORES_SISTEMA, f.produto || null],
+  );
+  const itens: AtividadeAutomaticoResumo[] = rows.map((r) => ({
+    autor: r.autor,
+    rotulo: ROTULO_AUTOR_AUTOMATICO[r.autor] ?? "legado",
+    total: Number(r.total) || 0,
+  }));
+  return { itens, total: itens.reduce((s, i) => s + i.total, 0) };
 }

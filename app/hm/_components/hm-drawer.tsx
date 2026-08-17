@@ -10,12 +10,10 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 // A cor da marca de cada portal — a MESMA que o operador vê no topo da tela.
 import { PORTAIS, type PortalId } from "@/lib/marcas";
-
-const SALDO_CHECKOUT = "https://pay.hotmart.com/L97981750T?off=2vibw97m";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
 type Contato = {
@@ -172,6 +170,11 @@ type Socio = {
   id: string; nome: string; email: string | null; telefone: string | null; link_facebook: string | null;
   ativ_searchie: boolean; ativ_comunidade: boolean; ativ_grupo: boolean; aluno_id: string | null;
 };
+// Sócio anterior deste titular (17/08, webhook do Respondi): quem saiu e
+// quando — a view cs.vw_hm_socios_historico_titular já filtra por card; a
+// ficha só lê o que já não é o vigente (o backend só devolve os arquivados).
+// Sem CPF: a ficha não expõe documento de sócio que já saiu.
+type SocioAnterior = { nome: string; criado_em: string; substituido_em: string };
 
 // Resultado da reunião comercial — os mesmos estados que a planilha usava, agora
 // como campo (e não texto solto misturado com a data).
@@ -212,6 +215,14 @@ function brl(v: number): string {
 
 function fmt(iso: string | null) {
   return iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+}
+// Só a data (dd/mm/aaaa), sem hora — para o histórico de sócio anterior, onde
+// só o dia importa. `substituido_em` é timestamptz (tem hora certa, ao
+// contrário de um `date` puro do Postgres), então dá para formatar direto.
+function fmtData(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
 }
 
 // ===== Timeline do card (auditoria) =========================================
@@ -284,7 +295,7 @@ export function HmDrawer({
   const { me, podeDisparar: podeDisparaFn, podeDistribuir, ehMaster, ehCardDeColega, ehEquipeDeAtivacao } = useMe();
   const podeDisparar = podeDisparaFn("HM");
   // 0164: a mesma pessoa pode ter card em 2 boards — a ficha precisa saber QUAL abrir.
-  const { produto: produtoBoard, nome: nomePortal } = useProdutoHm();
+  const { produto: produtoBoard, nome: nomePortal, base } = useProdutoHm();
   const [c, setC] = useState<Contato | null>(null);
   // O GET pode ser RECUSADO (403 cancelamento_so_admin_gp num link colado, sessão
   // caída…). Sem este estado o drawer ficava no "Carregando…" para sempre.
@@ -324,6 +335,7 @@ export function HmDrawer({
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [motivoAgenda, setMotivoAgenda] = useState("");
   const [socios, setSocios] = useState<Socio[]>([]);
+  const [historicoSocios, setHistoricoSocios] = useState<SocioAnterior[]>([]);
   const [novoSocio, setNovoSocio] = useState({ nome: "", email: "", telefone: "" });
   const [catalogoTags, setCatalogoTags] = useState<TagOpcao[]>([]);
   // O histórico de versões da ficha (0097) — ver e recuperar, como na planilha.
@@ -355,6 +367,7 @@ export function HmDrawer({
       setLinks(d.linksSaldo ?? []);
       setPagamentos(d.pagamentos ?? []);
       setSocios(d.socios ?? []);
+      setHistoricoSocios(d.historicoSocios ?? []);
       setAgendamentos(d.agendamentos ?? []);
       setVersoes(d.versoes ?? []);
       setMotivoAgenda("");
@@ -497,6 +510,12 @@ export function HmDrawer({
   // ao Comercial conserva a data do pagamento como histórico, mas volta a pedir a
   // confirmação — senão o formulário de pagamento nunca mais reapareceria.
   const jaPagou = !!c?.apto_ativacao;
+  // Link de saldo do HM para o botão único "Abrir checkout Hotmart" (0255): não
+  // é mais o link fixo `off=2vibw97m` (R$14.700) — é o mesmo `links` que a
+  // ficha já calcula pelo saldo REAL desta pessoa (hm-ficha.ts), preferindo a
+  // opção à vista. Sem match dentro da tolerância, `links` vem vazio e a tela
+  // não pode oferecer link nenhum — errar o valor é pior que não mostrar.
+  const linkSaldoRecomendado = links.find((l) => !l.recorrente) ?? links[0] ?? null;
   // Reunião finalizada (0152): o bloco financeiro de cancelamento só aparece
   // depois que a reunião comercial foi de fato realizada — é a regra pedida
   // ("tem que vir após a reunião finalizada"). Vale o resultado OU já ter data.
@@ -1343,6 +1362,14 @@ export function HmDrawer({
               </Campo>
 
               <Campo label="Operador (vigente)">
+                {/* SEM OPERADOR (17/08): o mesmo selo do board/tabela, aqui na
+                    ficha — o aviso "gritando" precisa seguir o card até onde a
+                    associação de fato acontece. `posicao="inline"`: a ficha não
+                    tem canto de card. `responsavel_id` (não `responsavel`
+                    texto): é a condição que a venda nova nasce nula. */}
+                {c.responsavel_id === null && (
+                  <SeloSemOperador posicao="inline" className="mb-1.5" />
+                )}
                 {podeDistribuir() ? (
                   // MASTER/GESTOR: o seletor distribui. A lista `responsaveis` já
                   // vem recortada do servidor (master = todos os ativos; gestor =
@@ -1384,11 +1411,12 @@ export function HmDrawer({
                     type="button"
                     onClick={() => patch({ responsavel_id: me.id })}
                     disabled={salvando}
-                    className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-brand transition hover:underline disabled:opacity-50 dark:text-brand-300"
-                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Assumir para mim"}
+                    aria-busy={salvando}
+                    className="mt-1.5 inline-flex items-center gap-1.5 rounded text-xs font-medium text-brand transition hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 dark:text-brand-300"
+                    title={c.responsavel ? `Assumir de ${c.responsavel}` : "Associe esse cliente a alguém da sua equipe ou a você mesma."}
                   >
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
-                    {c.responsavel ? "Assumir para mim" : "Atribuir a mim"}
+                    {c.responsavel ? "Assumir para mim" : "Associar a mim"}
                   </button>
                 )}
               </Campo>
@@ -1813,6 +1841,25 @@ export function HmDrawer({
                   Adicionar sócio
                 </Button>
                 </>)}
+
+                {/* Sócio anterior deste titular (17/08): discreto, atrás de um
+                    "detalhes" — não pode competir com o sócio vigente acima.
+                    Só aparece quando já houve troca (nunca uma seção vazia). */}
+                {historicoSocios.length > 0 && (
+                  <details className="group/hist mt-2.5 border-t border-slate-100 pt-2 dark:border-slate-800">
+                    <summary className="alvo-toque inline-flex cursor-pointer list-none items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+                      <svg className="h-3 w-3 shrink-0 transition-transform group-open/hist:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                      {historicoSocios.length === 1 ? "sócio anterior" : `sócios anteriores (${historicoSocios.length})`}
+                    </summary>
+                    <ul className="mt-1.5 space-y-1">
+                      {historicoSocios.map((h, i) => (
+                        <li key={`${h.nome}-${h.substituido_em}-${i}`} className="text-[11px] text-slate-500 dark:text-slate-400">
+                          sócio anterior: <span className="font-medium text-slate-600 dark:text-slate-300">{h.nome}</span>, trocado em {fmtData(h.substituido_em)}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
 
               {!jaPagou && !somenteLeitura && (
@@ -1834,16 +1881,21 @@ export function HmDrawer({
                       do saldo ao aluno; assim que ele pagar, o card vai sozinho para a Ativação
                       (Pendente de Liberação) e o aluno é criado na base. Não há lançamento manual.
                     </p>
-                    {/* O checkout fixo é a oferta do HM (2vibw97m). No card do AURUM
-                        ele mandaria o aluno pagar o saldo ERRADO — some até o Aurum
-                        ter link próprio cadastrado (o comercial combina o pagamento
-                        pelo valor que o card já mostra). */}
+                    {/* No card do AURUM não há link de checkout próprio ainda — some
+                        até o Aurum ter um cadastrado (o comercial combina o
+                        pagamento pelo valor que o card já mostra). No HM, o link é
+                        o do SALDO REAL desta pessoa (0255) — nunca mais um valor
+                        fixo que erraria o valor de quem não bate com ele. */}
                     {aurum ? (
                       <p className="text-[11px] text-amber-800/80 dark:text-amber-200/80">
                         O Aurum ainda não tem link de checkout próprio — combine o pagamento pelo valor acima.
                       </p>
+                    ) : linkSaldoRecomendado ? (
+                      <a href={linkSaldoRecomendado.link} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
                     ) : (
-                      <a href={SALDO_CHECKOUT} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand hover:underline dark:text-brand-300">Abrir checkout Hotmart</a>
+                      <p className="text-[11px] text-amber-800/80 dark:text-amber-200/80">
+                        Não existe link para este saldo — gerar um novo checkout na Hotmart.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -1899,7 +1951,7 @@ export function HmDrawer({
             </div>
 
             <div className="sticky bottom-0 flex flex-wrap gap-2 border-t border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-              <Link href={`/hm/contatos/${c.comprador_id}`} className="min-w-[7rem] flex-1">
+              <Link href={`${base}/contatos/${c.comprador_id}`} className="min-w-[7rem] flex-1">
                 <Button variant="secondary" className="w-full">Ficha completa</Button>
               </Link>
               {/* Download direto (o servidor devolve o arquivo com Content-Disposition) */}

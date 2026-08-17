@@ -75,7 +75,10 @@ export function Selo({
 // Número sozinho não informa — precisa do rótulo e, quando existir, da
 // comparação. `valor` é ReactNode para caber "—" ou "não calculado": o sistema
 // nunca inventa zero quando não sabe.
-const TEXTO_DO_TOM: Record<Tom, string> = {
+// Exportado (16/08, F2): KpiComparado reusa este mapa para o texto da variação
+// e para colorir a sparkline via `currentColor` — a cor continua função do TOM
+// único do sistema, nunca um segundo mapa de cor inventado à parte.
+export const TEXTO_DO_TOM: Record<Tom, string> = {
   bloqueio: "text-rose-700 dark:text-rose-300",
   bloqueioForte: "text-rose-700 dark:text-rose-300",
   atencao: "text-amber-700 dark:text-amber-300",
@@ -172,5 +175,164 @@ export function Atualizado({ em, className }: { em?: string | Date | null; class
     <span className={cn("text-[11px] text-slate-400 dark:text-slate-500", className)} title={d.toLocaleString("pt-BR")}>
       atualizado {d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
     </span>
+  );
+}
+
+// =========================================================================
+// KpiComparado (16/08, F2) — o primitivo que faltava: "KPI = valor +
+// comparação + auxílio visual" (regra do Marcio, feedback_dashboard_hierarquia_
+// e_leitura). Substitui os 3 jeitos soltos de mostrar número que o sistema
+// tinha (app/_components/kpi.tsx, Stat acima, e os 4 <Kpi> feitos à mão em
+// app/hm/carteira/page.tsx) — nenhum dos três mostrava comparação com o
+// período anterior.
+//
+// A cor nunca é decorativa: é sempre função de `variacaoAbsoluta` (positivo/
+// atencao/neutro, tabela TOM) e SEMPRE vem acompanhada de seta + sinal + texto
+// — nunca só cor (daltonismo). `invertido` inverte o sentido para KPIs onde
+// MENOS é melhor (a receber, precisam de ação): quem sobe fica âmbar, não
+// verde. Sem comparação (`variacaoAbsoluta === null`), o texto diz "sem
+// comparação ainda" — nunca 0% inventado (lei 4 do padrao-visual.md).
+export type SeriePontoUi = { data: string; valor: number | null };
+
+const fmtNumeroKpi = (v: number) => v.toLocaleString("pt-BR");
+const fmtMoedaKpi = (v: number) =>
+  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+
+function formatarValorKpi(v: number | null, formato: "numero" | "dinheiro"): string {
+  if (v === null || !Number.isFinite(v)) return "—";
+  return formato === "dinheiro" ? fmtMoedaKpi(v) : fmtNumeroKpi(v);
+}
+
+function tomDaVariacao(abs: number | null, invertido: boolean): Tom {
+  if (abs === null || abs === 0) return "neutro";
+  const subiu = abs > 0;
+  const bom = invertido ? !subiu : subiu;
+  return bom ? "positivo" : "atencao";
+}
+
+function setaDaVariacao(abs: number | null): string {
+  if (abs === null || abs === 0) return "▬";
+  return abs > 0 ? "▲" : "▼";
+}
+
+// Sparkline em SVG puro — zero dependência nova (regra de otimização do
+// Fable). Pontos nulos QUEBRAM a linha (gap), nunca interpolam por cima de um
+// buraco de medição; a posição X segue o ÍNDICE do array inteiro, não só dos
+// pontos válidos, para o "sem dado antes de DD/MM" ficar visualmente correto
+// (o começo da linha nasce mais adiante, não comprimido). Decorativo por
+// natureza — o valor e a variação em texto acima já carregam a informação;
+// `role="img"` + `aria-label` dão a tendência para quem usa leitor de tela.
+function Sparkline({ serie, tom }: { serie: SeriePontoUi[]; tom: Tom }) {
+  const validos = serie.filter((p): p is { data: string; valor: number } => p.valor !== null);
+  if (validos.length < 2) {
+    return <p className="text-[10px] text-slate-400 dark:text-slate-500">série insuficiente ainda</p>;
+  }
+  const vals = validos.map((p) => p.valor);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const span = max - min || 1;
+  const W = 100;
+  const H = 28;
+  const PAD = 2;
+  const n = serie.length;
+  const stepX = n > 1 ? (W - PAD * 2) / (n - 1) : 0;
+
+  let path = "";
+  let aberto = false;
+  let ultimo: { x: number; y: number } | null = null;
+  serie.forEach((p, i) => {
+    if (p.valor === null) { aberto = false; return; }
+    const x = PAD + i * stepX;
+    const y = PAD + (H - PAD * 2) * (1 - (p.valor - min) / span);
+    path += `${aberto ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)} `;
+    aberto = true;
+    ultimo = { x, y };
+  });
+
+  const tendencia = vals[vals.length - 1] > vals[0] ? "subindo" : vals[vals.length - 1] < vals[0] ? "caindo" : "estável";
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      className={cn("h-7 w-full", TEXTO_DO_TOM[tom])}
+      role="img"
+      aria-label={`Tendência da série: ${tendencia}`}
+    >
+      <path
+        d={path.trim()}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      {ultimo && <circle cx={(ultimo as { x: number; y: number }).x} cy={(ultimo as { x: number; y: number }).y} r={2.5} fill="currentColor" />}
+    </svg>
+  );
+}
+
+export function KpiComparado({
+  rotulo, valor, variacaoAbsoluta, variacaoPct, serie,
+  formato = "numero", invertido = false, auxiliar, nota, title, className,
+}: {
+  rotulo: ReactNode;
+  /** null = "não calculado" (nunca 0 fingido). */
+  valor: number | null;
+  variacaoAbsoluta: number | null;
+  variacaoPct: number | null;
+  serie: SeriePontoUi[];
+  formato?: "numero" | "dinheiro";
+  /** true quando MENOS é melhor (ex.: a receber, precisam de ação). */
+  invertido?: boolean;
+  auxiliar?: ReactNode;
+  /** nota curta sob o gráfico — ex. "sem dado antes de 16/08". */
+  nota?: ReactNode;
+  title?: string;
+  className?: string;
+}) {
+  const tom = tomDaVariacao(variacaoAbsoluta, invertido);
+  const temComparacao = variacaoAbsoluta !== null && variacaoPct !== null;
+
+  return (
+    <div
+      title={title}
+      className={cn(
+        "rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40",
+        className,
+      )}
+    >
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">{rotulo}</p>
+      <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white">
+        {formatarValorKpi(valor, formato)}
+      </p>
+
+      <p className={cn("mt-1 flex flex-wrap items-baseline gap-1 text-xs font-semibold", TEXTO_DO_TOM[tom])}>
+        {temComparacao ? (
+          <>
+            <span aria-hidden="true">{setaDaVariacao(variacaoAbsoluta)}</span>
+            <span>
+              {(variacaoAbsoluta as number) > 0 ? "+" : ""}
+              {formatarValorKpi(variacaoAbsoluta, formato)}
+            </span>
+            <span className="font-normal text-slate-400 dark:text-slate-500">
+              ({(variacaoPct as number) > 0 ? "+" : ""}
+              {(variacaoPct as number).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)
+            </span>
+          </>
+        ) : (
+          <span className="font-normal text-slate-400 dark:text-slate-500">sem comparação ainda</span>
+        )}
+      </p>
+
+      {auxiliar && <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{auxiliar}</p>}
+
+      <div className="mt-2.5">
+        <Sparkline serie={serie} tom={tom} />
+      </div>
+
+      {nota && <p className="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500">{nota}</p>}
+    </div>
   );
 }

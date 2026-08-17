@@ -6,6 +6,7 @@ import { sincronizarTagsEdicao } from "@/lib/services/contato";
 import { sincronizarLote } from "@/lib/sync-conversas";
 import { sincronizarCampanhasEmail, retomarTravadosEmail, sincronizarEngajamentoEmail, sincronizarOptOutEmail } from "@/lib/services/email";
 import { sincronizarAutomacoes } from "@/lib/services/ac-automacoes";
+import { fecharDiaHm } from "@/lib/services/hm-painel";
 import { logger } from "@/lib/log";
 
 export const runtime = "nodejs";
@@ -75,8 +76,20 @@ async function executar() {
     log.error("falha ao sincronizar automações do AC", e);
     return { ok: false, automacoes: 0, gatilhos: 0 };
   });
-  log.info("cron executado", { retomados, inbox_respostas_novas: inboxSync.novas, inbox_verificados: inboxSync.verificados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes, status_atualizados: statusEntrega.atualizados, email_sincronizadas: email.sincronizadas, email_casadas: email.casadas, email_retomados: emailRetomados, email_engaj: emailEngaj.verificados, email_optout_novos: emailOptOut.novos, ac_automacoes: automacoes.automacoes });
-  return { retomados, inboxSync, tagsEdicao, sync, statusEntrega, email, emailRetomados, emailEngaj, emailOptOut, automacoes };
+  // Fechamento diário da carteira HM (B5, 16/08): carimba "quanto se tinha a receber hoje" e
+  // "de quem era a carteira hoje" — o que o amanhã NÃO sabe reconstruir (o crédito pró-rata
+  // anda com CURRENT_DATE, e a régua da carteira já mudou uma vez). Idempotente por desenho
+  // (on conflict do nothing em cs.fn_hm_fechar_dia, dentro de fecharDiaHm): rodar 20x no
+  // mesmo dia grava 1 linha por produto×pessoa. Envolto em catch: se a migration da tabela
+  // ainda não tiver chegado a este ambiente (função inexistente), o resto do cron não cai.
+  const fechamentoHm = await fecharDiaHm()
+    .then((r) => ({ ok: true, linhas: r.linhas }))
+    .catch((e) => {
+      log.error("falha ao fechar o dia da carteira HM", e);
+      return { ok: false, linhas: 0 };
+    });
+  log.info("cron executado", { retomados, inbox_respostas_novas: inboxSync.novas, inbox_verificados: inboxSync.verificados, tags_edicao: tagsEdicao, sync_proc: sync.processados, sync_novas: sync.mensagens_novas, sync_restantes: sync.restantes, status_atualizados: statusEntrega.atualizados, email_sincronizadas: email.sincronizadas, email_casadas: email.casadas, email_retomados: emailRetomados, email_engaj: emailEngaj.verificados, email_optout_novos: emailOptOut.novos, ac_automacoes: automacoes.automacoes, fechamento_hm: fechamentoHm.ok, fechamento_hm_linhas: fechamentoHm.linhas });
+  return { retomados, inboxSync, tagsEdicao, sync, statusEntrega, email, emailRetomados, emailEngaj, emailOptOut, automacoes, fechamentoHm };
 }
 
 export async function GET(req: Request) {

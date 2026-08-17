@@ -265,8 +265,9 @@ export async function moverEstagioHm(
       if (r?.aluno_id) {
         await addInteracaoHm(ch.id, "sistema", "Aluno criado/atualizado na base THB", autor);
         // O sócio acompanha o titular: agora que ele é aluno, os convidados dele
-        // também entram na base (mesma turma, mesma validade).
-        await provisionarSociosHm(compradorId, autor);
+        // também entram na base (mesma turma, mesma validade). Produto explícito
+        // (0263/0221): sem ele, quem tem card em dois boards provisiona errado.
+        await provisionarSociosHm(compradorId, autor, ch.produto ?? "HM");
       }
     } catch (e) {
       log.error("falha ao provisionar aluno ao mover para pago", e, { compradorId });
@@ -369,7 +370,9 @@ export async function moverEstagioHm(
       );
       if (r?.aluno_id) {
         await addInteracaoHm(ch.id, "sistema", "Aluno criado/atualizado na base THB", autor);
-        await provisionarSociosHm(compradorId, autor);
+        // Produto explícito (0263/0221): sem ele, quem tem card em dois boards
+        // provisiona o sócio pelo comprador_id errado.
+        await provisionarSociosHm(compradorId, autor, ch.produto ?? "HM");
       }
     } catch (e) {
       log.error("falha ao provisionar aluno ao entrar na Ativação", e, { compradorId });
@@ -786,9 +789,13 @@ export async function podeVerCardHm(sessao: SessaoEquipe, compradorId: string, p
   // + ramo canal→pessoa (0154) + ramo esteira compartilhada (12/08, lib/papeis.ts):
   // Ativação/HM de outra equipe entra pela MESMA porta que o canal — o card
   // continua "de outro operador" para tudo que não é este ramo específico.
+  // `poolRestrito=true` (0265): card LIVRE (sem operador) só abre para quem
+  // `podeVerTudo` — o operador comum não abre mais a ficha de um card que
+  // ainda não foi distribuído pela Kelly.
   return podeVerPorEscopo(
     escopo, k, await canaisDoUsuario(sessao.id),
     esteiraCompartilhada(sessao as Ator, "HM", k.aba, k.produto),
+    true,
   );
 }
 
@@ -839,7 +846,10 @@ export async function podeAgirCardHm(sessao: SessaoEquipe, compradorId: string, 
   // `podeVerCardHm` não muda aqui — só a escrita.
   const semAutoridadeNaAtivacao = k.aba === "ativacao" && !esteira;
   const ator: Ator = semAutoridadeNaAtivacao ? semBonusDeGerente(sessao as Ator) : (sessao as Ator);
-  return veredictoAcao(ator, k, await canaisDoUsuario(sessao.id), esteira); // + canal→pessoa (0154)
+  // `poolRestrito=true` (0265): espelha podeVerCardHm — card LIVRE só é "ok"
+  // para quem `podeVerTudo`; operador comum recai em "sem_acesso" (nem
+  // enxerga que o card existe) em vez de "card_de_outro_operador".
+  return veredictoAcao(ator, k, await canaisDoUsuario(sessao.id), esteira, true); // + canal→pessoa (0154)
 }
 
 // Gate de CAMPO (12/08 23h, separação dura comercial×ativação — lib/papeis.ts
@@ -894,9 +904,13 @@ export async function cancelamentoBloqueado(sessao: SessaoEquipe, compradorId: s
 // efeito depois que o titular virou aluno: antes disso o sócio é um convidado do
 // card, e a base não pode saber dele. Silencioso e blindado: a base é de outro
 // domínio e nunca pode derrubar o cadastro de um sócio no kanban.
-export async function provisionarSociosHm(compradorId: string, autor = "cs"): Promise<number> {
+//
+// 0263: `produto` é OBRIGATÓRIO passar quando o chamador já sabe o board — sem
+// ele, cs.fn_hm_provisionar_socios(uuid,text) usa o default 'HM', e quem tem
+// card em dois boards (HM+AURUM) provisionaria pelo comprador_id errado (0221).
+export async function provisionarSociosHm(compradorId: string, autor = "cs", produto = "HM"): Promise<number> {
   try {
-    const r = await queryOne<{ n: number }>(`select cs.fn_hm_provisionar_socios($1) as n`, [compradorId]);
+    const r = await queryOne<{ n: number }>(`select cs.fn_hm_provisionar_socios($1, $2) as n`, [compradorId, produto]);
     const n = r?.n ?? 0;
     if (n > 0) {
       const ch = await queryOne<{ id: string }>(`select id from cs.contatos_hm where comprador_id = $1`, [compradorId]);

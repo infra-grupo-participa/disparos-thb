@@ -61,7 +61,10 @@ export async function GET(req: Request) {
           and v.produto = 'HM'                   -- board do produto (0155); disparo dos boards novos vem depois
           and not coalesce(v.nao_contatar, false)
           and v.comprador_id not in (select comprador_id from cs.contatos where opt_out)
-          and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 })}
+          -- poolRestrito (0265): mesmo predicado do board HM — card livre não
+          -- é mais pool visível a todos; sem isto o operador comum receberia
+          -- sugestão de disparo para um card que nem consegue abrir no board.
+          and ${sqlEscopo({ rid: "v.responsavel_id", eq: "v.equipe_id", nome: "v.responsavel" }, { verTudo: 3, usuario: 4, equipe: 5 }, { poolRestrito: true })}
           and (${filtroModo})
         order by (u.ultimo is null) desc, u.ultimo asc nulls first, v.nome
         limit $1`,

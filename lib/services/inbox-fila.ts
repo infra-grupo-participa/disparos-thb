@@ -143,7 +143,9 @@ export async function filaInboxHm(sessao: Usuario, filtro: FilaFiltro): Promise<
            ${LATERAL_ULTIMA}
           where dc.disparo_id = $1 and dc.enviado
             and ch.produto = $5
-            and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}
+            -- poolRestrito (0265): mesma regra do board HM — card livre não
+            -- é mais pool visível a todos.
+            and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 }, { poolRestrito: true })}
           order by dc.enviado_em desc nulls last
           limit 500`,
         [disparoId, verTudo, usuarioId, equipeId, produto],
@@ -156,7 +158,7 @@ export async function filaInboxHm(sessao: Usuario, filtro: FilaFiltro): Promise<
           where k.telefone is not null and k.telefone <> ''
             and ($1::text is null or ch.inbox_status = $1)
             and ch.produto = $5
-            and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 })}
+            and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 2, usuario: 3, equipe: 4 }, { poolRestrito: true })}
           order by (ch.inbox_status = 'pendente') desc,
                    case when ch.inbox_status = 'pendente'
                         then coalesce(ch.aguardando_desde, ch.ultima_resposta_em, ch.atualizado_em)
@@ -172,7 +174,7 @@ export async function filaInboxHm(sessao: Usuario, filtro: FilaFiltro): Promise<
        join cs.contatos_hm ch on ch.comprador_id = k.comprador_id
       where ch.inbox_status = 'pendente'
         and ch.produto = $4
-        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 1, usuario: 2, equipe: 3 })}`,
+        and ${sqlEscopo({ rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel" }, { verTudo: 1, usuario: 2, equipe: 3 }, { poolRestrito: true })}`,
     [verTudo, usuarioId, equipeId, produto],
   );
 

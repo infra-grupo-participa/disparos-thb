@@ -65,6 +65,40 @@ export function parseGranularidade(
   return { ok: true, granularidade: g as Granularidade };
 }
 
+// ----- Atalho de período (?periodo=hoje|7d|30d|mes|livre&de=&ate=) de /api/hm/painel (B2) -----
+// Datas aqui são calendário (YYYY-MM-DD), sempre INCLUSIVAS dos dois lados — diferente de
+// parsePeriodo (de/ate em timestamptz, semiaberto), porque o painel soma "período anterior"
+// contando dias de calendário, não timestamps. "livre" exige de/ate válidos e de <= ate; os
+// atalhos ignoram de/ate se vierem (o service resolve a janela sozinho).
+const DATA_DIA_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const PERIODOS_ATALHO = ["hoje", "7d", "30d", "mes", "livre"] as const;
+export type PeriodoAtalho = (typeof PERIODOS_ATALHO)[number];
+
+export function parsePeriodoAtalho(
+  sp: URLSearchParams,
+): { ok: true; periodo: PeriodoAtalho; de: string | null; ate: string | null } | { ok: false; res: NextResponse } {
+  const p = sp.get("periodo") || "30d";
+  if (!PERIODOS_ATALHO.includes(p as PeriodoAtalho)) {
+    return { ok: false, res: NextResponse.json({ ok: false, reason: "periodo_invalido" }, { status: 400 }) };
+  }
+  const de = sp.get("de");
+  const ate = sp.get("ate");
+  if (p === "livre") {
+    if (!de || !ate || !DATA_DIA_RE.test(de) || !DATA_DIA_RE.test(ate) || de > ate) {
+      return {
+        ok: false,
+        res: NextResponse.json({ ok: false, reason: "periodo_livre_exige_de_e_ate_validos" }, { status: 400 }),
+      };
+    }
+  }
+  return {
+    ok: true,
+    periodo: p as PeriodoAtalho,
+    de: de && DATA_DIA_RE.test(de) ? de : null,
+    ate: ate && DATA_DIA_RE.test(ate) ? ate : null,
+  };
+}
+
 export const AuthSchema = z.object({
   email: z.string().trim().min(1).email(),
   senha: z.string().min(1),
@@ -336,10 +370,27 @@ export const HmContatoPatchSchema = z.object({
 });
 // ----- Sócios do HM (aba "SÓCIOS T39") -----
 // O sócio tem checklist próprio: ele também é ativado, pendurado no titular.
+//
+// 0263: CPF e endereço entraram porque o webhook do Respondi passou a mandar o
+// formulário de sócios (esses campos já existem em cs.hm_socios desde a 0201).
+// CPF sempre OPCIONAL, nunca obrigatório — tornar obrigatório quebraria o
+// cadastro rápido pela ficha (em uso; hoje são 15 sócios com 0 CPF justamente
+// porque não havia campo). A escrita de fato é feita por cs.fn_hm_socio_upsert,
+// que é quem decide identidade (CPF > e-mail) — este schema só valida formato.
 export const HmSocioCriarSchema = z.object({
   nome: z.string().trim().min(2),
   email: z.string().trim().email().nullable().optional().or(z.literal("")),
   telefone: z.string().trim().nullable().optional(),
+  cpf: z.string().trim().nullable().optional(),
+  cep: z.string().trim().nullable().optional(),
+  cidade: z.string().trim().nullable().optional(),
+  estado: z.string().trim().nullable().optional(),
+  bairro: z.string().trim().nullable().optional(),
+  pais: z.string().trim().nullable().optional(),
+  endereco: z.string().trim().nullable().optional(),
+  numero: z.string().trim().nullable().optional(),
+  complemento: z.string().trim().nullable().optional(),
+  observacao: z.string().trim().nullable().optional(),
 });
 
 export const HmSocioPatchSchema = z.object({
@@ -347,6 +398,8 @@ export const HmSocioPatchSchema = z.object({
   nome: z.string().trim().min(2).optional(),
   email: z.string().trim().nullable().optional(),
   telefone: z.string().trim().nullable().optional(),
+  // 0263: opcional, sempre — mesma regra do schema de criação.
+  cpf: z.string().trim().nullable().optional(),
   link_facebook: z.string().nullable().optional(),
   ativ_searchie: z.boolean().optional(),
   ativ_comunidade: z.boolean().optional(),
@@ -432,4 +485,50 @@ export const HmAdminEditSchema = z.object({
   pagamento_em: z.string().nullable().optional(),
   cancelamento_em: z.string().nullable().optional(),
   turma_origem: z.string().trim().nullable().optional(),
+});
+
+// ----- Catálogo de ofertas (0255/0256/0257, master-only) -----
+// PATCH só toca colunas DESCRITIVAS — a régua financeira (pacote_cheio,
+// entrada_condicao_fechada, entrada_do_programa, concede_trilha, categoria)
+// nem existe neste schema: quem chama não tem como pedir para mudá-la, o
+// mesmo desenho de cs.fn_hm_catalogo_atualizar (0255).
+export const HmOfertaPatchSchema = z.object({
+  offer_code: z.string().trim().min(1),
+  patch: z.object({
+    nome_comercial: z.string().trim().max(200).nullable().optional(),
+    valor_tabela: z.number().positive().nullable().optional(),
+    explicacao: z.string().trim().max(2000).nullable().optional(),
+    link: z.string().trim().max(500).startsWith("https://").nullable().optional(),
+    produto_checkout: z.string().trim().max(60).nullable().optional(),
+    dono_email: z.string().trim().email().nullable().optional(),
+    recorrente: z.boolean().optional(),
+    ativo: z.boolean().optional(),
+    papel: z.enum([
+      "entrada", "saldo", "pacote_cheio", "renovacao", "ingresso",
+      "upgrade_ingresso", "transmissao", "acordo_individual",
+    ]).nullable().optional(),
+  }).refine((p) => Object.keys(p).length > 0, "patch vazio não muda nada"),
+});
+
+// Uma linha da planilha, já parseada pelo CLIENTE (upload/CSV) — o backend
+// classifica (motivo_quarentena) e insere em staging; nunca escreve direto no
+// catálogo. Teto de 2000 linhas no array (abaixo, na rota) — planilha real
+// tem 65; CSV de 50MB não passa disso sem já ter estourado o body parser.
+export const HmOfertaImportarLinhaSchema = z.object({
+  linha_num: z.number().int().nonnegative(),
+  produto_txt: z.string().trim().max(400).nullable().optional(),
+  nome_txt: z.string().trim().max(400).nullable().optional(),
+  valor_txt: z.string().trim().max(200).nullable().optional(),
+  explicacao_txt: z.string().trim().max(4000).nullable().optional(),
+  nome_hotmart_txt: z.string().trim().max(4000).nullable().optional(),
+  offer_code: z.string().trim().max(60).nullable().optional(),
+  link: z.string().trim().max(500).nullable().optional(),
+});
+export const HmOfertaImportarSchema = z.object({
+  arquivo: z.string().trim().min(1).max(200),
+  linhas: z.array(HmOfertaImportarLinhaSchema).min(1).max(2000),
+});
+
+export const HmOfertaPromoverSchema = z.object({
+  staging_ids: z.array(z.number().int().positive()).min(1).max(500),
 });

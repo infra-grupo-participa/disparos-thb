@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -305,7 +305,7 @@ function rolarBoardHorizontal(e: WheelEvent<HTMLDivElement>) {
 }
 
 export default function HmKanbanPage() {
-  const { nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega, ehEquipeDeAtivacao } = useMe();
+  const { me, nivel, podeDisparar: podeDisparaFn, podeVerTudo, podeDistribuir, ehMaster, ehCardDeColega, ehEquipeDeAtivacao } = useMe();
   // Produto/board (0155): a mesma tela serve HM, Aurum e ETHB pela URL.
   const { produto, portal, nome: nomePortal } = useProdutoHm();
   const qp = produto === "HM" ? "" : `produto=${produto}`; // sufixo p/ as APIs
@@ -342,6 +342,9 @@ export default function HmKanbanPage() {
   const [descricoesTags, setDescricoesTags] = useState<Record<string, string | null>>({});
   const [turmas, setTurmas] = useState<string[]>([]);
   const [estagios, setEstagios] = useState<Estagio[]>([]);
+  // "Associar a mim" (17/08): compradorId do card em voo, para desabilitar só
+  // o botão dele — mesmo padrão de `salvando` da tabela (app/hm/tabela/page.tsx).
+  const [associando, setAssociando] = useState<string | null>(null);
   // Cada filtro aceita VÁRIOS valores (OU dentro do filtro, E entre filtros).
   const [filtroResp, setFiltroResp] = useState<string[]>([]);
   const [filtroCanal, setFiltroCanal] = useState<string[]>([]);
@@ -584,6 +587,29 @@ export default function HmKanbanPage() {
     }
   }
 
+  // "Associar a mim" (17/08, pedido do Marcio — 1 clique, sem abrir a ficha):
+  // mesmo PATCH que o drawer/tabela já usam (`responsavel_id`), mesmo padrão de
+  // erro do board (toast + msgErroPermissao). Não reimplementa a hierarquia de
+  // atribuição — quem decide é sempre atribuirResponsavelHm no servidor.
+  async function associarAMim(card: Card) {
+    if (!me?.id) return;
+    setAssociando(card.comprador_id);
+    try {
+      const r = await fetch(`/api/hm/contato/${card.comprador_id}?produto=${produto}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responsavel_id: me.id }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        toast(msgErroPermissao(d?.reason) ?? "Não foi possível associar este cliente a você. Tente de novo.", "erro");
+      }
+    } finally {
+      setAssociando(null);
+      await carregar();
+    }
+  }
+
   // O reembolso é o fato consumado: confirma antes de marcar o aluno na base.
   // O servidor (confirmar_cancelamento) já leva o card para "Reembolsado".
   async function confirmarReembolso(card: Card) {
@@ -705,7 +731,7 @@ export default function HmKanbanPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <MarcaPortal portal={portal} altura="h-7" comNome={false} />
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Ativação · {nomePortal}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Jornada · {nomePortal}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {totalComercial + totalAtivacao} {totalComercial + totalAtivacao === 1 ? "aluno" : "alunos"} — arraste entre as etapas, e para cima/baixo para ordenar a fila.
@@ -1001,6 +1027,9 @@ export default function HmKanbanPage() {
                             onToggleMarcado={() => toggleMarcado(card.comprador_id)}
                             coresTags={coresTags}
                             descricoesTags={descricoesTags}
+                            temMe={!!me?.id}
+                            associando={associando === card.comprador_id}
+                            onAssociarAMim={() => associarAMim(card)}
                           />
                         </Fragment>
                       ))
@@ -1518,6 +1547,7 @@ function SelosExtras({ itens }: { itens: { key: string; rotulo: string; el: Reac
 
 function CardItem({
   card, espelho, ehPool, bloqueado, colega, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags, descricoesTags, destacado,
+  temMe, associando, onAssociarAMim,
 }: {
   card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; colega?: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
   onMenu: (x: number, y: number) => void;
@@ -1526,6 +1556,11 @@ function CardItem({
   descricoesTags: Record<string, string | null>;
   /** Alvo do deep-link ?card= (0164): pulsa por alguns segundos para o olho achar. */
   destacado?: boolean;
+  /** "Associar a mim" (17/08) — 1 clique, sem abrir a ficha. temMe: sessão já
+   *  carregou (me.id existe); associando: este card específico está em voo. */
+  temMe?: boolean;
+  associando?: boolean;
+  onAssociarAMim?: () => void;
 }) {
   // 0187: mesmo drawer/board serve HM/Aurum/ETHB — o crédito vem de fonte
   // diferente em cada um (ver o comentário no tipo Card, acima).
@@ -1578,6 +1613,9 @@ function CardItem({
   // é rota antiga em cache e não pode virar "é novo" (todo card do board
   // nasceria pulsando num deploy parcial).
   const naoVisto = card.visto_em === null;
+  // SEM OPERADOR (17/08): venda nova nasce sem responsável — `undefined` (rota
+  // antiga sem o campo) NÃO conta, mesmo critério do `naoVisto` acima.
+  const semOperador = card.responsavel_id === null;
   // O card tem equipe? A borda esquerda é DELA (modelo de acesso, mais importante
   // que qualquer outro sinal). `equipe_cor` nula NÃO apaga a faixa: cai no cinza
   // padrão — antes o card de uma equipe sem cor parecia do pool sem ser.
@@ -1688,7 +1726,10 @@ function CardItem({
           superior direito, fora do fluxo dos selos — o card não tem mais espaço
           na primeira linha, e o pedido era justamente que ele saltasse por cima
           de tudo. Some sozinho na primeira abertura da ficha. */}
-      {naoVisto && !cancelado && <SeloCardNovo />}
+      {/* Precedência (ver o comentário em SeloSemOperador, card-sinais.tsx):
+          "sem operador" vence "novo" — os dois disputam o mesmo canto e só um
+          cabe. A ação urgente é associar um responsável. */}
+      {!cancelado && (semOperador ? <SeloSemOperador /> : naoVisto && <SeloCardNovo />)}
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
           {/* ALUNO NOVO × ALUNO ANTIGO, escancarado (12/08). Sempre o primeiro
@@ -1866,6 +1907,20 @@ function CardItem({
         <div className="flex min-w-0 items-center gap-1.5">
           {card.responsavel ? (
             <Avatar nome={card.responsavel} className="h-5 w-5 text-[9px] ring-2 ring-white dark:ring-slate-900" />
+          ) : temMe && onAssociarAMim ? (
+            // "Associar a mim" (17/08): 1 clique, sem abrir a ficha. stopPropagation
+            // porque o card inteiro é clicável (abriria o drawer por baixo do botão).
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onAssociarAMim(); }}
+              disabled={associando}
+              aria-busy={associando}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-dashed border-rose-400 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 transition hover:bg-rose-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 disabled:opacity-50 dark:border-rose-500/50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+              title="Associe esse cliente a alguém da sua equipe ou a você mesma. Clique para assumir."
+            >
+              <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></svg>
+              {associando ? "Associando…" : "Associar a mim"}
+            </button>
           ) : (
             <span title="Sem operador" className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-slate-300 text-slate-300 dark:border-slate-600 dark:text-slate-600">
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>

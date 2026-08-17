@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
+import { HmVisao } from "@/app/hm/_components/hm-visao";
 import Link from "next/link";
 import { Button, cn, fieldClass, fieldCompactClass, Spinner } from "@/app/_components/ui";
 import { Avatar } from "@/app/_components/avatar";
@@ -271,6 +272,9 @@ export default function HmAgendamentosPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* A outra leitura do mesmo assunto — a agenda é o que VAI acontecer,
+              Reuniões é a mesma agenda em lista, com resultado e gravação. */}
+          <HmVisao par="agenda" atual="agendamentos" filtros={{}} />
           <button
             onClick={() => setCursor(new Date())}
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -691,6 +695,7 @@ function ModalEvento({
   onClose: () => void;
   tagsCatalogo: Record<string, { cor: string | null; descricao: string | null }>;
 }) {
+  const { base } = useProdutoHm();
   const t = TIPOS[ev.tipo];
   const checklist = [
     ["Searchie/Óbvio", ev.ativ_searchie],
@@ -796,7 +801,7 @@ function ModalEvento({
             </a>
           )}
           <div className="flex gap-2">
-            <Link href={`/hm/contatos/${ev.comprador_id}`} className="flex-1">
+            <Link href={`${base}/contatos/${ev.comprador_id}`} className="flex-1">
               <Button variant="secondary" className="w-full">Abrir ficha</Button>
             </Link>
             {wa && !ev.nao_contatar && (

@@ -129,3 +129,50 @@ h1, h2, h3 {
 *::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
 .dark *::-webkit-scrollbar-thumb { @apply bg-slate-700; }
 .dark *::-webkit-scrollbar-thumb:hover { @apply bg-slate-600; }
+
+/* ---------------------------------------------------------------------
+   Impressão da folha de relatório (F5, 16/08) — /relatorio/[protocolo].
+   Sem biblioteca de PDF: @media print + window.print(). Zero dependência nova.
+   TopNav já se esconde sozinho em /relatorio/ (top-nav.tsx) — aqui só falta
+   neutralizar o <main> do layout raiz e regrar a paginação da tabela.
+   -------------------------------------------------------------------- */
+.print-rodape { display: none; }
+
+@media print {
+  @page { size: A4; margin: 14mm; }
+
+  /* Nenhum menu, nenhum botão — só o documento. */
+  .no-print { display: none !important; }
+
+  /* O <main> do layout raiz tem max-width e padding para a navegação normal;
+     na folha isso sobra margem morta e corta tabela larga. */
+  main { max-width: none !important; padding: 0 !important; }
+  body { background: #fff !important; }
+
+  /* Cabeçalho de tabela repete a cada página — sem isto a página 3 vira
+     números soltos, sem dizer a que coluna pertencem. */
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+
+  /* Quebra de página coerente: nunca corta uma seção ou uma linha ao meio. */
+  .secao-relatorio, .linha-relatorio, tr { break-inside: avoid; }
+
+  /* TOM e os selos usam cor com significado (padrao-visual.md) — sem isto o
+     navegador some com o fundo claro e a informação se perde no papel. */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* Protocolo legível em toda página impressa (rodapé fixo). */
+  .print-rodape {
+    display: block;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 6px 14mm;
+    border-top: 1px solid #cbd5e1;
+    font-size: 9px;
+    color: #64748b;
+    text-align: center;
+  }
+  .folha { padding-bottom: 24px; }
+}

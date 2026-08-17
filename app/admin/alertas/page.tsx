@@ -258,7 +258,9 @@ export default function AlertasPage() {
                         variant="secondary"
                         onClick={() => baixar(a.id)}
                         disabled={baixando === a.id}
+                        aria-busy={baixando === a.id}
                         title="Marcar como resolvido — some da lista"
+                        aria-label={`Marcar "${ex?.titulo ?? a.tipo}" como resolvido`}
                         className="alvo-toque shrink-0 text-xs"
                       >
                         {baixando === a.id ? "…" : "Resolvido"}
@@ -317,7 +319,9 @@ export default function AlertasPage() {
                             size="sm"
                             onClick={() => baixar(a.id)}
                             disabled={baixando === a.id}
+                            aria-busy={baixando === a.id}
                             title="Marcar como resolvido — some da lista"
+                            aria-label={`Marcar "${ex?.titulo ?? tipo}" como resolvido`}
                             className="alvo-toque shrink-0"
                           >
                             {baixando === a.id ? "…" : "Resolvido"}

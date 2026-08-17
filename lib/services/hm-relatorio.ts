@@ -90,7 +90,18 @@ export type LinhaEsteira = {
   pagamento_parcelas: number | null;
   apto_ativacao: boolean;
   valor_total: string | null;
+  /** TUDO que a pessoa já pagou no razão, do primeiro dia até hoje — inclusive o ciclo
+   *  ANTERIOR. Não é o que ela pagou neste programa. Ver `pago_no_ciclo`. */
   valor_pago: string | null;
+  /** O que entrou NESTE ciclo (entrada inclusa). É o número que a tela deve mostrar como
+   *  "já pago": o que veio antes já está representado no crédito pró-rata que reduz o
+   *  pacote, e somar os dois conta o mesmo dinheiro duas vezes.
+   *
+   *  Medido em 16/08/2026: 5 cards do HM mostravam R$ 26.600,02 a mais na coluna "Já pago"
+   *  por usar `valor_pago` — o maior deles com R$ 12.000,02 de diferença (Rodrigo Alexandre,
+   *  que pagou R$ 299,99 neste ciclo e aparecia com R$ 12.300,01). Ver
+   *  disparos-brain/"Crédito do ciclo anterior não é pagamento deste". */
+  pago_no_ciclo: string | null;
   aluno_id: string | null;
   saldo_a_pagar: string | null;
   credito: string | null;
@@ -276,7 +287,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             -- conjunto mas nao sobrevive a uma consulta consolidada.
             cs.fn_hm_pode_finalizar(k.comprador_id, coalesce(k.produto, 'HM')) as pode_finalizar,
             fin.ultimo_pagamento_em, fin.parcelas_pagas, fin.parcelas_contratadas,
-            fin.valor_parcela, fin.pago_pct, fin.status_parcela,
+            fin.valor_parcela, fin.pago_pct, fin.status_parcela, fin.pago_no_ciclo,
             fin.ultimo_abatimento_em, fin.ultimo_abatimento_valor, fin.ultimo_abatimento_categoria,
             k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa,
             k.grupo_informes, k.pendencia,
@@ -329,11 +340,14 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
         and ($3::text[] is null or k.tags && $3)
         and ($4::text is null or k.estagio_chave = $4)
         -- Escopo (predicado único, visibilidade.ts — igual à rota do kanban):
-        -- vejo tudo OU é card LIVRE OU é MEU ($6) OU é da minha equipe ($7).
+        -- vejo tudo OU é MEU ($6) OU é da minha equipe ($7) [OU esteira].
+        -- poolRestrito (0265): card LIVRE deixou de ser pool visível a todos
+        -- no HM/AURUM/ETHB — mesma regra do board, a tabela não pode divergir.
         and k.produto = $9                       -- board do produto (0155)
         and ${sqlEscopo(
           { rid: "k.responsavel_id", eq: "k.equipe_id", nome: "k.responsavel", tags: "k.tags", aba: "k.estagio_aba", produto: "k.produto" },
           { verTudo: 5, usuario: 6, equipe: 7, abas: 10, produto: 11 },
+          { poolRestrito: true },
         )}
         -- Cancelados (Reclamada/Reembolsado, $8) são acesso SÓ do master, como
         -- nas rotas unitárias (403 na ficha): quem não vê tudo não recebe a

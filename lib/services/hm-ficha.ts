@@ -9,6 +9,9 @@ export type ContatoHmFicha = Record<string, unknown> & { nome?: string | null };
 export type FichaHm = {
   contato: ContatoHmFicha;
   socios: Record<string, unknown>[];
+  /** 0203 + webhook do Respondi (17/08): sócios ANTERIORES deste titular — quem
+   *  saiu e quando. Sem CPF (não usado na tela). Vazio quando nunca houve troca. */
+  historicoSocios: Record<string, unknown>[];
   prorata: Record<string, unknown> | null;
   /** 0231: a linha CONGELADA da planilha do Victor, quando existe — a mesma conta
    *  que gerou o link de pagamento enviado ao aluno. Null = o crédito é cálculo
@@ -154,6 +157,20 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
     [cardId],
   );
 
+  // Histórico de sócios do titular (0203 + webhook do Respondi, 17/08): quem já
+  // foi sócio deste card e quando saiu. CPF de propósito FORA do select — a
+  // ficha não mostra documento de sócio arquivado, e mandar o dado sem uso
+  // exporia informação pessoal à toa. Só entra quem já foi SUBSTITUÍDO
+  // (substituido_em not null) — o vigente já aparece no bloco de sócios acima.
+  const historicoSocios = await query(
+    `select nome, criado_em, substituido_em
+       from cs.vw_hm_socios_historico_titular
+      where contato_hm_id = $1
+        and substituido_em is not null
+      order by criado_em desc`,
+    [cardId],
+  );
+
   // Crédito pró-rata: o que o aluno da base já pagou e ainda não usou. Só existe
   // se alguém preencheu os insumos (oferta anterior, data e valor) — sem eles o
   // saldo é o cheio (saldoCheio, acima). Ver cs.fn_hm_prorata (0056).
@@ -190,12 +207,24 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
   const alvo = saldoCheio?.valor
     ?? (prorata as { saldo_a_pagar?: string } | null)?.saldo_a_pagar
     ?? "14700";
+  // TOLERÂNCIA (16/08, achado do analista de dados): antes este `order by` sem
+  // filtro SEMPRE devolvia o vizinho mais próximo, mesmo quando o mais próximo
+  // era outra oferta a milhares de reais de distância — medido em produção: até
+  // R$487,67 de erro por pessoa em 11 saldos do CSV que não têm oferta própria
+  // aqui. `patch({oferta_saldo_codigo})` grava a oferta ERRADA no card e
+  // `fn_hm_valores_derivados` monta o pacote com ela — a pessoa aparece quitada
+  // com o valor errado. Cada saldo real bate quase exato com sua oferta
+  // cravada (arredondamento de centavos); qualquer diferença maior é OUTRA
+  // oferta, nunca a mesma com desconto. R$1,00 cobre o arredondamento sem
+  // abrir margem para sugerir link de outro valor.
+  const TOLERANCIA_LINK_SALDO = "1.00";
   const linksSaldo = await query(
     `select distinct on (recorrente) codigo, valor, recorrente, link
        from cs.hm_ofertas_saldo
       where ativo and valor is not null
+        and abs(valor - $1::numeric) <= $2::numeric
       order by recorrente, abs(valor - $1::numeric)`,
-    [alvo],
+    [alvo, TOLERANCIA_LINK_SALDO],
   );
 
   const timeline = await query(
@@ -288,6 +317,6 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
     [compradorId, produtoCard],
   );
 
-  return { contato, socios, prorata, prorataFonte, linksSaldo, timeline, formularios, financeiro, aurumSaldo, pagamentos,
+  return { contato, socios, historicoSocios, prorata, prorataFonte, linksSaldo, timeline, formularios, financeiro, aurumSaldo, pagamentos,
            saldoCheio: saldoCheio?.valor ?? null, outrosPortais, agendamentos, versoes };
 }

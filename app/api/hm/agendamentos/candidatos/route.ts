@@ -45,7 +45,9 @@ export async function GET(req: Request) {
       where (($1 = '' and estagio_chave = any($2))
          or ($1 <> '' and (nome ilike '%' || $1 || '%' or telefone ilike '%' || $1 || '%')))
         and produto = $6
-        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 3, usuario: 4, equipe: 5 })}
+        -- poolRestrito (0265): card livre do HM/AURUM/ETHB não é mais pool
+        -- visível a todos — mesma regra do board.
+        and ${sqlEscopo({ rid: "responsavel_id", eq: "equipe_id", nome: "responsavel", tags: "tags" }, { verTudo: 3, usuario: 4, equipe: 5 }, { poolRestrito: true })}
       order by (estagio_chave = any($2)) desc, nome
       limit 25`,
     [q, precisa, verTudo, usuarioId, equipeId, produto],
