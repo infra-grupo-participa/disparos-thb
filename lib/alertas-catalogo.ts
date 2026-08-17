@@ -126,6 +126,15 @@ export const EXPLICACAO: Record<string, { titulo: string; acao: string; categori
     acao: "Associe esta pessoa a alguém do comercial — da sua equipe ou a você mesma. Quem resolve: quem gerencia a distribuição do HM/Aurum (Kelly).",
     categoria: "pessoa",
   },
+  // 0284/D3: inadimplência (60+ dias sem pagar uma mensalidade lançada, ver
+  // cs.vw_hm_financeiro.inadimplente) SÓ SINALIZA — decisão do Marcio: nunca
+  // move o card sozinho. Crítico porque é dinheiro que já foi combinado e
+  // parou de entrar sem ninguém decidir que parou.
+  parou_de_pagar: {
+    titulo: "Parou de pagar a mensalidade",
+    acao: "Entre em contato e confirme o que aconteceu — a ficha NÃO se move sozinha por causa disto. Se combinou uma nova data, registre em \"acordo\"; se a pessoa não vai mais pagar, registre a intenção na ficha.",
+    categoria: "dinheiro",
+  },
   // 0266: a régua da aba "Transações Inválidas" da planilha VENDAS AURUM —
   // compra cancelada/reembolsada/em disputa não conta como dinheiro recebido.
   // Crítico porque o valor pago aparece maior do que entrou: quem cobra pede

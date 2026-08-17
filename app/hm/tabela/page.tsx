@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito, RESULTADOS } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -51,7 +51,9 @@ const MEIOS: { v: string; label: string }[] = [
   { v: "cartao", label: "Cartão" },
   { v: "cartao_recorrente", label: "Cartão recorrente" },
 ];
-const RESULTADOS = ["Aguardando retorno", "Agendada", "Realizada", "Realizada/pago", "Reagendar", "Não respondeu"];
+// RESULTADOS (17/08): saiu daqui — vivia duplicado com hm-drawer.tsx (mesmo
+// texto hoje, duas fontes que podiam divergir). Importado de card-sinais.tsx,
+// a mesma constante que a ficha usa — uma definição só.
 
 // A "Origem" da linha exibe SÓ os 5 eventos fixados (decisão de 14/07 — Imersão
 // POA, HT26 etc. ficam de fora). A tag continua no card (o popup de tags e a
@@ -637,6 +639,14 @@ export default function HmTabelaPage() {
             `${nome} ainda não pode entrar em "Ativação Realizada".\n\n` +
               `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
               "Marque os itens do checklist na própria linha ou na ficha.",
+          );
+        } else if (d?.reason === "reuniao_sem_desfecho") {
+          // F7 (17/08): mesmo padrão do checklist_incompleto — o mesmo endpoint
+          // PATCH que a tabela usa para trocar etapa pode devolver esta recusa.
+          window.alert(
+            `${nome} não pode sair de "Reunião Agendada" sem o desfecho da reunião.\n\n` +
+              `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
+              "Marque o resultado da reunião na própria linha ou na ficha.",
           );
         } else {
           // 403 de permissão (destino fora da equipe, atribuição travada…):

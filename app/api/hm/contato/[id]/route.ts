@@ -4,7 +4,7 @@ import { guardProdutoOpcional, produtoDaRequisicao } from "@/lib/produto-hm";
 import { ehMaster, nivelDe, temFuncao, podeEscreverEscopoHm, CAMPOS_HM_COMERCIAL, CAMPOS_HM_ATIVACAO } from "@/lib/papeis";
 import { query, queryOne } from "@/lib/db";
 import { parseBody, HmContatoPatchSchema } from "@/lib/validators";
-import { moverEstagioHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, podeAgirCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, veredictoCamposHm, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
+import { moverEstagioHm, addNotaHm, reverterEstagioHm, atribuirResponsavelHm, podeVerCardHm, podeAgirCardHm, cancelamentoBloqueado, agendarHm, fecharAgendamentoHm, confirmarCancelamentoHm, desfazerCancelamentoHm, veredictoCamposHm, chavesEstagioAntesDaOrdem, HM_STAGE_ENTREVISTA, HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO, HM_ESTAGIOS_CANCELAMENTO, type DestinoAtribuicao } from "@/lib/services/hm";
 import { fichaHm } from "@/lib/services/hm-ficha";
 
 export const runtime = "nodejs";
@@ -89,7 +89,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
   }
 
-  const atual = await queryOne<{ id: string; estagio_chave: string | null; estagio_aba: string | null; reuniao_em: string | null; reuniao_resultado: string | null; responsavel_id: string | null; atribuicao_admin: boolean; responsavel_ativacao_id: string | null; entrevista_realizada: boolean }>(
+  const atual = await queryOne<{ id: string; estagio_chave: string | null; estagio_aba: string | null; reuniao_em: string | null; reuniao_resultado: string | null; responsavel_id: string | null; atribuicao_admin: boolean; responsavel_ativacao_id: string | null; entrevista_realizada: boolean; intencao_pagamento: string | null }>(
     // 0187: `and ch.produto = $2` — sem isso, `atual.id` (usado no UPDATE lá
     // embaixo) podia ser o card de OUTRO board. É aqui que a escrita é ancorada.
     // `estagio_aba` (assumir ativação, 12/08): só se decide se o card está na
@@ -105,7 +105,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     // Aqui o equivalente é o FATO em `cs.hm_agendamentos` — sobrevive a
     // qualquer arrasto de etapa, porque nenhum caminho do PATCH escreve nessa
     // tabela além de `fecharAgendamentoHm`.
-    `select ch.id, est.chave as estagio_chave, est.aba as estagio_aba, ch.reuniao_em, ch.reuniao_resultado, ch.responsavel_id, ch.atribuicao_admin, ch.responsavel_ativacao_id,
+    `select ch.id, est.chave as estagio_chave, est.aba as estagio_aba, ch.reuniao_em, ch.reuniao_resultado, ch.responsavel_id, ch.atribuicao_admin, ch.responsavel_ativacao_id, ch.intencao_pagamento,
             exists (
               select 1 from cs.hm_agendamentos ag
                where ag.contato_hm_id = ch.id and ag.tipo = 'entrevista' and ag.status = 'realizado'
@@ -300,6 +300,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Acordo do saldo — o gargalo que vivia em texto solto na planilha.
   if (b.pagamento_meio !== undefined) add("pagamento_meio", b.pagamento_meio);
   if (b.acordo !== undefined) add("acordo", b.acordo);
+
+  // Desfecho comercial da reunião (D2, 0281/0284) — declaração, não dado de
+  // pagamento (o gate `pagamento_so_hotmart` no topo já barra isso). Carimba
+  // a hora só quando o VALOR muda de fato — reenviar o mesmo valor não deve
+  // reescrever "quando foi dito".
+  if (b.intencao_pagamento !== undefined && b.intencao_pagamento !== atual.intencao_pagamento) {
+    add("intencao_pagamento", b.intencao_pagamento);
+    sets.push(`intencao_pagamento_em = ${b.intencao_pagamento ? "now()" : "null"}`);
+  }
+  if (b.intencao_pagamento_obs !== undefined) add("intencao_pagamento_obs", b.intencao_pagamento_obs);
   if (b.oferta_saldo_codigo !== undefined) add("oferta_saldo_codigo", b.oferta_saldo_codigo);
   if (b.pagamento_previsto_em !== undefined) sets.push(`pagamento_previsto_em = ${b.pagamento_previsto_em ? `$${vals.push(b.pagamento_previsto_em)}::date` : "null"}`);
   // Marcar "link enviado" carimba a hora — um booleano perderia o "quando", que é
@@ -445,6 +455,28 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     );
   }
 
+  // "Sinalizei que enviei a mensagem" (D1, B5): o operador confirma que já
+  // mandou a primeira abordagem. Carimba o gesto e, se o card ainda está em
+  // "Contato Inicial" (chegou, ninguém falou com ele), avança para
+  // "Aguardando Retorno" — o GATILHO da Hotmart que criou o card não muda,
+  // só o estágio anda. Fica ANTES do bloco de agendamento porque os dois
+  // fazem a mesma pergunta ("saiu de Contato Inicial?") e só um precisa
+  // decidir por vez — se o operador marcar o sinal E agendar a reunião no
+  // mesmo PATCH, o agendamento (mais forte) prevalece por rodar depois.
+  if (b.contato_inicial_sinalizado) {
+    await query(
+      `update cs.contatos_hm set contato_inicial_em = coalesce(contato_inicial_em, now()), atualizado_em = now() where id = $1`,
+      [atual.id],
+    );
+    await query(
+      `insert into cs.interacoes (contato_hm_id, tipo, descricao, autor) values ($1, 'sistema', $2, $3)`,
+      [atual.id, "Operador sinalizou que já enviou a primeira mensagem", operador],
+    );
+    if (atual.estagio_chave === "hm_comprou") {
+      await moverEstagioHm(compradorId, "hm_aguardando_retorno", operador, undefined, produtoCard);
+    }
+  }
+
   // Agendar / REAGENDAR. O serviço guarda a marcação anterior e conta quantas
   // vezes o aluno já remarcou — quem remarca três vezes não é "um agendamento",
   // é um sinal. `agendamento_motivo` explica por que a anterior caiu.
@@ -453,14 +485,24 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     // resolvia o card por comprador_id sem produto e, para as 15 pessoas com
     // card no HM e no AURUM, marcava a reunião pelo board errado.
     await agendarHm(compradorId, "reuniao", b.reuniao_em || null, b.agendamento_motivo ?? null, operador, produtoCard);
-    // Agendou estando em "Contato Inicial" → avança para "Reunião Agendada".
-    if (b.reuniao_em && atual.estagio_chave === "hm_comprou") {
+    // REGRA 9: agendar puxa o card para "Reunião Agendada" a partir de
+    // QUALQUER estágio comercial de ordem < 20 (hm_aguardando_pagamento,
+    // hm_comprou, hm_aguardando_retorno hoje) — lido do banco (ordem de
+    // cs.estagios), não uma lista de chaves digitada à mão. Quem já está em
+    // ordem >= 20 NÃO é puxado para trás: remarcar a reunião de alguém que
+    // já avançou (Pagamento, Ativação) não pode regredir o card.
+    if (b.reuniao_em && atual.estagio_chave && (await chavesEstagioAntesDaOrdem(20)).includes(atual.estagio_chave)) {
       await moverEstagioHm(compradorId, "hm_reuniao_agendada", operador, undefined, produtoCard);
     }
   }
   if (b.entrevista_em !== undefined) {
     await agendarHm(compradorId, "entrevista", b.entrevista_em || null, b.agendamento_motivo ?? null, operador, produtoCard);
-    if (b.entrevista_em && atual.estagio_chave && ["hm_pendente_liberacao", "hm_apto_ativacao", "hm_acesso_liberado", "hm_pagamento_realizado", "hm_comprou", "hm_reuniao_agendada", "hm_reuniao_finalizada", "hm_ativacao_contato"].includes(atual.estagio_chave)) {
+    // Mesma fonte (ordem de cs.estagios): "antes da própria entrevista" é
+    // ordem < 90 (a ordem de hm_entrevista_agendada) — cobre todo o
+    // Comercial e o começo da Ativação, sem listar chave por chave (o array
+    // de 8 strings ficava desatualizado a cada estágio novo — foi o caso de
+    // hm_aguardando_pagamento/hm_aguardando_retorno, que nunca entraram nele).
+    if (b.entrevista_em && atual.estagio_chave && (await chavesEstagioAntesDaOrdem(90)).includes(atual.estagio_chave)) {
       await moverEstagioHm(compradorId, HM_STAGE_ENTREVISTA, operador, undefined, produtoCard);
     }
   }
@@ -527,6 +569,7 @@ function resumoEdicao(b: Record<string, unknown>): string {
   const p: string[] = [];
   if (b.observacoes !== undefined) p.push("observações");
   if (b.acordo !== undefined || b.pagamento_meio !== undefined || b.oferta_saldo_codigo !== undefined || b.pagamento_previsto_em !== undefined || b.link_saldo_enviado !== undefined) p.push("acordo do saldo");
+  if (b.intencao_pagamento !== undefined || b.intencao_pagamento_obs !== undefined) p.push("intenção de pagamento");
   if (b.credito_oferta !== undefined || b.credito_valor_pago !== undefined || b.credito_dias_totais !== undefined || b.credito_compra_em !== undefined || b.credito_obs !== undefined) p.push("crédito pró-rata");
   if (b.ativ_searchie !== undefined || b.ativ_comunidade !== undefined || b.ativ_grupo !== undefined || b.ativ_pesquisa !== undefined || b.grupo_informes !== undefined || b.pendencia !== undefined) p.push("ativação");
   if (b.rev_searchie !== undefined || b.rev_comunidade !== undefined || b.rev_grupo !== undefined || b.rev_pesquisa !== undefined) p.push("revogação");

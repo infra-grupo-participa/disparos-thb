@@ -306,6 +306,18 @@ export const HmContatoPatchSchema = z.object({
   // Fecha a marcação vigente (o que aconteceu com ela).
   agendamento_tipo: z.enum(["reuniao", "entrevista"]).optional(),
   agendamento_status: z.enum(["realizado", "nao_compareceu", "cancelado"]).optional(),
+  // ----- gesto "sinalizei que enviei a mensagem" (D1) -----
+  // true = o operador confirma que já mandou a primeira abordagem. Carimba
+  // contato_inicial_em e, se o card estiver em "Contato Inicial", avança
+  // para "Aguardando Retorno" (lib/services/hm.ts). Não aceita `false`: não
+  // existe "desfazer o sinal" pela ficha — é um carimbo de fato, não um
+  // toggle (mesmo espírito de link_saldo_enviado).
+  contato_inicial_sinalizado: z.literal(true).optional(),
+  // ----- desfecho comercial da reunião (D2) -----
+  // Declaração comercial, irmã de `acordo` — NUNCA dado de pagamento (ver
+  // pagamento_so_hotmart no topo da rota). null limpa.
+  intencao_pagamento: z.enum(["vai_pagar", "indeciso", "nao_vai_pagar"]).nullable().optional(),
+  intencao_pagamento_obs: z.string().nullable().optional(),
   // ----- acordo do saldo (o que o comercial combina com o aluno) -----
   pagamento_meio: z.enum(["boleto", "cartao", "cartao_recorrente", "pix", "avista"]).nullable().optional(),
   pagamento_previsto_em: z.string().nullable().optional(),   // "vai pagar dia 17"

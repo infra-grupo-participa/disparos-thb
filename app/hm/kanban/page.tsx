@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -108,6 +108,17 @@ type Card = {
   /** A MESMA pessoa nos outros boards (0164), pronto para exibir:
    *  "HM: Entrevista Finalizada". Null = ela só existe neste portal. */
   outros_portais: string | null;
+  // CONTRATO DO BACKEND (17/08, kanban route em paralelo) — todos opcionais:
+  // undefined = rota antiga/deploy parcial, e o card degrada em silêncio (sem
+  // selo, sem crash), nunca inventa um estado que o backend não mandou.
+  /** Data derivada da próxima cobrança (mensalidade em curso). */
+  proxima_cobranca_em?: string | null;
+  /** Dias sem pagar, já calculado pela view. */
+  dias_sem_pagar?: number | null;
+  /** >=60 dias sem pagar — o corte já vem pronto do backend. */
+  inadimplente?: boolean;
+  /** quitado · mensalidade_em_curso · saldo_parado · cancelado · oferta_enviada · incalculavel */
+  situacao?: "quitado" | "mensalidade_em_curso" | "saldo_parado" | "cancelado" | "oferta_enviada" | "incalculavel" | null;
 };
 type Coluna = { chave: string; nome: string; cor: string; aba: string | null };
 
@@ -563,6 +574,13 @@ export default function HmKanbanPage() {
         if (d?.reason === "checklist_incompleto") {
           toast(
             `${card.nome} ainda não pode entrar em "Ativação Realizada" — falta: ${(d.faltando ?? []).join(", ")}. Marque os itens do checklist na ficha do card.`,
+            "erro",
+          );
+        } else if (d?.reason === "reuniao_sem_desfecho") {
+          // F7: mesmo padrão do checklist_incompleto — o servidor diz O QUE
+          // falta (a lista `faltando`), a tela lista, sem inventar texto.
+          toast(
+            `${card.nome} não pode sair de "Reunião Agendada" sem o desfecho da reunião — falta: ${(d.faltando ?? []).join(", ")}. Marque o resultado da reunião na ficha antes de mover.`,
             "erro",
           );
         } else if (d?.reason === "saldo_em_aberto") {
@@ -1647,7 +1665,19 @@ function CardItem({
     parcelasContratadas: card.parcelas_contratadas,
     saldoTxt,
     quitadoTitle: card.pagamento_em ? `Saldo quitado — pago em ${fmtDataHora(card.pagamento_em)}` : "Saldo quitado",
+    // F5/F6 (17/08): campos opcionais do contrato do backend — undefined
+    // enquanto a rota não mergeia, e o financeiro cai no comportamento antigo.
+    situacao: card.situacao,
+    proximaCobrancaEm: card.proxima_cobranca_em,
+    diasSemPagar: card.dias_sem_pagar,
+    inadimplente: card.inadimplente,
   });
+  // F2 (17/08): reunião em risco — puramente derivado (estagio_chave +
+  // reuniao_em), zero escrita. Sob cancelado nem é calculado, mesma regra do
+  // financeiro: quem cancelou não tem mais "reunião pendente".
+  const estadoReuniao = cancelado ? null : estadoReuniaoCard({ estagioChave: card.estagio_chave, reuniaoEm: card.reuniao_em });
+  const reuniaoSemData = estadoReuniao?.txt === "Sem data marcada";
+  const reuniaoVencida = !reuniaoSemData && !!estadoReuniao;
   // Selos SÓ informativos → colapsam no "+N" (ver SelosExtras). Sob cancelado,
   // nem entram: são contexto de compra, e quem cancelou não é mais cliente.
   const extras: { key: string; rotulo: string; el: React.ReactNode }[] = [];
@@ -1726,10 +1756,18 @@ function CardItem({
           superior direito, fora do fluxo dos selos — o card não tem mais espaço
           na primeira linha, e o pedido era justamente que ele saltasse por cima
           de tudo. Some sozinho na primeira abertura da ficha. */}
-      {/* Precedência (ver o comentário em SeloSemOperador, card-sinais.tsx):
-          "sem operador" vence "novo" — os dois disputam o mesmo canto e só um
-          cabe. A ação urgente é associar um responsável. */}
-      {!cancelado && (semOperador ? <SeloSemOperador /> : naoVisto && <SeloCardNovo />)}
+      {/* Precedência do canto (ver o bloco "Precedência da ficha inteira" em
+          card-sinais.tsx, atualizado 17/08): sem operador > reunião em risco
+          > novo. Um só cabe no canto — sem operador vence tudo porque sem
+          dono ninguém recebe a cobrança da reunião; reunião em risco vence
+          "novo" porque marcar o desfecho é mais urgente que só abrir a
+          ficha. */}
+      {!cancelado && (
+        semOperador ? <SeloSemOperador />
+          : reuniaoSemData ? <SeloReuniaoSemData />
+          : reuniaoVencida ? <SeloReuniaoVencida />
+          : naoVisto && <SeloCardNovo />
+      )}
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
           {/* ALUNO NOVO × ALUNO ANTIGO, escancarado (12/08). Sempre o primeiro
@@ -1886,6 +1924,18 @@ function CardItem({
           {dataEtapa.label}: {fmtDataHora(dataEtapa.quando)}
         </div>
       )}
+      {/* F1/F2 (17/08): o chip azul acima só aparece com data marcada — os 11
+          cards vencidos/sem data hoje ficam MUDOS. O texto abaixo é o portador
+          textual do mesmo alerta que já ganhou (ou não) o canto por
+          precedência: cor nunca é a única pista, então o selo aparece aqui
+          SEMPRE que houver reunião em risco, mesmo quando outro selo venceu
+          o canto absoluto. */}
+      {estadoReuniao && (
+        <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-rose-50 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title={estadoReuniao.title}>
+          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
+          Reunião: {estadoReuniao.txt}
+        </div>
+      )}
 
       {/* DUPLO RESPONSÁVEL (0211/0212, B.4): quando o comercial (histórico,
           imutável) diverge do vigente, mostra os DOIS — é a informação que a
@@ -1926,7 +1976,13 @@ function CardItem({
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
             </span>
           )}
-          <span className={cn("inline-flex items-center gap-1 truncate text-[11px] font-medium tabular-nums", tempoTom(card.entrou_estagio_em))} title="Tempo nesta etapa">
+          {/* OTIMIZAÇÃO (17/08): quando `estadoReuniao` já é o alarme
+              temporal específico deste card ("essa reunião aconteceu?"), o
+              tom genérico de `tempoTom` ("parado há Nd") não compete por
+              atenção com uma segunda cor de alarme — cai no slate neutro. O
+              dado (tempo na etapa) continua visível, só o destaque de cor
+              cede para quem já é mais específico. */}
+          <span className={cn("inline-flex items-center gap-1 truncate text-[11px] font-medium tabular-nums", estadoReuniao ? "text-slate-400 dark:text-slate-500" : tempoTom(card.entrou_estagio_em))} title="Tempo nesta etapa">
             <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
             {card.entrou_estagio_em ? `${relativo(card.entrou_estagio_em)} na etapa` : "—"}
           </span>

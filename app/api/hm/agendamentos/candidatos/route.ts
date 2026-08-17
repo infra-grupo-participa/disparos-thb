@@ -4,6 +4,7 @@ import { produtoDaRequisicao } from "@/lib/produto-hm";
 import { escopoVisibilidade, paramsEscopo } from "@/lib/papeis";
 import { query } from "@/lib/db";
 import { sqlEscopo } from "@/lib/services/visibilidade";
+import { chavesEstagioAntesDaOrdem } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -11,15 +12,15 @@ export const runtime = "nodejs";
 // A agenda pergunta "quem vai nesse slot?"; aqui está a resposta: os contatos HM
 // que casam com a busca, com QUEM PRECISA daquele tipo de compromisso no topo.
 //
-//   reunião    (comercial) → falta agendar a reunião: Contato Inicial / Aguardando Retorno.
+//   reunião    (comercial) → falta agendar a reunião: qualquer estágio comercial
+//              de ordem < 20 (mesma fonte da regra 9 em app/api/hm/contato/[id]/
+//              route.ts — hm_aguardando_pagamento/hm_comprou/hm_aguardando_retorno
+//              hoje, lido do banco, não uma lista de chaves solta).
 //   entrevista (ativação)  → falta a entrevista de onboarding: Pendente/Acesso/Contato da Ativação.
 //
 // Sem `q` devolve só a fila de quem precisa (a lista pronta para encaixar); com
 // `q` busca por nome em qualquer etapa (dá para agendar/remarcar quem já tem card).
-const PRECISA: Record<string, string[]> = {
-  reuniao: ["hm_comprou", "hm_aguardando_retorno"],
-  entrevista: ["hm_pendente_liberacao", "hm_acesso_liberado", "hm_ativacao_contato", "hm_pagamento_realizado"],
-};
+const PRECISA_ENTREVISTA = ["hm_pendente_liberacao", "hm_acesso_liberado", "hm_ativacao_contato", "hm_pagamento_realizado"];
 
 export async function GET(req: Request) {
   // 0187: o portal validado e o do produto PEDIDO, nao "HM" literal — HM/AURUM/ETHB
@@ -31,7 +32,11 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const q = (sp.get("q") ?? "").trim();
   const tipo = sp.get("tipo") === "entrevista" ? "entrevista" : "reuniao";
-  const precisa = PRECISA[tipo];
+  // `reuniao`: mesma fonte da regra 9 (chavesEstagioAntesDaOrdem, lib/services/hm)
+  // — antes era um array literal ["hm_comprou","hm_aguardando_retorno"] que não
+  // acompanhava estágio novo (hm_aguardando_pagamento nasceu depois e nunca
+  // entrou aqui). `entrevista` segue lista própria: fora do escopo desta unificação.
+  const precisa = tipo === "reuniao" ? await chavesEstagioAntesDaOrdem(20) : PRECISA_ENTREVISTA;
   // Escopo padrão do board: só sugere quem o ator VÊ (pool / a equipe dele /
   // os dele). Sem isso, a busca por nome vazava a carteira das outras equipes.
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
