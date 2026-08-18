@@ -803,9 +803,16 @@ export default function HmKanbanPage() {
   // disparo/lote sobre eles é agir num card em que a pessoa não pode agir.
   const cardsSelecionaveis = cardsFiltrados.filter((c) => !cardBloqueado(c) && !cardDeColega(c));
   const colunasAba = colunas.filter((c) => (c.aba ?? "comercial") === aba);
-  // O card pago conta nas duas abas (ele aparece nas duas) — por isso o total
-  // sai daqui, e não de um count no banco que não conhece o espelho.
-  const totalComercial = cards.filter((c) => colunaNaAba(c, "comercial")).length;
+  // O total sai daqui, e não de um count no banco, porque o banco não conhece
+  // o espelho.
+  // 18/08: quem já pagou e foi para a Ativação NÃO conta mais no Comercial.
+  // Ele continua aparecendo lá (é o registro do pagamento, e o comercial quer
+  // ver que fechou), mas apagado e fora da conta — senão o número do Comercial
+  // promete trabalho que já acabou. A Ativação conta ele inteiro: é lá que a
+  // pessoa está de verdade.
+  const totalComercial = cards.filter(
+    (c) => colunaNaAba(c, "comercial") && !ehEspelho(c, "comercial"),
+  ).length;
   const totalAtivacao = cards.filter((c) => colunaNaAba(c, "ativacao")).length;
 
   return (
@@ -1051,8 +1058,13 @@ export default function HmKanbanPage() {
                     >
                       <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /></svg>
                     </a>
+                    {/* 18/08: o espelho (já pagou, está na Ativação) não entra
+                        na conta do Comercial — ele aparece na coluna, apagado,
+                        mas o número tem que dizer quanto trabalho FALTA, não
+                        quanto já acabou. Na Ativação conta normal: é lá que a
+                        pessoa está. */}
                     <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {cards.filter((c) => colunaNaAba(c, aba) === col.chave).length
+                      {cards.filter((c) => colunaNaAba(c, aba) === col.chave && !ehEspelho(c, aba)).length
                         + (aba === "ativacao" ? socios.filter((s) => colunaDoSocio(s) === col.chave).length : 0)}
                     </span>
                   </div>
@@ -1845,6 +1857,13 @@ function CardItem({
         bloqueado
           ? "cursor-not-allowed"
           : "cursor-pointer hover:border-brand/30 hover:shadow-soft active:cursor-grabbing",
+        // 18/08: o espelho (já pagou, vive na Ativação) recua no Comercial —
+        // continua legível e clicável, só para de competir com quem ainda dá
+        // trabalho. Volta ao normal no hover/foco, para quem for LER o card não
+        // ler apagado. 75% é o ponto em que ele some do "varrer a coluna" sem
+        // sumir de quem procura: abaixo disso vira ruído ilegível, acima não
+        // recua nada. Nunca `hidden`: o comercial quer ver que fechou.
+        espelho && "opacity-75 saturate-[.85] hover:opacity-100 hover:saturate-100 focus-within:opacity-100 focus-within:saturate-100",
         // Alvo do deep-link (0164): anel índigo pulsante — mesma cor do selo que
         // trouxe o operador até aqui, para ele reconhecer o que clicou.
         destacado && "animate-pulse ring-2 ring-indigo-400 ring-offset-2 dark:ring-indigo-400 dark:ring-offset-slate-950",
