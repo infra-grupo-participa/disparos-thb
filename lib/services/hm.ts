@@ -2,6 +2,7 @@ import { query, queryOne } from "@/lib/db";
 import { logger } from "@/lib/log";
 import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, esteiraCompartilhada, nivelDe, podeAtribuirPara, podeRemanejarTravado, podeTravarAtribuicao, semBonusDeGerente, veredictoEscopoCamposHm, type Ator, type Papel, type TipoEquipe, type VeredictoCampoHm } from "@/lib/papeis";
 import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
+import { LABEL_MOTIVO_CANCELAMENTO_HM } from "@/lib/cancelamento-motivos";
 
 const log = logger("hm");
 
@@ -14,6 +15,11 @@ export const HM_STAGE_PAGAMENTO = "hm_pagamento_realizado";
 // "Reembolsado" (hm_reembolsado) é o FATO — reembolso confirmado/executado.
 export const HM_STAGE_CANCELAMENTO = "hm_cancelamento";
 export const HM_STAGE_REEMBOLSADO = "hm_reembolsado";
+// "Solicitou Cancelamento" (0301): o pedido feito PRA GENTE (mensagem/ligação),
+// sem rastro na Hotmart — entra ANTES de "Reclamada" na esteira. Trava de
+// ENTRADA (0306/B1): exige o motivo categorizado, porque é a ÚNICA fonte que
+// existe desse pedido (ver o comentário completo na trava, mais abaixo).
+export const HM_STAGE_SOLICITOU_CANCELAMENTO = "hm_solicitou_cancelamento";
 export const HM_STAGE_PENDENTE = "hm_pendente_liberacao";
 export const HM_STAGE_ACESSO = "hm_acesso_liberado";
 // A linha de chegada da esteira (0065): só entra quem cumpriu o checklist inteiro.
@@ -152,7 +158,7 @@ const CHECKLIST: { col: string; label: string }[] = [
   { col: "ativ_gps", label: "Acesso ao GPS (programa de implementação)" },
 ];
 
-export type MoverErro = "estagio_invalido" | "checklist_incompleto" | "saldo_em_aberto" | "reuniao_sem_desfecho" | "coluna_da_hotmart" | "sem_movimento_para_reverter";
+export type MoverErro = "estagio_invalido" | "checklist_incompleto" | "saldo_em_aberto" | "reuniao_sem_desfecho" | "coluna_da_hotmart" | "sem_movimento_para_reverter" | "cancelamento_sem_motivo";
 export type MoverResultado =
   | { ok: true }
   | { ok: false; reason: MoverErro; faltando?: string[]; faltam?: number; coluna?: string; direcao?: "entrada" | "saida" };
@@ -231,8 +237,10 @@ export async function moverEstagioHm(
   // card no HM e no Aurum, com financeiro diferente em cada um.
   // O `order by` existe pelo mesmo motivo: sem ele, quem tem card nos dois boards
   // caía num sorteio silencioso — a lição da 0169.
-  const ch = await queryOne<{ id: string; estagio_id: number | null; apto_ativacao: boolean; estagio_chave: string | null; produto: string | null }>(
-    `select ch.id, ch.estagio_id, ch.apto_ativacao, ch.produto, e.chave as estagio_chave
+  const ch = await queryOne<{ id: string; estagio_id: number | null; apto_ativacao: boolean; estagio_chave: string | null; produto: string | null; cancelamento_motivo_tipo: string | null }>(
+    // `cancelamento_motivo_tipo` (0306/B1): só para a trava de ENTRADA em
+    // "Solicitou Cancelamento" logo abaixo — nenhum outro ramo deste arquivo lê.
+    `select ch.id, ch.estagio_id, ch.apto_ativacao, ch.produto, ch.cancelamento_motivo_tipo, e.chave as estagio_chave
        from cs.contatos_hm ch left join cs.estagios e on e.id = ch.estagio_id
       where ch.comprador_id = $1
         and ($2::text is null or ch.produto = $2)
@@ -351,6 +359,18 @@ export async function moverEstagioHm(
     if (r?.res?.ok !== true) {
       return { ok: false, reason: "reuniao_sem_desfecho", faltando: r?.res?.faltando ?? [] };
     }
+  }
+
+  // Trava de ENTRADA em "Solicitou Cancelamento" (0306/B1, pedido do Marcio:
+  // "quando o comercial mover para Solicitou Cancelamento, ele explique o
+  // motivo do cancelamento"). Mesmo desenho das duas travas acima: guarda a
+  // PORTA, não prende quem já está lá — só roda no momento da entrada, os
+  // cards que já estão na coluna hoje seguem livres (mesmo princípio da 0284).
+  // Só o MOTIVO trava (categorizado, cancelamento_motivo_tipo); o PRAZO
+  // (cancelamento_prazo) é opcional por decisão do Marcio — nem toda pessoa
+  // que liga já sabe dizer uma data.
+  if (chave === HM_STAGE_SOLICITOU_CANCELAMENTO && !ch.cancelamento_motivo_tipo) {
+    return { ok: false, reason: "cancelamento_sem_motivo", faltando: ["motivo do cancelamento"] };
   }
 
   // Transição automática Comercial → Ativação ao confirmar o pagamento do saldo.
@@ -490,7 +510,33 @@ export async function moverEstagioHm(
     // hm_cancelamento/hm_reembolsado para qualquer outra coluna.
     await setEstagioIdHm(novo.chave, novo.id);
   }
-  await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
+  // B5 (0306): entrar em "Solicitou Cancelamento" registra o MOTIVO e o
+  // PRAZO na própria timeline, não só "Movido para X" — é o registro que
+  // sobra quando alguém perguntar por que a pessoa cancelou. O motivo já
+  // passou pela trava de entrada (B1: sem ele, nem chega até aqui); o prazo é
+  // opcional. Relê do banco (não de `ch`, que é o estado ANTES do movimento):
+  // o B3 grava os dois campos ANTES de chamar moverEstagioHm, então o valor
+  // vigente já está lá — e isto cobre também quem preencheu pela ficha antes
+  // de mover, num PATCH anterior.
+  if (chave === HM_STAGE_SOLICITOU_CANCELAMENTO) {
+    const dados = await queryOne<{ motivo_tipo: string | null; prazo: string | null }>(
+      `select cancelamento_motivo_tipo as motivo_tipo, cancelamento_prazo as prazo from cs.contatos_hm where id = $1`,
+      [ch.id],
+    );
+    const motivoLabel = dados?.motivo_tipo ? (LABEL_MOTIVO_CANCELAMENTO_HM[dados.motivo_tipo as keyof typeof LABEL_MOTIVO_CANCELAMENTO_HM] ?? dados.motivo_tipo) : null;
+    const prazoLabel = dados?.prazo ? fmtBrData(dados.prazo) : null;
+    const detalhe = [motivoLabel ? `motivo: ${motivoLabel}` : null, prazoLabel ? `prazo pedido: ${prazoLabel}` : null]
+      .filter(Boolean)
+      .join(" · ");
+    await addInteracaoHm(
+      ch.id,
+      "mudanca_estagio",
+      detalhe ? `Movido para "${novo.nome}" — ${detalhe}` : `Movido para "${novo.nome}"`,
+      autor, ch.estagio_id, novo.id,
+    );
+  } else {
+    await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
+  }
   await reposicionarNaColuna(ch.id, novo.id, posicao);
 
   // Chegou na linha de chegada — e só chega quem cumpriu o checklist inteiro.
@@ -1092,6 +1138,18 @@ function fmtBr(iso: string | Date): string {
   return isNaN(d.getTime())
     ? String(iso)
     : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+// Data pura (sem hora) — usada pelo prazo de cancelamento (0306/B5), que é
+// `date` no banco. `fmtBr` acima carimba hora 00:00, o que confundiria "o
+// prazo é meia-noite" com "não sei a hora, só o dia". Interpreta a string
+// YYYY-MM-DD como calendário local (não UTC) — `new Date("YYYY-MM-DD")`
+// sozinho parsearia como UTC e podia mostrar o dia anterior a quem está a
+// oeste de Greenwich (o Brasil inteiro).
+function fmtBrData(iso: string): string {
+  const [ano, mes, dia] = iso.split("-").map(Number);
+  const d = new Date(ano, (mes || 1) - 1, dia || 1);
+  return isNaN(d.getTime()) ? String(iso) : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 // Marca (ou remarca) a reunião/entrevista. Remarcar não é "trocar a data": é um

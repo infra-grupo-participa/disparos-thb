@@ -341,6 +341,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.cancelamento_motivo !== undefined) add("cancelamento_motivo", b.cancelamento_motivo);
   // Valor financeiro do cancelamento (0152): a reembolsar/reter.
   if (b.cancelamento_valor !== undefined) add("cancelamento_valor", b.cancelamento_valor);
+  // Motivo categorizado + prazo pedido (0306): a ÚNICA fonte do pedido feito
+  // PRA GENTE (ver o comentário da migration). `cancelamento_motivo_tipo` é
+  // o que a trava de entrada de "Solicitou Cancelamento" (B1) exige — editar
+  // pela ficha depois de já estar na coluna também é permitido (a trava é só
+  // de entrada, não prende quem já está lá).
+  if (b.cancelamento_motivo_tipo !== undefined) add("cancelamento_motivo_tipo", b.cancelamento_motivo_tipo);
+  if (b.cancelamento_prazo !== undefined) sets.push(`cancelamento_prazo = ${b.cancelamento_prazo ? `$${vals.push(b.cancelamento_prazo)}::date` : "null"}`);
 
   // Revogação dos acessos do cancelado — o inverso do checklist de ativação.
   // O "quando" é carimbado pelo banco quando os quatro caem; o "quem" é este
@@ -619,7 +626,7 @@ function resumoEdicao(b: Record<string, unknown>): string {
   if (b.responsavel_ativacao_id !== undefined) p.push("responsável de ativação");
   if (b.reuniao_resultado !== undefined || b.entrevista_resultado !== undefined) p.push("resultado da reunião");
   if (b.reuniao_gravacao_url !== undefined || b.entrevista_gravacao_url !== undefined) p.push("gravação");
-  if (b.cancelamento_motivo !== undefined) p.push("motivo do cancelamento");
+  if (b.cancelamento_motivo !== undefined || b.cancelamento_motivo_tipo !== undefined || b.cancelamento_prazo !== undefined) p.push("motivo do cancelamento");
   if (b.link_facebook !== undefined) p.push("Facebook");
   return p.length ? p.join(", ") : "edição da ficha";
 }

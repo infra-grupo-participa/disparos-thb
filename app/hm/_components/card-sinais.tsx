@@ -5,13 +5,23 @@
 // conta própria é o mesmo tipo de furo que os níveis de acesso tinham — a
 // regra mora aqui, as telas só exibem.
 
-import { cn } from "@/app/_components/ui";
+import { cn, fieldClass } from "@/app/_components/ui";
 import { TAGS_ALUNO_ANTIGO } from "@/lib/papeis";
 // Reexportado para que as telas leiam UMA lista só (papeis.ts é a fonte, e é a
 // mesma que a migration 0213 espelha em SQL). Sem isto o board importaria a
 // lista de identidade de dois lugares diferentes — o drift que este arquivo
 // existe para evitar.
 export { TAGS_ALUNO_ANTIGO };
+// MESMO padrão: as 7 categorias + o rótulo (0306) são fonte ÚNICA em lib/
+// (módulo puro, importável do servidor E do cliente — a timeline em
+// lib/services/hm.ts usa a MESMA constante). Achado do fable-orchestrator:
+// havia DUAS cópias divergentes (a tela mostrava "Não tem como pagar agora",
+// a timeline gravava "Financeiro") — o operador clicava numa frase e o
+// histórico registrava outra, para sempre. Importado (não só reexportado,
+// porque este arquivo também USA os símbolos abaixo) e reexportado, para que
+// board/tabela/ficha continuem importando de card-sinais.tsx, como já faziam.
+import { MOTIVOS_CANCELAMENTO_HM, LABEL_MOTIVO_CANCELAMENTO_HM, labelMotivoCancelamento, type MotivoCancelamentoHm } from "@/lib/cancelamento-motivos";
+export { MOTIVOS_CANCELAMENTO_HM, LABEL_MOTIVO_CANCELAMENTO_HM, labelMotivoCancelamento, type MotivoCancelamentoHm };
 
 // ===== Paleta do card (13/08) — UM significado por cor, nas três telas ======
 // Pedido do Marcio: "eu estou sentindo muito misturado tudo". Antes rose
@@ -637,5 +647,203 @@ export function SeloReuniaoVencida({ className, posicao = "absoluto" }: { classN
       <svg className="h-2 w-2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
       não feita
     </span>
+  );
+}
+
+// ===== Card do Comercial × card da Ativação (18/08, pedido do Marcio) =======
+// "Preciso que você diferencie o card de ativação do card de comercial, tá
+// causando muita confusão os dois juntos... precisa ter uma diferenciação
+// dependendo de onde o aluno estiver no fluxo do kanban." Decisão dele: cor
+// de fundo + faixa lateral por aba — SÓ a moldura, nunca o conteúdo do card
+// (filtrar informação por aba fica para depois, ele foi explícito).
+//
+// `card.estagio_aba` já existe e já POSICIONA o card (kanban/page.tsx:201,
+// colunaNaAba) — aqui ele passa a também colorir. Import feito pelas telas via
+// `card.estagio_aba`, sem duplicar a leitura.
+//
+// PRECEDÊNCIA (documentada aqui porque board e tabela leem a MESMA regra):
+// a aba é um tom de FUNDO BASE, mais fraco que qualquer estado que já pinta o
+// fundo do card — cancelado (rose) e quitado (esmeralda) CONTINUAM vencendo,
+// sem exceção. A faixa lateral esquerda de aba só entra quando não há faixa de
+// equipe (a cor da equipe é o modelo de acesso — mais importante que qualquer
+// outro sinal, ver o comentário em kanban/page.tsx:1851). Ordem de aplicação
+// que a tela deve seguir:
+//   1. cancelado → fundo rose (sempre vence)
+//   2. quitado (verde) → fundo esmeralda (vence a aba)
+//   3. nenhum dos dois → fundo pela ABA (cor de aba abaixo)
+//   4. faixa lateral: equipe > pool tracejado > ABA (só se não houver nenhuma)
+// Acessibilidade: cor nunca é o único portador. `SeloAba` abaixo é o
+// marcador textual — discreto, sem inflar o card (o pedido já registrou
+// "muito misturado", "excesso de selo") — para quem não distingue as duas
+// cores de fundo continuar sabendo em qual esteira o card está.
+export type AbaCard = "comercial" | "ativacao";
+
+/** A aba efetiva do card — mesma leitura de `colunaNaAba` (kanban/page.tsx):
+ *  `estagio_aba` nulo cai em "comercial" (o default histórico do dado). */
+export function abaDoCard(estagioAba: string | null | undefined): AbaCard {
+  return estagioAba === "ativacao" ? "ativacao" : "comercial";
+}
+
+// Tom de FUNDO por aba — deliberadamente sutil (mesma família de intensidade
+// do `verde` de quitado, "bg-emerald-50/50"), para não competir com cancelado/
+// quitado quando nenhum dos dois vale. Sky = Comercial (mesma família usada em
+// "Sinal"/catLabel); violet = Ativação — nenhuma das duas é usada em nenhum
+// selo de ESTADO (rose/âmbar/esmeralda), então não há ambiguidade de "isso é
+// um alerta?" ao bater o olho.
+export const TOM_ABA: Record<AbaCard, { bg: string; borda: string; faixa: string }> = {
+  comercial: {
+    bg: "bg-sky-50/60 dark:bg-sky-500/[0.04]",
+    borda: "border-sky-100 dark:border-sky-500/15",
+    faixa: "#38bdf8", // sky-400 — só usada quando não há cor de equipe/pool
+  },
+  ativacao: {
+    bg: "bg-violet-50/60 dark:bg-violet-500/[0.04]",
+    borda: "border-violet-100 dark:border-violet-500/15",
+    faixa: "#a78bfa", // violet-400
+  },
+};
+
+// Marcador textual da aba — o portador não-cor exigido pela acessibilidade.
+// Mini chip, canto do cabeçalho do card, mesma forma dos demais selos de
+// contexto (índigo/neutro) — não entra na régua de "+N": é orientação
+// permanente de onde a pessoa está, não um evento a colapsar.
+export function SeloAba({ aba, className }: { aba: AbaCard; className?: string }) {
+  const label = aba === "ativacao" ? "Ativação" : "Comercial";
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold",
+        aba === "ativacao"
+          ? "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
+          : "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+        className,
+      )}
+      title={`Esteira: ${label} — marcador de onde este card está no kanban (a cor de fundo do card conta a mesma coisa; este texto é para quem não distingue as duas cores).`}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ===== Motivo e prazo do pedido de cancelamento (18/08, pedido do Marcio) ===
+// "Quando o comercial mover para solicitou cancelamento, ele explique o
+// motivo do cancelamento, e o prazo de cancelamento." Contrato do backend
+// (0306, cs.contatos_hm): `cancelamento_motivo_tipo` (lista fechada) +
+// `cancelamento_prazo` (a DATA em que a PESSOA pediu para sair — não é a
+// garantia de 7 dias da Hotmart, é o compromisso que o comercial assumiu na
+// conversa). O motivo é obrigatório para ENTRAR em "Solicitou Cancelamento"
+// (o servidor recusa com `cancelamento_sem_motivo`); o prazo, não.
+//
+// Os DOIS campos são OPCIONAIS no tipo aqui: undefined = rota antiga/deploy
+// parcial do backend em paralelo, e as funções abaixo degradam em silêncio
+// (sem selo, nunca inventando motivo/prazo que o payload não mandou) — mesma
+// disciplina do resto deste arquivo. As 7 categorias e o rótulo vêm de
+// lib/cancelamento-motivos.ts (reexportado no topo deste arquivo) — fonte
+// única entre tela e timeline.
+export type EstadoPrazoCancelamento = { txt: string; tom: Extract<Tom, "atencao" | "bloqueio">; title: string };
+
+// O selo de PRAZO — mesmo espírito dos selos de reunião vencida acima:
+// cálculo de TELA (hoje vs. a data), zero escrita. Âmbar quando o prazo está
+// chegando (≤3 dias, mesmo corte de `tempoTom` em kanban/page.tsx para "está
+// esfriando"); rose quando já venceu e ninguém tirou o card de
+// "Solicitou Cancelamento" — ninguém resolveu o pedido dentro do prazo que o
+// próprio comercial prometeu ao aluno.
+export function estadoPrazoCancelamento(p: {
+  estagioChave: string | null | undefined;
+  prazo: string | null | undefined;
+}): EstadoPrazoCancelamento | null {
+  if (p.estagioChave !== "hm_solicitou_cancelamento" || !p.prazo) return null;
+  // Data pura (YYYY-MM-DD, sem hora): compara por dia civil, não por instante —
+  // "quer cancelar dia 20" não vira "vencido às 00h01 do dia 20".
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const alvo = new Date(p.prazo + "T00:00:00");
+  const dias = Math.round((alvo.getTime() - hoje.getTime()) / 86_400_000);
+  const dTxt = alvo.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  if (dias < 0) {
+    return {
+      txt: `Prazo vencido · ${dTxt}`, tom: "bloqueio",
+      title: `A pessoa pediu para cancelar em ${dTxt} e o card continua em "Solicitou Cancelamento" — ninguém resolveu dentro do prazo combinado.`,
+    };
+  }
+  if (dias <= 3) {
+    return {
+      txt: `Prazo ${dTxt}`, tom: "atencao",
+      title: `A pessoa pediu para cancelar em ${dTxt} — está chegando a data combinada com ela.`,
+    };
+  }
+  return null;
+}
+
+// ===== Formulário do pedido de cancelamento (18/08) — F1/F5 ================
+// O board (kanban/page.tsx) e a tabela (tabela/page.tsx) abriam o MESMO
+// formulário (motivo + observação + prazo) dentro de dois modais quase
+// idênticos — ~80 linhas cada, achado do fable-orchestrator (reprovação por
+// otimização). Aqui fica só o FORMULÁRIO (título, subtítulo, os três campos);
+// o wrapper/overlay, os botões de ação e o submit continuam em cada tela — as
+// rotas de gravação são legitimamente diferentes (o board move com `antesDe`
+// via /api/hm/kanban; a tabela grava tudo num PATCH em /api/hm/contato/[id]),
+// e unificar o submit juntaria duas responsabilidades que não são a mesma.
+// Estado CONTROLADO pelo chamador (não interno): as duas telas precisam ler
+// `motivoTipo` para desabilitar o botão de confirmar (motivo é obrigatório).
+export function FormularioSolicitarCancelamento({
+  nome, motivoTipo, onMotivoTipo, observacao, onObservacao, prazo, onPrazo, autoFocus,
+}: {
+  nome: string;
+  motivoTipo: MotivoCancelamentoHm | "";
+  onMotivoTipo: (v: MotivoCancelamentoHm | "") => void;
+  observacao: string;
+  onObservacao: (v: string) => void;
+  prazo: string;
+  onPrazo: (v: string) => void;
+  /** Foco inicial no select de motivo — o campo obrigatório é o primeiro alvo
+   *  de teclado ao abrir. */
+  autoFocus?: boolean;
+}) {
+  return (
+    <>
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+        Registre por que {nome} está pedindo e, se ela combinou uma data, o prazo. O acesso continua valendo — isto só registra o pedido.
+      </p>
+
+      <label className="mt-3 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+        Motivo <span className="text-rose-500">*</span>
+        <select
+          value={motivoTipo}
+          onChange={(e) => onMotivoTipo(e.target.value as MotivoCancelamentoHm | "")}
+          className={cn(fieldClass, "mt-1")}
+          autoFocus={autoFocus}
+          required
+        >
+          <option value="">— selecione —</option>
+          {MOTIVOS_CANCELAMENTO_HM.map((m) => (
+            <option key={m} value={m}>{LABEL_MOTIVO_CANCELAMENTO_HM[m]}</option>
+          ))}
+        </select>
+      </label>
+
+      <label className="mt-3 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+        Observação (opcional)
+        <textarea
+          value={observacao}
+          onChange={(e) => onObservacao(e.target.value)}
+          rows={2}
+          placeholder="Detalhe o que a pessoa disse…"
+          className={cn(fieldClass, "mt-1")}
+        />
+      </label>
+
+      <label className="mt-3 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+        Data em que ela quer cancelar (opcional)
+        <input
+          type="date"
+          value={prazo}
+          onChange={(e) => onPrazo(e.target.value)}
+          className={cn(fieldClass, "mt-1")}
+        />
+        <span className="mt-0.5 block text-[10px] font-normal text-slate-400 dark:text-slate-500">
+          O que foi combinado com o aluno — não é a garantia de 7 dias da Hotmart.
+        </span>
+      </label>
+    </>
   );
 }

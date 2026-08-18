@@ -83,7 +83,11 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
             -- kanban. Sem elas aqui a ficha reabria em branco (undefined) depois
             -- do PATCH gravar, e a trava da 0284 então recusava o desfecho que o
             -- operador tinha acabado de preencher.
-            ch.intencao_pagamento, ch.intencao_pagamento_obs, ch.contato_inicial_em
+            ch.intencao_pagamento, ch.intencao_pagamento_obs, ch.contato_inicial_em,
+            -- Motivo categorizado + prazo pedido (0306): mesma razão dos campos
+            -- acima — a view contatos_hm_kanban ainda não expõe essas duas
+            -- colunas, então vêm direto da tabela (ch, já no FROM).
+            ch.cancelamento_motivo_tipo, ch.cancelamento_prazo
        from cs.contatos_hm_kanban k
        -- 0164: join pelo CARD. Com card por pessoa×produto, casar por comprador_id
        -- cruzaria o card do HM com o do Aurum (a mesma regressão da 0163).

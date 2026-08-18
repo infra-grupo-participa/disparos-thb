@@ -10,7 +10,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito, RESULTADOS, estadoReuniaoCard } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito, RESULTADOS, estadoReuniaoCard, MOTIVOS_CANCELAMENTO_HM, LABEL_MOTIVO_CANCELAMENTO_HM, type MotivoCancelamentoHm } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 // A cor da marca de cada portal — a MESMA que o operador vê no topo da tela.
 import { PORTAIS, type PortalId } from "@/lib/marcas";
@@ -62,6 +62,14 @@ type Contato = {
   ativ_gps?: boolean;
   grupo_informes: string | null; pendencia: string | null; link_facebook: string | null;
   cancelamento_em: string | null; cancelamento_motivo: string | null; cancelamento_valor: string | null;
+  // 0306 (18/08, pedido do Marcio): motivo CATEGORIZADO + prazo do PEDIDO de
+  // cancelamento ("Solicitou Cancelamento") — distintos do bloco de
+  // cancelamento_em/efetivado acima (esse é o financeiro da Reclamada/
+  // Reembolsado; este é o registro do pedido em si). Opcionais: contrato do
+  // backend em paralelo — undefined = a ficha ainda não recebe o campo, e a
+  // seção degrada em silêncio (não mostra, não afirma).
+  cancelamento_motivo_tipo?: string | null;
+  cancelamento_prazo?: string | null;
   // cancelamento: o pedido (cancelamento_em) e o fato (cancelamento_efetivado_em)
   cancelamento_efetivado_em: string | null; cancelamento_origem: string | null;
   // …e o fato pelos olhos da HOTMART (0091). Só o webhook escreve nestes.
@@ -354,6 +362,9 @@ export function HmDrawer({
   const [verFinanceiro, setVerFinanceiro] = useState(false);
   const [acordo, setAcordo] = useState("");
   const [previsao, setPrevisao] = useState("");
+  // Prazo do PEDIDO de cancelamento (0306, 18/08) — mesmo padrão de rascunho
+  // local de `previsao` (input date, grava no blur).
+  const [prazoCancelamento, setPrazoCancelamento] = useState("");
   const [pendencia, setPendencia] = useState("");
   // F8 (17/08): intenção de pagamento — mesmo padrão de rascunho local da
   // observação (grava no blur); o select grava direto (sem rascunho, como
@@ -410,6 +421,7 @@ export function HmDrawer({
       if (rascunhoIniciado.current !== compradorId) {
         setAcordo(d.contato.acordo ?? "");
         setPrevisao(d.contato.pagamento_previsto_em?.slice(0, 10) ?? "");
+        setPrazoCancelamento(d.contato.cancelamento_prazo?.slice(0, 10) ?? "");
         setPendencia(d.contato.pendencia ?? "");
         setGrupo(d.contato.grupo_informes ?? "");
         setCreditoObs(d.contato.credito_obs ?? "");
@@ -490,6 +502,14 @@ export function HmDrawer({
           window.alert(
             "A entrevista já foi finalizada e os dados dela ficam travados — data, remarcação e resultado não mudam mais.\n\n" +
               "O resto da ficha continua editável. Se algo ficou errado no registro, fale com o administrador do Grupo Participa.",
+          );
+        } else if (d?.reason === "cancelamento_sem_motivo") {
+          // F2 (18/08): a ficha é outro caminho que pode disparar a MESMA
+          // recusa (ex.: trocar a etapa pelo select "Etapa" direto para
+          // "Solicitou Cancelamento" sem passar pelo campo de motivo abaixo).
+          window.alert(
+            `${c?.nome ?? "Esta pessoa"} não pode entrar em "Solicitou Cancelamento" sem o motivo do pedido.\n\n` +
+              "Preencha o motivo no bloco \"Pedido de cancelamento\" e tente de novo.",
           );
         } else {
           // 403 de permissão vem com reason específico — mostra o MOTIVO
@@ -1712,6 +1732,63 @@ export function HmDrawer({
                   />
                 </label>
               </div>
+
+              {/* PEDIDO DE CANCELAMENTO (0306, 18/08, pedido do Marcio) — motivo
+                  CATEGORIZADO + prazo do pedido, distintos do bloco financeiro
+                  de Reclamada/Reembolsado logo abaixo (esse é o fato consumado;
+                  este é o registro do que a pessoa disse ao comercial). Aparece
+                  em "Solicitou Cancelamento" (F4) OU sempre que já houver um
+                  motivo/prazo gravado (não esconder um registro feito antes de
+                  o card sair da etapa). Opcionais no contrato do backend — some
+                  em silêncio se a rota ainda não manda os dois campos. */}
+              {(c.estagio_chave === "hm_solicitou_cancelamento" || c.cancelamento_motivo_tipo != null || c.cancelamento_prazo != null) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-500/30 dark:bg-amber-500/5">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Pedido de cancelamento
+                  </p>
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Motivo {c.estagio_chave === "hm_solicitou_cancelamento" && <span className="text-rose-500">*</span>}
+                    <select
+                      value={c.cancelamento_motivo_tipo ?? ""}
+                      onChange={(e) => patch({ cancelamento_motivo_tipo: e.target.value || null })}
+                      className={fieldClass}
+                      disabled={salvando || somenteLeitura}
+                    >
+                      <option value="">— selecione —</option>
+                      {MOTIVOS_CANCELAMENTO_HM.map((m) => (
+                        <option key={m} value={m}>{LABEL_MOTIVO_CANCELAMENTO_HM[m as MotivoCancelamentoHm]}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Observação
+                    <textarea
+                      defaultValue={c.cancelamento_motivo ?? ""}
+                      disabled={somenteLeitura}
+                      onBlur={(e) => { if (e.target.value !== (c.cancelamento_motivo ?? "")) patch({ cancelamento_motivo: e.target.value || null }); }}
+                      rows={2}
+                      placeholder="Detalhe o que a pessoa disse…"
+                      className={fieldClass}
+                    />
+                  </label>
+
+                  <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Data em que ela quer cancelar
+                    <input
+                      type="date"
+                      value={prazoCancelamento}
+                      disabled={somenteLeitura}
+                      onChange={(e) => setPrazoCancelamento(e.target.value)}
+                      onBlur={() => patch({ cancelamento_prazo: prazoCancelamento || null })}
+                      className={fieldClass}
+                    />
+                    <span className="mt-0.5 block text-[10px] font-normal text-slate-400 dark:text-slate-500">
+                      O que foi combinado com o aluno — não é a garantia de 7 dias da Hotmart.
+                    </span>
+                  </label>
+                </div>
+              )}
 
               {/* CANCELAMENTO — o pedido e o fato são coisas diferentes.
                   Enquanto é só pedido, o aluno continua aluno: reembolso pode ser

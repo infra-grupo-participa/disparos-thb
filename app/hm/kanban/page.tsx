@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento, abaDoCard, TOM_ABA, SeloAba, labelMotivoCancelamento, estadoPrazoCancelamento, type MotivoCancelamentoHm, FormularioSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -103,6 +103,13 @@ type Card = {
   cancelado: boolean;
   cancelado_na_hotmart: boolean;
   cancelamento_motivo: string | null;
+  /** 0306 (18/08, pedido do Marcio): motivo CATEGORIZADO + prazo pedido do
+   *  cancelamento — só fazem sentido em "Solicitou Cancelamento"
+   *  (hm_solicitou_cancelamento). Opcionais: contrato do backend em paralelo;
+   *  undefined = a rota do kanban ainda não soma ao SELECT — o selo de F3
+   *  fica calado, nunca inventa motivo/prazo que o payload não mandou. */
+  cancelamento_motivo_tipo?: string | null;
+  cancelamento_prazo?: string | null;
   ultima_msg: string | null;
   entrou_estagio_em: string | null;
   /** A MESMA pessoa nos outros boards (0164), pronto para exibir:
@@ -192,6 +199,10 @@ const COL_PAGAMENTO = "hm_pagamento_realizado";
 const COL_CANCELAMENTO = "hm_cancelamento"; // "Reclamada" — o cliente PEDIU o cancelamento
 const COL_REEMBOLSADO = "hm_reembolsado"; // o reembolso foi EXECUTADO (o fato) — marca o aluno
 const COL_PARCELADO = "hm_pagamento_parcelado"; // espelho de quem paga em parcelas (ainda deve)
+// 0301/0306 (18/08): "Solicitou Cancelamento" — o pedido feito por
+// mensagem/ligação ao comercial, sem rastro na Hotmart. Motivo + prazo (F1)
+// são a única fonte que existe desse pedido.
+const COL_SOLICITOU_CANCELAMENTO = "hm_solicitou_cancelamento";
 
 // Em qual coluna DESTA aba o card aparece — ou null se ele não pertence a ela.
 // Quem quitou o saldo vive na Ativação, mas o Comercial não pode perdê-lo de
@@ -408,6 +419,10 @@ export default function HmKanbanPage() {
   const [dispararSelecao, setDispararSelecao] = useState<{ comprador_id: string; nome: string; telefone: string; edicao?: string | null }[] | null>(null);
   // Card a caminho da coluna de cancelamento, esperando a resposta: pediu ou cancelou?
   const [cancelando, setCancelando] = useState<{ card: Card; antesDe: string | null } | null>(null);
+  // F1 (18/08): "Solicitou Cancelamento" pede motivo (obrigatório) + prazo
+  // (opcional) ANTES de o card entrar na coluna — mesmo padrão do `cancelando`
+  // acima (hm_cancelamento), gesto único sem confundir os dois cancelamentos.
+  const [solicitandoCancelamento, setSolicitandoCancelamento] = useState<{ card: Card; antesDe: string | null } | null>(null);
   const [menu, setMenu] = useState<{ card: Card; x: number; y: number } | null>(null);
   const [cadastrando, setCadastrando] = useState(false);
   const arrastando = useRef<Card | null>(null);
@@ -578,14 +593,22 @@ export default function HmKanbanPage() {
   // null significa "no fim da coluna".
   // Manda o movimento ao servidor e diz o que aconteceu. É o único ponto que
   // conversa com a API de mover — o arrasto e o menu passam os dois por aqui.
-  async function patchMover(card: Card, estagioChave: string, antesDe: string | null) {
+  async function patchMover(
+    card: Card, estagioChave: string, antesDe: string | null,
+    // F1 (18/08, 0306/B3): o motivo/prazo de "Solicitou Cancelamento" viajam no
+    // MESMO PATCH do movimento — a rota grava os dois ANTES de mover (o
+    // servidor decide a ordem, ver comentário em app/api/hm/kanban/route.ts),
+    // então a trava de entrada já enxerga o motivo. Evita duas chamadas (uma
+    // gravando, outra movendo) onde a segunda podia falhar e mover sem motivo.
+    extra?: { cancelamentoMotivoTipo?: string | null; cancelamentoPrazo?: string | null },
+  ) {
     try {
       // `?produto=` (0174): o servidor precisa saber de QUAL board veio o arraste.
       // Sem isso, mover um card no Aurum mexia no card do HM da mesma pessoa.
       const r = await fetch(`/api/hm/kanban?produto=${encodeURIComponent(produto)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ compradorId: card.comprador_id, estagioChave, antesDe }),
+        body: JSON.stringify({ compradorId: card.comprador_id, estagioChave, antesDe, ...extra }),
       });
       // "Ativação Realizada" é a única porta com trava: só entra quem cumpriu o
       // checklist. O servidor devolve o que falta, e o board diz — em vez de o
@@ -628,6 +651,13 @@ export default function HmKanbanPage() {
             espelho
               ? `"${nomeColuna}" é um espelho. ${card.nome} está na Ativação; o Comercial só mostra o pagamento. Para tirá-lo da Ativação, abra a ficha.`
               : `"${nomeColuna}" vem da Hotmart. A ficha ${d.direcao === "saida" ? "sai" : "entra"} desta etapa sozinha, quando o pagamento é confirmado. Se ${card.nome} já pagou e não andou, avise o administrador — não mova à mão.`,
+            "erro",
+          );
+        } else if (d?.reason === "cancelamento_sem_motivo") {
+          // F2 (18/08): a MESMA recusa pode vir por outro caminho que não o
+          // modal de F1 (tabela, lote, teclado) — o board não pode ficar mudo.
+          toast(
+            `${card.nome} não pode entrar em "Solicitou Cancelamento" sem o motivo do pedido. Abra o card e registre o motivo.`,
             "erro",
           );
         } else {
@@ -694,6 +724,10 @@ export default function HmKanbanPage() {
     if (destino.chave === COL_CANCELAMENTO) { setCancelando({ card, antesDe: null }); return; }
     // "Reembolsado" é o fato consumado — confirma e marca o aluno na base.
     if (destino.chave === COL_REEMBOLSADO) { await confirmarReembolso(card); return; }
+    // F1 (18/08): "Solicitou Cancelamento" pede motivo antes de mover — o
+    // servidor recusa (`cancelamento_sem_motivo`) sem ele; perguntar aqui evita
+    // o card ir e voltar sozinho sem explicação.
+    if (destino.chave === COL_SOLICITOU_CANCELAMENTO) { setSolicitandoCancelamento({ card, antesDe: null }); return; }
     const abaDestino = destino.aba ?? "comercial";
     const abaAtual = card.estagio_aba ?? "comercial";
     // Tirar da Ativação um card pago desfaz o pagamento (o servidor limpa a marca).
@@ -765,6 +799,12 @@ export default function HmKanbanPage() {
     // marca o aluno na base e chama quem remove os acessos — pede confirmação.
     if (mudouDeColuna && estagioChave === COL_REEMBOLSADO) {
       await confirmarReembolso(card);
+      return;
+    }
+    // F1 (18/08): mesma pergunta do arrasto pelo menu (moverParaEtapa) — aqui é
+    // o caminho do arrasto direto na coluna.
+    if (mudouDeColuna && estagioChave === COL_SOLICITOU_CANCELAMENTO) {
+      setSolicitandoCancelamento({ card, antesDe });
       return;
     }
     // O espelho é só o registro do pagamento no Comercial: o card mora na
@@ -1331,6 +1371,34 @@ export default function HmKanbanPage() {
         />
       )}
 
+      {/* F1 (18/08, pedido do Marcio): mover para "Solicitou Cancelamento" pede
+          motivo (obrigatório) + prazo (opcional) ANTES do movimento — mesmo
+          padrão do CancelamentoModal acima, gesto único. */}
+      {solicitandoCancelamento && (
+        <SolicitarCancelamentoModal
+          nome={solicitandoCancelamento.card.nome}
+          onFechar={() => { setSolicitandoCancelamento(null); carregar(); }}
+          onConfirmar={async (motivoTipo, observacao, prazo) => {
+            const { card, antesDe } = solicitandoCancelamento;
+            setSolicitandoCancelamento(null);
+            // Motivo/prazo viajam no MESMO PATCH do movimento (0306/B3) — a
+            // observação livre (cancelamento_motivo) segue campo próprio da
+            // ficha, gravada à parte (não faz parte do contrato do /kanban).
+            await patchMover(card, COL_SOLICITOU_CANCELAMENTO, antesDe, {
+              cancelamentoMotivoTipo: motivoTipo,
+              cancelamentoPrazo: prazo || null,
+            });
+            if (observacao) {
+              await fetch(`/api/hm/contato/${card.comprador_id}?produto=${produto}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ cancelamento_motivo: observacao }),
+              });
+            }
+          }}
+        />
+      )}
+
       {selecionado && (
         <HmDrawer
           compradorId={selecionado}
@@ -1626,6 +1694,69 @@ function CancelamentoModal({ nome, onEscolher, onFechar }: {
   );
 }
 
+// F1 (18/08, pedido do Marcio): "quando o comercial mover para solicitou
+// cancelamento, ele explique o motivo do cancelamento, e o prazo de
+// cancelamento." Motivo (lista fechada, obrigatório) + observação livre
+// (opcional) + prazo pedido pela pessoa (opcional — é o compromisso do
+// comercial com o aluno, NÃO a garantia de 7 dias da Hotmart). Mesmo formato
+// visual de CancelamentoModal, acima — o FORMULÁRIO em si (campos) é
+// compartilhado com a tabela via FormularioSolicitarCancelamento
+// (card-sinais.tsx); só o wrapper/overlay/botões e o submit (que usa
+// `antesDe`, exclusivo do arrasto) ficam aqui.
+function SolicitarCancelamentoModal({ nome, onConfirmar, onFechar }: {
+  nome: string;
+  onConfirmar: (motivoTipo: MotivoCancelamentoHm, observacao: string, prazo: string) => Promise<void>;
+  onFechar: () => void;
+}) {
+  const [motivoTipo, setMotivoTipo] = useState<MotivoCancelamentoHm | "">("");
+  const [observacao, setObservacao] = useState("");
+  const [prazo, setPrazo] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  async function confirmar() {
+    if (!motivoTipo) return;
+    setSalvando(true);
+    try { await onConfirmar(motivoTipo, observacao.trim(), prazo); } finally { setSalvando(false); }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm" onClick={onFechar} />
+      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-5 shadow-pop dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+          {nome} solicitou cancelamento
+        </h2>
+        <FormularioSolicitarCancelamento
+          nome={nome}
+          motivoTipo={motivoTipo}
+          onMotivoTipo={setMotivoTipo}
+          observacao={observacao}
+          onObservacao={setObservacao}
+          prazo={prazo}
+          onPrazo={setPrazo}
+        />
+
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={onFechar}
+            disabled={salvando}
+            className="flex-1 rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800"
+          >
+            Não mover o card
+          </button>
+          <button
+            onClick={confirmar}
+            disabled={salvando || !motivoTipo}
+            className="flex-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
+          >
+            Registrar e mover
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // Linha que mostra em que ponto da fila o card vai cair.
 function LinhaDrop() {
   return <div aria-hidden className="h-0.5 shrink-0 rounded-full bg-brand dark:bg-brand-400" />;
@@ -1812,6 +1943,21 @@ function CardItem({
   const estadoReuniao = cancelado ? null : estadoReuniaoCard({ estagioChave: card.estagio_chave, reuniaoEm: card.reuniao_em });
   const reuniaoSemData = estadoReuniao?.txt === "Sem data marcada";
   const reuniaoVencida = !reuniaoSemData && !!estadoReuniao;
+  // F3 (18/08): motivo + prazo do pedido de cancelamento — só em "Solicitou
+  // Cancelamento". `labelMotivoCancelamento`/`estadoPrazoCancelamento`
+  // degradam em silêncio se o backend ainda não mandar os campos (undefined).
+  const motivoSolicitou = card.estagio_chave === "hm_solicitou_cancelamento"
+    ? labelMotivoCancelamento(card.cancelamento_motivo_tipo)
+    : null;
+  const estadoPrazo = card.estagio_chave === "hm_solicitou_cancelamento"
+    ? estadoPrazoCancelamento({ estagioChave: card.estagio_chave, prazo: card.cancelamento_prazo })
+    : null;
+  // PEDIDO 1 (18/08): fundo/faixa por aba — cálculo aqui, uso no className/style
+  // abaixo. Ver a precedência documentada em card-sinais.tsx (SeloAba/TOM_ABA):
+  // cancelado/quitado sempre vencem o tom de fundo da aba; a faixa lateral da
+  // aba só aparece quando o card não tem cor de equipe nem é pool tracejado.
+  const abaCard = abaDoCard(card.estagio_aba);
+  const tomAba = TOM_ABA[abaCard];
   // Selos SÓ informativos → colapsam no "+N" (ver SelosExtras). Sob cancelado,
   // nem entram: são contexto de compra, e quem cancelou não é mais cliente.
   const extras: { key: string; rotulo: string; el: React.ReactNode }[] = [];
@@ -1855,12 +2001,16 @@ function CardItem({
       // 13/08: a borda SUPERIOR de recompra saiu — era mais um vermelho
       // competindo com o cancelado pela atenção do operador, e recompra hoje é
       // contexto (índigo, no "+N"), não alerta. Um portador de cor a menos.
+      // PEDIDO 1 (18/08): a faixa da ABA (Comercial/Ativação) é a ÚLTIMA da fila
+      // — só aparece quando não há cor de equipe nem pool tracejado. A cor da
+      // equipe é o modelo de acesso (mais importante que qualquer outro sinal,
+      // ver comentário original acima) e continua vencendo sem exceção.
       style={
         temEquipe
           ? { borderLeftColor: card.equipe_cor || COR_EQUIPE_PADRAO, borderLeftWidth: 3 }
           : poolSemDono
             ? { borderLeft: "3px dashed rgba(148, 163, 184, 0.7)" }
-            : undefined
+            : { borderLeftColor: tomAba.faixa, borderLeftWidth: 3 }
       }
       className={cn(
         "group relative block rounded-lg border p-2.5 shadow-card transition",
@@ -1882,11 +2032,13 @@ function CardItem({
         // da marca vence) nem sobrescreve o anel de seleção.
         // `conferir_saldo` TIRA o verde: nesses o saldo zerou por dupla contagem do
         // crédito (0112), não por quitação — pintar de verde seria o board mentindo.
+        // PEDIDO 1 (18/08): cancelado/verde continuam vencendo sem exceção — a cor
+        // da ABA (tomAba.bg) só entra quando nenhum dos dois estados fortes vale.
         cancelado
           ? "bg-rose-50 dark:bg-rose-500/10"
           : verde
             ? "bg-emerald-50/50 dark:bg-emerald-500/5"
-            : "bg-white dark:bg-slate-900",
+            : tomAba.bg,
         marcado
           ? "border-brand ring-1 ring-brand dark:border-brand-400 dark:ring-brand-400"
           : cancelado
@@ -1895,7 +2047,7 @@ function CardItem({
             ? "border-emerald-200 dark:border-emerald-500/25"
             : card.conferir_saldo
               ? "border-amber-300 dark:border-amber-500/40"
-              : "border-slate-200 dark:border-slate-800",
+              : tomAba.borda,
       )}
     >
       {/* 0217: "ninguém abriu a ficha dela ainda". Absoluto no canto
@@ -1925,6 +2077,12 @@ function CardItem({
           {!cancelado && alunoNovo && <SeloAlunoNovo />}
           {!cancelado && alunoAntigo && <SeloAlunoAntigo />}
           {gpsFalta && <SeloGpsPendente />}
+          {/* PEDIDO 1 (18/08): o marcador TEXTUAL da aba — cor não pode ser o
+              único portador (a faixa lateral + o fundo já dizem a mesma coisa
+              por cor; este chip é para quem não as distingue). Silencia sob
+              cancelado — mesma regra dos demais selos informativos: quem
+              cancelou não está "em" nenhuma esteira de trabalho. */}
+          {!cancelado && <SeloAba aba={abaCard} />}
           {selecionavel && (
             <input
               type="checkbox"
@@ -2081,6 +2239,28 @@ function CardItem({
         <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-rose-50 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title={estadoReuniao.title}>
           <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
           Reunião: {estadoReuniao.txt}
+        </div>
+      )}
+
+      {/* F3 (18/08, pedido do Marcio): motivo do pedido de cancelamento, sempre
+          à vista em quem está em "Solicitou Cancelamento" (rótulo curto, o
+          detalhe/observação mora na ficha). Índigo — contexto, não alarme por
+          si só; quem alarma é o selo de prazo logo abaixo, se houver. */}
+      {motivoSolicitou && (
+        <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" title={`Motivo do pedido de cancelamento: ${motivoSolicitou}`}>
+          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+          {motivoSolicitou}
+        </div>
+      )}
+      {/* Selo de PRAZO — mesmo espírito dos selos de reunião vencida acima:
+          cálculo de tela (hoje vs. a data que a pessoa pediu), zero escrita.
+          Âmbar chegando, rose vencido e ninguém resolveu (mesma disciplina de
+          cor de `estadoReuniaoCard`). Cor não é o único portador: o texto já
+          diz "Prazo vencido"/"Prazo Nd", não só muda de cor. */}
+      {estadoPrazo && (
+        <div className={cn("mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold", TOM[estadoPrazo.tom])} title={estadoPrazo.title}>
+          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
+          {estadoPrazo.txt}
         </div>
       )}
 
