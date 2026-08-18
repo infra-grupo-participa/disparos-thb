@@ -333,6 +333,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.ativ_comunidade !== undefined) add("ativ_comunidade", b.ativ_comunidade);
   if (b.ativ_grupo !== undefined) add("ativ_grupo", b.ativ_grupo);
   if (b.ativ_pesquisa !== undefined) add("ativ_pesquisa", b.ativ_pesquisa);
+  if (b.ativ_gps !== undefined) add("ativ_gps", b.ativ_gps);
   if (b.grupo_informes !== undefined) add("grupo_informes", b.grupo_informes);
   if (b.pendencia !== undefined) add("pendencia", b.pendencia);
 
@@ -609,7 +610,7 @@ function resumoEdicao(b: Record<string, unknown>): string {
   if (b.acordo !== undefined || b.pagamento_meio !== undefined || b.oferta_saldo_codigo !== undefined || b.pagamento_previsto_em !== undefined || b.link_saldo_enviado !== undefined) p.push("acordo do saldo");
   if (b.intencao_pagamento !== undefined || b.intencao_pagamento_obs !== undefined) p.push("intenção de pagamento");
   if (b.credito_oferta !== undefined || b.credito_valor_pago !== undefined || b.credito_dias_totais !== undefined || b.credito_compra_em !== undefined || b.credito_obs !== undefined) p.push("crédito pró-rata");
-  if (b.ativ_searchie !== undefined || b.ativ_comunidade !== undefined || b.ativ_grupo !== undefined || b.ativ_pesquisa !== undefined || b.grupo_informes !== undefined || b.pendencia !== undefined) p.push("ativação");
+  if (b.ativ_searchie !== undefined || b.ativ_comunidade !== undefined || b.ativ_grupo !== undefined || b.ativ_pesquisa !== undefined || b.ativ_gps !== undefined || b.grupo_informes !== undefined || b.pendencia !== undefined) p.push("ativação");
   if (b.rev_searchie !== undefined || b.rev_comunidade !== undefined || b.rev_grupo !== undefined || b.rev_pesquisa !== undefined) p.push("revogação");
   if (b.nao_contatar !== undefined || b.revisar !== undefined) p.push("travas");
   if (b.tags !== undefined) p.push("tags");

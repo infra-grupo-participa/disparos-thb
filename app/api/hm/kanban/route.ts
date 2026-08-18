@@ -63,6 +63,12 @@ export async function GET(req: Request) {
   const cards = await query(
     `select k.comprador_id, k.nome, k.email, k.telefone, k.turma, k.plano, k.categoria_entrada,
             k.estagio_chave, k.estagio_nome, k.estagio_aba, k.responsavel, k.tags, k.apto_ativacao,
+            -- ativ_gps (0297/0298): o board precisa do selo de pendência do GPS no
+            -- card — sem isso o frontend não tem como sinalizar o único item que
+            -- fica faltando para aluno antigo/renovação (D2). Os outros ativ_*
+            -- não estão aqui de propósito (o board já resume isso em
+            -- apto_ativacao); GPS é o único que ganhou selo próprio no card.
+            k.ativ_gps,
             k.responsavel_id, k.equipe_id, k.equipe_nome, k.equipe_cor, k.equipe_tipo,
             -- Duplo responsável (0211/0212): dono POR ABA, para o card mostrar
             -- os dois quando divergem do vigente (k.responsavel_id) — é a

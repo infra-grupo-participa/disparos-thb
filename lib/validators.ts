@@ -336,6 +336,9 @@ export const HmContatoPatchSchema = z.object({
   ativ_comunidade: z.boolean().optional(),
   ativ_grupo: z.boolean().optional(),
   ativ_pesquisa: z.boolean().optional(),
+  // Acesso ao GPS — programa de implementação (0297). 5º item do checklist:
+  // vira o único pendente para aluno antigo/renovação (D2, pedido do Marcio).
+  ativ_gps: z.boolean().optional(),
   grupo_informes: z.string().nullable().optional(),          // qual grupo ("THB #27")
   pendencia: z.string().nullable().optional(),
   // ----- cancelamento -----
@@ -446,6 +449,7 @@ export const HmLoteSchema = z.object({
   ativ_comunidade: z.boolean().optional(),
   ativ_grupo: z.boolean().optional(),
   ativ_pesquisa: z.boolean().optional(),
+  ativ_gps: z.boolean().optional(),
   // marca/desmarca o envio do link — carimba a HORA em cada um (não um booleano)
   link_saldo_enviado: z.boolean().optional(),
   // tags livres (criar = digitar um nome novo). Tags de turma/origem são

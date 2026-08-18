@@ -65,7 +65,7 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
             k.pagamento_forma, k.pagamento_parcelas, k.pagamento_em, k.apto_ativacao,
             k.pagamento_meio, k.pagamento_previsto_em, k.acordo, k.oferta_saldo_codigo, k.link_saldo_enviado_em,
             k.nao_contatar, k.nao_contatar_motivo, k.revisar, k.revisar_motivo,
-            k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa, k.grupo_informes, k.pendencia,
+            k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa, k.ativ_gps, k.grupo_informes, k.pendencia,
             k.cancelamento_em, k.cancelamento_motivo, k.cancelamento_valor, k.link_facebook,
             k.cancelamento_efetivado_em, k.cancelamento_origem,
             k.hotmart_cancelado_em, k.hotmart_cancelamento_evento, k.hotmart_cancelamento_transacao,

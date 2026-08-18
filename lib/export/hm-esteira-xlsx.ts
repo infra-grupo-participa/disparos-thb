@@ -86,6 +86,7 @@ const COLUNAS: Col[] = [
   { header: "Comunidade", width: 12, get: (l) => sn(l.ativ_comunidade) },
   { header: "Grupo", width: 10, get: (l) => sn(l.ativ_grupo) },
   { header: "Pesquisa", width: 10, get: (l) => sn(l.ativ_pesquisa) },
+  { header: "GPS", width: 10, get: (l) => sn(l.ativ_gps) },
   { header: "Pendência", width: 32, get: (l) => txt(l.pendencia) },
   { header: "Não contatar", width: 13, get: (l) => sn(l.nao_contatar) },
   { header: "Revisar", width: 10, get: (l) => sn(l.revisar) },

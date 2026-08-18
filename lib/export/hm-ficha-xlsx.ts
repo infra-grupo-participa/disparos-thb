@@ -198,6 +198,7 @@ export async function fichaHmParaXlsx(f: FichaHm, agora: Date): Promise<Buffer> 
     ["Grupo de informes", c.ativ_grupo, "simnao"],
     ["Qual grupo", c.grupo_informes],
     ["Pesquisa", c.ativ_pesquisa, "simnao"],
+    ["Acesso ao GPS (programa de implementação)", c.ativ_gps, "simnao"],
     ["Pendência para conclusão", c.pendencia],
   ]);
 

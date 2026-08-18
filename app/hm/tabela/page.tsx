@@ -75,6 +75,9 @@ const CHECKLIST = [
   { campo: "ativ_comunidade", curto: "Comunidade", label: "Acesso à comunidade THB" },
   { campo: "ativ_grupo", curto: "Grupo", label: "Grupo de informes" },
   { campo: "ativ_pesquisa", curto: "Pesquisa", label: "Pesquisa" },
+  // GPS (18/08, pedido do Marcio): 5º item — lib/services/hm.ts já trava a
+  // saída de "Ativação Realizada" com ele; mesmas palavras das duas telas.
+  { campo: "ativ_gps", curto: "GPS", label: "Acesso ao GPS (programa de implementação)" },
 ] as const;
 
 // ---------------------------------------------------------------- formatação
@@ -177,7 +180,7 @@ function fromLocalInput(v: string): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 function feitosChecklist(l: LinhaEsteira): number {
-  return [l.ativ_searchie, l.ativ_comunidade, l.ativ_grupo, l.ativ_pesquisa].filter(Boolean).length;
+  return [l.ativ_searchie, l.ativ_comunidade, l.ativ_grupo, l.ativ_pesquisa, l.ativ_gps].filter(Boolean).length;
 }
 // Tom do "dias parados" — os mesmos degraus do card do board (3 e 7 dias).
 function diasTom(dias: number | null): string {
@@ -231,7 +234,9 @@ const LENTES: Lente[] = [
   },
   {
     id: "checklist_metade", grupo: "Ativação incompleta", label: "Checklist pela metade",
-    test: (l) => l.estagio_aba === "ativacao" && feitosChecklist(l) >= 1 && feitosChecklist(l) <= 3,
+    // 5 itens desde 18/08 (GPS somado) — "pela metade" continua sendo
+    // "começou mas não terminou": de 1 até N-1 (CHECKLIST.length - 1).
+    test: (l) => l.estagio_aba === "ativacao" && feitosChecklist(l) >= 1 && feitosChecklist(l) <= CHECKLIST.length - 1,
   },
   {
     id: "sem_grupo", grupo: "Ativação incompleta", label: "Sem grupo de informes",
@@ -408,7 +413,7 @@ const PRESETS: Record<VisaoId, string[]> = {
   tudo: ["nome", "telefone", "email", "etapa", "esteira", "dias", "responsavel", "equipe", "entrada", "turma_origem", "turma",
     "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas",
     "no_shows", "sinal_pago_em", "sinal_valor", "meio", "previsao", "acordo", "link", "saldo", "credito", "valor_total", "recebido", "parcelas", "ultimo_pagamento", "pagamento_em",
-    "apto", "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa", "pendencia", "nao_contatar", "revisar",
+    "apto", "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa", "ativ_gps", "pendencia", "nao_contatar", "revisar",
     "socios", "cancelado", "situacao_hotmart", "hotmart_cancelado", "cancelamento_em", "cancelamento_motivo", "na_base", "tags"],
 };
 
@@ -1513,10 +1518,10 @@ export default function HmTabelaPage() {
         <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <span className={cn(
             "rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
-            feitosChecklist(l) === 4
+            feitosChecklist(l) === CHECKLIST.length
               ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
               : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
-          )}>{feitosChecklist(l)}/4</span>
+          )}>{feitosChecklist(l)}/{CHECKLIST.length}</span>
           {CHECKLIST.map((item) => (
             <label key={item.campo} className="flex cursor-pointer items-center gap-0.5" title={item.label}>
               <input
@@ -1536,6 +1541,7 @@ export default function HmTabelaPage() {
     ativ_comunidade: { id: "ativ_comunidade", label: "Comunidade", edit: true, sortVal: (l) => (l.ativ_comunidade ? 1 : 0), render: (l) => <ChecklistUm l={l} campo="ativ_comunidade" salvando={salvando} patch={patch} /> },
     ativ_grupo: { id: "ativ_grupo", label: "Grupo", edit: true, sortVal: (l) => (l.ativ_grupo ? 1 : 0), render: (l) => <ChecklistUm l={l} campo="ativ_grupo" salvando={salvando} patch={patch} /> },
     ativ_pesquisa: { id: "ativ_pesquisa", label: "Pesquisa", edit: true, sortVal: (l) => (l.ativ_pesquisa ? 1 : 0), render: (l) => <ChecklistUm l={l} campo="ativ_pesquisa" salvando={salvando} patch={patch} /> },
+    ativ_gps: { id: "ativ_gps", label: "GPS", edit: true, sortVal: (l) => (l.ativ_gps ? 1 : 0), render: (l) => <ChecklistUm l={l} campo="ativ_gps" salvando={salvando} patch={patch} /> },
     grupo_informes: {
       id: "grupo_informes", label: "Grupo de informes", edit: true,
       sortVal: (l) => l.grupo_informes,
@@ -2293,7 +2299,7 @@ function NumAlerta({ v, limite }: { v: number; limite: number }) {
 }
 function ChecklistUm({ l, campo, salvando, patch }: {
   l: LinhaEsteira;
-  campo: "ativ_searchie" | "ativ_comunidade" | "ativ_grupo" | "ativ_pesquisa";
+  campo: "ativ_searchie" | "ativ_comunidade" | "ativ_grupo" | "ativ_pesquisa" | "ativ_gps";
   salvando: string | null;
   patch: (compradorId: string, nome: string, payload: Record<string, unknown>) => Promise<void>;
 }) {

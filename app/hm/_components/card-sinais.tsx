@@ -521,6 +521,35 @@ export function SeloAlunoAntigo({ className }: { className?: string }) {
   );
 }
 
+// ===== GPS pendente (18/08, pedido do Marcio) ================================
+// "Precisa deixar essa checkbox dentro do card do aluno também" — mas o card já
+// tem selos demais (queixa registrada: "eu estou sentindo muito misturado
+// tudo", 13/08). Em vez de replicar os 5 checkboxes do checklist aqui, só o
+// item que o Marcio pediu vira um selo — e só quando falta: card ativo (some
+// sob cancelado, mesma regra dos demais) na aba Ativação com `ativ_gps` ainda
+// false. NÃO é clicável: o card inteiro já abre a ficha no clique (onAbrir) e
+// um alvo de teclado aninhado dentro de outro role="button" duplicaria o Enter
+// e quebraria a navegação — o selo leva o olho, a ficha é onde se marca.
+// Âmbar (mesma família de "pare e confira" da tabela de cores acima) porque é
+// pendência que pede ação do operador, não histórico neutro (que seria índigo).
+export function gpsPendente(estagioAba: string | null, ativGps: boolean | undefined): boolean {
+  return estagioAba === "ativacao" && ativGps === false;
+}
+export function SeloGpsPendente({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+        className,
+      )}
+      title="Falta o acesso ao GPS (programa de implementação) — o único item do checklist de ativação que o sistema nunca pré-marca sozinho. Abra a ficha para marcar."
+    >
+      <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" /></svg>
+      GPS pendente
+    </span>
+  );
+}
+
 // ===== Reunião em risco (17/08) ==============================================
 // Medido em produção: dos 11 cards em "Reunião Agendada", 3 não têm
 // `reuniao_em` e 8 têm data já vencida — hoje NENHUM dos dois mostra qualquer

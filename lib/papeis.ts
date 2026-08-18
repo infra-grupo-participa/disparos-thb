@@ -191,7 +191,7 @@ export const CAMPOS_HM_COMERCIAL: readonly string[] = [
 export const CAMPOS_HM_ATIVACAO: readonly string[] = [
   "responsavel_ativacao_id",
   "entrevista_em", "entrevista_resultado", "entrevista_gravacao_url",
-  "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa",
+  "ativ_searchie", "ativ_comunidade", "ativ_grupo", "ativ_pesquisa", "ativ_gps",
   "grupo_informes", "pendencia",
   "rev_searchie", "rev_comunidade", "rev_grupo", "rev_pesquisa",
 ];
