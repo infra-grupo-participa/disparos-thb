@@ -163,6 +163,14 @@ export async function GET(req: Request) {
         and ($2::text[] is null or k.tags && $2)
         and ($3::text[] is null or k.tags && $3)
         and k.produto = $7                       -- board do produto (0155)
+        -- 0296: o board do AURUM é do evento de SP. A padronização do kanban é
+        -- registrar as vendas do ETHB SP, e a tag é o que decide — não a cidade
+        -- de quem comprou (o resumo "⟦HM origem⟧ ... Porto Alegre/RS" da ficha é
+        -- o ENDEREÇO da pessoa, e gente de POA/GO comprou o evento de SP).
+        -- As 6 fichas sem a tag são lançamentos de saldo, não venda do evento:
+        -- continuam existindo inteiras (R$ 134.165 no razão, aluno provisionado,
+        -- timeline), só não ocupam o board. Filtro de TELA, nada é apagado.
+        and (k.produto <> 'AURUM' or k.tags @> array['ETHB SP'])
         -- Escopo (predicado único, visibilidade.ts): vejo tudo OU é MEU OU é
         -- da minha equipe (OU esteira). poolRestrito (0265): card LIVRE (sem
         -- id, sem equipe, sem texto órfão) deixou de ser "pool visível a
