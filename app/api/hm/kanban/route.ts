@@ -5,7 +5,7 @@ import { ehMaster, escopoVisibilidade, abasDaEsteira, ESTEIRA_COMPARTILHADA_PROD
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
 import { listaResponsaveis, sqlEscopo } from "@/lib/services/visibilidade";
-import { moverEstagioHm, podeAgirCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO } from "@/lib/services/hm";
+import { moverEstagioHm, podeAgirCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO, HM_STAGE_SOLICITOU_CANCELAMENTO } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -125,6 +125,12 @@ export async function GET(req: Request) {
             (ch2.cancelamento_efetivado_em is not null) as cancelado,
             (ch2.hotmart_cancelado_em is not null) as cancelado_na_hotmart,
             ch2.cancelamento_motivo,
+            -- Motivo categorizado + prazo pedido (0306/B4): direto de ch2 (já no
+            -- FROM) — a view cs.contatos_hm_kanban ainda não expõe essas duas
+            -- colunas, e mexer nela hoje é risco (envelope de subselect derrubou
+            -- o board nesta mesma sessão). O front usa cancelamento_prazo para o
+            -- selo de prazo vencido.
+            ch2.cancelamento_motivo_tipo, ch2.cancelamento_prazo,
             um.descricao as ultima_msg,
             me.criado_em as entrou_estagio_em,
             -- A MESMA pessoa nos OUTROS boards (0164): o operador do Aurum precisa
@@ -300,7 +306,7 @@ export async function PATCH(req: Request) {
   const sessao = g.sessao;
   const p = await parseBody(req, HmMoverSchema);
   if (!p.ok) return p.res;
-  const { compradorId, estagioChave, antesDe } = p.data;
+  const { compradorId, estagioChave, antesDe, cancelamentoMotivoTipo, cancelamentoPrazo } = p.data;
   // Gate de AÇÃO (28/07, leitura ≠ ação): mover é ESCRITA — operador só no pool
   // e nos cards DELE. O card do colega aparece no board (escopo de leitura),
   // mas o arrasto recusa com 403 'card_de_outro_operador' (o front traduz).
@@ -314,6 +320,26 @@ export async function PATCH(req: Request) {
   const destinoCancel = HM_ESTAGIOS_CANCELAMENTO.includes(estagioChave);
   if (!souMaster && (destinoCancel || (await cancelamentoBloqueado(sessao, compradorId)))) {
     return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
+  }
+  // O movimento com motivo numa tacada (0306/B3): o operador arrasta o card PARA
+  // "Solicitou Cancelamento" já explicando o motivo, no mesmo gesto — sem isso
+  // ele move e depois esquece de voltar na ficha para explicar. Grava ANTES de
+  // mover: a trava de entrada (B1, moverEstagioHm) lê `cancelamento_motivo_tipo`
+  // do card no banco, então se o UPDATE viesse depois do mover, a própria trava
+  // recusaria o movimento que estava trazendo o motivo. `antesDe`/reposição não
+  // dependem disto — só o campo em si precisa existir antes da checagem.
+  if (estagioChave === HM_STAGE_SOLICITOU_CANCELAMENTO && (cancelamentoMotivoTipo !== undefined || cancelamentoPrazo !== undefined)) {
+    const sets: string[] = [];
+    const vals: unknown[] = [compradorId, produtoDoBoard];
+    if (cancelamentoMotivoTipo !== undefined) { sets.push(`cancelamento_motivo_tipo = $${vals.push(cancelamentoMotivoTipo) }`); }
+    if (cancelamentoPrazo !== undefined) { sets.push(`cancelamento_prazo = ${cancelamentoPrazo ? `$${vals.push(cancelamentoPrazo)}::date` : "null"}`); }
+    if (sets.length) {
+      await query(
+        `update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now()
+          where comprador_id = $1 and coalesce(produto, 'HM') = coalesce($2, 'HM')`,
+        vals,
+      );
+    }
   }
   const posicao = antesDe === undefined ? undefined : { antesDe };
   // `souMaster` (0290/B2): mesma exceção da trava de cancelados logo acima —

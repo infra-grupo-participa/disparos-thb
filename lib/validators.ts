@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NextResponse } from "next/server";
+import { MOTIVOS_CANCELAMENTO_HM } from "@/lib/cancelamento-motivos";
 
 // Validação de entrada das rotas (substitui os casts `as {...}` inseguros).
 // parseBody devolve os dados já tipados ou uma resposta 400 pronta.
@@ -212,6 +213,13 @@ export const InboxStatusSchema = z.object({ status: z.enum(["resolvido", "penden
 // Postgres (22007 viraria 500); "" e null limpam o campo.
 const dataCampo = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data em YYYY-MM-DD"), z.literal(""), z.null()]);
 
+// Motivo categorizado do cancelamento (0306) — FONTE ÚNICA do z.enum, usada
+// pelos dois schemas que aceitam o campo (HmMoverSchema e
+// HmContatoPatchSchema). Antes o literal das 7 categorias estava copiado nos
+// dois lugares; a lista em si vem de lib/cancelamento-motivos.ts (que também
+// alimenta o rótulo pt-BR usado pelo backend e pelo frontend).
+const motivoCancelamentoEnum = z.enum(MOTIVOS_CANCELAMENTO_HM);
+
 export const ContatoPatchSchema = z.object({
   estagio_chave: z.string().optional(),
   proxima_acao_em: z.string().nullable().optional(),
@@ -251,10 +259,17 @@ export const KanbanMoverSchema = z.object({ compradorId: id, estagioChave: z.str
 // deve ficar logo abaixo dele, ou null para o fim da fila. Âncora, e não índice,
 // porque o board pode estar filtrado — "antes do João" vale na coluna inteira, o
 // índice 3 da tela não. Campo ausente = sem gesto de posição (o card vai ao topo).
+// `cancelamentoMotivoTipo`/`cancelamentoPrazo` (0306/B3): o movimento PARA
+// "Solicitou Cancelamento" pode trazer os dois juntos com o gesto de mover —
+// gravados ANTES de mover (a rota decide a ordem), senão a trava de entrada
+// (B1) recusaria o próprio movimento que traz o motivo. Mesmas regras dos
+// campos irmãos em HmContatoPatchSchema.
 export const HmMoverSchema = z.object({
   compradorId: id,
   estagioChave: z.string().min(1),
   antesDe: id.nullable().optional(),
+  cancelamentoMotivoTipo: motivoCancelamentoEnum.nullable().optional(),
+  cancelamentoPrazo: dataCampo.optional(),
 });
 
 // Cadastro manual na esteira HM. O e-mail é obrigatório de propósito: é a chave
@@ -345,6 +360,15 @@ export const HmContatoPatchSchema = z.object({
   cancelamento_motivo: z.string().nullable().optional(),
   // Valor financeiro do cancelamento (0152): a reembolsar/reter. null limpa.
   cancelamento_valor: z.number().nonnegative().nullable().optional(),
+  // Motivo CATEGORIZADO do pedido de cancelamento (0306, migration
+  // 0306/B1/B2) — lista fechada, para relatório (texto puro não soma). Trava
+  // a ENTRADA em "Solicitou Cancelamento" (moverEstagioHm). Mesmas 7
+  // categorias do CHECK da coluna cs.contatos_hm.cancelamento_motivo_tipo.
+  cancelamento_motivo_tipo: motivoCancelamentoEnum.nullable().optional(),
+  // A DATA em que a pessoa pediu para o cancelamento sair (informada pelo
+  // operador) — NÃO a garantia de 7 dias da Hotmart. Opcional: não trava a
+  // entrada (só o motivo trava). "" limpa (mesma regra de dataCampo).
+  cancelamento_prazo: dataCampo.optional(),
   // Arrastar o card para "Solicitou Cancelamento" é o PEDIDO. Estas duas ações
   // são o FATO: confirmar (o reembolso saiu) marca o aluno como cancelado e abre
   // a pendência de remover os acessos; desfazer volta atrás (reembolso negado).
