@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento, abaDoCard, TOM_ABA, SeloAba, labelMotivoCancelamento, estadoPrazoCancelamento, type MotivoCancelamentoHm, FormularioSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento, abaDoCard, type AbaCard, TOM_ABA, SeloAba, labelMotivoCancelamento, estadoPrazoCancelamento, type MotivoCancelamentoHm, FormularioSolicitarCancelamento, blocoNaVista } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -1183,6 +1183,17 @@ export default function HmKanbanPage() {
                           <CardItem
                             card={card}
                             espelho={ehEspelho(card, aba)}
+                            // PASSO 2 (plano card-conteudo-por-aba, 18/08): a
+                            // VISTA — esteira que a pessoa está OLHANDO agora —
+                            // é sempre `aba`, nunca `card.estagio_aba` (isso é
+                            // abaCard, calculado dentro do CardItem e usado só
+                            // para a MOLDURA). É esta prop que faz o espelho
+                            // (card pago da Ativação, desenhado apagadinho no
+                            // Comercial) mostrar conteúdo de Comercial sem
+                            // nenhum `if` especial sobre espelho: ele está
+                            // sendo desenhado aqui, então recebe "comercial"
+                            // como qualquer outro card desta coluna.
+                            abaVista={aba === "ativacao" ? "ativacao" : "comercial"}
                             // Para o OPERADOR, o board diz o que é POOL (livre para
                             // assumir) vs. o que já tem dono — master/gestor não
                             // precisam do selo (eles distribuem, não assumem).
@@ -1787,31 +1798,76 @@ function MenuItem({ children, onClick, disabled }: { children: React.ReactNode; 
 // borda dedicada. Acessível: o aria-label do botão lista todos os selos
 // (o leitor de tela ouve tudo sem abrir); Enter/Espaço abrem, Esc fecha, e o
 // foco do teclado também revela o popover.
+// CONTEÚDO POR ABA (18/08, plano card-conteudo-por-aba, Passo 4): antes desta
+// feature o "+N" só recebia recompra/categoria — no máximo 2 itens, sempre
+// curtos. Agora pode acumular até 7 blocos rebaixados por aba somados aos 2
+// antigos (decisão 5: sem teto, lista rolável quando estourar). Três ajustes
+// para aguentar isso sem virar ruído:
 function SelosExtras({ itens }: { itens: { key: string; rotulo: string; el: React.ReactNode }[] }) {
   const [aberto, setAberto] = useState(false);
+  // a) ANCORAGEM (18/08): o popover é `absolute` dentro de uma coluna
+  // `max-h-[70vh] overflow-y-auto` (kanban/page.tsx) — no card mais baixo de
+  // uma coluna cheia ele já podia ser cortado com 2 itens curtos; com até 9
+  // (7 blocos rebaixados + recompra/cat) e popover em coluna (mais alto que
+  // em linha), virou certeza. Mede o espaço abaixo do botão no momento de
+  // abrir e ancora para CIMA quando não sobra altura suficiente — sem
+  // depender de portal/lib nova, só a medida do próprio botão na viewport.
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [paraCima, setParaCima] = useState(false);
   if (itens.length === 0) return null;
+  const abrir = () => {
+    const alt = btnRef.current?.getBoundingClientRect();
+    // 260px ~= altura máxima do popover (max-h-64, ver abaixo) + margem. Sem
+    // medir o popover em si (ainda não montado no primeiro abrir) — a
+    // estimativa é generosa de propósito: prefere ancorar cedo demais a
+    // cortar o conteúdo.
+    setParaCima(!!alt && window.innerHeight - alt.bottom < 260);
+    setAberto(true);
+  };
   return (
     <span
       className="relative inline-flex"
-      onMouseEnter={() => setAberto(true)}
+      onMouseEnter={abrir}
       onMouseLeave={() => setAberto(false)}
     >
       <button
+        ref={btnRef}
         type="button"
         aria-expanded={aberto}
-        aria-label={`Mais ${itens.length} selo(s): ${itens.map((i) => i.rotulo).join("; ")}`}
-        onClick={(e) => { e.stopPropagation(); setAberto((v) => !v); }}
+        // b) ARIA-LABEL CURTO (18/08): com até 9 itens, concatenar todos os
+        // rótulos vira uma frase de ~300 caracteres lida de uma vez só pelo
+        // leitor de tela antes mesmo do usuário decidir se quer abrir. Troca
+        // para um rótulo curto — o CONTEÚDO completo continua alcançável,
+        // só que por navegação dentro do popover (role="group" abaixo), não
+        // por uma etiqueta única no botão.
+        aria-label={`Mais ${itens.length} informações desta ficha`}
+        onClick={(e) => { e.stopPropagation(); if (aberto) setAberto(false); else abrir(); }}
         // stopPropagation sempre: Enter aqui não pode abrir a ficha (o card
         // inteiro é role=button e escuta Enter).
         onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") setAberto(false); }}
-        onFocus={() => setAberto(true)}
+        onFocus={abrir}
         onBlur={() => setAberto(false)}
         className="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500 transition hover:border-slate-300 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand/40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:text-slate-200"
       >
         +{itens.length}
       </button>
       {aberto && (
-        <span className="absolute left-0 top-full z-30 mt-1 flex w-max max-w-[15rem] flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-pop dark:border-slate-700 dark:bg-slate-900">
+        <span
+          role="group"
+          aria-label={`${itens.length} informações desta ficha: ${itens.map((i) => i.rotulo).join("; ")}`}
+          className={cn(
+            // c) LISTA EM COLUNA (18/08): era `flex-wrap` — com chips longos
+            // ("Sem data · deve R$ 14.303") a nuvem quebrava feio, meio chip
+            // numa linha, meio na outra. Coluna é previsível em qualquer
+            // tamanho de conteúdo. `max-w-[18rem]` (era 15rem): a régua
+            // financeira/prazo é o texto mais longo do conjunto.
+            // d) ROLAGEM (decisão 5 do plano — sem teto de itens, mas com
+            // teto de ALTURA): `max-h-64 overflow-y-auto` — estoura a régua
+            // de 7+2 sem crescer o popover sem fim pela tela.
+            "absolute left-0 z-30 flex w-max max-w-[18rem] max-h-64 flex-col items-start gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-pop dark:border-slate-700 dark:bg-slate-900",
+            paraCima ? "bottom-full mb-1" : "top-full mt-1",
+          )}
+        >
           {itens.map((i) => <Fragment key={i.key}>{i.el}</Fragment>)}
         </span>
       )}
@@ -1820,10 +1876,24 @@ function SelosExtras({ itens }: { itens: { key: string; rotulo: string; el: Reac
 }
 
 function CardItem({
-  card, espelho, ehPool, bloqueado, colega, travadoHotmart, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags, descricoesTags, destacado,
+  card, espelho, abaVista, ehPool, bloqueado, colega, travadoHotmart, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags, descricoesTags, destacado,
   temMe, associando, onAssociarAMim,
 }: {
-  card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; colega?: boolean;
+  card: Card; espelho: boolean;
+  /** VOCABULÁRIO (plano card-conteudo-por-aba, 18/08) — não confundir com
+   *  `abaCard` (calculado abaixo, de `card.estagio_aba`):
+   *  - `abaCard` = onde o card MORA. Pinta a MOLDURA (fundo/borda/faixa/
+   *    SeloAba) — decisão 6 do plano: o espelho mostra a faixa violeta da
+   *    Ativação mesmo desenhado no Comercial, porque é ISSO que ele é.
+   *  - `abaVista` = a esteira que o operador está OLHANDO agora (vem do
+   *    estado `aba` da tela, kanban/page.tsx). Decide o CONTEÚDO: quais
+   *    blocos ficam na área principal e quais rebaixam para o "+N"
+   *    (blocoNaVista, card-sinais.tsx). É por isto que o espelho mostra
+   *    conteúdo de Comercial (decisão 2) sem nenhum `if` sobre espelho —
+   *    ele é desenhado dentro da vista Comercial, então já chega aqui como
+   *    abaVista="comercial", igual a qualquer outro card da coluna. */
+  abaVista: AbaCard;
+  ehPool?: boolean; bloqueado?: boolean; colega?: boolean;
   /** F2 (17/08): a ficha está numa coluna imutável da Hotmart (Boleto Gerado —
    *  Reclamada/Reembolsado já entram por `bloqueado`) e a sessão não é master.
    *  O card abre normalmente (não é `bloqueado`); só o arrasto é que não convida. */
@@ -1883,7 +1953,17 @@ function CardItem({
   // GPS pendente (18/08): o único checkbox do pedido do Marcio que vira selo
   // do card — os outros 4 itens do checklist continuam só na ficha. Some sob
   // cancelado, mesma regra dos demais selos informativos.
-  const gpsFalta = !cancelado && gpsPendente(card.estagio_aba, card.ativ_gps);
+  //
+  // DRIFT RESOLVIDO (card-conteudo-por-aba, 18/08): `gpsPendente` deixou de
+  // checar `estagioAba` (ver o comentário na função, card-sinais.tsx) — mas
+  // o checklist de GPS só EXISTE de fato para quem está na Ativação (é lá
+  // que `ativ_gps` é preenchido pela trigger 0213); um card do Comercial com
+  // `ativ_gps` ainda false não significa "falta o GPS", significa "a
+  // pergunta não se aplica ainda". Esta checagem de estágio é sobre o DADO
+  // (o card já teve seu GPS avaliado?), não sobre ONDE mostrar — isso é
+  // `blocoNaVista("gps", abaVista)`, decidido abaixo, no espelho incluso
+  // (decisão 3 do plano: GPS pendente no espelho também rebaixa).
+  const gpsFalta = !cancelado && card.estagio_aba === "ativacao" && gpsPendente(card.ativ_gps);
   // As tags de IDENTIDADE já viraram selo acima — tirá-las da régua de tags
   // evita o card dizer "Aluno novo" duas vezes, com duas formas diferentes,
   // a três linhas de distância. Só some da régua o que TEM selo: se por
@@ -1958,10 +2038,150 @@ function CardItem({
   // aba só aparece quando o card não tem cor de equipe nem é pool tracejado.
   const abaCard = abaDoCard(card.estagio_aba);
   const tomAba = TOM_ABA[abaCard];
+
+  // ===== CONTEÚDO POR ABA (18/08, plano card-conteudo-por-aba) ==============
+  // Passo 2: cada bloco rebaixável vira um `const el<Nome>` ANTES do return —
+  // o MESMO elemento é usado na área principal (via `blocoNaVista`) e no "+N"
+  // (via `extras`), zero duplicação de markup. `title` em cada um explica POR
+  // QUE está rebaixado quando for o caso (Passo 5): sem isso o operador acha
+  // que o dado sumiu — foi exatamente essa reação que fez o Marcio recusar
+  // "esconder" como solução.
+  //
+  // Blocos que hoje acessam `estado.txt`/`estadoPrazo.tom` inline exigem o
+  // guarda de null ANTES da const (não dá para extrair `{estado && <jsx/>}`
+  // para fora do JSX sem resolver o null primeiro) — por isso os `el` abaixo
+  // já nascem `X | null`, igual ao dado que os alimenta.
+  const tituloRebaixadoComercial = "Relevante para o Comercial — você está na Ativação.";
+  const tituloRebaixadoAtivacao = "Relevante para a Ativação — você está no Comercial.";
+
+  // financeiro → comercial
+  const elFinanceiro = estado ? (
+    <span
+      className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold tabular-nums", TOM[estado.tom])}
+      title={blocoNaVista("financeiro", abaVista) ? estado.title : `${tituloRebaixadoComercial} ${estado.title}`}
+    >
+      {estado.icon === "ok" ? (
+        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+      ) : estado.icon === "alerta" ? (
+        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+      ) : (
+        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4m10-10h-4M6 12H2" /></svg>
+      )}
+      {estado.txt}
+    </span>
+  ) : null;
+
+  // reuniao → comercial
+  const elReuniao = estadoReuniao ? (
+    <div
+      className="mt-1.5 inline-flex items-center gap-1 rounded bg-rose-50 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
+      title={blocoNaVista("reuniao", abaVista) ? estadoReuniao.title : `${tituloRebaixadoComercial} ${estadoReuniao.title}`}
+    >
+      <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
+      Reunião: {estadoReuniao.txt}
+    </div>
+  ) : null;
+
+  // motivoCancelamento → comercial
+  const elMotivoCancelamento = motivoSolicitou ? (
+    <div
+      className="mt-1.5 inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"
+      title={blocoNaVista("motivoCancelamento", abaVista)
+        ? `Motivo do pedido de cancelamento: ${motivoSolicitou}`
+        : `${tituloRebaixadoComercial} Motivo do pedido de cancelamento: ${motivoSolicitou}`}
+    >
+      <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+      {motivoSolicitou}
+    </div>
+  ) : null;
+
+  // prazoCancelamento → comercial
+  const elPrazoCancelamento = estadoPrazo ? (
+    <div
+      className={cn("mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold", TOM[estadoPrazo.tom])}
+      title={blocoNaVista("prazoCancelamento", abaVista) ? estadoPrazo.title : `${tituloRebaixadoComercial} ${estadoPrazo.title}`}
+    >
+      <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
+      {estadoPrazo.txt}
+    </div>
+  ) : null;
+
+  // gps → ativacao (decisão 3: rebaixa também dentro do espelho, sem exceção)
+  const elGps = gpsFalta ? (
+    // `SeloGpsPendente` tem `title` próprio, fixo (explica o que é o GPS). Sem
+    // prop para sobrescrever, então o "por que está no +N" (Passo 5) vai num
+    // `span` externo — o `title` de fora vale para o hover, o de dentro
+    // continua no DOM para quem inspeciona o elemento.
+    <span title={blocoNaVista("gps", abaVista) ? undefined : tituloRebaixadoAtivacao}>
+      <SeloGpsPendente />
+    </span>
+  ) : null;
+
+  // comercialQueVendeu → ativacao (regra do rótulo INALTERADA: só existe
+  // quando `responsavel_comercial_id !== responsavel_id`, decisão 4 do plano
+  // — este bloco não passa a aparecer sempre, só migra ONDE aparece).
+  const elComercialQueVendeu = (card.responsavel_comercial && card.responsavel_comercial_id !== card.responsavel_id) ? (
+    <p
+      className="mt-1.5 flex items-center gap-1 truncate text-[10px] text-slate-500 dark:text-slate-400"
+      title={(blocoNaVista("comercialQueVendeu", abaVista) ? "" : `${tituloRebaixadoAtivacao} `)
+        + `Comercial (quem vendeu, histórico imutável): ${card.responsavel_comercial}. Operador vigente (quem está com o card agora): ${card.responsavel ?? "sem operador"}.`}
+    >
+      <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+      <span className="truncate">Comercial: {card.responsavel_comercial}</span>
+    </p>
+  ) : null;
+
+  // identidade → ativacao (o par Aluno novo/Aluno antigo — os dois juntos
+  // formam UM bloco de rebaixamento: ou os dois estão na área principal, ou
+  // os dois vão para o "+N" juntos, nunca separados). Mesmo padrão de wrapper
+  // de `elGps`: os selos têm `title` próprio fixo, o "por que rebaixado" vai
+  // num `span` externo.
+  const elIdentidade = (alunoNovo || alunoAntigo) ? (
+    <span
+      className="inline-flex items-center gap-1"
+      title={blocoNaVista("identidade", abaVista) ? undefined : tituloRebaixadoAtivacao}
+    >
+      {alunoNovo && <SeloAlunoNovo />}
+      {alunoAntigo && <SeloAlunoAntigo />}
+    </span>
+  ) : null;
+
   // Selos SÓ informativos → colapsam no "+N" (ver SelosExtras). Sob cancelado,
   // nem entram: são contexto de compra, e quem cancelou não é mais cliente.
+  //
+  // ORDEM DETERMINÍSTICA por gravidade (Passo 3 do plano — o aria-label do
+  // "+N" lê nesta ordem): prazoCancelamento → reuniao → financeiro →
+  // motivoCancelamento → gps → identidade → comercialQueVendeu → recompra →
+  // cat (os dois últimos já eram extras antes desta feature).
+  //
+  // CRÍTICO: esta montagem fica DENTRO do `if (!cancelado)` que já existia —
+  // card cancelado não ganha "+N" novo. Ele já silencia tudo desde 13/08, e a
+  // regra de aba não se aplica: cancelado não está em esteira nenhuma (nem
+  // Comercial nem Ativação), então "relevante para a aba X" não tem sentido
+  // para ele.
   const extras: { key: string; rotulo: string; el: React.ReactNode }[] = [];
   if (!cancelado) {
+    if (elPrazoCancelamento && !blocoNaVista("prazoCancelamento", abaVista) && estadoPrazo) {
+      extras.push({ key: "prazoCancelamento", rotulo: estadoPrazo.txt, el: elPrazoCancelamento });
+    }
+    if (elReuniao && !blocoNaVista("reuniao", abaVista) && estadoReuniao) {
+      extras.push({ key: "reuniao", rotulo: `Reunião: ${estadoReuniao.txt}`, el: elReuniao });
+    }
+    if (elFinanceiro && !blocoNaVista("financeiro", abaVista) && estado) {
+      extras.push({ key: "financeiro", rotulo: estado.txt, el: elFinanceiro });
+    }
+    if (elMotivoCancelamento && !blocoNaVista("motivoCancelamento", abaVista) && motivoSolicitou) {
+      extras.push({ key: "motivoCancelamento", rotulo: `Motivo: ${motivoSolicitou}`, el: elMotivoCancelamento });
+    }
+    if (elGps && !blocoNaVista("gps", abaVista)) {
+      extras.push({ key: "gps", rotulo: "GPS pendente", el: elGps });
+    }
+    if (elIdentidade && !blocoNaVista("identidade", abaVista)) {
+      extras.push({ key: "identidade", rotulo: alunoAntigo ? "Aluno antigo" : "Aluno novo", el: elIdentidade });
+    }
+    if (elComercialQueVendeu && !blocoNaVista("comercialQueVendeu", abaVista) && card.responsavel_comercial) {
+      extras.push({ key: "comercialQueVendeu", rotulo: `Comercial: ${card.responsavel_comercial}`, el: elComercialQueVendeu });
+    }
     if (recompra) extras.push({ key: "recompra", rotulo: `Recompra (${recompra})`, el: <SeloRecompra origem={recompra} /> });
     // Aluno antigo NÃO entra mais aqui (12/08): saiu do "+N" para a primeira
     // linha, ao lado do "Aluno novo". Ver o par renderizado abaixo.
@@ -2073,10 +2293,18 @@ function CardItem({
               tem os 3 acessos pré-marcados) e o que muda o dinheiro (o antigo
               tem crédito pró-rata; o novo, não). Silencia sob cancelado (13/08,
               precedência em card-sinais.tsx): quem cancelou não é mais cliente,
-              o roteiro de ativação não se aplica a ela. */}
-          {!cancelado && alunoNovo && <SeloAlunoNovo />}
-          {!cancelado && alunoAntigo && <SeloAlunoAntigo />}
-          {gpsFalta && <SeloGpsPendente />}
+              o roteiro de ativação não se aplica a ela.
+              CONTEÚDO POR ABA (18/08): bloco "identidade" → ativacao — na
+              vista Comercial rebaixa para o "+N" (elIdentidade acima já
+              contém os dois selos juntos). `!cancelado` continua fora de
+              `blocoNaVista`: cancelado nunca teve o par visível nem rebaixado
+              (a régua de extras já não roda para ele). */}
+          {!cancelado && blocoNaVista("identidade", abaVista) && elIdentidade}
+          {/* GPS pendente (18/08) — bloco "gps" → ativacao. Mesma regra: na
+              vista Comercial some da área principal e reaparece no "+N"
+              (decisão 3 do plano: vale também no espelho, sem exceção — o
+              espelho chega aqui com abaVista="comercial" e cai direto no "+N"). */}
+          {blocoNaVista("gps", abaVista) && elGps}
           {/* PEDIDO 1 (18/08): o marcador TEXTUAL da aba — cor não pode ser o
               único portador (a faixa lateral + o fundo já dizem a mesma coisa
               por cor; este chip é para quem não as distingue). Silencia sob
@@ -2144,28 +2372,21 @@ function CardItem({
               antes havia até três badges independentes aqui ("conferir saldo"
               podia aparecer ao lado de "Saldo pago" no MESMO card, se
               contradizendo), e "Saldo pago" pintava de verde quem ainda devia
-              o resto. A
-              precedência (conferir saldo > quitado > atrasado > em dia >
-              sem data combinada) mora em
-              `estadoFinanceiroCard` (card-sinais.tsx) — a MESMA função que a
-              tabela usa, para as duas telas nomearem a mesma coisa igual.
+              o resto. A precedência (conferir saldo > quitado > atrasado >
+              em dia > sem data combinada) mora em `estadoFinanceiroCard`
+              (card-sinais.tsx). CORREÇÃO (18/08, plano card-conteudo-por-aba,
+              Passo 6a): o comentário aqui dizia que era "a MESMA função que a
+              tabela usa" — não é: `app/hm/tabela/page.tsx` só CITA o nome de
+              `estadoFinanceiroCard` num comentário (linha ~1263), não a
+              importa nem chama. A tabela calcula o financeiro por conta
+              própria. Deixando registrado para quem planejar em cima disto
+              não presumir uma fonte compartilhada que não existe.
               Some sob cancelado (`estado` já vem null, calculado acima) e
-              quando o sistema não sabe nada — nunca inventa um "deve R$0". */}
-          {estado && (
-            <span
-              className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold tabular-nums", TOM[estado.tom])}
-              title={estado.title}
-            >
-              {estado.icon === "ok" ? (
-                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-              ) : estado.icon === "alerta" ? (
-                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
-              ) : (
-                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4m0 12v4m10-10h-4M6 12H2" /></svg>
-              )}
-              {estado.txt}
-            </span>
-          )}
+              quando o sistema não sabe nada — nunca inventa um "deve R$0".
+              CONTEÚDO POR ABA (18/08): bloco "financeiro" → comercial — na
+              vista Ativação rebaixa para o "+N" (elFinanceiro, mesmo
+              elemento, construído acima). */}
+          {blocoNaVista("financeiro", abaVista) && elFinanceiro}
           {/* A MESMA pessoa em outro board (0164). O operador do Aurum precisa saber
               que ela já está em "Acesso Liberado" no HM antes de abordar como contato
               novo — e vice-versa. Indigo para não competir com os alertas (âmbar). */}
@@ -2184,7 +2405,14 @@ function CardItem({
             </Link>
           )}
           {/* Recompra e categoria de entrada são contexto, não ação: moram no
-              "+N" (hover/foco/Enter revelam; o aria-label lê tudo). */}
+              "+N" (hover/foco/Enter revelam; o conteúdo completo é navegável
+              dentro do popover — ver SelosExtras).
+              CONTEÚDO POR ABA (18/08): `extras` agora TAMBÉM recebe os blocos
+              rebaixados pela aba (financeiro/reunião/motivo/prazo/gps/
+              identidade/comercialQueVendeu) — o "+N" deixou de ser só
+              recompra/categoria e virou o destino de "relevante, mas não
+              desta vista". Nenhum destes é escondido: sempre a um
+              clique/hover, nunca fora do DOM. */}
           <SelosExtras itens={extras} />
         </div>
         <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", corAvatar(card.nome))}>{inicial(card.nome)}</span>
@@ -2234,51 +2462,36 @@ function CardItem({
           textual do mesmo alerta que já ganhou (ou não) o canto por
           precedência: cor nunca é a única pista, então o selo aparece aqui
           SEMPRE que houver reunião em risco, mesmo quando outro selo venceu
-          o canto absoluto. */}
-      {estadoReuniao && (
-        <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-rose-50 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title={estadoReuniao.title}>
-          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
-          Reunião: {estadoReuniao.txt}
-        </div>
-      )}
+          o canto absoluto.
+          CONTEÚDO POR ABA (18/08): bloco "reuniao" → comercial — na vista
+          Ativação rebaixa para o "+N" (elReuniao, construído acima). */}
+      {blocoNaVista("reuniao", abaVista) && elReuniao}
 
       {/* F3 (18/08, pedido do Marcio): motivo do pedido de cancelamento, sempre
           à vista em quem está em "Solicitou Cancelamento" (rótulo curto, o
           detalhe/observação mora na ficha). Índigo — contexto, não alarme por
-          si só; quem alarma é o selo de prazo logo abaixo, se houver. */}
-      {motivoSolicitou && (
-        <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" title={`Motivo do pedido de cancelamento: ${motivoSolicitou}`}>
-          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
-          {motivoSolicitou}
-        </div>
-      )}
+          si só; quem alarma é o selo de prazo logo abaixo, se houver.
+          CONTEÚDO POR ABA (18/08): bloco "motivoCancelamento" → comercial. */}
+      {blocoNaVista("motivoCancelamento", abaVista) && elMotivoCancelamento}
       {/* Selo de PRAZO — mesmo espírito dos selos de reunião vencida acima:
           cálculo de tela (hoje vs. a data que a pessoa pediu), zero escrita.
           Âmbar chegando, rose vencido e ninguém resolveu (mesma disciplina de
           cor de `estadoReuniaoCard`). Cor não é o único portador: o texto já
-          diz "Prazo vencido"/"Prazo Nd", não só muda de cor. */}
-      {estadoPrazo && (
-        <div className={cn("mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold", TOM[estadoPrazo.tom])} title={estadoPrazo.title}>
-          <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
-          {estadoPrazo.txt}
-        </div>
-      )}
+          diz "Prazo vencido"/"Prazo Nd", não só muda de cor.
+          CONTEÚDO POR ABA (18/08): bloco "prazoCancelamento" → comercial. */}
+      {blocoNaVista("prazoCancelamento", abaVista) && elPrazoCancelamento}
 
       {/* DUPLO RESPONSÁVEL (0211/0212, B.4): quando o comercial (histórico,
           imutável) diverge do vigente, mostra os DOIS — é a informação que a
           feature existe para preservar. Sem isto no card, o duplo responsável
           é só coluna no banco. Só aparece quando há de fato divergência (e o
           comercial existe) — card sem histórico ainda não passou por lá e não
-          precisa de um selo extra dizendo o óbvio. */}
-      {card.responsavel_comercial && card.responsavel_comercial_id !== card.responsavel_id && (
-        <p
-          className="mt-1.5 flex items-center gap-1 truncate text-[10px] text-slate-500 dark:text-slate-400"
-          title={`Comercial (quem vendeu, histórico imutável): ${card.responsavel_comercial}. Operador vigente (quem está com o card agora): ${card.responsavel ?? "sem operador"}.`}
-        >
-          <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-          <span className="truncate">Comercial: {card.responsavel_comercial}</span>
-        </p>
-      )}
+          precisa de um selo extra dizendo o óbvio. Regra de EXIBIÇÃO (decisão
+          4 do plano) continua idêntica — só migrou para dentro de
+          `elComercialQueVendeu`, que já embute a mesma condição.
+          CONTEÚDO POR ABA (18/08): bloco "comercialQueVendeu" → ativacao —
+          na vista Comercial rebaixa para o "+N". */}
+      {blocoNaVista("comercialQueVendeu", abaVista) && elComercialQueVendeu}
 
       <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 dark:border-slate-800">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -2308,8 +2521,18 @@ function CardItem({
               tom genérico de `tempoTom` ("parado há Nd") não compete por
               atenção com uma segunda cor de alarme — cai no slate neutro. O
               dado (tempo na etapa) continua visível, só o destaque de cor
-              cede para quem já é mais específico. */}
-          <span className={cn("inline-flex items-center gap-1 truncate text-[11px] font-medium tabular-nums", estadoReuniao ? "text-slate-400 dark:text-slate-500" : tempoTom(card.entrou_estagio_em))} title="Tempo nesta etapa">
+              cede para quem já é mais específico.
+              CORREÇÃO (18/08, plano card-conteudo-por-aba, Passo 6b): o
+              acoplamento checava `estadoReuniao` (o valor CALCULADO), não o
+              chip de reunião de fato desenhado na área principal. Com o
+              bloco "reuniao" podendo rebaixar para o "+N" (vista Ativação),
+              `estadoReuniao` continua truthy mas o chip rose some da tela —
+              e o tempo caía pra cinza do MESMO jeito, apagando o alarme sem
+              deixar nenhum aviso visível ao lado. Corrigido para olhar
+              `blocoNaVista("reuniao", abaVista) && estadoReuniao`: o
+              acoplamento só vale quando o chip que ele está "cedendo lugar"
+              para está de fato na tela. */}
+          <span className={cn("inline-flex items-center gap-1 truncate text-[11px] font-medium tabular-nums", (blocoNaVista("reuniao", abaVista) && estadoReuniao) ? "text-slate-400 dark:text-slate-500" : tempoTom(card.entrou_estagio_em))} title="Tempo nesta etapa">
             <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
             {card.entrou_estagio_em ? `${relativo(card.entrou_estagio_em)} na etapa` : "—"}
           </span>

@@ -542,8 +542,20 @@ export function SeloAlunoAntigo({ className }: { className?: string }) {
 // e quebraria a navegação — o selo leva o olho, a ficha é onde se marca.
 // Âmbar (mesma família de "pare e confira" da tabela de cores acima) porque é
 // pendência que pede ação do operador, não histórico neutro (que seria índigo).
-export function gpsPendente(estagioAba: string | null, ativGps: boolean | undefined): boolean {
-  return estagioAba === "ativacao" && ativGps === false;
+//
+// DRIFT RESOLVIDO (18/08, feat/card-conteudo-por-aba): esta função filtrava
+// `estagioAba === "ativacao"` sozinha, ANTES de existir uma regra de "conteúdo
+// por aba" no card. Com RELEVANCIA_BLOCO/blocoNaVista (acima) a decisão de
+// ABA passou a ter dono único — se este predicado continuasse checando
+// `estagioAba` por conta própria, a mesma pergunta ("esse bloco é da
+// Ativação?") teria DUAS respostas no arquivo, e uma migration de aba no
+// futuro só atualizaria uma das duas. `gpsPendente` agora responde só "falta
+// o GPS?" (fato do dado, sem aba) — quem decide ONDE mostrar é
+// `blocoNaVista("gps", abaVista)` no call-site. Assinatura mudou (perdeu
+// `estagioAba`) de propósito: script de precedência (ver "PRECEDÊNCIA — não
+// quebre" no plano) continua igual, só a fonte da filtragem por aba migrou.
+export function gpsPendente(ativGps: boolean | undefined): boolean {
+  return ativGps === false;
 }
 export function SeloGpsPendente({ className }: { className?: string }) {
   return (
@@ -723,6 +735,55 @@ export function SeloAba({ aba, className }: { aba: AbaCard; className?: string }
       {label}
     </span>
   );
+}
+
+// ===== Conteúdo do card por aba (18/08, pedido do Marcio) ===================
+// A moldura (PR #48, bloco acima) já diferencia Comercial × Ativação por
+// fundo/borda/faixa/chip. Faltava a metade que o Marcio reclamou de verdade:
+// "confusão" — os ~15 blocos do card são OS MESMOS nas duas esteiras, e cada
+// aba só usa metade deles. Decisão dele, travada: NÃO esconde — rebaixa para
+// o "+N" (SelosExtras). Continua a um clique/hover, só sai da primeira leitura.
+//
+// Esta tabela é a ÚNICA fonte da regra "este bloco pertence a qual aba" — o
+// mesmo motivo pelo qual TAGS_ALUNO_ANTIGO, RESULTADOS e MOTIVOS_CANCELAMENTO_HM
+// moram aqui: card-sinais.tsx já é o vocabulário compartilhado entre
+// board/tabela/ficha, então a regra nova entra no mesmo lugar em vez de nascer
+// espalhada pelo JSX do board.
+//
+// Ausência de chave no Record = "ambas". Isto é deliberado, não preguiça: um
+// bloco NOVO que alguém adicionar ao card e esquecer de classificar aqui
+// nasce VISÍVEL nas duas abas — o mesmo comportamento seguro de antes desta
+// feature. Esquecer de differenciar nunca pode significar "sumiu"; a pior
+// consequência de esquecer é "aparece a mais", nunca "aparece a menos".
+export type BlocoCard =
+  | "financeiro" | "reuniao" | "motivoCancelamento" | "prazoCancelamento"
+  | "gps" | "comercialQueVendeu" | "identidade";
+
+export const RELEVANCIA_BLOCO: Record<BlocoCard, AbaCard | "ambas"> = {
+  // Os quatro eixos do "cobro ou não cobro / ela vem à reunião" — perguntas
+  // do COMERCIAL. A Ativação já fechou a venda; reunião/financeiro/pedido de
+  // cancelamento não são o trabalho de quem está ativando acesso.
+  financeiro: "comercial",
+  reuniao: "comercial",
+  motivoCancelamento: "comercial",
+  prazoCancelamento: "comercial",
+  // GPS pendente e "quem vendeu" são perguntas de quem está ATIVANDO: o
+  // checklist de acesso e a atribuição de crédito da venda. Identidade
+  // (aluno novo/antigo) dispara a auto-marcação de acessos (0213) — é
+  // literalmente sobre o que a Ativação vai fazer com o checklist.
+  gps: "ativacao",
+  comercialQueVendeu: "ativacao",
+  identidade: "ativacao",
+};
+
+/** O bloco aparece na ÁREA PRINCIPAL desta aba, ou vai para o "+N"? Vista =
+ *  a esteira que a pessoa está OLHANDO (abaVista), não a aba onde o card
+ *  mora (abaCard) — é o que faz o espelho (decisão 2) funcionar sem nenhum
+ *  `if` especial: ele é desenhado com abaVista="comercial" mesmo morando na
+ *  Ativação, então este helper já devolve "comercial" para ele de graça. */
+export function blocoNaVista(bloco: BlocoCard, abaVista: AbaCard): boolean {
+  const relevancia = RELEVANCIA_BLOCO[bloco];
+  return relevancia === "ambas" || relevancia === abaVista;
 }
 
 // ===== Motivo e prazo do pedido de cancelamento (18/08, pedido do Marcio) ===
