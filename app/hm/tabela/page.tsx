@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito, RESULTADOS } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito, RESULTADOS, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, type OrigemMovimento } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -31,7 +31,10 @@ import { casaBusca } from "@/lib/busca";
 // ficha (que roteia etapa para moverEstagioHm e datas para agendarHm) e o lote
 // que itera os serviços. A tabela não tem verdade própria.
 
-type Estagio = { chave: string; nome: string; cor: string; aba: string | null; ordem: number };
+// COLUNAS IMUTÁVEIS (17/08): `origem_movimento` opcional, mesmo contrato do
+// board — rota antiga em cache não manda o campo, e ehColunaHotmart/
+// ehColunaEspelho degradam para a lista espelhada em card-sinais.tsx.
+type Estagio = { chave: string; nome: string; cor: string; aba: string | null; ordem: number; origem_movimento?: OrigemMovimento | null };
 type FalhaLote = { compradorId: string; nome: string; motivo: string; faltando?: string[] };
 type VisaoId = "comercial" | "ativacao" | "agenda" | "financeiro" | "tudo";
 
@@ -648,6 +651,17 @@ export default function HmTabelaPage() {
               `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
               "Marque o resultado da reunião na própria linha ou na ficha.",
           );
+        } else if (d?.reason === "coluna_da_hotmart") {
+          // F5 (17/08): a MESMA recusa do board — o endpoint é o mesmo, então a
+          // esteira sofre a mesma recusa; a tabela não pode ficar muda diante
+          // dela. `coluna`/`direcao` vêm do servidor (contrato do backend).
+          const nomeColuna = typeof d.coluna === "string" && d.coluna ? d.coluna : "esta etapa";
+          const espelho = linha ? ehColunaEspelho(linha.estagio_chave) : false;
+          window.alert(
+            espelho
+              ? `"${nomeColuna}" é um espelho. ${nome} está na Ativação; o Comercial só mostra o pagamento. Para tirá-lo da Ativação, abra a ficha.`
+              : `"${nomeColuna}" vem da Hotmart. A linha ${d.direcao === "saida" ? "sai" : "entra"} desta etapa sozinha, quando o pagamento é confirmado. Se ${nome} já pagou e não andou, avise o administrador — não mova à mão.`,
+          );
         } else {
           // 403 de permissão (destino fora da equipe, atribuição travada…):
           // mostra o motivo em vez de a célula só voltar sozinha.
@@ -671,6 +685,14 @@ export default function HmTabelaPage() {
     const abaAtual = l.estagio_aba ?? "comercial";
     const abaDestino = destino.aba ?? "comercial";
     if (abaAtual === "ativacao" && abaDestino === "comercial" && chave !== "hm_cancelamento" && l.apto_ativacao) {
+      // F4/F5 (17/08): mesma leitura do board — para o operador, o sistema não
+      // pergunta; recusa direto com o texto-base do espelho.
+      if (!ehMaster()) {
+        window.alert(
+          `"${l.estagio_nome ?? "Pagamento Realizado"}" é um espelho. ${l.nome} está na Ativação; o Comercial só mostra o pagamento. Para tirá-lo da Ativação, abra a ficha.`,
+        );
+        return;
+      }
       const ok = window.confirm(
         `${l.nome} já quitou o saldo e está em "${l.estagio_nome ?? "Ativação"}".\n\n` +
           `Movê-lo para "${destino.nome}" desfaz o pagamento e tira o card da esteira de Ativação. Continuar?`,
@@ -685,7 +707,7 @@ export default function HmTabelaPage() {
       if (!ok) return;
     }
     await patch(l.comprador_id, l.nome, { estagio_chave: chave });
-  }, [estagios, patch]);
+  }, [estagios, patch, ehMaster]);
 
   // Data de reunião/entrevista: se JÁ havia data e a nova difere (ou está sendo
   // desmarcada), o popover pede o motivo — sobrescrever calado apagaria o sinal
@@ -764,6 +786,14 @@ export default function HmTabelaPage() {
     } else if (chave !== "hm_cancelamento") {
       const pagos = dos.filter((l) => l.apto_ativacao && (l.estagio_aba ?? "comercial") === "ativacao").length;
       if (pagos > 0) {
+        // F4/F5 (17/08): o lote é o MESMO gesto de tirar do espelho — para o
+        // operador, o sistema recusa direto, sem perguntar.
+        if (!ehMaster()) {
+          window.alert(
+            `${pagos} dos ${dos.length} selecionados são espelho da Ativação. Movê-los para "${destino.nome}" desfaria o pagamento deles — para tirar cada um da Ativação, abra a ficha individual.`,
+          );
+          return;
+        }
         const ok = window.confirm(
           `${pagos} dos ${dos.length} selecionados já quitaram o saldo.\n\n` +
             `Movê-los para "${destino.nome}" desfaz o pagamento e os tira da esteira de Ativação. Continuar?`,
@@ -772,7 +802,7 @@ export default function HmTabelaPage() {
       }
     }
     lote({ estagio_chave: chave }, `mover para "${destino.nome}"`);
-  }, [estagios, linhas, marcados, lote]);
+  }, [estagios, linhas, marcados, lote, ehMaster]);
 
   // ----------------------------------------------------------------- leitura
   const hoje0 = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }, []);
@@ -871,9 +901,22 @@ export default function HmTabelaPage() {
           className={cn(celSelect, "min-w-[10rem]")}
           title="Trocar a etapa (mesma regra da Jornada — inclusive a trava do checklist)"
         >
-          {estagios.map((s) => (
-            <option key={s.chave} value={s.chave}>{(s.aba ?? "comercial") === "ativacao" ? "Ativação · " : "Comercial · "}{s.nome}</option>
-          ))}
+          {estagios.map((s) => {
+            // F1/F2 (17/08): o cadeado se anuncia no PRÓPRIO texto da opção —
+            // dentro de <option> não há ícone nem cor, só texto, e é ele quem
+            // carrega o significado aqui. Master pode escolher (e forçar); para
+            // o resto a opção fica desabilitada — o gesto nem convida.
+            const hotmart = ehColunaHotmart(s.chave, s.origem_movimento);
+            const espelho = ehColunaEspelho(s.chave, s.origem_movimento);
+            const travada = (hotmart || espelho) && !ehMaster() && s.chave !== l.estagio_chave;
+            return (
+              <option key={s.chave} value={s.chave} disabled={travada} title={travada ? TITLE_COLUNA_HOTMART : undefined}>
+                {(s.aba ?? "comercial") === "ativacao" ? "Ativação · " : "Comercial · "}
+                {hotmart ? "[Hotmart] " : espelho ? "[espelho] " : ""}
+                {s.nome}
+              </option>
+            );
+          })}
         </select>
       ),
     },

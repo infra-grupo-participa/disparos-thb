@@ -163,12 +163,16 @@ export async function POST(req: Request) {
       if (b.estagio_chave) {
         // 0187: 5º argumento — sem ele, quem não tem card HM tinha o card do
         // Aurum movido por um lote autorizado só para HM.
-        const r = await moverEstagioHm(compradorId, b.estagio_chave, operador, undefined, produto);
+        // 0290/B2: 6º argumento (souMaster) — a mesma trava de cancelados
+        // (checada linhas acima) agora também cobre boleto gerado/pagamento
+        // parcelado/realizado; sem repassar, o master ficaria bloqueado no lote.
+        const r = await moverEstagioHm(compradorId, b.estagio_chave, operador, undefined, produto, souMaster);
         if (!r.ok) {
           falhas.push({
             compradorId,
             nome,
-            motivo: r.reason === "checklist_incompleto" ? "checklist incompleto" : "etapa inválida",
+            motivo: r.reason === "checklist_incompleto" ? "checklist incompleto"
+              : r.reason === "coluna_da_hotmart" ? `coluna "${r.coluna}" é da Hotmart — só admin do GP move` : "etapa inválida",
             faltando: r.faltando,
           });
           continue;

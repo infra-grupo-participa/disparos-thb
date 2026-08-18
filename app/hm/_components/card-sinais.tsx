@@ -282,6 +282,45 @@ export function ehEstagioCancelamento(chave: string | null | undefined): boolean
 export const TITLE_CARD_CANCELADO =
   "Aluno cancelado — só o administrador do Grupo Participa acessa";
 
+// ===== Colunas imutáveis da Hotmart (17/08) ==================================
+// Pedido do Marcio: "Boleto gerado, compra aprovada, reclamada, reembolsado -
+// Imutáveis (os operadores não podem mexer aqui, tem que ir automático via
+// hotmart)". Cinco colunas travadas — bloqueiam ENTRADA e SAÍDA manual — mais
+// duas "espelho" (leem o pagamento realizado na Ativação e só REFLETEM aqui).
+// A fonte de verdade é `origem_movimento`, que a rota do board já devolve por
+// estágio (GET /api/hm/kanban e o relatório, 0290 + 18/08). Esta lista NÃO é
+// contrato — é a DEGRADAÇÃO para quando `origem_movimento` não chegar no
+// payload (rota antiga em cache do navegador/CDN, resposta stale): o MESMO
+// espelho que `ESTAGIOS_CANCELAMENTO_HM` já faz para o cancelamento, hoje
+// ampliado para cobrir as 5 chaves. Se o servidor mudar a classificação, mude
+// aqui junto — mas o caminho normal é ler `origem_movimento`, não esta lista.
+export const ESTAGIOS_HOTMART_HM = ["hm_boleto_gerado", "hm_cancelamento", "hm_reembolsado"] as const;
+export const ESTAGIOS_ESPELHO_HM = ["hm_pagamento_parcelado", "hm_pagamento_realizado"] as const;
+
+export type OrigemMovimento = "hotmart" | "derivada" | "operador";
+
+/** A coluna é travada pela Hotmart (entrada E saída bloqueadas para quem não é
+ *  master)? Lê `origem_movimento` quando o backend já manda; sem ele, cai na
+ *  lista espelhada acima — nunca destrava por ausência de dado. */
+export function ehColunaHotmart(chave: string | null | undefined, origemMovimento?: OrigemMovimento | null): boolean {
+  if (!chave) return false;
+  if (origemMovimento != null) return origemMovimento === "hotmart";
+  return (ESTAGIOS_HOTMART_HM as readonly string[]).includes(chave);
+}
+
+/** A coluna é espelho (mostra o pagamento realizado na Ativação; mexer aqui
+ *  desfaz o pagamento — não é a trava da Hotmart, é o aviso do espelho). */
+export function ehColunaEspelho(chave: string | null | undefined, origemMovimento?: OrigemMovimento | null): boolean {
+  if (!chave) return false;
+  if (origemMovimento != null) return origemMovimento === "derivada";
+  return (ESTAGIOS_ESPELHO_HM as readonly string[]).includes(chave);
+}
+
+export const TITLE_COLUNA_HOTMART =
+  "Esta etapa vem da Hotmart — a ficha entra e sai sozinha, quando o pagamento é confirmado. Não é possível mover à mão.";
+export const TITLE_COLUNA_ESPELHO =
+  "Espelho da Ativação — esta ficha está na Ativação; aqui só se mostra o pagamento. Para tirá-la da Ativação, abra a ficha.";
+
 // ===== Explicação do crédito pró-rata (13/08) ================================
 // O crédito pró-rata (HM: cs.contatos_hm.credito_obs · AURUM: cs.vw_aurum_saldo.obs
 // / excecao_motivo) é calculado à mão — quem cobra o aluno depende deste texto

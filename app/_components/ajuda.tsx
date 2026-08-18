@@ -91,6 +91,12 @@ const MSG = {
   cancelamento_so_admin_gp: "Card em Reclamada/Reembolsado — só o administrador do Grupo Participa altera cards cancelados.",
   card_de_outro_operador: "Este card é de outro operador da sua equipe — você pode ver a ficha e o histórico, mas não alterar. Fale com seu gestor para redistribuir.",
   unauthorized: "Sua sessão expirou — entre de novo.",
+  // COLUNAS IMUTÁVEIS DA HOTMART (17/08, pedido do Marcio): as strings abaixo
+  // são MODELO — a mensagem real que o board mostra inclui o nome da etapa e a
+  // direção (entrada/saída) que a API devolveu em `coluna`/`direcao`; aqui é
+  // fixado só o texto-base, para a Central de Ajuda citar literalmente.
+  coluna_da_hotmart_saida: "\"Boleto Gerado\" vem da Hotmart. A ficha entra e sai desta coluna sozinha, quando o pagamento é confirmado. Se a pessoa já pagou e não andou, avise o administrador — não mova à mão.",
+  coluna_da_hotmart_espelho: "\"Pagamento Realizado\" é um espelho. Esta pessoa está na Ativação; o Comercial só a mostra. Para tirá-la da Ativação, abra a ficha.",
 };
 
 const PERGUNTAS: Pergunta[] = [
@@ -235,6 +241,30 @@ const PERGUNTAS: Pergunta[] = [
         <P>
           <SeloHM />Sim: botão direito no card → <B>Desfazer último movimento</B>. Nos demais portais não há
           desfazer — arraste o card de volta para a coluna certa (ou corrija a etapa pelo painel do card).
+        </P>
+      </>
+    ),
+  },
+  {
+    q: "Tentei mover “Boleto Gerado” (ou outra coluna com cadeado) e não consegui.",
+    busca: "boleto gerado reembolsado reclamada compra aprovada imutavel cadeado hotmart nao arrasta trava coluna",
+    a: (
+      <>
+        <P>
+          <SeloHM />Cinco etapas do Comercial são <B>automáticas</B>: Boleto Gerado, Reclamada e Reembolsado
+          (e o par que a Ativação alimenta) só andam quando a Hotmart confirma o pagamento ou o cancelamento —
+          ninguém arrasta a ficha para dentro nem para fora delas à mão. O cabeçalho da coluna já mostra o
+          cadeado. Se você tentar mesmo assim, verá:
+        </P>
+        <Msg>{MSG.coluna_da_hotmart_saida}</Msg>
+        <P>
+          “Pagamento Realizado” e “Pagamento Parcelado” são <B>espelho</B> da Ativação — mostram quem já pagou,
+          mas a ficha de verdade mora lá. Tentar arrastá-las mostra:
+        </P>
+        <Msg>{MSG.coluna_da_hotmart_espelho}</Msg>
+        <P>
+          Só o administrador do Grupo Participa pode forçar esse movimento, quando é mesmo preciso corrigir algo
+          que a Hotmart não refletiu.
         </P>
       </>
     ),

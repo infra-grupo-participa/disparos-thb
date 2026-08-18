@@ -54,7 +54,7 @@ export async function GET(req: Request) {
   const f = [lista("responsavel"), lista("canal"), lista("turma"), verTudo, usuarioId, equipeId, produto, abas, ESTEIRA_COMPARTILHADA_PRODUTO];
 
   const colunas = await query(
-    `select e.chave, e.nome, e.cor, e.aba
+    `select e.chave, e.nome, e.cor, e.aba, e.origem_movimento
        from cs.estagios e
       where e.ativo and e.evento = 'HM'
       order by e.ordem`,
@@ -302,9 +302,14 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
   const posicao = antesDe === undefined ? undefined : { antesDe };
-  const r = await moverEstagioHm(compradorId, estagioChave, sessao.nome || "cs", posicao, produtoDoBoard);
+  // `souMaster` (0290/B2): mesma exceção da trava de cancelados logo acima —
+  // as 5 colunas "de fato" (boleto gerado, pagamento parcelado/realizado,
+  // cancelamento, reembolsado) recusam gesto manual, exceto do master (D3).
+  const r = await moverEstagioHm(compradorId, estagioChave, sessao.nome || "cs", posicao, produtoDoBoard, souMaster);
   // `faltando` são os itens do checklist que barraram a entrada em "Ativação
-  // Realizada" — o board mostra a lista em vez de um erro genérico.
-  if (!r.ok) return NextResponse.json({ ok: false, reason: r.reason, faltando: r.faltando }, { status: 400 });
+  // Realizada" — o board mostra a lista em vez de um erro genérico. `coluna`/
+  // `direcao` (0290): a trava de coluna-da-Hotmart diz QUAL coluna e se foi
+  // entrada ou saída, para a tela montar a mensagem certa.
+  if (!r.ok) return NextResponse.json({ ok: false, reason: r.reason, faltando: r.faltando, coluna: r.coluna, direcao: r.direcao }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

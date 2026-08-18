@@ -207,6 +207,12 @@ export function msgErroPermissao(reason?: string | null): string | null {
       // Novo modelo (28/07): o operador VÊ os cards da equipe, mas só AGE no que
       // é dele ou está no pool. A ficha do colega abre em leitura.
       return "Este card é de outro operador da sua equipe — você pode ver a ficha e o histórico, mas não alterar. Fale com seu gestor para redistribuir.";
+    case "coluna_da_hotmart":
+      // COLUNAS IMUTÁVEIS (17/08): fallback genérico sem `coluna`/`direcao` — a
+      // tela que TEM esses campos no corpo da resposta monta a frase completa
+      // (ver patchMover em kanban/page.tsx e patch em tabela/page.tsx); este
+      // texto só cobre o caminho que não tem para onde puxar o nome da etapa.
+      return "Esta etapa é automática — vem da Hotmart e não se move à mão. Se algo não andou sozinho, avise o administrador do Grupo Participa.";
     case "unauthorized":
       return "Sua sessão expirou — entre de novo.";
     default:

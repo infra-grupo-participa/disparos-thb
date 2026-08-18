@@ -379,6 +379,12 @@ export const HmContatoPatchSchema = z.object({
   desfazer_edicao: z.boolean().optional(),
   // recuperar uma versão específica do histórico (0097) — o id da versão.
   restaurar_versao: z.number().int().positive().optional(),
+  // Reconcilia o estágio pelo FATO (D4/B5, 0293, cs.fn_hm_reconciliar_estagio_hotmart)
+  // — card preso na fila de espera com pagamento já no razão, Reclamada com
+  // reembolso confirmado na Hotmart, Reembolsado sem evidência nenhuma. Ação
+  // de MASTER (a rota recusa para quem não é master): reposiciona o card por
+  // fato do banco, nunca por gesto no board.
+  reconciliar_hotmart: z.boolean().optional(),
 });
 // ----- Sócios do HM (aba "SÓCIOS T39") -----
 // O sócio tem checklist próprio: ele também é ativado, pendurado no titular.

@@ -205,7 +205,7 @@ export type LinhaEsteira = {
   duplicado_cpf_confere: boolean;
   duplicado_emails: string[];
 };
-export type ColunaHm = { chave: string; nome: string; cor: string; aba: string | null; ordem: number };
+export type ColunaHm = { chave: string; nome: string; cor: string; aba: string | null; ordem: number; origem_movimento: "hotmart" | "operador" | "derivada" };
 
 // O sócio convidado na esteira de Ativação — NÃO é card financeiro, então tem
 // linha própria (nunca se mistura com os titulares no relatório, como não se
@@ -252,7 +252,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
              HM_ESTAGIOS_CANCELAMENTO, f.produto ?? "HM", f.abas ?? [], ESTEIRA_COMPARTILHADA_PRODUTO];
 
   const colunas = await query<ColunaHm>(
-    `select e.chave, e.nome, e.cor, e.aba, e.ordem
+    `select e.chave, e.nome, e.cor, e.aba, e.ordem, e.origem_movimento
        from cs.estagios e
       where e.ativo and e.evento = 'HM'
         and ($1::text is null or e.chave = $1)
