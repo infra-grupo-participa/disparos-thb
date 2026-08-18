@@ -23,7 +23,12 @@ export const HM_STAGE_ENTREVISTA = "hm_entrevista_agendada";
 // comercial. Cards já na etapa seguem livres — a checagem só roda ao entrar.
 export const HM_STAGE_REUNIAO_FINALIZADA = "hm_reuniao_finalizada";
 
-type EstagioHm = { id: number; chave: string; nome: string; aba: string | null; ordem: number };
+type EstagioHm = { id: number; chave: string; nome: string; aba: string | null; ordem: number; origemMovimento: OrigemMovimentoHm };
+
+// D1/B1 (migration 0290): quem tem autoridade para mover um card PARA ou PARA
+// FORA desta coluna — 'hotmart' e 'derivada' são as colunas travadas para
+// quem não é master (ver chavesEstagioTravadasHotmart, logo abaixo).
+export type OrigemMovimentoHm = "hotmart" | "operador" | "derivada";
 
 // cs.estagios é configuração: 38 linhas que praticamente não mudam, mas eram
 // relidas a cada operação da esteira (9,97 mi de varreduras acumuladas). Cache em
@@ -37,10 +42,10 @@ async function carregarEstagios(): Promise<Map<string, EstagioHm>> {
   if (estagiosCache && agora - estagiosCache.em < ESTAGIOS_TTL_MS) {
     return estagiosCache.porChave;
   }
-  const linhas = await query<EstagioHm>(
-    `select id, chave, nome, aba, ordem from cs.estagios where evento = 'HM' and ativo`,
+  const linhas = await query<{ id: number; chave: string; nome: string; aba: string | null; ordem: number; origem_movimento: OrigemMovimentoHm }>(
+    `select id, chave, nome, aba, ordem, origem_movimento from cs.estagios where evento = 'HM' and ativo`,
   );
-  const porChave = new Map(linhas.map((e) => [e.chave, e]));
+  const porChave = new Map(linhas.map((e) => [e.chave, { ...e, origemMovimento: e.origem_movimento }]));
   estagiosCache = { em: agora, porChave };
   return porChave;
 }
@@ -48,6 +53,20 @@ async function carregarEstagios(): Promise<Map<string, EstagioHm>> {
 async function estagioPorChave(chave: string): Promise<EstagioHm | null> {
   const porChave = await carregarEstagios();
   return porChave.get(chave) ?? null;
+}
+
+// FONTE ÚNICA de "esta coluna é fato, não gesto" (0290/B2): as 5 colunas do
+// D1 (boleto gerado, pagamento parcelado/realizado, cancelamento, reembolsado)
+// vêm do BANCO (cs.estagios.origem_movimento) — mudar quais colunas são "fato
+// da Hotmart" é uma migration, não um deploy deste arquivo. Reusa o mesmo
+// cache de carregarEstagios (TTL 5 min).
+async function chavesEstagioTravadasHotmart(): Promise<Set<string>> {
+  const porChave = await carregarEstagios();
+  const travadas = new Set<string>();
+  for (const e of porChave.values()) {
+    if (e.origemMovimento === "hotmart" || e.origemMovimento === "derivada") travadas.add(e.chave);
+  }
+  return travadas;
 }
 
 // Chaves de estágio HM com `ordem` estritamente menor que o limite pedido —
@@ -128,8 +147,10 @@ const CHECKLIST: { col: string; label: string }[] = [
   { col: "ativ_pesquisa", label: "Pesquisa" },
 ];
 
-export type MoverErro = "estagio_invalido" | "checklist_incompleto" | "saldo_em_aberto" | "reuniao_sem_desfecho";
-export type MoverResultado = { ok: true } | { ok: false; reason: MoverErro; faltando?: string[]; faltam?: number };
+export type MoverErro = "estagio_invalido" | "checklist_incompleto" | "saldo_em_aberto" | "reuniao_sem_desfecho" | "coluna_da_hotmart" | "sem_movimento_para_reverter";
+export type MoverResultado =
+  | { ok: true }
+  | { ok: false; reason: MoverErro; faltando?: string[]; faltam?: number; coluna?: string; direcao?: "entrada" | "saida" };
 
 // Itens do checklist que ainda faltam. Lista vazia = ativação completa.
 export async function checklistPendente(compradorId: string): Promise<string[]> {
@@ -183,12 +204,19 @@ async function reposicionarNaColuna(contatoHmId: string, estagioId: number, posi
 // arraste no board do Aurum estava mexendo no card do HM. Opcional para não
 // quebrar chamadas antigas: sem ele, o desempate cai no card do HM (o board
 // histórico), que é o comportamento de antes.
+// `souMaster` (D1/D3, B2, 0290): as 5 colunas "de fato" (boleto gerado,
+// pagamento parcelado/realizado, cancelamento, reembolsado — origem_movimento
+// hotmart/derivada) recusam ENTRADA e SAÍDA por gesto manual, EXCETO quando
+// quem pediu é o master (admin do GP) — mesma exceção que já vale para o
+// cancelamento (cancelamentoBloqueado). Default `false`: quem não repassar a
+// sessão explicitamente cai no lado seguro (trava vale), nunca no lado frouxo.
 export async function moverEstagioHm(
   compradorId: string,
   chave: string,
   autor = "cs",
   posicao?: PosicaoHm,
   produto?: string | null,
+  souMaster = false,
 ): Promise<MoverResultado> {
   const novo = await estagioPorChave(chave);
   if (!novo) return { ok: false, reason: "estagio_invalido" };
@@ -212,6 +240,53 @@ export async function moverEstagioHm(
   if (ch.estagio_id === novo.id && chave !== HM_STAGE_PAGAMENTO) {
     if (posicao) await reposicionarNaColuna(ch.id, novo.id, posicao);
     return { ok: true };
+  }
+
+  // TRAVA D1/D3 (0290/B2): coluna que é FATO (Hotmart) ou ESPELHO (derivada)
+  // não aceita gesto manual — nem para ENTRAR nem para SAIR — exceto do
+  // master. Roda ANTES de qualquer outra trava/efeito colateral: uma coluna
+  // travada recusa mesmo que o checklist/saldo estivessem ok, e não pode
+  // gravar timeline nem mexer em apto_ativacao antes de recusar.
+  //
+  // `envolveColunaTravada` fica calculado SEMPRE (não só quando !souMaster):
+  // é o mesmo sinal que decide, mais abaixo, se o UPDATE de estagio_id precisa
+  // passar por cs.fn_hm_forcar_estagio_master (0291) em vez do `update` cru —
+  // a trigger do banco (trg_hm_c_trava_coluna_hotmart) recusaria o `update`
+  // direto de/para essas colunas mesmo vindo do master, porque a role de
+  // conexão (disparos_app) é a MESMA para todo mundo; só a função SECURITY
+  // DEFINER muda o current_user visto pelo trigger.
+  const travadas = await chavesEstagioTravadasHotmart();
+  if (!souMaster) {
+    if (travadas.has(chave)) {
+      return { ok: false, reason: "coluna_da_hotmart", coluna: novo.nome, direcao: "entrada" };
+    }
+    if (ch.estagio_chave && travadas.has(ch.estagio_chave)) {
+      const atual = await estagioPorChave(ch.estagio_chave);
+      return { ok: false, reason: "coluna_da_hotmart", coluna: atual?.nome ?? ch.estagio_chave, direcao: "saida" };
+    }
+  }
+
+  // Wrapper do master (0291): TODO `update ... set estagio_id` deste ponto em
+  // diante passa por aqui, nunca por `query()` direto. A trigger do banco
+  // (trg_hm_c_trava_coluna_hotmart) recusa qualquer escrita de/para coluna
+  // travada vinda da conexão disparos_app — a MESMA role para master e
+  // operador (lib/db.ts). Quando nem origem nem destino são travados, é um
+  // `update` comum; quando um dos dois é, só passa se `souMaster` (a trava
+  // acima já teria barrado o resto) — e mesmo assim precisa ir pela função
+  // SECURITY DEFINER, senão o trigger recusaria o master também. Decide por
+  // ORIGEM/DESTINO do update específico (não pela `chave` pedida no topo):
+  // o ramo HM_STAGE_PAGAMENTO redireciona o UPDATE real para outro estágio
+  // (fn_hm_etapa_pos_pagamento) — o que importa para o trigger é o par
+  // efetivamente gravado, não a chave que o operador arrastou.
+  const chId = ch.id;
+  const chEstagioChaveOrigem = ch.estagio_chave;
+  async function setEstagioIdHm(estagioDestinoChave: string, estagioDestinoId: number) {
+    const precisaWrapper = travadas.has(estagioDestinoChave) || (!!chEstagioChaveOrigem && travadas.has(chEstagioChaveOrigem));
+    if (precisaWrapper) {
+      await query(`select cs.fn_hm_forcar_estagio_master($1, $2)`, [chId, estagioDestinoId]);
+    } else {
+      await query(`update cs.contatos_hm set estagio_id = $2, atualizado_em = now() where id = $1`, [chId, estagioDestinoId]);
+    }
   }
 
   // Só finaliza (apto/aluno) quem tem o SALDO coberto (0098). Sinal ou pagamento
@@ -286,13 +361,18 @@ export async function moverEstagioHm(
     );
     const pendente = await estagioPorChave(destinoChave?.etapa || HM_STAGE_PENDENTE);
     if (!pendente) return { ok: false, reason: "estagio_invalido" };
+    // 0291: colunas extras primeiro (não tocam estagio_id, não disparam o
+    // trigger de coluna travada) — o estagio_id vai por setEstagioIdHm, que
+    // decide sozinho se precisa do wrapper do master. `pendente.chave` (o
+    // destino REAL, que pode diferir de `chave`/`novo` por causa de
+    // fn_hm_etapa_pos_pagamento) é o que setEstagioIdHm avalia.
     await query(
       `update cs.contatos_hm
-          set estagio_id = $2, pagamento_em = coalesce(pagamento_em, now()),
-              apto_ativacao = true, atualizado_em = now()
+          set pagamento_em = coalesce(pagamento_em, now()), apto_ativacao = true, atualizado_em = now()
         where id = $1`,
-      [ch.id, pendente.id],
+      [ch.id],
     );
+    await setEstagioIdHm(pendente.chave, pendente.id);
     await addInteracaoHm(ch.id, "sistema", "Pagamento realizado — pendente de liberação", autor);
     await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${pendente.nome}"`, autor, ch.estagio_id, pendente.id);
     // O destino real não é a coluna onde o card foi solto — a posição pedida era
@@ -336,12 +416,14 @@ export async function moverEstagioHm(
   // intenção. O aluno só é marcado quando o cancelamento vira FATO: o webhook da
   // Hotmart (PURCHASE_REFUNDED e afins) ou a confirmação manual — confirmarCancelamentoHm.
   if (chave === HM_STAGE_CANCELAMENTO) {
+    // 0291: mesma separação — extras primeiro, estagio_id por setEstagioIdHm
+    // (hm_cancelamento é origem_movimento='hotmart', sempre passa pelo wrapper
+    // quando quem chegou até aqui é o master).
     await query(
-      `update cs.contatos_hm
-          set estagio_id = $2, cancelamento_em = coalesce(cancelamento_em, now()), atualizado_em = now()
-        where id = $1`,
-      [ch.id, novo.id],
+      `update cs.contatos_hm set cancelamento_em = coalesce(cancelamento_em, now()), atualizado_em = now() where id = $1`,
+      [ch.id],
     );
+    await setEstagioIdHm(novo.chave, novo.id);
     await addInteracaoHm(ch.id, "sistema", "Solicitou cancelamento — card fora da esteira de Ativação (o acesso continua valendo até o cancelamento ser confirmado)", autor);
     await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
     await reposicionarNaColuna(ch.id, novo.id, posicao);
@@ -353,7 +435,8 @@ export async function moverEstagioHm(
   // parte. Aqui só posicionamos o card, sem passar pela lógica de "voltar ao
   // Comercial desfaz o pagamento" (que não faz sentido para um reembolso).
   if (chave === HM_STAGE_REEMBOLSADO) {
-    await query(`update cs.contatos_hm set estagio_id = $2, atualizado_em = now() where id = $1`, [ch.id, novo.id]);
+    // 0291: hm_reembolsado é origem_movimento='hotmart' — via setEstagioIdHm.
+    await setEstagioIdHm(novo.chave, novo.id);
     await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
     await reposicionarNaColuna(ch.id, novo.id, posicao);
     return { ok: true };
@@ -367,12 +450,14 @@ export async function moverEstagioHm(
   // regra que o cancelamento já seguia — o dinheiro entrou, e isso não se apaga.
   const voltandoAoComercial = novo.aba === "comercial" && ch.apto_ativacao;
   if (voltandoAoComercial) {
+    // 0291: extras primeiro, estagio_id por setEstagioIdHm — a origem
+    // (ch.estagio_chave) pode ser hm_pagamento_realizado/parcelado (derivada)
+    // quando o master está tirando o card de lá "manualmente" pela ficha.
     await query(
-      `update cs.contatos_hm
-          set estagio_id = $2, apto_ativacao = false, atualizado_em = now()
-        where id = $1`,
-      [ch.id, novo.id],
+      `update cs.contatos_hm set apto_ativacao = false, atualizado_em = now() where id = $1`,
+      [ch.id],
     );
+    await setEstagioIdHm(novo.chave, novo.id);
     await addInteracaoHm(ch.id, "sistema", "Pagamento desfeito — de volta ao Comercial (a data do pagamento fica registrada)", autor);
     await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
     await reposicionarNaColuna(ch.id, novo.id, posicao);
@@ -387,19 +472,18 @@ export async function moverEstagioHm(
   // lá É dizer "pagou": o card ganha a marca, e o aluno é provisionado.
   const entrandoNaAtivacao = novo.aba === "ativacao" && !ch.apto_ativacao;
   if (entrandoNaAtivacao) {
+    // 0291: extras primeiro, estagio_id por setEstagioIdHm.
     await query(
-      `update cs.contatos_hm
-          set estagio_id = $2, apto_ativacao = true,
-              pagamento_em = coalesce(pagamento_em, now()), atualizado_em = now()
-        where id = $1`,
-      [ch.id, novo.id],
+      `update cs.contatos_hm set apto_ativacao = true, pagamento_em = coalesce(pagamento_em, now()), atualizado_em = now() where id = $1`,
+      [ch.id],
     );
+    await setEstagioIdHm(novo.chave, novo.id);
     await addInteracaoHm(ch.id, "sistema", `Card movido para a Ativação ("${novo.nome}") — pagamento considerado confirmado`, autor);
   } else {
-    await query(
-      `update cs.contatos_hm set estagio_id = $2, atualizado_em = now() where id = $1`,
-      [ch.id, novo.id],
-    );
+    // 0291: ramo genérico — cobre, entre outros, a saída manual do master de
+    // hm_boleto_gerado/hm_pagamento_parcelado/hm_pagamento_realizado/
+    // hm_cancelamento/hm_reembolsado para qualquer outra coluna.
+    await setEstagioIdHm(novo.chave, novo.id);
   }
   await addInteracaoHm(ch.id, "mudanca_estagio", `Movido para "${novo.nome}"`, autor, ch.estagio_id, novo.id);
   await reposicionarNaColuna(ch.id, novo.id, posicao);
@@ -451,10 +535,19 @@ export async function moverEstagioHm(
 // `mudanca_estagio` mais recente — que guarda estagio_anterior_id — e devolve o
 // card para lá via moverEstagioHm (que já limpa apto/pagamento se voltar ao
 // Comercial). Retorna false se não há histórico de movimento.
-export async function reverterEstagioHm(compradorId: string, autor = "cs"): Promise<boolean> {
+// `souMaster` (0290/B2): repassado a moverEstagioHm por baixo — sem ele, desfazer
+// um miss-click que devolveria o card para/de uma coluna travada (ex.: alguém
+// arrastou por engano PARA "Boleto Gerado" e tenta desfazer) recusaria mesmo
+// para o master. ⚠️ O retorno NÃO é mais `boolean`: "sem histórico para
+// reverter" e "recusado porque a coluna é da Hotmart" são coisas diferentes
+// para o operador, e um `false` só apagaria a distinção — o mesmo bug que o
+// achado desta rodada preveniu (reason "sem_movimento_para_reverter" continua
+// existindo para o caso original; "coluna_da_hotmart" é o caso novo).
+export async function reverterEstagioHm(compradorId: string, autor = "cs", souMaster = false): Promise<MoverResultado> {
   const ch = await queryOne<{ id: string }>(`select id from cs.contatos_hm where comprador_id = $1`, [compradorId]);
-  if (!ch) return false;
-  // Desfazer é sempre um passo para trás — a trava do checklist não se aplica.
+  if (!ch) return { ok: false, reason: "sem_movimento_para_reverter" };
+  // Desfazer é sempre um passo para trás — a trava do checklist não se aplica
+  // (moverEstagioHm continua recusando só a trava de coluna-da-Hotmart).
 
   const ult = await queryOne<{ estagio_anterior_id: number | null }>(
     `select estagio_anterior_id
@@ -464,12 +557,12 @@ export async function reverterEstagioHm(compradorId: string, autor = "cs"): Prom
       limit 1`,
     [ch.id],
   );
-  if (!ult?.estagio_anterior_id) return false;
+  if (!ult?.estagio_anterior_id) return { ok: false, reason: "sem_movimento_para_reverter" };
 
   const anterior = await estagioPorId(ult.estagio_anterior_id);
-  if (!anterior) return false;
+  if (!anterior) return { ok: false, reason: "sem_movimento_para_reverter" };
 
-  return (await moverEstagioHm(compradorId, anterior.chave, autor)).ok;
+  return moverEstagioHm(compradorId, anterior.chave, autor, undefined, undefined, souMaster);
 }
 
 // Confirma que o cancelamento aconteceu DE VERDADE — o reembolso saiu na
@@ -930,6 +1023,16 @@ export async function veredictoCamposHm(
 }
 
 // Colunas de cancelamento — Reclamada (pedido) e Reembolsado (fato).
+//
+// ⚠️ Não deriva de `origem_movimento` (0290/B1) por design: aquela coluna
+// classifica um conjunto MAIOR (as 5 colunas travadas do D1 — inclui
+// hm_boleto_gerado e as duas espelho de pagamento), enquanto esta lista é
+// especificamente "cancelamento" (a trava de cancelamentoBloqueado/UI, que
+// tem semântica própria — some da tela para quem não é master). Misturar as
+// duas faria hm_boleto_gerado entrar na trava de cancelamento por engano.
+// Já É fonte única hoje (um export, sem duplicação de array literal — os
+// outros dois arquivos que a citam apenas importam este símbolo), então não
+// há o que centralizar aqui além do que já está feito.
 export const HM_ESTAGIOS_CANCELAMENTO = [HM_STAGE_CANCELAMENTO, HM_STAGE_REEMBOLSADO];
 
 // Trava dos cancelados (decisão do Marcio 27/07): um card em Reembolsado/Reclamada
@@ -1046,6 +1149,12 @@ export async function agendarHm(
     // precisa retomar o contato. Só quando o card REALMENTE está na coluna da
     // reunião agendada — desmarcar uma entrevista, ou uma reunião de um card
     // que já saiu dessa etapa por outro caminho, não mexe no estágio.
+    // 0290/B2: nem "hm_reuniao_agendada" (origem) nem "hm_aguardando_retorno"
+    // (destino) são coluna travada (origem_movimento='operador' nas duas) —
+    // este movimento nunca bate na trava de coluna-da-Hotmart, então não
+    // precisa de `souMaster`. Documentado aqui porque é o ponto que o pedido
+    // original destacou como risco de "prender a ficha" — não prende: as
+    // duas pontas são livres por natureza, não por concessão.
     if (tipo === "reuniao" && ch.estagio_chave === "hm_reuniao_agendada") {
       await moverEstagioHm(compradorId, "hm_aguardando_retorno", autor, undefined, produto ?? undefined);
     }

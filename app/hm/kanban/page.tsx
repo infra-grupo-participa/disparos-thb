@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, type OrigemMovimento } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -120,7 +120,15 @@ type Card = {
   /** quitado · mensalidade_em_curso · saldo_parado · cancelado · oferta_enviada · incalculavel */
   situacao?: "quitado" | "mensalidade_em_curso" | "saldo_parado" | "cancelado" | "oferta_enviada" | "incalculavel" | null;
 };
-type Coluna = { chave: string; nome: string; cor: string; aba: string | null };
+type Coluna = {
+  chave: string; nome: string; cor: string; aba: string | null;
+  // COLUNAS IMUTÁVEIS (17/08, contrato do backend): 'hotmart' trava entrada e
+  // saída para quem não é master; 'derivada' é o espelho da Ativação; o resto
+  // é 'operador' (movimento manual normal). Opcional: rota antiga em cache não
+  // manda o campo, e as funções de card-sinais.tsx degradam para a lista
+  // espelhada — nunca destrava por ausência de dado, nunca crasha.
+  origem_movimento?: OrigemMovimento | null;
+};
 
 // O sócio convidado (aba "SÓCIOS T39"). NÃO é comprador nem card financeiro:
 // mora pendurado no titular (cs.hm_socios) e aparece na Ativação só para o Thomas
@@ -196,6 +204,14 @@ function colunaNaAba(card: Card, aba: string): string | null {
 // limpa apto_ativacao), então o board avisa antes.
 function ehEspelho(card: Card, aba: string): boolean {
   return aba === "comercial" && (card.estagio_aba ?? "comercial") === "ativacao";
+}
+// COLUNAS IMUTÁVEIS (17/08): a rota manda `origem_movimento` POR COLUNA (o
+// payload do board), não por card — este helper busca o valor da coluna em que
+// o card está, para as funções de card-sinais.tsx decidirem com a fonte certa.
+// undefined quando a coluna não é encontrada (card órfão momentâneo durante um
+// recarregamento) — as funções de card-sinais já degradam com undefined.
+function colunaOrigemMovimento(colunas: Coluna[], estagioChave: string): OrigemMovimento | null | undefined {
+  return colunas.find((c) => c.chave === estagioChave)?.origem_movimento;
 }
 
 function relativo(iso: string | null): string {
@@ -593,6 +609,21 @@ export default function HmKanbanPage() {
             `${card.nome} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta} Registre o pagamento do saldo (valor cheio) na ficha antes de mover para a Ativação.`,
             "erro",
           );
+        } else if (d?.reason === "coluna_da_hotmart") {
+          // F3 (17/08, colunas imutáveis): o servidor devolve a `coluna` e a
+          // `direcao` ("entrada"|"saida") que recusou — o toast usa as duas em
+          // vez de inventar texto. `coluna` é ESPELHO quando o backend marca
+          // (a mesma etapa que existe como Comercial/Ativação, ex.:
+          // "Pagamento Realizado"); nos demais casos é a etapa vinda da
+          // Hotmart de verdade (Boleto Gerado, Reclamada, Reembolsado).
+          const nomeColuna = typeof d.coluna === "string" && d.coluna ? d.coluna : "esta etapa";
+          const espelho = ehColunaEspelho(estagioChave) || ehColunaEspelho(card.estagio_chave);
+          toast(
+            espelho
+              ? `"${nomeColuna}" é um espelho. ${card.nome} está na Ativação; o Comercial só mostra o pagamento. Para tirá-lo da Ativação, abra a ficha.`
+              : `"${nomeColuna}" vem da Hotmart. A ficha ${d.direcao === "saida" ? "sai" : "entra"} desta etapa sozinha, quando o pagamento é confirmado. Se ${card.nome} já pagou e não andou, avise o administrador — não mova à mão.`,
+            "erro",
+          );
         } else {
           // 403 de permissão (sem_portal / sem_permissao / atribuicao_travada…):
           // diz o MOTIVO em vez de o card só voltar sozinho.
@@ -661,6 +692,15 @@ export default function HmKanbanPage() {
     const abaAtual = card.estagio_aba ?? "comercial";
     // Tirar da Ativação um card pago desfaz o pagamento (o servidor limpa a marca).
     if (abaAtual === "ativacao" && abaDestino === "comercial" && destino.chave !== "hm_cancelamento") {
+      // F4/F5: mesma recusa do arrasto — pelo menu, o operador tem outro
+      // caminho para a MESMA pergunta que o sistema não deveria fazer a ele.
+      if (!ehMaster()) {
+        toast(
+          `"Pagamento Realizado" é um espelho. ${card.nome} está na Ativação; o Comercial só mostra o pagamento. Para tirá-lo da Ativação, abra a ficha.`,
+          "erro",
+        );
+        return;
+      }
       const ok = window.confirm(
         `${card.nome} já quitou o saldo e está em "${card.estagio_nome ?? "Ativação"}".\n\n` +
           `Movê-lo para "${destino.nome}" desfaz o pagamento e tira o card da esteira de Ativação. Continuar?`,
@@ -688,7 +728,20 @@ export default function HmKanbanPage() {
         body: JSON.stringify({ reverter: true }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!d?.ok) toast(`${card.nome} não tem um movimento anterior para desfazer.`, "erro");
+      if (!d?.ok) {
+        // F3 (17/08): desfazer pode esbarrar na MESMA trava de coluna — o
+        // servidor devolve `coluna`/`direcao` também aqui (reverterEstagioHm
+        // repassa souMaster por baixo). Mesmo texto-base do patchMover.
+        if (d?.reason === "coluna_da_hotmart") {
+          const nomeColuna = typeof d.coluna === "string" && d.coluna ? d.coluna : "esta etapa";
+          toast(
+            `"${nomeColuna}" vem da Hotmart. A ficha ${d.direcao === "saida" ? "sai" : "entra"} desta etapa sozinha, quando o pagamento é confirmado — desfazer não pode ir contra isso. Se algo está errado, avise o administrador.`,
+            "erro",
+          );
+        } else {
+          toast(`${card.nome} não tem um movimento anterior para desfazer.`, "erro");
+        }
+      }
     } finally {
       await carregar();
     }
@@ -716,6 +769,19 @@ export default function HmKanbanPage() {
     // e apaga o pagamento — nunca é o que a pessoa quis fazer sem pensar.
     // Cancelamento é a exceção: lá o pagamento é preservado (o servidor sabe).
     if (mudouDeColuna && ehEspelho(card, aba) && estagioChave !== "hm_cancelamento") {
+      // F4 (17/08): o `window.confirm` só é uma PERGUNTA legítima para quem
+      // pode responder "sim" — o master, que pode forçar. Para o operador o
+      // sistema não deveria nem perguntar: o gesto é recusado direto, com o
+      // MESMO texto-base da coluna espelho (MSG.coluna_da_hotmart_espelho em
+      // ajuda.tsx). O card volta sozinho porque este código nunca chega no
+      // `setCards` otimista abaixo.
+      if (!ehMaster()) {
+        toast(
+          `"Pagamento Realizado" é um espelho. ${card.nome} está na Ativação; o Comercial só mostra o pagamento. Para tirá-lo da Ativação, abra a ficha.`,
+          "erro",
+        );
+        return;
+      }
       const etapa = card.estagio_nome ?? "Ativação";
       const ok = window.confirm(
         `${card.nome} já quitou o saldo e está em "${etapa}" na Ativação.\n\n` +
@@ -934,6 +1000,12 @@ export default function HmKanbanPage() {
               const ativa = alvo?.col === col.chave;
               // Onde a linha de inserção aparece nesta coluna (-1 = em nenhum lugar).
               const marca = ativa ? alvo.indice : -1;
+              // COLUNAS IMUTÁVEIS (17/08): a coluna se anuncia ANTES do gesto —
+              // cadeado + legenda para quem vem da Hotmart; "espelho" para quem
+              // só reflete o pagamento realizado na Ativação. Master não lê
+              // trava nenhuma aqui (ele pode forçar; ver F2/F4 abaixo).
+              const colHotmart = ehColunaHotmart(col.chave, col.origem_movimento);
+              const colEspelhoHeader = ehColunaEspelho(col.chave, col.origem_movimento);
               return (
                 <div
                   key={col.chave}
@@ -944,7 +1016,30 @@ export default function HmKanbanPage() {
                 >
                   <div className="group/col flex items-center gap-2 border-b border-slate-200 px-3 py-2.5 dark:border-slate-800">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: col.cor }} />
-                    <span className="flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{col.nome}</span>
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
+                      {col.nome}
+                      {/* F1: o cadeado NUNCA é o único portador — a legenda de
+                          texto ao lado diz o mesmo, para quem não enxerga a cor
+                          nem o ícone. */}
+                      {colHotmart && (
+                        <span
+                          className="inline-flex shrink-0 items-center gap-0.5 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+                          title={TITLE_COLUNA_HOTMART}
+                        >
+                          <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                          Hotmart
+                        </span>
+                      )}
+                      {colEspelhoHeader && (
+                        <span
+                          className="inline-flex shrink-0 items-center gap-0.5 rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                          title={TITLE_COLUNA_ESPELHO}
+                        >
+                          <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+                          espelho
+                        </span>
+                      )}
+                    </span>
                     {/* Relatório só desta etapa — mesmos filtros do board */}
                     <a
                       href={`/api/hm/kanban/export?${paramsFiltro.toString()}${paramsFiltro.toString() ? "&" : ""}estagio=${col.chave}`}
@@ -977,6 +1072,12 @@ export default function HmKanbanPage() {
                       // Espelho não se reordena na própria coluna (a fila dele é a
                       // da Ativação): sem preventDefault, o drop nem acontece.
                       if (ehEspelho(card, aba) && col.chave === COL_PAGAMENTO) return;
+                      // F2: "o gesto não é convidado" — para quem não é master, a
+                      // coluna travada pela Hotmart nem aceita o drop (sem
+                      // preventDefault o navegador mostra o cursor "proibido"
+                      // nativo). Master pode forçar (é ele quem corrige o que a
+                      // Hotmart não refletiu) — a trava aqui é só para operador.
+                      if (!ehMaster() && ehColunaHotmart(col.chave, col.origem_movimento)) return;
                       e.preventDefault();
                       const indice = indiceSobOCursor(e);
                       setAlvo((a) => (a?.col === col.chave && a.indice === indice ? a : { col: col.chave, indice }));
@@ -1035,6 +1136,12 @@ export default function HmKanbanPage() {
                             // Card de colega: abre em LEITURA (contexto, não erro) —
                             // sem arrasto e sem lote; o selo diz de quem ele é.
                             colega={cardDeColega(card)}
+                            // F2 (17/08): a ficha RESIDE numa coluna imutável (não é
+                            // o espelho, que tem seu próprio confirm em F4) — para
+                            // quem não é master, o gesto de arrastar nem começa.
+                            // `bloqueado` já cobre Reclamada/Reembolsado; isto soma
+                            // Boleto Gerado, que abre normalmente mas não se arrasta.
+                            travadoHotmart={!ehMaster() && ehColunaHotmart(card.estagio_chave, colunaOrigemMovimento(colunas, card.estagio_chave))}
                             onDragStart={() => { arrastando.current = card; }}
                             onDragEnd={() => { pararAutoScroll(); arrastando.current = null; setAlvo(null); }}
                             destacado={destacado === card.comprador_id}
@@ -1564,10 +1671,15 @@ function SelosExtras({ itens }: { itens: { key: string; rotulo: string; el: Reac
 }
 
 function CardItem({
-  card, espelho, ehPool, bloqueado, colega, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags, descricoesTags, destacado,
+  card, espelho, ehPool, bloqueado, colega, travadoHotmart, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags, descricoesTags, destacado,
   temMe, associando, onAssociarAMim,
 }: {
-  card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; colega?: boolean; onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
+  card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; colega?: boolean;
+  /** F2 (17/08): a ficha está numa coluna imutável da Hotmart (Boleto Gerado —
+   *  Reclamada/Reembolsado já entram por `bloqueado`) e a sessão não é master.
+   *  O card abre normalmente (não é `bloqueado`); só o arrasto é que não convida. */
+  travadoHotmart?: boolean;
+  onDragStart: () => void; onDragEnd: () => void; onAbrir: () => void;
   onMenu: (x: number, y: number) => void;
   selecionavel: boolean; marcado: boolean; onToggleMarcado: () => void;
   coresTags: Record<string, string | null>;
@@ -1698,17 +1810,22 @@ function CardItem({
       role={bloqueado ? undefined : "button"}
       tabIndex={bloqueado ? -1 : 0}
       // Card de colega abre (em leitura), mas não arrasta — mover é agir.
-      draggable={!bloqueado && !colega}
-      onDragStart={bloqueado || colega ? undefined : onDragStart}
+      // F2: coluna imutável da Hotmart também não convida ao arrasto (abre
+      // normalmente — só o gesto de mover é que some).
+      draggable={!bloqueado && !colega && !travadoHotmart}
+      onDragStart={bloqueado || colega || travadoHotmart ? undefined : onDragStart}
       onDragEnd={onDragEnd}
       onClick={bloqueado ? undefined : onAbrir}
       onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}
       onKeyDown={(e) => { if (e.key === "Enter" && !bloqueado) onAbrir(); }}
+      aria-disabled={bloqueado || travadoHotmart ? true : undefined}
       title={bloqueado
         ? TITLE_CARD_CANCELADO
-        : colega
-          ? `Card de ${card.responsavel ?? "outro operador"} — clique para abrir em leitura`
-          : "Clique para abrir · botão direito para mover ou desfazer"}
+        : travadoHotmart
+          ? TITLE_COLUNA_HOTMART
+          : colega
+            ? `Card de ${card.responsavel ?? "outro operador"} — clique para abrir em leitura`
+            : "Clique para abrir · botão direito para mover ou desfazer"}
       // Portador de cor por INLINE STYLE (vence qualquer classe): borda
       // ESQUERDA = cor da equipe dona (0140). Cor nula cai no cinza padrão;
       // pool de verdade (sem equipe e sem dono) ganha a MESMA faixa tracejada

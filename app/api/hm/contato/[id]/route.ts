@@ -228,9 +228,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   // Desfazer o último movimento (miss click) — ação isolada, ignora os demais campos.
+  // `souMaster` (0290/B2): sem repassar, desfazer um miss-click de/para uma
+  // coluna travada (Boleto Gerado, Cancelamento, etc.) recusaria até para o
+  // master — a mesma exceção que já vale para o arrasto direto.
   if (b.reverter) {
-    const ok = await reverterEstagioHm(compradorId, operador);
-    return NextResponse.json({ ok, reason: ok ? undefined : "sem_movimento_para_reverter" });
+    const r = await reverterEstagioHm(compradorId, operador, souMaster);
+    return NextResponse.json({ ok: r.ok, reason: r.ok ? undefined : r.reason, coluna: r.ok ? undefined : r.coluna, direcao: r.ok ? undefined : r.direcao });
   }
 
   // Histórico de versões (0097). Desfazer = recuperar a versão mais recente;
@@ -473,7 +476,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       [atual.id, "Operador sinalizou que já enviou a primeira mensagem", operador],
     );
     if (atual.estagio_chave === "hm_comprou") {
-      await moverEstagioHm(compradorId, "hm_aguardando_retorno", operador, undefined, produtoCard);
+      await moverEstagioHm(compradorId, "hm_aguardando_retorno", operador, undefined, produtoCard, souMaster);
     }
   }
 
@@ -492,7 +495,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     // ordem >= 20 NÃO é puxado para trás: remarcar a reunião de alguém que
     // já avançou (Pagamento, Ativação) não pode regredir o card.
     if (b.reuniao_em && atual.estagio_chave && (await chavesEstagioAntesDaOrdem(20)).includes(atual.estagio_chave)) {
-      await moverEstagioHm(compradorId, "hm_reuniao_agendada", operador, undefined, produtoCard);
+      await moverEstagioHm(compradorId, "hm_reuniao_agendada", operador, undefined, produtoCard, souMaster);
     }
   }
   if (b.entrevista_em !== undefined) {
@@ -502,8 +505,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     // Comercial e o começo da Ativação, sem listar chave por chave (o array
     // de 8 strings ficava desatualizado a cada estágio novo — foi o caso de
     // hm_aguardando_pagamento/hm_aguardando_retorno, que nunca entraram nele).
+    // ⚠️ 0290/B2: hm_pagamento_parcelado (35) e hm_pagamento_realizado (40) têm
+    // ordem < 90 e são colunas DERIVADAS (travadas) — sem `souMaster`, marcar
+    // entrevista de um card ali recusaria silenciosamente para quem não é
+    // master (comportamento correto: o card não deveria sair de uma coluna-
+    // espelho por efeito colateral de agendar entrevista).
     if (b.entrevista_em && atual.estagio_chave && (await chavesEstagioAntesDaOrdem(90)).includes(atual.estagio_chave)) {
-      await moverEstagioHm(compradorId, HM_STAGE_ENTREVISTA, operador, undefined, produtoCard);
+      await moverEstagioHm(compradorId, HM_STAGE_ENTREVISTA, operador, undefined, produtoCard, souMaster);
     }
   }
 
@@ -523,7 +531,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // cancelamento sem mover deixaria a coluna contando uma história e a base, outra.
   if (b.confirmar_cancelamento) {
     if (atual.estagio_chave !== HM_STAGE_REEMBOLSADO) {
-      await moverEstagioHm(compradorId, HM_STAGE_REEMBOLSADO, operador, undefined, produtoCard);
+      // 0290/B2: hm_reembolsado é coluna da Hotmart (travada) — mas confirmar
+      // cancelamento só chega até aqui depois do gate `cancelamento_so_admin_gp`
+      // (souMaster) lá em cima; repassar aqui é só não bloquear o master de novo.
+      await moverEstagioHm(compradorId, HM_STAGE_REEMBOLSADO, operador, undefined, produtoCard, souMaster);
     }
     // 13/08 (item 2c): `produtoCard` — sem ele, confirmar o cancelamento de UM
     // board podia cancelar o OUTRO (desempate de fn_hm_cancelar prefere HM).
@@ -537,6 +548,29 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (!ok) return NextResponse.json({ ok: false, reason: "falha_ao_desfazer" }, { status: 500 });
   }
 
+  // Reconciliar pelo FATO (D4/B5, 0293) — card preso na fila de espera com
+  // pagamento já no razão, "Reclamada" com reembolso confirmado na Hotmart, ou
+  // "Reembolsado" sem evidência nenhuma. Ação de MASTER: reposiciona pelo fato
+  // do banco (nunca por gesto no board) — recusa para quem não é master, o
+  // mesmo corte da trava de cancelados (D3).
+  if (b.reconciliar_hotmart) {
+    if (!souMaster) {
+      return NextResponse.json({ ok: false, reason: "reconciliar_so_admin_gp" }, { status: 403 });
+    }
+    const r = await queryOne<{ res: { ok: boolean; acao?: string; motivo?: string } }>(
+      `select cs.fn_hm_reconciliar_estagio_hotmart($1, $2) as res`,
+      [compradorId, produtoCard],
+    );
+    const res = r?.res ?? { ok: false, motivo: "falha_ao_reconciliar" };
+    if (res.ok !== true) {
+      return NextResponse.json({ ok: false, reason: res.motivo ?? "falha_ao_reconciliar" }, { status: 400 });
+    }
+    // `acao` diz o que de fato aconteceu (saiu_da_espera, reclamada_para_reembolsado,
+    // alerta_reclamada_sem_evidencia, reembolsado_revertido, nada_a_fazer, ...) —
+    // devolvido para a tela poder confirmar ao master, em vez de um "ok" mudo.
+    return NextResponse.json({ ok: true, acao: res.acao });
+  }
+
   // Nota manual na timeline — ANTES da etapa, porque ela não depende dela: o que
   // o operador escreveu é dele, e uma etapa recusada (checklist incompleto) não
   // pode levar a anotação embora no 400.
@@ -548,9 +582,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // recarregar com o card no mesmo lugar sem explicação.
   if (b.estagio_chave) {
     // 0187: o movimento tem de cair no card DESTE board.
-    const mov = await moverEstagioHm(compradorId, b.estagio_chave, operador, undefined, produtoCard);
+    // 0290/B2: `souMaster` — coluna-da-Hotmart (boleto gerado, pagamento
+    // parcelado/realizado, cancelamento, reembolsado) recusa entrada/saída
+    // manual, exceto do master (D3). `coluna`/`direcao` no 400 para a ficha
+    // montar a mensagem certa.
+    const mov = await moverEstagioHm(compradorId, b.estagio_chave, operador, undefined, produtoCard, souMaster);
     if (!mov.ok) {
-      return NextResponse.json({ ok: false, reason: mov.reason, faltando: mov.faltando }, { status: 400 });
+      return NextResponse.json({ ok: false, reason: mov.reason, faltando: mov.faltando, coluna: mov.coluna, direcao: mov.direcao }, { status: 400 });
     }
   }
 
