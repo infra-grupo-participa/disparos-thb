@@ -121,7 +121,12 @@ const SINONIMOS: [keyof CamposSocio, string[], string[]][] = [
   ["cpf", ["socio_cpf", "cpf_do_socio", "cpf_socio"], ["cpf"]],
   ["email", ["socio_email", "email_do_socio", "e_mail_do_socio"], []],
   ["telefone", ["socio_telefone", "telefone_do_socio"], []],
-  ["cep", [], ["cep"]],
+  // "cep" tem 3 letras e por isso só casa por IGUALDADE (trava contra match
+  // frouxo de sinônimo curto). O formulário real do Respondi rotula
+  // "Informe o CEP do(a) SÓCIO(A)" -> informe_o_cep_do_a_socio_a, que nunca
+  // casaria. Os qualificados abaixo cobrem os rótulos reais sem afrouxar a
+  // trava — medido no payload de 18/08.
+  ["cep", ["informe_o_cep_do_a_socio_a", "cep_do_socio", "socio_cep", "cep_do_a_socio_a"], ["cep"]],
   ["cidade", [], ["cidade"]],
   ["estado", [], ["estado", "uf"]],
   ["bairro", [], ["bairro"]],
@@ -175,13 +180,36 @@ function achatar(payload: Record<string, unknown>): Record<string, unknown> {
     }
   };
 
-  for (const [k, v] of Object.entries(payload)) {
-    if ((k === "respostas" || k === "answers") && v && typeof v === "object") {
-      absorver(v);
-    } else {
-      saida[k] = v;
+  // 18/08 — o payload REAL do Respondi (form "Inclusão sócios (2026.2)")
+  // aninha as respostas um nível abaixo:
+  //   { form: {...}, respondent: { answers: {...}, raw_answers: [...] } }
+  // O achatador só olhava `respostas`/`answers` NA RAIZ, então não encontrava
+  // nada e o webhook devolvia `sem_identificacao` — com o dado completo (nome,
+  // CPF, e-mail, telefone e endereço) chegando e sendo descartado.
+  //
+  // Estes são ENVELOPES: objetos cujo conteúdo é o payload de verdade. Descer
+  // neles é recursivo de propósito (o Respondi pode aninhar mais fundo numa
+  // versão futura), com profundidade limitada para não abrir buraco de
+  // recursão infinita em payload malformado.
+  const ENVELOPES = new Set(["respondent", "response", "submission", "data", "payload", "result"]);
+
+  const percorrer = (obj: Record<string, unknown>, profundidade: number) => {
+    for (const [k, v] of Object.entries(obj)) {
+      if ((k === "respostas" || k === "answers" || k === "raw_answers") && v && typeof v === "object") {
+        absorver(v);
+      } else if (ENVELOPES.has(k) && v && typeof v === "object" && !Array.isArray(v) && profundidade < 4) {
+        // Desce no envelope. As chaves DELE (ex. respondent.date) também entram
+        // achatadas — é o que alimenta `respondidoEm` a partir de "date".
+        percorrer(v as Record<string, unknown>, profundidade + 1);
+      } else {
+        // `saida[k] = v` sem sobrescrever o que já veio de um nível mais
+        // específico: a resposta rotulada vence o metadado do envelope.
+        if (!(k in saida)) saida[k] = v;
+      }
     }
-  }
+  };
+
+  percorrer(payload, 0);
   return saida;
 }
 
