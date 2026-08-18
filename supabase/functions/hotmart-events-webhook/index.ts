@@ -318,16 +318,16 @@ async function alertaProdutoNaoMapeado(
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data: aberto } = await supabase.schema("cs").from("hm_alertas")
-      .select("id").eq("tipo", "produto_nao_mapeado").eq("chave", productId)
-      .is("resolvido_em", null).limit(1);
-    if (aberto && aberto.length > 0) return;
-
-    await supabase.schema("cs").from("hm_alertas").insert({
-      tipo: "produto_nao_mapeado",
-      chave: productId,
-      severidade: "critico",
-      detalhe: `A Hotmart avisou uma venda do produto ${productId} ("${productName}") e o sistema NAO conhece esse produto — a venda foi descartada e nao entrou em lugar nenhum (evento ${evento}). O payload foi guardado em cs.hotmart_eventos e pode ser reprocessado depois de mapear o produto. Precisa do time tecnico: adicionar o produto em PRODUCT_CHANNEL na edge function hotmart-events-webhook.`,
+    // 0294: via RPC, não `.schema("cs")`. O schema cs não é exposto no
+    // PostgREST — o insert direto batia HTTP 406 em silêncio, e por isso este
+    // alerta NUNCA disparou uma única vez. Foi assim que o AURUM entrou sem
+    // ninguém ver. A dedupe (não repetir alerta já aberto) vive dentro da
+    // função, no `on conflict do nothing`.
+    await supabase.rpc("fn_alerta_hotmart", {
+      p_tipo: "produto_nao_mapeado",
+      p_chave: productId,
+      p_severidade: "critico",
+      p_detalhe: `A Hotmart avisou uma venda do produto ${productId} ("${productName}") e o sistema NAO conhece esse produto — a venda foi descartada e nao entrou em lugar nenhum (evento ${evento}). O payload foi guardado em cs.hotmart_eventos e pode ser reprocessado depois de mapear o produto. Precisa do time tecnico: adicionar o produto em PRODUCT_CHANNEL na edge function hotmart-events-webhook.`,
     });
   } catch (e) {
     console.error("[alertaProdutoNaoMapeado] falhou:", e);
@@ -345,12 +345,22 @@ async function logEventoHotmart(
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    await supabase.schema("cs").from("hotmart_eventos").insert({
-      evento,
-      transacao,
-      email: email || null,
-      payload,
+    // 0294: via RPC, não `.schema("cs")`. O schema cs não é exposto no
+    // PostgREST e o insert direto batia HTTP 406 — 71 vezes, sem ninguém ver,
+    // porque o catch abaixo só faz console.error. Resultado: 32 dias de log
+    // perdidos (17/07 a 18/08) enquanto as compras entravam normalmente.
+    const { error } = await supabase.rpc("fn_log_evento_hotmart", {
+      p_evento: evento,
+      p_transacao: transacao,
+      p_email: email || null,
+      p_payload: payload,
     });
+    // O catch continua engolindo a falha de propósito (o log não pode derrubar
+    // o webhook), mas agora o erro aparece no console COM o motivo — e não como
+    // silêncio indistinguível de sucesso.
+    if (error) {
+      console.error("[DB] fn_log_evento_hotmart recusou o evento:", error.message);
+    }
   } catch (e) {
     console.error("[DB] falha ao guardar evento cru:", e instanceof Error ? e.message : e);
   }

@@ -85,8 +85,13 @@ declare
   v_esper_id        smallint;
   v_anterior_id     smallint;
   v_resultado       text;
+  -- 0293/regra (4): estado financeiro e destino da porta de pagamento.
+  v_situacao        text;
+  v_saldo           numeric;
+  v_destino_id      smallint;
 begin
-  select ch.id, ch.estagio_id, e.chave as estagio_chave, ch.aguardando_pagamento_em, ch.produto
+  select ch.id, ch.estagio_id, e.chave as estagio_chave, ch.aguardando_pagamento_em, ch.produto,
+         e.aba, e.ordem
     into v_card
     from cs.contatos_hm ch
     left join cs.estagios e on e.id = ch.estagio_id
@@ -196,6 +201,62 @@ begin
               '0293: nenhuma evidencia de reembolso/chargeback/protesto na Hotmart — reconciliado de volta ao estagio anterior ao cancelamento',
               'sistema', v_card.estagio_id, v_anterior_id);
       return jsonb_build_object('ok', true, 'acao', 'reembolsado_revertido');
+    end if;
+  end if;
+
+  -- ── REGRA (4) — quitou e o card não avançou: preso no COMERCIAL ──────────
+  -- Caso Leandro Francatto (conferencia do Victor Hugo, 18/08): AURUM quitado
+  -- em 16/08, R$ 46.927,32 do Saldo Aurum, saldo_a_perseguir = 0, e o card
+  -- parado em "Aguardando Retorno" (ordem 15) com apto_ativacao = false.
+  --
+  -- "Pagamento Realizado" e porta, nao lugar (0181/hm.ts): quem quita atravessa
+  -- e vai para a Ativacao. Este ramo NAO escolhe destino por conta propria —
+  -- delega a cs.fn_hm_etapa_pos_pagamento(), a MESMA funcao que moverEstagioHm
+  -- usa quando o operador passa pela porta, para que o fato e o gesto levem a
+  -- pessoa exatamente ao mesmo lugar.
+  --
+  -- Guarda dupla, para nao arrastar quem ainda deve: exige situacao 'quitado'
+  -- NA VIEW (que ja reconcilia mensalidade, credito e entrada) E saldo <= 0.
+  -- Parcelado em curso tem situacao 'mensalidade_em_curso' e NAO entra aqui —
+  -- foi exatamente a confusao que a conferencia manual cometeu ao procurar uma
+  -- transacao unica de saldo em quem paga em parcelas.
+  if v_card.aba = 'comercial' and coalesce(v_card.ordem, 0) < 50 then
+    select f.situacao, coalesce(f.saldo_a_perseguir, 0)
+      into v_situacao, v_saldo
+      from cs.vw_hm_financeiro f
+     where f.contato_hm_id = v_card.id;
+
+    if v_situacao = 'quitado' and v_saldo <= 0 then
+      -- fn_hm_etapa_pos_pagamento devolve a CHAVE (text) do estagio, e recebe
+      -- so o comprador — conferido contra pg_get_function_arguments no banco.
+      select e.id into v_destino_id
+        from cs.estagios e
+       where e.evento = 'HM'
+         and e.chave = cs.fn_hm_etapa_pos_pagamento(p_comprador_id)
+         and e.ativo
+       limit 1;
+
+      if v_destino_id is null or v_destino_id = v_card.estagio_id then
+        insert into cs.hm_alertas (tipo, chave, severidade, detalhe)
+        values ('quitado_preso_no_comercial', p_comprador_id::text, 'critico',
+                '0293: quitou (saldo zero) e o card continua no Comercial, mas fn_hm_etapa_pos_pagamento nao resolveu um destino. Mover manualmente na ficha.')
+        on conflict do nothing;
+        return jsonb_build_object('ok', true, 'acao', 'quitado_preso_sem_destino');
+      end if;
+
+      update cs.contatos_hm
+         set estagio_id = v_destino_id,
+             apto_ativacao = true,
+             pagamento_em = coalesce(pagamento_em, quitado_em, now()),
+             atualizado_em = now()
+       where id = v_card.id;
+
+      insert into cs.interacoes (contato_hm_id, tipo, descricao, autor, estagio_anterior_id, estagio_novo_id)
+      values (v_card.id, 'mudanca_estagio',
+              '0293: saldo quitado e sem nada a perseguir — reconciliado do Comercial para a Ativacao pelo fato do pagamento',
+              'sistema', v_card.estagio_id, v_destino_id);
+
+      return jsonb_build_object('ok', true, 'acao', 'quitado_seguiu_para_ativacao');
     end if;
   end if;
 
