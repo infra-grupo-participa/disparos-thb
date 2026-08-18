@@ -161,6 +161,8 @@ export type LinhaEsteira = {
   ativ_comunidade: boolean;
   ativ_grupo: boolean;
   ativ_pesquisa: boolean;
+  /** Acesso ao GPS — programa de implementação (0297). 5º item do checklist. */
+  ativ_gps: boolean;
   grupo_informes: string | null;
   pendencia: string | null;
   // ----- travas -----
@@ -289,7 +291,7 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             fin.ultimo_pagamento_em, fin.parcelas_pagas, fin.parcelas_contratadas,
             fin.valor_parcela, fin.pago_pct, fin.status_parcela, fin.pago_no_ciclo,
             fin.ultimo_abatimento_em, fin.ultimo_abatimento_valor, fin.ultimo_abatimento_categoria,
-            k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa,
+            k.ativ_searchie, k.ativ_comunidade, k.ativ_grupo, k.ativ_pesquisa, k.ativ_gps,
             k.grupo_informes, k.pendencia,
             k.nao_contatar, k.nao_contatar_motivo, k.revisar, k.revisar_motivo,
             k.cancelamento_em, k.cancelamento_motivo,

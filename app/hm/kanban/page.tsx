@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, type OrigemMovimento } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -119,6 +119,12 @@ type Card = {
   inadimplente?: boolean;
   /** quitado · mensalidade_em_curso · saldo_parado · cancelado · oferta_enviada · incalculavel */
   situacao?: "quitado" | "mensalidade_em_curso" | "saldo_parado" | "cancelado" | "oferta_enviada" | "incalculavel" | null;
+  // GPS (18/08, contrato do backend em paralelo) — 5º item do checklist de
+  // ativação, único que nunca é pré-marcado. Opcional: a rota do kanban pode
+  // ainda não devolver o campo (a view cs.contatos_hm_kanban precisa somá-lo
+  // ao SELECT); undefined faz o selo de pendência ficar CALADO (gpsPendente,
+  // card-sinais.tsx), nunca afirma "falta" do que o board não sabe.
+  ativ_gps?: boolean;
 };
 type Coluna = {
   chave: string; nome: string; cor: string; aba: string | null;
@@ -1743,6 +1749,10 @@ function CardItem({
   // as duas tags coexistirem: quem já foi da casa tem acesso pré-marcado, e
   // essa é a informação que muda o que o operador faz.
   const alunoNovo = !alunoAntigo && ehAlunoNovo(card.tags);
+  // GPS pendente (18/08): o único checkbox do pedido do Marcio que vira selo
+  // do card — os outros 4 itens do checklist continuam só na ficha. Some sob
+  // cancelado, mesma regra dos demais selos informativos.
+  const gpsFalta = !cancelado && gpsPendente(card.estagio_aba, card.ativ_gps);
   // As tags de IDENTIDADE já viraram selo acima — tirá-las da régua de tags
   // evita o card dizer "Aluno novo" duas vezes, com duas formas diferentes,
   // a três linhas de distância. Só some da régua o que TEM selo: se por
@@ -1914,6 +1924,7 @@ function CardItem({
               o roteiro de ativação não se aplica a ela. */}
           {!cancelado && alunoNovo && <SeloAlunoNovo />}
           {!cancelado && alunoAntigo && <SeloAlunoAntigo />}
+          {gpsFalta && <SeloGpsPendente />}
           {selecionavel && (
             <input
               type="checkbox"

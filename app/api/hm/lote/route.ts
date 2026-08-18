@@ -83,6 +83,7 @@ export async function POST(req: Request) {
   if (b.ativ_comunidade !== undefined) add("ativ_comunidade", b.ativ_comunidade);
   if (b.ativ_grupo !== undefined) add("ativ_grupo", b.ativ_grupo);
   if (b.ativ_pesquisa !== undefined) add("ativ_pesquisa", b.ativ_pesquisa);
+  if (b.ativ_gps !== undefined) add("ativ_gps", b.ativ_gps);
   // O envio do link carimba a HORA (agora) — é a data que permite cobrar quem
   // recebeu e não pagou; desmarcar limpa o carimbo.
   if (b.link_saldo_enviado !== undefined) {

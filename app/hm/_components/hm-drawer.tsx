@@ -53,6 +53,13 @@ type Contato = {
   revisar: boolean; revisar_motivo: string | null;
   // ativação
   ativ_searchie: boolean; ativ_comunidade: boolean; ativ_grupo: boolean; ativ_pesquisa: boolean;
+  // GPS (18/08, pedido do Marcio): o 5º item do checklist — acesso ao programa
+  // de implementação. Diferente dos 3 primeiros (Searchie/comunidade/grupo),
+  // NUNCA é pré-marcado pela trigger 0213: é o único item que sobra para o
+  // operador de fato conferir em quem já é aluno antigo/renovação. Opcional:
+  // contrato do backend (17/08) — rota antiga em cache não manda o campo, e a
+  // ficha degrada (item some da lista) em vez de quebrar.
+  ativ_gps?: boolean;
   grupo_informes: string | null; pendencia: string | null; link_facebook: string | null;
   cancelamento_em: string | null; cancelamento_motivo: string | null; cancelamento_valor: string | null;
   // cancelamento: o pedido (cancelamento_em) e o fato (cancelamento_efetivado_em)
@@ -208,6 +215,12 @@ const ITENS_CHECKLIST: { campo: keyof Contato; label: string }[] = [
   { campo: "ativ_comunidade", label: "Acesso à comunidade THB" },
   { campo: "ativ_grupo", label: "Grupo de informes" },
   { campo: "ativ_pesquisa", label: "Pesquisa" },
+  // GPS (18/08): 5º item, pedido do Marcio — "a única coisa que fica pendente
+  // do processo de ativação é o acesso dela no programa de implementação do
+  // GPS". Ao contrário dos 3 primeiros, nunca vem pré-marcado pela trigger
+  // 0213 — é o item que sobra de fato para o operador fazer, em aluno novo e
+  // em aluno antigo/renovação.
+  { campo: "ativ_gps", label: "Acesso ao GPS (programa de implementação)" },
 ];
 
 // O avesso do checklist acima: cancelou, alguém tem de TIRAR a pessoa de cada
@@ -582,7 +595,12 @@ export function HmDrawer({
   // (chave hm_entrevista_realizada) ou a linha de chegada seguinte, "Ativação
   // Realizada". O master corrige, mesmo critério da reunião e do cancelado.
   const entrevistaTravada = (c?.estagio_chave === "hm_entrevista_realizada" || c?.estagio_chave === "hm_ativacao_realizada") && !ehMaster();
-  const feitos = c ? ITENS_CHECKLIST.filter((i) => !!c[i.campo]).length : 0;
+  // GPS opcional (contrato do backend, 18/08): some da lista enquanto a rota
+  // não devolver o campo (undefined), em vez de contar como pendência eterna
+  // de um checklist que o backend ainda não sabe responder. Assim que o GET
+  // passar a mandar `ativ_gps`, o item aparece sozinho, sem tocar aqui de novo.
+  const itensChecklist = ITENS_CHECKLIST.filter((i) => i.campo !== "ativ_gps" || c?.ativ_gps !== undefined);
+  const feitos = c ? itensChecklist.filter((i) => !!c[i.campo]).length : 0;
   const revogados = c ? ITENS_REVOGACAO.filter((i) => !!c[i.campo]).length : 0;
 
   // EXPLICAÇÃO DO CRÉDITO PRÓ-RATA (13/08, pedido do Marcio: "o comercial vai
@@ -1610,25 +1628,42 @@ export function HmDrawer({
                 />
               </BlocoAgendamento>
 
-              {/* CHECKLIST DE ATIVAÇÃO — as 4 colunas TRUE/FALSE da planilha.
-                  Juntas elas SÃO "ativado": é o que abre a porta de "Ativação
-                  Realizada", a última coluna da esteira (o servidor recusa a
-                  entrada e diz o que falta). Fora dessa porta, o board é livre. */}
+              {/* CHECKLIST DE ATIVAÇÃO — as colunas TRUE/FALSE da planilha (5
+                  desde 18/08, com o GPS). Juntas elas SÃO "ativado": é o que
+                  abre a porta de "Ativação Realizada", a última coluna da
+                  esteira (o servidor recusa a entrada e diz o que falta). Fora
+                  dessa porta, o board é livre. */}
               <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Checklist de ativação</p>
                   <span className={cn(
                     "rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums",
-                    feitos === ITENS_CHECKLIST.length
+                    feitos === itensChecklist.length
                       ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
                       : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
                   )}>
-                    {feitos}/{ITENS_CHECKLIST.length}
+                    {feitos}/{itensChecklist.length}
                   </span>
                 </div>
 
+                {/* Aluno antigo/renovação (0213): os 3 primeiros vêm marcados
+                    sozinhos pelo sistema ao entrar na Ativação — ninguém da
+                    equipe conferiu ainda. O GPS nunca é pré-marcado: é o item
+                    que sobra de fato para o operador fazer. */}
+                {ehAlunoAntigo(c.tags) && (
+                  <p className="mb-2 flex items-start gap-1.5 rounded bg-indigo-50 px-2 py-1.5 text-[11px] text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                    <svg className="mt-0.5 h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+                    <span>
+                      Aluno antigo: Searchie, comunidade e grupo foram
+                      pré-marcados automaticamente pelo sistema, ninguém da
+                      equipe conferiu ainda. O GPS não é pré-marcado — é o que
+                      falta de fato.
+                    </span>
+                  </p>
+                )}
+
                 <div className="space-y-1.5">
-                  {ITENS_CHECKLIST.map((item) => (
+                  {itensChecklist.map((item) => (
                     <label key={item.campo} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                       <input
                         type="checkbox"

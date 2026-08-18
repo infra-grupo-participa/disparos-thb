@@ -135,16 +135,21 @@ async function addInteracaoHm(
 // pela ficha, redirecionamento do próprio servidor).
 export type PosicaoHm = { antesDe: string | null };
 
-// O checklist de ativação (Searchie, comunidade THB, grupo de informes, pesquisa)
-// É a definição de "ativado" — por isso ele TRAVA a saída de "Acesso Liberado".
-// Sem isso, o card avança para a entrevista com a ativação pela metade e ninguém
-// mais descobre o que ficou faltando (era o papel da coluna "O que está pendente
-// para conclusão" da planilha).
+// O checklist de ativação (Searchie, comunidade THB, grupo de informes, pesquisa,
+// GPS) é a definição de "ativado" — por isso ele TRAVA a saída de "Acesso
+// Liberado". Sem isso, o card avança para a entrevista com a ativação pela
+// metade e ninguém mais descobre o que ficou faltando (era o papel da coluna
+// "O que está pendente para conclusão" da planilha).
+//
+// ativ_gps (0297, pedido do Marcio): acesso ao programa de implementação (GPS).
+// Para aluno antigo/renovação os outros 3 já chegam marcados (0298) — o GPS é
+// justamente o ÚNICO item que sobra pendente para eles, igual a todo mundo.
 const CHECKLIST: { col: string; label: string }[] = [
   { col: "ativ_searchie", label: "Acesso ao Searchie/Óbvio" },
   { col: "ativ_comunidade", label: "Acesso à comunidade THB" },
   { col: "ativ_grupo", label: "Grupo de informes" },
   { col: "ativ_pesquisa", label: "Pesquisa" },
+  { col: "ativ_gps", label: "Acesso ao GPS (programa de implementação)" },
 ];
 
 export type MoverErro = "estagio_invalido" | "checklist_incompleto" | "saldo_em_aberto" | "reuniao_sem_desfecho" | "coluna_da_hotmart" | "sem_movimento_para_reverter";
