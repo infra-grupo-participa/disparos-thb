@@ -76,27 +76,19 @@ begin
   end if;
 
   if v_def ~ 'ativ_gps' then
-    raise exception '0297: cs.contatos_hm_kanban ja expoe ativ_gps — patch ja aplicado, abortado para nao duplicar.';
+    raise exception '0297: cs.contatos_hm_kanban ja expoe ativ_gps — abortado para nao duplicar.';
   end if;
 
-  -- Âncora: a coluna `ativ_pesquisa` na projeção, com o alias de tabela que o
-  -- corpo vivo usar (grupo 1, capturado e reaproveitado) e a vírgula que a
-  -- separa da próxima coluna, preservada. Tolerante ao alias exato,
-  -- intolerante ao resto — não adivinha nada além disso.
-  if v_def !~ '([A-Za-z_][A-Za-z0-9_]*\.)?ativ_pesquisa\s*,' then
-    raise exception '0297: a ancora "ativ_pesquisa," nao casou no fonte de cs.contatos_hm_kanban — abortado antes de gravar view incompleta. Rodar select pg_get_viewdef(''cs.contatos_hm_kanban''::regclass, true) e ajustar a ancora deste patch (posicao/alias real da coluna) antes de reaplicar.';
+  -- ⚠️ A coluna nova entra NO FIM da projecao, nao logo apos ativ_pesquisa.
+  -- `create or replace view` recusa qualquer mudanca na ORDEM das colunas ja
+  -- existentes: inserir no meio empurraria as 60+ seguintes e a migration
+  -- falharia inteira. Conferido no banco: a view tinha 87 colunas.
+  if right(btrim(v_def), 1) <> ';' then
+    raise exception '0297: corpo da view nao termina em ponto-e-virgula — ancora inesperada, abortado.';
   end if;
 
-  -- Só a 1ª ocorrência (ativ_pesquisa não deve se repetir na projeção).
-  v_novo := regexp_replace(
-    v_def,
-    '(([A-Za-z_][A-Za-z0-9_]*\.)?ativ_pesquisa\s*,)',
-    '\1 \2ativ_gps,'
-  );
-
-  if v_novo = v_def then
-    raise exception '0297: o regexp_replace nao alterou o texto da view — ancora nao casou de forma inequivoca. Abortado antes de gravar view incompleta.';
-  end if;
+  v_novo := regexp_replace(btrim(v_def), ';\s*$', '');
+  v_novo := 'select v.*, ch2.ativ_gps from (' || v_novo || ') v join cs.contatos_hm ch2 on ch2.id = v.contato_hm_id';
 
   execute format('create or replace view cs.contatos_hm_kanban as %s', v_novo);
 end $$;
