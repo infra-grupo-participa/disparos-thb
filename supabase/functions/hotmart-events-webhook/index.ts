@@ -1,6 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// `EdgeRuntime` é um global injetado pelo runtime das Supabase Edge Functions
+// (não existe no Deno CLI puro, por isso o type-check local não o conhece sem
+// esta declaração). `waitUntil` deixa uma Promise rodando em background depois
+// que a Response já foi devolvida — é o que permite responder 200 à Hotmart
+// antes de terminar o processamento do evento.
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void };
+
 const HOTMART_HOTTOK = Deno.env.get("HOTMART_HOTTOK") ?? "";
 
 // Credenciais da API da Hotmart (painel → Ferramentas → Credenciais de API).
@@ -276,26 +283,32 @@ async function notifySlack(channel: string, payload: {
     ? "\n\n:warning: *Aguardando compensação* — a venda só conta quando a Hotmart aprovar."
     : "";
 
-  const response = await fetch(webhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: titulo,
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `${payload.aguardandoPagamento ? `*${titulo}*\n\n` : ""}*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Origem:* ${origemLabel}\n*Região:* ${regiaoLabel}\n*Data da compra:* ${dataFormatada}${linhaAprovacao}${avisoPendente}${mencaoIsabela}`,
+  try {
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: titulo,
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `${payload.aguardandoPagamento ? `*${titulo}*\n\n` : ""}*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Origem:* ${origemLabel}\n*Região:* ${regiaoLabel}\n*Data da compra:* ${dataFormatada}${linhaAprovacao}${avisoPendente}${mencaoIsabela}`,
+            },
           },
-        },
-        { type: "divider" },
-      ],
-    }),
-  });
+          { type: "divider" },
+        ],
+      }),
+      // Slack fora do ar não pode travar o processamento do evento — 10s e segue.
+      signal: AbortSignal.timeout(10_000),
+    });
 
-  if (!response.ok) {
-    console.error(`Falha ao notificar Slack (${channel}):`, response.status, await response.text());
+    if (!response.ok) {
+      console.error(`Falha ao notificar Slack (${channel}):`, response.status, await response.text());
+    }
+  } catch (e) {
+    console.error(`[SLACK] falha ao notificar (${channel}):`, e instanceof Error ? e.message : e);
   }
 }
 
@@ -519,12 +532,39 @@ async function persistPurchase(args: {
 
     if (pErr) {
       console.error("[DB] falha ao upsert compra:", pErr.message);
+      await alertaPersistCompraFalhou(args.transaction, pErr.message);
       return;
     }
 
     console.log(`[DB] compra persistida: ${args.transaction} (${args.email})`);
   } catch (e) {
-    console.error("[DB] exceção em persistPurchase:", e instanceof Error ? e.message : e);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[DB] exceção em persistPurchase:", msg);
+    await alertaPersistCompraFalhou(args.transaction, msg);
+  }
+}
+
+// [19/08/2026] persistPurchase é NÃO-FATAL de propósito (ver comentário acima da
+// função): um erro de banco não pode derrubar o webhook. Mas isso também significa
+// que o catch de processarEvento NUNCA vê essa falha — o card sobe no Slack, o
+// payload cru está em cs.hotmart_eventos, e a venda simplesmente não vira linha em
+// `compras`, em silêncio. Mesmo padrão de alertaProdutoNaoMapeado: RPC via schema
+// cs (não exposto no PostgREST — insert direto bateria 406), dedupe por
+// (tipo, chave) dentro da função.
+async function alertaPersistCompraFalhou(transaction: string, motivo: string): Promise<void> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return;
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    await supabase.rpc("fn_alerta_hotmart", {
+      p_tipo: "persist_compra_falhou",
+      p_chave: transaction,
+      p_severidade: "critico",
+      p_detalhe: `A compra ${transaction} foi recebida e o payload cru esta em cs.hotmart_eventos, mas a gravacao em compradores/compras falhou: ${motivo}. A venda NAO esta em public.compras — precisa ser reprocessada manualmente a partir do log cru.`,
+    });
+  } catch (e) {
+    console.error("[alertaPersistCompraFalhou] falhou:", e);
   }
 }
 
@@ -560,22 +600,29 @@ async function hotmartToken(): Promise<string | null> {
     + `?grant_type=client_credentials&client_id=${encodeURIComponent(HOTMART_CLIENT_ID)}`
     + `&client_secret=${encodeURIComponent(HOTMART_CLIENT_SECRET)}`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Basic ${HOTMART_BASIC}`, "Content-Type": "application/json" },
-  });
-  if (!res.ok) {
-    console.error("[HOTMART API] falha ao obter token:", res.status, await res.text());
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Basic ${HOTMART_BASIC}`, "Content-Type": "application/json" },
+      // API da Hotmart pendurada não pode segurar o processamento do evento — 10s e desiste.
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      console.error("[HOTMART API] falha ao obter token:", res.status, await res.text());
+      return null;
+    }
+
+    const json = await res.json() as { access_token?: string; expires_in?: number };
+    if (!json.access_token) return null;
+
+    // Renova 60s antes do vencimento real.
+    const ttlMs = Math.max(0, ((json.expires_in ?? 3600) - 60) * 1000);
+    tokenCache = { token: json.access_token, expiraEm: Date.now() + ttlMs };
+    return json.access_token;
+  } catch (e) {
+    console.error("[HOTMART API] exceção ao obter token:", e instanceof Error ? e.message : e);
     return null;
   }
-
-  const json = await res.json() as { access_token?: string; expires_in?: number };
-  if (!json.access_token) return null;
-
-  // Renova 60s antes do vencimento real.
-  const ttlMs = Math.max(0, ((json.expires_in ?? 3600) - 60) * 1000);
-  tokenCache = { token: json.access_token, expiraEm: Date.now() + ttlMs };
-  return json.access_token;
 }
 
 // Nome da conta Hotmart do comprador daquela transação. null se a API não
@@ -587,7 +634,11 @@ async function nomeDoCompradorNaHotmart(transaction: string): Promise<string | n
   try {
     const res = await fetch(
       `https://developers.hotmart.com/payments/api/v1/sales/users?transaction=${encodeURIComponent(transaction)}`,
-      { headers: { Authorization: `Bearer ${token}` } },
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        // Idem: perder o nome bonito do comprador não pode atrasar a gravação da venda.
+        signal: AbortSignal.timeout(10_000),
+      },
     );
     if (!res.ok) {
       console.error("[HOTMART API] sales/users falhou:", res.status, await res.text());
@@ -745,20 +796,25 @@ async function notifySlackCancelamento(channel: string, payload: {
     ? "\n\n_A remoção dos acessos já foi pedida no canal de acessos._"
     : "\n\n_Ainda não era aluno — não há acesso a remover._";
 
-  const response = await fetch(webhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: `${label}: ${payload.produto}`,
-      blocks: [
-        { type: "section", text: { type: "mrkdwn", text: `:x: *${label}*\n${dados}${rodape}` } },
-        { type: "divider" },
-      ],
-    }),
-  });
+  try {
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `${label}: ${payload.produto}`,
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: `:x: *${label}*\n${dados}${rodape}` } },
+          { type: "divider" },
+        ],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
 
-  if (!response.ok) {
-    console.error(`Falha ao notificar cancelamento no Slack (${channel}):`, response.status, await response.text());
+    if (!response.ok) {
+      console.error(`Falha ao notificar cancelamento no Slack (${channel}):`, response.status, await response.text());
+    }
+  } catch (e) {
+    console.error(`[SLACK] falha ao notificar cancelamento (${channel}):`, e instanceof Error ? e.message : e);
   }
 }
 
@@ -903,315 +959,354 @@ serve(async (req) => {
     });
   }
 
-  const event = (body.event as string) ?? "";
-  const statusCancelamento = EVENTOS_CANCELAMENTO[event];
-  const statusAguardando = EVENTOS_AGUARDANDO_PAGAMENTO[event];
-
-  // ⚠️ O log do evento CRU vem ANTES de qualquer guard, de propósito.
+  // ⚠️ A partir daqui a requisição está AUTENTICADA.
   //
-  // Antes, logEventoHotmart() só era chamado depois de todos os filtros, então o
-  // evento descartado não deixava rastro nenhum — nem em compras, nem no log. Com o
-  // webhook devolvendo 200, a Hotmart nunca retentava e o dado se perdia para
-  // sempre. Foi assim que o boleto do Francisco (HP4238924170) sumiu sem deixar
-  // pista, e por isso a investigação teve de partir do print do painel da Hotmart.
+  // Antes desta correção, tudo — log, resolução de nome pela API da Hotmart,
+  // Slack, persistência da compra — rodava em série ANTES da resposta: 7+
+  // idas de rede, média medida em produção de 2.781 ms (p95 4.991 ms). A
+  // Hotmart tem timeout no webhook; ao estourar, ela desiste e REENVIA o
+  // mesmo evento (mesmo event_id) — o reenvio processa tudo de novo e
+  // duplica o card no Slack. Medido: 15-17/07 132 eventos, 0 duplicados (log
+  // ainda quebrado, custo zero); 18-19/08, com o log consertado (dois
+  // round-trips a mais no caminho crítico), 36 de 37 eventos vieram
+  // duplicados.
   //
-  // Registrar primeiro custa um insert e transforma "sumiu" em "está aqui, e o
-  // sistema decidiu ignorar por este motivo" — que é uma pergunta respondível.
+  // A correção seguinte (gravar o cru em waitUntil, junto com o resto) abriu
+  // uma janela pior: se a instância morrer entre o 200 e o waitUntil rodar
+  // (OOM, limite de wall-clock, deploy, reciclagem), o evento morre SEM
+  // NENHUM RASTRO em cs.hotmart_eventos — e como a Hotmart já recebeu 200,
+  // ela nunca reenvia. Foi assim que o projeto perdeu R$ 206.655 em 9 vendas
+  // por perda silenciosa (caso Aurum, ver alertaProdutoNaoMapeado).
+  //
+  // Por isso o payload cru é gravado aqui, SÍNCRONO, antes do 200 — é 1
+  // round-trip a mais no caminho crítico, não os 7+ que causaram o retry. O
+  // resto (resolver nome, notificar Slack, persistir a compra, processar
+  // cancelamento) continua em background via EdgeRuntime.waitUntil, DEPOIS
+  // que o 200 já foi devolvido.
   {
     const dataCru = body.data as Record<string, unknown> | undefined;
     const compraCru = dataCru?.purchase as Record<string, unknown> | undefined;
     const compradorCru = dataCru?.buyer as Record<string, unknown> | undefined;
+    const eventoCru = (body.event as string) || "(sem evento)";
+    // Não-fatal por construção (logEventoHotmart já engole a própria exceção
+    // internamente): se o log falhar, o evento segue sem rastro em
+    // cs.hotmart_eventos, mas rejeitar a venda por causa disso seria pior —
+    // perder o rastro é ruim, recusar a venda é ruim e ainda faz a Hotmart
+    // retentar um evento que o próximo retry também não vai conseguir logar.
     await logEventoHotmart(
-      event || "(sem evento)",
+      eventoCru,
       compraCru?.transaction ? String(compraCru.transaction) : null,
       compradorCru?.email ? String(compradorCru.email) : null,
       body,
     );
   }
 
-  if (!EVENTOS_APROVACAO.has(event) && !statusCancelamento && !statusAguardando) {
-    return new Response(JSON.stringify({ ok: true, reason: "event_ignored" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  EdgeRuntime.waitUntil(processarEvento(body));
 
-  // Quando o evento aconteceu NA HOTMART. A entrega do webhook pode atrasar, e
-  // "o aluno cancelou dia 12" tem de dizer 12 — não a hora em que o nosso
-  // servidor processou. Sem creation_date no payload, o banco cai no now().
-  const eventoEm = msToIso(Number(body.creation_date ?? 0) || null);
-
-  const data = body.data as Record<string, unknown>;
-  const buyer = data?.buyer as Record<string, unknown>;
-  const purchase = data?.purchase as Record<string, unknown>;
-  const product = data?.product as Record<string, unknown>;
-  const subscriber = data?.subscriber as Record<string, unknown> | undefined;
-
-  // O produto identifica o canal em TODO evento — inclusive nos que não têm
-  // compra (cancelamento de assinatura). Por isso vem antes do guard de payload.
-  const productId = String(product?.id ?? "");
-  const productName = String(product?.name ?? "");
-  const channel = resolveChannel(productId, productName);
-
-  if (!channel) {
-    // [15/08/2026] Isto era um descarte SILENCIOSO: console.log + HTTP 200. A Hotmart lê
-    // 200 como "recebido" e nunca reenvia, então a venda evaporava sem deixar rastro em
-    // lugar nenhum — nem em compras, nem em compradores, nem no log de eventos. Foi assim
-    // que o Aurum ficou fora do sistema inteiro (R$ 206.655,76 em 9 vendas, 01/07 a 14/08).
-    //
-    // Continua devolvendo 200 de propósito: erro aqui não é culpa da Hotmart e reenviar
-    // não resolveria — o produto seguiria não mapeado. O que muda é que agora FICA RASTRO:
-    // o payload cru vai para cs.hotmart_eventos (dá para reprocessar depois de mapear) e
-    // um alerta crítico acende no monitor com o id do produto que falta.
-    console.warn(`Produto não mapeado para nenhum canal: ${productId} (${productName})`);
-    await logEventoHotmart(
-      `${event}:PRODUTO_NAO_MAPEADO`,
-      String(purchase?.transaction ?? "") || null,
-      String(buyer?.email ?? "").trim() || null,
-      body,
-    );
-    await alertaProdutoNaoMapeado(productId, productName, event);
-    return new Response(JSON.stringify({ ok: true, reason: "product_not_mapped" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  // ---- Assinatura cancelada: o payload fala de ASSINANTE, não de compra ----
-  // SUBSCRIPTION_CANCELLATION não traz purchase.transaction — não há transação a
-  // reclassificar. O elo é o e-mail do assinante. Tratado antes do guard de
-  // payload justamente porque não passaria por ele.
-  if (event === "SUBSCRIPTION_CANCELLATION") {
-    const email = String(subscriber?.email ?? buyer?.email ?? "").trim();
-    if (!email) {
-      console.warn("[CANCELAMENTO] assinatura cancelada sem e-mail no payload — nada a casar");
-      return new Response(JSON.stringify({ ok: true, reason: "incomplete_payload" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    // O payload cru do cancelamento passa a ser guardado. Antes só a compra
-    // aprovada era registrada em cs.hotmart_eventos — de um reembolso não
-    // sobrava rastro nenhum, e é justamente o reembolso que alguém vai querer
-    // auditar depois ("cadê a prova de que a Hotmart devolveu o dinheiro?").
-    await logEventoHotmart(event, null, email, body);
-
-    const r = await cancelarPorEmailNoBanco(email, event, eventoEm);
-    await notifySlackCancelamento(channel, {
-      evento: event,
-      // O nome do sistema vem primeiro: é o corrigido. O do payload é reserva.
-      nome: r.nome || String(subscriber?.name ?? buyer?.name ?? email),
-      email: r.email || email,
-      telefone: r.telefone ?? (buyer ? extractPhone(buyer) : null),
-      produto: CHANNEL_LABEL[channel] ?? productName,
-      valor: null,
-      moeda: "BRL",
-      transaction: "— (assinatura)",
-      eraAluno: r.eraAluno,
-      turma: r.turma,
-    });
-
-    return new Response(JSON.stringify({ ok: true, channel, event, ...r }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  if (!buyer?.email || !purchase?.transaction) {
-    return new Response(JSON.stringify({ ok: false, reason: "incomplete_payload" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  // ---- Cancelamento: reembolso, chargeback, protesto, assinatura cancelada ----
-  // A compra é reclassificada (o dinheiro entrou e voltou — isso é história, não
-  // se apaga), o card vai para "Solicitou Cancelamento" com o fato datado, o
-  // aluno é MARCADO como cancelado (some do GPS, continua no banco) e o Slack
-  // chama quem tem de remover os acessos.
-  if (statusCancelamento) {
-    const transaction = String(purchase.transaction);
-    // Guarda o payload cru do reembolso/chargeback antes de agir (ver acima).
-    await logEventoHotmart(event, transaction, String(buyer.email ?? ""), body);
-
-    const r = await cancelarNoBanco(transaction, event, statusCancelamento, eventoEm);
-
-    if (!r.achouCompra) {
-      // Cancelamento de uma compra que nunca chegou aqui (anterior ao webhook,
-      // ou de produto não mapeado). Nada a reclassificar — mas o time precisa
-      // saber, então o aviso vai assim mesmo.
-      console.warn(`[CANCELAMENTO] transação desconhecida no banco: ${transaction} (${event})`);
-    }
-
-    const precoC = purchase.price as Record<string, unknown> | undefined;
-    await notifySlackCancelamento(channel, {
-      evento: event,
-      // O nome do sistema vem primeiro: é o corrigido (o do payload pode ser o
-      // telefone). Cai no payload só quando a compra não existe no banco.
-      nome: r.nome || String(buyer.name ?? "Sem nome"),
-      email: r.email || String(buyer.email ?? ""),
-      telefone: r.telefone ?? extractPhone(buyer),
-      produto: CHANNEL_LABEL[channel] ?? productName,
-      valor: (precoC?.value as number) ?? null,
-      moeda: (precoC?.currency_code as string) ?? "BRL",
-      transaction,
-      eraAluno: r.eraAluno,
-      turma: r.turma,
-    });
-
-    return new Response(JSON.stringify({ ok: true, channel, event, ...r }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  const price = purchase.price as Record<string, unknown> | undefined;
-  // Data da compra de fato (order_date) vs. data em que o pagamento foi aprovado
-  // (approved_date). Divergem em boleto/pix pendente: o boleto é gerado no
-  // order_date e só compensa depois, gerando o approved_date. Em cartão ficam
-  // praticamente iguais. Antes o card usava só a aprovação, o que fazia um boleto
-  // gerado dia 02 e pago dia 04 aparecer como "compra dia 04".
-  const orderDate = Number(purchase.order_date ?? 0) || null;
-  const approvedDate = Number(purchase.approved_date ?? 0) || null;
-  const compraDate = orderDate ?? approvedDate;
-  const isRenovacao = channel === "HM"
-    && (
-      productId === "3507214"
-      || (purchase.is_subscription === true && Number(purchase.recurrency_number ?? 1) > 1)
-    );
-  const produtoLabel = isRenovacao
-    ? "Holding Masters — Renovação"
-    : (CHANNEL_LABEL[channel] ?? productName);
-
-  const rawSck = extractSck(purchase);
-  const origem = rawSck ? resolveOrigemLabel(rawSck) : null;
-
-  // Endereço do comprador. Tenta vários caminhos conhecidos do payload da Hotmart.
-  const { cidade, estado } = extractAddress(data, buyer, purchase);
-
-  const telefone = extractPhone(buyer);
-  // CPF/CNPJ — identidade forte que dedup usa para não criar cadastro órfão.
-  const { documento, tipo: tipoDocumento } = extractDocumento(buyer);
-  // Marca a Isabela apenas em compras de HT vindas de Porto Alegre (cidade ou DDD 51).
-  const markPortoAlegre = channel === "HT" && isPortoAlegre(cidade, telefone);
-
-  // Nome do comprador: o do checkout quando presta, o da conta Hotmart quando não.
-  // Um só valor para o Slack e para o banco — os dois rotulavam o card com o telefone.
-  const nome = await resolveNomeComprador(
-    String(buyer.name ?? ""),
-    String(purchase.transaction),
-  ) || "Sem nome";
-
-  // Logging diagnóstico (temporário) — sai para TODOS os canais enquanto auditamos
-  // a precisão dos webhooks de evento. Remover depois que confirmarmos que tudo
-  // chega correto em cada canal.
-  console.log(`[DIAG ${channel}] buyer keys:`, Object.keys(buyer));
-  console.log(`[DIAG ${channel}] purchase keys:`, Object.keys(purchase));
-  console.log(`[DIAG ${channel}] buyer.address:`, JSON.stringify(buyer.address ?? null));
-  console.log(`[DIAG ${channel}] purchase.address:`, JSON.stringify(purchase.address ?? null));
-  console.log(`[DIAG ${channel}] subscriber.address:`, JSON.stringify((data?.subscriber as Record<string, unknown> | undefined)?.address ?? null));
-  console.log(`[DIAG ${channel}] cidade/estado extraídos:`, cidade, "/", estado);
-  console.log(`[DIAG ${channel}] telefones brutos:`, {
-    checkout_phone: buyer.checkout_phone ?? null,
-    phone: buyer.phone ?? null,
-    phone_local_code: buyer.phone_local_code ?? null,
-    phone_number: buyer.phone_number ?? null,
-  }, "-> normalizado:", telefone);
-  console.log(`[DIAG ${channel}] nome do checkout:`, buyer.name ?? null, "-> gravado:", nome);
-  console.log(`[DIAG ${channel}] sck bruto:`, rawSck, "-> rotulado:", origem);
-  console.log(`[DIAG ${channel}] productId/name:`, productId, "/", productName, "| isRenovacao:", isRenovacao);
-
-  await notifySlack(channel, {
-    nome,
-    email: String(buyer.email ?? ""),
-    telefone,
-    produto: produtoLabel,
-    valor: (price?.value as number) ?? null,
-    moeda: (price?.currency_code as string) ?? "BRL",
-    dataCompraMs: compraDate,
-    dataAprovacaoMs: approvedDate,
-    origem,
-    cidade,
-    estado,
-    markPortoAlegre,
-    aguardandoPagamento: Boolean(statusAguardando),
-  });
-
-  // [ADICIONADO] Persiste a compra aprovada no banco (compradores/compras).
-  // Roda para todos os canais mapeados (base canônica é multi-produto). É a fonte
-  // de contatos do workspace de CS; a esteira de CS é semeada por trigger no banco.
-  const offer = purchase.offer as Record<string, unknown> | undefined;
-  const payment = purchase.payment as Record<string, unknown> | undefined;
-  const fullPrice = purchase.full_price as Record<string, unknown> | undefined;
-
-  // QUAL COBRANÇA É ESTA. No Parcelado Hotmart a MESMA transação é recobrada todo
-  // mês e o contador sobe — e é esse número que diz "a Marina já pagou 2 de 12".
-  // O nome do campo não é confiável: `recurrency_number` veio NULO nas 258 compras
-  // que temos, então ou a Hotmart não o manda aqui, ou usa outro nome. Tentamos
-  // todos os que a documentação e o export sugerem, e, se nenhum vier, assumimos a
-  // 1ª cobrança — que é o comportamento seguro (nunca infla o que a pessoa pagou).
-  // O payload cru fica guardado em cs.hotmart_eventos: quando a próxima parcela
-  // cair, `select * from cs.vw_hotmart_campos` mostra o nome certo sem adivinhação.
-  const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
-  const numeroCobranca =
-    num(purchase.recurrency_number)
-    ?? num((purchase as Record<string, unknown>).charge_number)
-    ?? num(payment?.charge_number)
-    ?? num(payment?.current_installment)
-    ?? num((purchase as Record<string, unknown>).installment_number)
-    ?? null;
-
-  await persistPurchase({
-    nome,
-    email: String(buyer.email),
-    telefone,
-    documento,
-    tipoDocumento,
-    cidade,
-    estado,
-    transaction: String(purchase.transaction),
-    productId,
-    productName,
-    offerCode: offer?.code ? String(offer.code) : null,
-    moeda: (price?.currency_code as string) ?? "BRL",
-    valor: (price?.value as number) ?? null,
-    // Em evento de compra não paga (boleto impresso / carrinho abandonado), o status
-    // é ditado pelo EVENTO, não pelo campo `purchase.status` — a Hotmart às vezes
-    // manda "APPROVED" no payload de um boleto que só foi emitido. Confiar no campo
-    // faria um boleto não pago entrar como compra aprovada, criando card e saldo de
-    // dinheiro que nunca entrou.
-    status: statusAguardando ?? String(purchase.status ?? "APPROVED"),
-    isAssinatura: purchase.is_subscription === true,
-    numeroRecorrencia: num(purchase.recurrency_number),
-    metodoPagamento: payment?.type ? String(payment.type) : null,
-    parcelas: num(payment?.installments_number),
-    dataCompraIso: msToIso(Number(purchase.order_date ?? 0) || null),
-    dataAprovacaoIso: msToIso(Number(purchase.approved_date ?? 0) || null),
-    numeroCobranca,
-    tipoCobranca: payment?.type ? String(payment.type) : null,
-    // `price` é o valor SEM impostos; `full_price` é o que o cliente desembolsou
-    // (com juros do parcelamento). Guardar os dois: um é receita, o outro é o que
-    // o cliente jura que pagou quando liga reclamando.
-    valorComImpostos: num(fullPrice?.value),
-    valorLiquido: num((purchase.producer as Record<string, unknown> | undefined)?.net_value)
-      ?? num((purchase as Record<string, unknown>).net_value),
-    taxaProcessamento: num((purchase as Record<string, unknown>).hotmart_fee),
-    canalVenda: origem ?? null,
-    codigoAssinante: (purchase.subscription as Record<string, unknown> | undefined)?.subscriber_code
-      ? String((purchase.subscription as Record<string, unknown>).subscriber_code) : null,
-    evento: event,
-  });
-
-  // O evento CRU, inteiro. Sem isto, todo bug de integração vira arqueologia: foi
-  // não ter guardado o payload que nos deixou às cegas sobre o número da cobrança.
-  await logEventoHotmart(event, String(purchase.transaction), String(buyer.email ?? ""), body);
-
-  return new Response(JSON.stringify({ ok: true, channel }), {
+  return new Response(JSON.stringify({ ok: true, accepted: true }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
 });
+
+// Todo o processamento do evento — resolução de canal, cancelamento,
+// resolução de nome, notificação no Slack e persistência da compra — roda
+// aqui, DEPOIS que o webhook já respondeu 200 para a Hotmart (ver
+// EdgeRuntime.waitUntil acima). O log do payload cru NÃO é feito aqui: já foi
+// gravado de forma síncrona no handler, antes do 200 (ver comentário acima) —
+// gravar de novo aqui duplicaria a mesma informação com mais um round-trip ao
+// banco, sem ganhar rastreabilidade nenhuma. Por isso a função não devolve
+// Response: o que antes era "return new Response(...)" virou "return" (early
+// exit) ou "continue" implícito, e cada etapa mantém seu próprio try/catch —
+// uma exceção não capturada aqui morre em silêncio (waitUntil não propaga
+// erro para lugar nenhum), e este projeto já perdeu 32 dias de log por um
+// catch que engolia o erro sem logar o motivo. Não repetir o erro: todo catch
+// abaixo tem console.error com a causa.
+async function processarEvento(body: Record<string, unknown>): Promise<void> {
+  try {
+    const event = (body.event as string) ?? "";
+    const statusCancelamento = EVENTOS_CANCELAMENTO[event];
+    const statusAguardando = EVENTOS_AGUARDANDO_PAGAMENTO[event];
+
+    // O log do evento CRU (payload como a Hotmart mandou) já foi gravado de
+    // forma síncrona no handler, ANTES do 200 (ver comentário no serve()
+    // acima) — é o que garante que nenhum evento autenticado se perca sem
+    // rastro, mesmo que a instância morra antes deste waitUntil rodar. Foi
+    // assim que o boleto do Francisco (HP4238924170) sumiu sem deixar pista
+    // no passado, e a correção de 15/08 continua valendo: só mudou O MOMENTO
+    // (agora síncrono, antes do 200) — não repetir aqui.
+
+    if (!EVENTOS_APROVACAO.has(event) && !statusCancelamento && !statusAguardando) {
+      console.log(`[IGNORADO] evento sem tratamento: ${event}`);
+      return;
+    }
+
+    // Quando o evento aconteceu NA HOTMART. A entrega do webhook pode atrasar, e
+    // "o aluno cancelou dia 12" tem de dizer 12 — não a hora em que o nosso
+    // servidor processou. Sem creation_date no payload, o banco cai no now().
+    const eventoEm = msToIso(Number(body.creation_date ?? 0) || null);
+
+    const data = body.data as Record<string, unknown>;
+    const buyer = data?.buyer as Record<string, unknown>;
+    const purchase = data?.purchase as Record<string, unknown>;
+    const product = data?.product as Record<string, unknown>;
+    const subscriber = data?.subscriber as Record<string, unknown> | undefined;
+
+    // O produto identifica o canal em TODO evento — inclusive nos que não têm
+    // compra (cancelamento de assinatura). Por isso vem antes do guard de payload.
+    const productId = String(product?.id ?? "");
+    const productName = String(product?.name ?? "");
+    const channel = resolveChannel(productId, productName);
+
+    if (!channel) {
+      // [15/08/2026] Isto era um descarte SILENCIOSO: console.log + HTTP 200. A Hotmart lê
+      // 200 como "recebido" e nunca reenvia, então a venda evaporava sem deixar rastro em
+      // lugar nenhum — nem em compras, nem em compradores, nem no log de eventos. Foi assim
+      // que o Aurum ficou fora do sistema inteiro (R$ 206.655,76 em 9 vendas, 01/07 a 14/08).
+      //
+      // Continua devolvendo 200 de propósito: erro aqui não é culpa da Hotmart e reenviar
+      // não resolveria — o produto seguiria não mapeado. O que já FICA RASTRO é o payload
+      // cru, gravado de forma síncrona no handler antes do 200 (não se grava de novo aqui);
+      // o que este ramo acrescenta é o alerta crítico com o id do produto que falta.
+      console.warn(`Produto não mapeado para nenhum canal: ${productId} (${productName})`);
+      // Segunda linha grava só o RÓTULO: o payload cru já foi guardado no handler,
+      // mas com o nome do evento puro ("PURCHASE_APPROVED"). Sem esta marca, achar
+      // as vendas descartadas exigiria abrir payload por payload à procura de um
+      // product_id desconhecido. Com ela, um `where evento like '%PRODUTO_NAO_MAPEADO%'`
+      // devolve a lista — foi essa pergunta que destravou o caso do Aurum.
+      await logEventoHotmart(
+        `${event}:PRODUTO_NAO_MAPEADO`,
+        String(purchase?.transaction ?? "") || null,
+        String(buyer?.email ?? "").trim() || null,
+        body,
+      );
+      await alertaProdutoNaoMapeado(productId, productName, event);
+      return;
+    }
+
+    // ---- Assinatura cancelada: o payload fala de ASSINANTE, não de compra ----
+    // SUBSCRIPTION_CANCELLATION não traz purchase.transaction — não há transação a
+    // reclassificar. O elo é o e-mail do assinante. Tratado antes do guard de
+    // payload justamente porque não passaria por ele.
+    if (event === "SUBSCRIPTION_CANCELLATION") {
+      const email = String(subscriber?.email ?? buyer?.email ?? "").trim();
+      if (!email) {
+        console.warn("[CANCELAMENTO] assinatura cancelada sem e-mail no payload — nada a casar");
+        return;
+      }
+
+      // O payload cru do cancelamento já foi guardado no handler, antes do
+      // 200 (ver comentário no serve()) — não se grava de novo aqui.
+      const r = await cancelarPorEmailNoBanco(email, event, eventoEm);
+      await notifySlackCancelamento(channel, {
+        evento: event,
+        // O nome do sistema vem primeiro: é o corrigido. O do payload é reserva.
+        nome: r.nome || String(subscriber?.name ?? buyer?.name ?? email),
+        email: r.email || email,
+        telefone: r.telefone ?? (buyer ? extractPhone(buyer) : null),
+        produto: CHANNEL_LABEL[channel] ?? productName,
+        valor: null,
+        moeda: "BRL",
+        transaction: "— (assinatura)",
+        eraAluno: r.eraAluno,
+        turma: r.turma,
+      });
+
+      return;
+    }
+
+    if (!buyer?.email || !purchase?.transaction) {
+      console.warn(`[INCOMPLETO] payload sem buyer.email ou purchase.transaction (evento ${event})`);
+      return;
+    }
+
+    // ---- Cancelamento: reembolso, chargeback, protesto, assinatura cancelada ----
+    // A compra é reclassificada (o dinheiro entrou e voltou — isso é história, não
+    // se apaga), o card vai para "Solicitou Cancelamento" com o fato datado, o
+    // aluno é MARCADO como cancelado (some do GPS, continua no banco) e o Slack
+    // chama quem tem de remover os acessos.
+    if (statusCancelamento) {
+      const transaction = String(purchase.transaction);
+      // O payload cru do reembolso/chargeback já foi guardado no handler,
+      // antes do 200 (ver comentário no serve()) — não se grava de novo aqui.
+      const r = await cancelarNoBanco(transaction, event, statusCancelamento, eventoEm);
+
+      if (!r.achouCompra) {
+        // Cancelamento de uma compra que nunca chegou aqui (anterior ao webhook,
+        // ou de produto não mapeado). Nada a reclassificar — mas o time precisa
+        // saber, então o aviso vai assim mesmo.
+        console.warn(`[CANCELAMENTO] transação desconhecida no banco: ${transaction} (${event})`);
+      }
+
+      const precoC = purchase.price as Record<string, unknown> | undefined;
+      await notifySlackCancelamento(channel, {
+        evento: event,
+        // O nome do sistema vem primeiro: é o corrigido (o do payload pode ser o
+        // telefone). Cai no payload só quando a compra não existe no banco.
+        nome: r.nome || String(buyer.name ?? "Sem nome"),
+        email: r.email || String(buyer.email ?? ""),
+        telefone: r.telefone ?? extractPhone(buyer),
+        produto: CHANNEL_LABEL[channel] ?? productName,
+        valor: (precoC?.value as number) ?? null,
+        moeda: (precoC?.currency_code as string) ?? "BRL",
+        transaction,
+        eraAluno: r.eraAluno,
+        turma: r.turma,
+      });
+
+      return;
+    }
+
+    const price = purchase.price as Record<string, unknown> | undefined;
+    // Data da compra de fato (order_date) vs. data em que o pagamento foi aprovado
+    // (approved_date). Divergem em boleto/pix pendente: o boleto é gerado no
+    // order_date e só compensa depois, gerando o approved_date. Em cartão ficam
+    // praticamente iguais. Antes o card usava só a aprovação, o que fazia um boleto
+    // gerado dia 02 e pago dia 04 aparecer como "compra dia 04".
+    const orderDate = Number(purchase.order_date ?? 0) || null;
+    const approvedDate = Number(purchase.approved_date ?? 0) || null;
+    const compraDate = orderDate ?? approvedDate;
+    const isRenovacao = channel === "HM"
+      && (
+        productId === "3507214"
+        || (purchase.is_subscription === true && Number(purchase.recurrency_number ?? 1) > 1)
+      );
+    const produtoLabel = isRenovacao
+      ? "Holding Masters — Renovação"
+      : (CHANNEL_LABEL[channel] ?? productName);
+
+    const rawSck = extractSck(purchase);
+    const origem = rawSck ? resolveOrigemLabel(rawSck) : null;
+
+    // Endereço do comprador. Tenta vários caminhos conhecidos do payload da Hotmart.
+    const { cidade, estado } = extractAddress(data, buyer, purchase);
+
+    const telefone = extractPhone(buyer);
+    // CPF/CNPJ — identidade forte que dedup usa para não criar cadastro órfão.
+    const { documento, tipo: tipoDocumento } = extractDocumento(buyer);
+    // Marca a Isabela apenas em compras de HT vindas de Porto Alegre (cidade ou DDD 51).
+    const markPortoAlegre = channel === "HT" && isPortoAlegre(cidade, telefone);
+
+    // Nome do comprador: o do checkout quando presta, o da conta Hotmart quando não.
+    // Um só valor para o Slack e para o banco — os dois rotulavam o card com o telefone.
+    const nome = await resolveNomeComprador(
+      String(buyer.name ?? ""),
+      String(purchase.transaction),
+    ) || "Sem nome";
+
+    // Logging diagnóstico (temporário) — sai para TODOS os canais enquanto auditamos
+    // a precisão dos webhooks de evento. Remover depois que confirmarmos que tudo
+    // chega correto em cada canal.
+    console.log(`[DIAG ${channel}] buyer keys:`, Object.keys(buyer));
+    console.log(`[DIAG ${channel}] purchase keys:`, Object.keys(purchase));
+    console.log(`[DIAG ${channel}] buyer.address:`, JSON.stringify(buyer.address ?? null));
+    console.log(`[DIAG ${channel}] purchase.address:`, JSON.stringify(purchase.address ?? null));
+    console.log(`[DIAG ${channel}] subscriber.address:`, JSON.stringify((data?.subscriber as Record<string, unknown> | undefined)?.address ?? null));
+    console.log(`[DIAG ${channel}] cidade/estado extraídos:`, cidade, "/", estado);
+    console.log(`[DIAG ${channel}] telefones brutos:`, {
+      checkout_phone: buyer.checkout_phone ?? null,
+      phone: buyer.phone ?? null,
+      phone_local_code: buyer.phone_local_code ?? null,
+      phone_number: buyer.phone_number ?? null,
+    }, "-> normalizado:", telefone);
+    console.log(`[DIAG ${channel}] nome do checkout:`, buyer.name ?? null, "-> gravado:", nome);
+    console.log(`[DIAG ${channel}] sck bruto:`, rawSck, "-> rotulado:", origem);
+    console.log(`[DIAG ${channel}] productId/name:`, productId, "/", productName, "| isRenovacao:", isRenovacao);
+
+    await notifySlack(channel, {
+      nome,
+      email: String(buyer.email ?? ""),
+      telefone,
+      produto: produtoLabel,
+      valor: (price?.value as number) ?? null,
+      moeda: (price?.currency_code as string) ?? "BRL",
+      dataCompraMs: compraDate,
+      dataAprovacaoMs: approvedDate,
+      origem,
+      cidade,
+      estado,
+      markPortoAlegre,
+      aguardandoPagamento: Boolean(statusAguardando),
+    });
+
+    // [ADICIONADO] Persiste a compra aprovada no banco (compradores/compras).
+    // Roda para todos os canais mapeados (base canônica é multi-produto). É a fonte
+    // de contatos do workspace de CS; a esteira de CS é semeada por trigger no banco.
+    const offer = purchase.offer as Record<string, unknown> | undefined;
+    const payment = purchase.payment as Record<string, unknown> | undefined;
+    const fullPrice = purchase.full_price as Record<string, unknown> | undefined;
+
+    // QUAL COBRANÇA É ESTA. No Parcelado Hotmart a MESMA transação é recobrada todo
+    // mês e o contador sobe — e é esse número que diz "a Marina já pagou 2 de 12".
+    // O nome do campo não é confiável: `recurrency_number` veio NULO nas 258 compras
+    // que temos, então ou a Hotmart não o manda aqui, ou usa outro nome. Tentamos
+    // todos os que a documentação e o export sugerem, e, se nenhum vier, assumimos a
+    // 1ª cobrança — que é o comportamento seguro (nunca infla o que a pessoa pagou).
+    // O payload cru fica guardado em cs.hotmart_eventos: quando a próxima parcela
+    // cair, `select * from cs.vw_hotmart_campos` mostra o nome certo sem adivinhação.
+    const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
+    const numeroCobranca =
+      num(purchase.recurrency_number)
+      ?? num((purchase as Record<string, unknown>).charge_number)
+      ?? num(payment?.charge_number)
+      ?? num(payment?.current_installment)
+      ?? num((purchase as Record<string, unknown>).installment_number)
+      ?? null;
+
+    await persistPurchase({
+      nome,
+      email: String(buyer.email),
+      telefone,
+      documento,
+      tipoDocumento,
+      cidade,
+      estado,
+      transaction: String(purchase.transaction),
+      productId,
+      productName,
+      offerCode: offer?.code ? String(offer.code) : null,
+      moeda: (price?.currency_code as string) ?? "BRL",
+      valor: (price?.value as number) ?? null,
+      // Em evento de compra não paga (boleto impresso / carrinho abandonado), o status
+      // é ditado pelo EVENTO, não pelo campo `purchase.status` — a Hotmart às vezes
+      // manda "APPROVED" no payload de um boleto que só foi emitido. Confiar no campo
+      // faria um boleto não pago entrar como compra aprovada, criando card e saldo de
+      // dinheiro que nunca entrou.
+      status: statusAguardando ?? String(purchase.status ?? "APPROVED"),
+      isAssinatura: purchase.is_subscription === true,
+      numeroRecorrencia: num(purchase.recurrency_number),
+      metodoPagamento: payment?.type ? String(payment.type) : null,
+      parcelas: num(payment?.installments_number),
+      dataCompraIso: msToIso(Number(purchase.order_date ?? 0) || null),
+      dataAprovacaoIso: msToIso(Number(purchase.approved_date ?? 0) || null),
+      numeroCobranca,
+      tipoCobranca: payment?.type ? String(payment.type) : null,
+      // `price` é o valor SEM impostos; `full_price` é o que o cliente desembolsou
+      // (com juros do parcelamento). Guardar os dois: um é receita, o outro é o que
+      // o cliente jura que pagou quando liga reclamando.
+      valorComImpostos: num(fullPrice?.value),
+      valorLiquido: num((purchase.producer as Record<string, unknown> | undefined)?.net_value)
+        ?? num((purchase as Record<string, unknown>).net_value),
+      taxaProcessamento: num((purchase as Record<string, unknown>).hotmart_fee),
+      canalVenda: origem ?? null,
+      codigoAssinante: (purchase.subscription as Record<string, unknown> | undefined)?.subscriber_code
+        ? String((purchase.subscription as Record<string, unknown>).subscriber_code) : null,
+      evento: event,
+    });
+
+    // O evento CRU já foi gravado no handler, síncrono, antes do 200 (ver
+    // serve() acima) — é o MESMO payload, a mesma transação. Gravar de novo
+    // aqui era duplicar a mesma informação com mais um round-trip ao banco,
+    // sem ganhar rastreabilidade nenhuma.
+
+    console.log(`[OK] evento processado: ${event} (${channel})`);
+  } catch (e) {
+    // Rede de segurança: qualquer exceção que escapou dos catches individuais
+    // (bug de código, não falha de I/O já tratada) cai aqui em vez de morrer
+    // em silêncio dentro do waitUntil.
+    console.error("[processarEvento] exceção não tratada:", e instanceof Error ? e.message : e);
+  }
+}
 
 // Classifica a string sck bruta em rótulo legível.
 // Formato sck: "s=Metaads|c=...|m=...|co=...|t=...|utm_id=..."
