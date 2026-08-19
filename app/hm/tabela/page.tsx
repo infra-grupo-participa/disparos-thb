@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito, RESULTADOS, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, type OrigemMovimento, type MotivoCancelamentoHm, FormularioSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito, RESULTADOS, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, type OrigemMovimento, ModalSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -528,9 +528,6 @@ export default function HmTabelaPage() {
   // recusa do board (`cancelamento_sem_motivo`) — mesmo padrão de popover
   // pendente do remarcar acima, pedindo motivo (obrigatório) + prazo antes.
   const [solicitandoCancelamento, setSolicitandoCancelamento] = useState<{ compradorId: string; nome: string } | null>(null);
-  const [motivoCancelamento, setMotivoCancelamento] = useState<MotivoCancelamentoHm | "">("");
-  const [obsCancelamento, setObsCancelamento] = useState("");
-  const [prazoCancelamento, setPrazoCancelamento] = useState("");
   // Cancelar o popover precisa devolver a célula à data que VALE (o input é não
   // controlado — sem remontar, ele ficaria exibindo uma data que nunca gravou).
   const [nonceData, setNonceData] = useState(0);
@@ -701,9 +698,12 @@ export default function HmTabelaPage() {
     const destino = estagios.find((e) => e.chave === chave);
     if (!destino || chave === l.estagio_chave) return;
     // F5 (18/08): mesma pergunta do board (F1) — motivo antes de mover, para
-    // não deixar o servidor recusar sem explicação nenhuma na tela.
+    // não deixar o servidor recusar sem explicação nenhuma na tela. O reset
+    // dos campos (motivo/observação/prazo) saiu daqui em 19/08: agora é
+    // estado INTERNO de ModalSolicitarCancelamento (card-sinais.tsx), que já
+    // nasce zerado a cada montagem — manter os setState antigos aqui deixaria
+    // três variáveis órfãs (removidas da TAREFA 0).
     if (chave === "hm_solicitou_cancelamento") {
-      setMotivoCancelamento(""); setObsCancelamento(""); setPrazoCancelamento("");
       setSolicitandoCancelamento({ compradorId: l.comprador_id, nome: l.nome });
       return;
     }
@@ -2283,53 +2283,32 @@ export default function HmTabelaPage() {
 
       {/* F5 (18/08): mesmo popover pendente de `remarcar` acima — motivo
           (obrigatório) + observação + prazo (opcionais) antes de mover a linha
-          para "Solicitou Cancelamento". O FORMULÁRIO (campos) é compartilhado
-          com o board via FormularioSolicitarCancelamento (card-sinais.tsx);
-          aqui fica só o popover/botões e o submit, que grava por
-          /api/hm/contato/[id] (sem `antesDe`, que é exclusivo do arrasto). */}
+          para "Solicitou Cancelamento". O wrapper (overlay + título + botões +
+          estado local) saiu daqui em 19/08 para ModalSolicitarCancelamento
+          (card-sinais.tsx) — era cópia quase idêntica da que existia em
+          kanban/page.tsx (achado ao evitar que o drawer virasse a terceira).
+          Só o submit continua aqui: grava por /api/hm/contato/[id] (sem
+          `antesDe`, que é exclusivo do arrasto). */}
       {solicitandoCancelamento && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm" onClick={() => setSolicitandoCancelamento(null)}>
-          <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-4 shadow-pop dark:border-slate-700 dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-              {solicitandoCancelamento.nome} solicitou cancelamento
-            </h3>
-            <FormularioSolicitarCancelamento
-              nome={solicitandoCancelamento.nome}
-              motivoTipo={motivoCancelamento}
-              onMotivoTipo={setMotivoCancelamento}
-              observacao={obsCancelamento}
-              onObservacao={setObsCancelamento}
-              prazo={prazoCancelamento}
-              onPrazo={setPrazoCancelamento}
-              autoFocus
-            />
-            <div className="mt-3 flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setSolicitandoCancelamento(null)}>Cancelar</Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={!motivoCancelamento}
-                onClick={async () => {
-                  const s = solicitandoCancelamento;
-                  setSolicitandoCancelamento(null);
-                  if (!s || !motivoCancelamento) return;
-                  // Motivo/observação/prazo + etapa num ÚNICO PATCH: o servidor
-                  // grava os campos ANTES de mover (app/api/hm/contato/[id]/
-                  // route.ts — o UPDATE genérico roda antes de moverEstagioHm),
-                  // então a trava de entrada já enxerga o motivo no mesmo gesto.
-                  await patch(s.compradorId, s.nome, {
-                    estagio_chave: "hm_solicitou_cancelamento",
-                    cancelamento_motivo_tipo: motivoCancelamento,
-                    cancelamento_motivo: obsCancelamento.trim() || null,
-                    cancelamento_prazo: prazoCancelamento || null,
-                  });
-                }}
-              >
-                Registrar e mover
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ModalSolicitarCancelamento
+          nome={solicitandoCancelamento.nome}
+          onFechar={() => setSolicitandoCancelamento(null)}
+          onConfirmar={async (motivoTipo, observacao, prazo) => {
+            const s = solicitandoCancelamento;
+            setSolicitandoCancelamento(null);
+            if (!s) return;
+            // Motivo/observação/prazo + etapa num ÚNICO PATCH: o servidor
+            // grava os campos ANTES de mover (app/api/hm/contato/[id]/
+            // route.ts — o UPDATE genérico roda antes de moverEstagioHm),
+            // então a trava de entrada já enxerga o motivo no mesmo gesto.
+            await patch(s.compradorId, s.nome, {
+              estagio_chave: "hm_solicitou_cancelamento",
+              cancelamento_motivo_tipo: motivoTipo,
+              cancelamento_motivo: observacao || null,
+              cancelamento_prazo: prazo || null,
+            });
+          }}
+        />
       )}
 
       {dispararLote && (

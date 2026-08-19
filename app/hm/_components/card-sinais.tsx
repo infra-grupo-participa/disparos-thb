@@ -5,6 +5,7 @@
 // conta própria é o mesmo tipo de furo que os níveis de acesso tinham — a
 // regra mora aqui, as telas só exibem.
 
+import { useState } from "react";
 import { cn, fieldClass } from "@/app/_components/ui";
 import { TAGS_ALUNO_ANTIGO } from "@/lib/papeis";
 // Reexportado para que as telas leiam UMA lista só (papeis.ts é a fonte, e é a
@@ -844,6 +845,82 @@ export function FormularioSolicitarCancelamento({
           O que foi combinado com o aluno — não é a garantia de 7 dias da Hotmart.
         </span>
       </label>
+    </>
+  );
+}
+
+// ===== Modal do pedido de cancelamento (19/08) — F1/F5/Vanessa ==============
+// Terceira cópia do MESMO wrapper (overlay + título + FormularioSolicitarCancelamento
+// + botões + estado local) que já existia, quase idêntica, em kanban/page.tsx
+// (SolicitarCancelamentoModal) e tabela/page.tsx (popover inline) — achado ao
+// interceptar o SELECT "Etapa" da ficha (hm-drawer.tsx) para o caso da Vanessa
+// Lima (contato_hm d8b6aaa3-2766-4e93-911d-af3db4b92a18): o drawer seria a
+// TERCEIRA cópia, e reprova o critério otimização. Absorve aqui o que as duas
+// telas já tinham igual; só o SUBMIT continua no chamador — as rotas de
+// gravação são legitimamente diferentes (kanban usa `antesDe` via
+// /api/hm/kanban; tabela e drawer usam PATCH único em /api/hm/contato/[id],
+// ver comentário em FormularioSolicitarCancelamento acima) e unificar o
+// submit juntaria responsabilidades que não são a mesma.
+// Base: o wrapper do kanban (era o mais completo — overlay com onClick de
+// fechar, backdrop-blur). `autoFocus` do select vai LIGADO por padrão agora
+// (a tabela já usava; padronizando as três telas no mesmo comportamento).
+export function ModalSolicitarCancelamento({
+  nome, onConfirmar, onFechar, rotuloConfirmar,
+}: {
+  nome: string;
+  onConfirmar: (motivoTipo: MotivoCancelamentoHm, observacao: string, prazo: string) => Promise<void>;
+  onFechar: () => void;
+  /** Texto do botão de confirmar — default "Registrar e mover" (o caso mais
+   *  comum, quando o modal acompanha um movimento de etapa). O drawer usa um
+   *  rótulo diferente quando a etapa já é a corrente (não está "movendo"). */
+  rotuloConfirmar?: string;
+}) {
+  const [motivoTipo, setMotivoTipo] = useState<MotivoCancelamentoHm | "">("");
+  const [observacao, setObservacao] = useState("");
+  const [prazo, setPrazo] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  async function confirmar() {
+    if (!motivoTipo) return;
+    setSalvando(true);
+    try { await onConfirmar(motivoTipo, observacao.trim(), prazo); } finally { setSalvando(false); }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm" onClick={onFechar} />
+      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-5 shadow-pop dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+          {nome} solicitou cancelamento
+        </h2>
+        <FormularioSolicitarCancelamento
+          nome={nome}
+          motivoTipo={motivoTipo}
+          onMotivoTipo={setMotivoTipo}
+          observacao={observacao}
+          onObservacao={setObservacao}
+          prazo={prazo}
+          onPrazo={setPrazo}
+          autoFocus
+        />
+
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={onFechar}
+            disabled={salvando}
+            className="flex-1 rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800"
+          >
+            Não mover o card
+          </button>
+          <button
+            onClick={confirmar}
+            disabled={salvando || !motivoTipo}
+            className="flex-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
+          >
+            {rotuloConfirmar ?? "Registrar e mover"}
+          </button>
+        </div>
+      </div>
     </>
   );
 }

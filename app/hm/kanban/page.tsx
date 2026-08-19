@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento, abaDoCard, TOM_ABA, SeloAba, labelMotivoCancelamento, estadoPrazoCancelamento, type MotivoCancelamentoHm, FormularioSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento, abaDoCard, TOM_ABA, SeloAba, labelMotivoCancelamento, estadoPrazoCancelamento, ModalSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -294,12 +294,29 @@ function indiceSobOCursor(e: DragEvent<HTMLDivElement>): number {
 // para levar o card lá para o fim, e parece que só se move "de quadrinho em
 // quadrinho". Enquanto o cursor fica na zona de borda (topo/base), a coluna rola
 // sozinha, num loop de requestAnimationFrame que a soltura/saída encerram.
-let rafAutoScroll: number | null = null;
-function pararAutoScroll() {
-  if (rafAutoScroll !== null) { cancelAnimationFrame(rafAutoScroll); rafAutoScroll = null; }
+//
+// 19/08: existe TAMBÉM um auto-scroll HORIZONTAL do board inteiro (ver
+// autoScrollBoard, abaixo) — "arrasto o card pro lado e ele não desliza pro
+// lado pra exibir as demais colunas". Os dois rodam ao mesmo tempo durante o
+// arrasto (a coluna sob o cursor dispara o vertical a cada onDragOver, o board
+// dispara o horizontal por bubbling do mesmo evento) e usar um ÚNICO handle de
+// rAF para os dois faria um cancelar o outro a cada evento — nenhum rolaria de
+// forma confiável. Por isso os handles são SEPARADOS (vertical/horizontal);
+// pararTodoAutoScroll() existe só para os pontos em que o gesto inteiro acaba.
+let rafScrollVertical: number | null = null;
+function pararScrollVertical() {
+  if (rafScrollVertical !== null) { cancelAnimationFrame(rafScrollVertical); rafScrollVertical = null; }
+}
+let rafScrollHorizontal: number | null = null;
+function pararScrollHorizontal() {
+  if (rafScrollHorizontal !== null) { cancelAnimationFrame(rafScrollHorizontal); rafScrollHorizontal = null; }
+}
+function pararTodoAutoScroll() {
+  pararScrollVertical();
+  pararScrollHorizontal();
 }
 function autoScrollColuna(el: HTMLElement, clientY: number) {
-  pararAutoScroll();
+  pararScrollVertical();
   const r = el.getBoundingClientRect();
   const zona = 56; // px de borda que ativam a rolagem
   let vel = 0;
@@ -309,10 +326,34 @@ function autoScrollColuna(el: HTMLElement, clientY: number) {
   const passo = () => {
     const antes = el.scrollTop;
     el.scrollTop += vel;
-    if (el.scrollTop === antes) { rafAutoScroll = null; return; } // chegou ao topo/fim
-    rafAutoScroll = requestAnimationFrame(passo);
+    if (el.scrollTop === antes) { rafScrollVertical = null; return; } // chegou ao topo/fim
+    rafScrollVertical = requestAnimationFrame(passo);
   };
-  rafAutoScroll = requestAnimationFrame(passo);
+  rafScrollVertical = requestAnimationFrame(passo);
+}
+
+// Auto-scroll HORIZONTAL do board durante o arrasto (19/08): sem isto, um card
+// solto perto da borda esquerda/direita do board não revela as colunas fora da
+// área visível — era o board inteiro, e não só a coluna, que precisava rolar.
+// Espelho de autoScrollColuna, mas em scrollLeft/clientX. A zona de borda é
+// maior que a vertical (72px vs 56px): a coluna tem w-72 (288px) e uma faixa
+// pequena demais dispararia falso-positivo ao simplesmente arrastar ENTRE duas
+// colunas vizinhas — 72px ≈ 1/4 da largura de uma coluna.
+function autoScrollBoard(el: HTMLElement, clientX: number) {
+  pararScrollHorizontal();
+  const r = el.getBoundingClientRect();
+  const zona = 72; // px de borda que ativam a rolagem horizontal
+  let vel = 0;
+  if (clientX < r.left + zona) vel = -Math.ceil((r.left + zona - clientX) / 4);
+  else if (clientX > r.right - zona) vel = Math.ceil((clientX - (r.right - zona)) / 4);
+  if (vel === 0) return;
+  const passo = () => {
+    const antes = el.scrollLeft;
+    el.scrollLeft += vel;
+    if (el.scrollLeft === antes) { rafScrollHorizontal = null; return; } // chegou ao início/fim
+    rafScrollHorizontal = requestAnimationFrame(passo);
+  };
+  rafScrollHorizontal = requestAnimationFrame(passo);
 }
 
 // Aplica o movimento na lista local antes da resposta do servidor: tira o card e
@@ -573,6 +614,11 @@ export default function HmKanbanPage() {
     window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
   }, [filtroResp, filtroCanal, filtroTurma, filtrosProntos]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (filtrosProntos) carregar(); }, [carregar, filtrosProntos]);
+  // 19/08: cinto de segurança contra rAF órfão do auto-scroll de drag (vertical
+  // e horizontal) — se o componente desmontar no meio de um arrasto (navegação,
+  // troca de aba do board), o loop de requestAnimationFrame não fica rodando
+  // sem ninguém para consumi-lo.
+  useEffect(() => () => pararTodoAutoScroll(), []);
   useEffect(() => {
     fetch("/api/hm/tags").then((r) => r.json()).then((d) => {
       // cor_efetiva (0206) é a cor derivada da categoria — cai para `cor` (override
@@ -1041,7 +1087,24 @@ export default function HmKanbanPage() {
           action={<Button variant="secondary" onClick={carregar}>Tentar de novo</Button>}
         />
       ) : (
-        <div className="-mx-4 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6" onWheel={rolarBoardHorizontal}>
+        <div
+          className="-mx-4 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6"
+          onWheel={rolarBoardHorizontal}
+          // 19/08: auto-scroll horizontal do board durante o arrasto (ver
+          // autoScrollBoard). Propositalmente SEM e.preventDefault() aqui —
+          // quem aceita o drop continua sendo a coluna (data-col-scroll,
+          // abaixo); se o board aceitasse o drop também, um card solto fora
+          // de qualquer coluna teria destino indefinido. O evento chega até
+          // aqui por bubbling natural do onDragOver da coluna, que não chama
+          // stopPropagation.
+          onDragOver={(e) => {
+            if (arrastando.current || arrastandoSocio.current) autoScrollBoard(e.currentTarget, e.clientX);
+          }}
+          onDrop={() => pararScrollHorizontal()}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) pararScrollHorizontal();
+          }}
+        >
           <Reveal className="flex gap-3">
             {colunasAba.map((col) => {
               const doCol = cardsFiltrados.filter((c) => colunaNaAba(c, aba) === col.chave);
@@ -1145,12 +1208,15 @@ export default function HmKanbanPage() {
                     }}
                     onDragLeave={(e) => {
                       if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-                      pararAutoScroll();
+                      // Só o vertical: sair de UMA coluna (para entrar em outra, ou
+                      // para a faixa de borda do board) não pode matar o auto-scroll
+                      // horizontal que está em andamento no container (19/08).
+                      pararScrollVertical();
                       setAlvo((a) => (a?.col === col.chave ? null : a));
                     }}
                     onDrop={(e) => {
                       e.preventDefault();
-                      pararAutoScroll();
+                      pararTodoAutoScroll(); // o gesto acabou — para os dois
                       // Sócio arrastado (0150): fixa a coluna dele e encerra.
                       const socio = arrastandoSocio.current;
                       if (socio) {
@@ -1201,7 +1267,7 @@ export default function HmKanbanPage() {
                             // Boleto Gerado, que abre normalmente mas não se arrasta.
                             travadoHotmart={!ehMaster() && ehColunaHotmart(card.estagio_chave, colunaOrigemMovimento(colunas, card.estagio_chave))}
                             onDragStart={() => { arrastando.current = card; }}
-                            onDragEnd={() => { pararAutoScroll(); arrastando.current = null; setAlvo(null); }}
+                            onDragEnd={() => { pararTodoAutoScroll(); arrastando.current = null; setAlvo(null); }}
                             destacado={destacado === card.comprador_id}
                             onAbrir={() => { if (!cardBloqueado(card)) setSelecionado(card.comprador_id); }}
                             onMenu={(x, y) => setMenu({ card, x, y })}
@@ -1232,7 +1298,7 @@ export default function HmKanbanPage() {
                         // remoção); o resto pode ser movido entre as colunas.
                         arrastavel={!s.titular_cancelado}
                         onDragStart={() => { arrastandoSocio.current = s; }}
-                        onDragEnd={() => { pararAutoScroll(); arrastandoSocio.current = null; setAlvo(null); }}
+                        onDragEnd={() => { pararTodoAutoScroll(); arrastandoSocio.current = null; setAlvo(null); }}
                       />
                     ))}
                   </div>
@@ -1375,7 +1441,7 @@ export default function HmKanbanPage() {
           motivo (obrigatório) + prazo (opcional) ANTES do movimento — mesmo
           padrão do CancelamentoModal acima, gesto único. */}
       {solicitandoCancelamento && (
-        <SolicitarCancelamentoModal
+        <ModalSolicitarCancelamento
           nome={solicitandoCancelamento.card.nome}
           onFechar={() => { setSolicitandoCancelamento(null); carregar(); }}
           onConfirmar={async (motivoTipo, observacao, prazo) => {
@@ -1698,64 +1764,12 @@ function CancelamentoModal({ nome, onEscolher, onFechar }: {
 // cancelamento, ele explique o motivo do cancelamento, e o prazo de
 // cancelamento." Motivo (lista fechada, obrigatório) + observação livre
 // (opcional) + prazo pedido pela pessoa (opcional — é o compromisso do
-// comercial com o aluno, NÃO a garantia de 7 dias da Hotmart). Mesmo formato
-// visual de CancelamentoModal, acima — o FORMULÁRIO em si (campos) é
-// compartilhado com a tabela via FormularioSolicitarCancelamento
-// (card-sinais.tsx); só o wrapper/overlay/botões e o submit (que usa
-// `antesDe`, exclusivo do arrasto) ficam aqui.
-function SolicitarCancelamentoModal({ nome, onConfirmar, onFechar }: {
-  nome: string;
-  onConfirmar: (motivoTipo: MotivoCancelamentoHm, observacao: string, prazo: string) => Promise<void>;
-  onFechar: () => void;
-}) {
-  const [motivoTipo, setMotivoTipo] = useState<MotivoCancelamentoHm | "">("");
-  const [observacao, setObservacao] = useState("");
-  const [prazo, setPrazo] = useState("");
-  const [salvando, setSalvando] = useState(false);
-
-  async function confirmar() {
-    if (!motivoTipo) return;
-    setSalvando(true);
-    try { await onConfirmar(motivoTipo, observacao.trim(), prazo); } finally { setSalvando(false); }
-  }
-
-  return (
-    <>
-      <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm" onClick={onFechar} />
-      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-5 shadow-pop dark:border-slate-800 dark:bg-slate-900">
-        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
-          {nome} solicitou cancelamento
-        </h2>
-        <FormularioSolicitarCancelamento
-          nome={nome}
-          motivoTipo={motivoTipo}
-          onMotivoTipo={setMotivoTipo}
-          observacao={observacao}
-          onObservacao={setObservacao}
-          prazo={prazo}
-          onPrazo={setPrazo}
-        />
-
-        <div className="mt-4 flex gap-2">
-          <button
-            onClick={onFechar}
-            disabled={salvando}
-            className="flex-1 rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800"
-          >
-            Não mover o card
-          </button>
-          <button
-            onClick={confirmar}
-            disabled={salvando || !motivoTipo}
-            className="flex-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:bg-amber-500/20"
-          >
-            Registrar e mover
-          </button>
-        </div>
-      </div>
-    </>
-  );
-}
+// comercial com o aluno, NÃO a garantia de 7 dias da Hotmart). O wrapper
+// (overlay + título + botões + estado local) saiu daqui em 19/08 para
+// ModalSolicitarCancelamento (card-sinais.tsx) — havia a MESMA cópia em
+// tabela/page.tsx, e o drawer ia virar a terceira ao interceptar o select
+// "Etapa" para o caso da Vanessa Lima. Só o SUBMIT (usa `antesDe`, exclusivo
+// do arrasto) continua abaixo, no ponto de uso.
 
 // Linha que mostra em que ponto da fila o card vai cair.
 function LinhaDrop() {
