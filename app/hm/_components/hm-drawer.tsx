@@ -520,7 +520,7 @@ export function HmDrawer({
           // la. Agora a mensagem explica os DOIS caminhos que resolvem.
           window.alert(
             `${c?.nome ?? "Esta pessoa"} não pode entrar em "Solicitou Cancelamento" sem o motivo do pedido.\n\n` +
-              "O motivo é escolhido na janela que abre ao mover o card para essa etapa (arrastando no board ou pelo menu \"mover\"). " +
+              "O motivo é escolhido na janela que abre ao mover a ficha para essa etapa (arrastando na Jornada ou pelo menu \"mover\"). " +
               "Também dá para preencher no bloco \"Pedido de cancelamento\" aqui na ficha.",
           );
         } else {
