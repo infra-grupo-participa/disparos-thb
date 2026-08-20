@@ -864,26 +864,55 @@ export function FormularioSolicitarCancelamento({
 // Base: o wrapper do kanban (era o mais completo — overlay com onClick de
 // fechar, backdrop-blur). `autoFocus` do select vai LIGADO por padrão agora
 // (a tabela já usava; padronizando as três telas no mesmo comportamento).
+//
+// F1 (20/08, caso Kelly, comprador_id 388cd726-4e51-4c8b-afa7-528cedd3e494):
+// o modal virou a ÚNICA porta de escrita dos 3 campos (motivo/observação/
+// prazo) — a ficha só EXIBE e abre este modal pré-carregado. Antes, os 3
+// `useState` nasciam vazios (""), então reabrir o modal sobre um pedido já
+// registrado (ex.: reentrar em "Solicitou Cancelamento" depois de sair, ou
+// editar pela ficha) mostrava campos em branco — e os chamadores gravavam
+// `observacao || null`, apagando o texto que a operadora já tinha escrito.
+// Prop `iniciais` resolve os dois problemas: pré-carrega os `useState` e
+// devolve ao chamador um flag `mudou` por campo, para ele decidir entre
+// omitir a chave (nada mudou → não mexe no que está gravado) ou mandar
+// `null` (o operador apagou de propósito um valor que existia).
+export type ValoresCancelamento = { motivoTipo: MotivoCancelamentoHm | ""; observacao: string; prazo: string };
+
 export function ModalSolicitarCancelamento({
-  nome, onConfirmar, onFechar, rotuloConfirmar,
+  nome, iniciais, onConfirmar, onFechar, rotuloConfirmar,
 }: {
   nome: string;
-  onConfirmar: (motivoTipo: MotivoCancelamentoHm, observacao: string, prazo: string) => Promise<void>;
+  /** Pré-carga dos 3 campos — vem do que já está gravado (card/linha/ficha).
+   *  Ausente = pedido novo, os 3 campos nascem vazios (comportamento antigo). */
+  iniciais?: ValoresCancelamento;
+  onConfirmar: (
+    valores: ValoresCancelamento,
+    mudou: { observacao: boolean; prazo: boolean },
+  ) => Promise<void>;
   onFechar: () => void;
   /** Texto do botão de confirmar — default "Registrar e mover" (o caso mais
    *  comum, quando o modal acompanha um movimento de etapa). O drawer usa um
    *  rótulo diferente quando a etapa já é a corrente (não está "movendo"). */
   rotuloConfirmar?: string;
 }) {
-  const [motivoTipo, setMotivoTipo] = useState<MotivoCancelamentoHm | "">("");
-  const [observacao, setObservacao] = useState("");
-  const [prazo, setPrazo] = useState("");
+  const [motivoTipo, setMotivoTipo] = useState<MotivoCancelamentoHm | "">(iniciais?.motivoTipo ?? "");
+  const [observacao, setObservacao] = useState(iniciais?.observacao ?? "");
+  const [prazo, setPrazo] = useState(iniciais?.prazo ?? "");
   const [salvando, setSalvando] = useState(false);
 
   async function confirmar() {
     if (!motivoTipo) return;
     setSalvando(true);
-    try { await onConfirmar(motivoTipo, observacao.trim(), prazo); } finally { setSalvando(false); }
+    const observacaoFinal = observacao.trim();
+    try {
+      await onConfirmar(
+        { motivoTipo, observacao: observacaoFinal, prazo },
+        {
+          observacao: observacaoFinal !== (iniciais?.observacao ?? ""),
+          prazo: prazo !== (iniciais?.prazo ?? ""),
+        },
+      );
+    } finally { setSalvando(false); }
   }
 
   return (
@@ -910,7 +939,7 @@ export function ModalSolicitarCancelamento({
             disabled={salvando}
             className="flex-1 rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800"
           >
-            Não mover o card
+            Não mover
           </button>
           <button
             onClick={confirmar}

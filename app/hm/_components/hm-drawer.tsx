@@ -10,7 +10,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito, RESULTADOS, estadoReuniaoCard, MOTIVOS_CANCELAMENTO_HM, LABEL_MOTIVO_CANCELAMENTO_HM, type MotivoCancelamentoHm, ModalSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito, RESULTADOS, estadoReuniaoCard, labelMotivoCancelamento, type MotivoCancelamentoHm, ModalSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 // A cor da marca de cada portal — a MESMA que o operador vê no topo da tela.
 import { PORTAIS, type PortalId } from "@/lib/marcas";
@@ -362,13 +362,15 @@ export function HmDrawer({
   const [verFinanceiro, setVerFinanceiro] = useState(false);
   const [acordo, setAcordo] = useState("");
   const [previsao, setPrevisao] = useState("");
-  // Prazo do PEDIDO de cancelamento (0306, 18/08) — mesmo padrão de rascunho
-  // local de `previsao` (input date, grava no blur).
-  const [prazoCancelamento, setPrazoCancelamento] = useState("");
   // TAREFA 1 (19/08, caso Vanessa Lima): controla o modal que o select "Etapa"
   // abre ao tentar entrar em "Solicitou Cancelamento" sem motivo gravado —
   // mesmo modal que o board já usa (ModalSolicitarCancelamento, card-sinais.tsx).
-  const [solicitandoCancelamento, setSolicitandoCancelamento] = useState(false);
+  // Origem da abertura do modal de cancelamento: distingue "mover" (select
+  // "Etapa", entrando em "Solicitou Cancelamento" — inclui a mudança de
+  // etapa no PATCH) de "editar" (botão "Editar o pedido de cancelamento" no
+  // bloco somente-leitura, disponível mesmo com a ficha já em outra etapa,
+  // ex.: "Reembolsado" — NUNCA deve mover o card, só atualizar os 3 campos).
+  const [solicitandoCancelamento, setSolicitandoCancelamento] = useState<null | "mover" | "editar">(null);
   const [pendencia, setPendencia] = useState("");
   // F8 (17/08): intenção de pagamento — mesmo padrão de rascunho local da
   // observação (grava no blur); o select grava direto (sem rascunho, como
@@ -425,7 +427,6 @@ export function HmDrawer({
       if (rascunhoIniciado.current !== compradorId) {
         setAcordo(d.contato.acordo ?? "");
         setPrevisao(d.contato.pagamento_previsto_em?.slice(0, 10) ?? "");
-        setPrazoCancelamento(d.contato.cancelamento_prazo?.slice(0, 10) ?? "");
         setPendencia(d.contato.pendencia ?? "");
         setGrupo(d.contato.grupo_informes ?? "");
         setCreditoObs(d.contato.credito_obs ?? "");
@@ -1429,13 +1430,13 @@ export function HmDrawer({
                     // (linha ~505) e a pessoa ficava presa num círculo. Agora
                     // intercepta ANTES do patch e abre o mesmo modal que o
                     // board usa (ModalSolicitarCancelamento).
-                    // A guarda `!c.cancelamento_motivo_tipo` importa: a trava é
-                    // só de ENTRADA — quem já tem o tipo gravado (reabriu o
-                    // select sem mudar de fato, ou o tipo foi preenchido pelo
-                    // bloco "Pedido de cancelamento") não é obrigado a passar
-                    // pelo modal de novo.
-                    if (destino === "hm_solicitou_cancelamento" && !c.cancelamento_motivo_tipo) {
-                      setSolicitandoCancelamento(true);
+                    // 20/08 (F3, porta única): a guarda `!c.cancelamento_motivo_tipo`
+                    // FOI REMOVIDA — o modal é agora a ÚNICA porta de escrita
+                    // dos 3 campos do pedido de cancelamento, então SEMPRE
+                    // abre ao entrar nesta etapa (mesmo com tipo já gravado);
+                    // pré-carregado, confirmar de novo é um clique.
+                    if (destino === "hm_solicitou_cancelamento") {
+                      setSolicitandoCancelamento("mover");
                       return; // NÃO faz patch — o select volta sozinho (é controlado por c.estagio_chave)
                     }
                     // TODO (19/08): "Reclamada"/"Reembolsado" (hm_cancelamento/
@@ -1807,47 +1808,58 @@ export function HmDrawer({
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Pedido de cancelamento
                   </p>
-                  <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    Motivo {c.estagio_chave === "hm_solicitou_cancelamento" && <span className="text-rose-500">*</span>}
-                    <select
-                      value={c.cancelamento_motivo_tipo ?? ""}
-                      onChange={(e) => patch({ cancelamento_motivo_tipo: e.target.value || null })}
-                      className={fieldClass}
-                      disabled={salvando || somenteLeitura}
+
+                  {/* F5 (20/08, caso Kelly, comprador_id
+                      388cd726-4e51-4c8b-afa7-528cedd3e494): ela abriu a ficha,
+                      viu este bloco e escreveu o motivo na Observação (texto
+                      livre) — mas a trava de entrada em "Solicitou
+                      Cancelamento" exige a CATEGORIA, que ficou nula. O
+                      sistema recusava o movimento sem dizer o porquê. Este
+                      aviso é o que faltava: diz explicitamente o que falta e
+                      abre o modal já com o texto que ela escreveu, para ela
+                      só escolher a categoria (não redigitar). 20 fichas reais
+                      estão neste estado hoje. */}
+                  {c.cancelamento_motivo != null && c.cancelamento_motivo_tipo == null && (
+                    <p className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+                      Falta escolher a categoria do motivo — sem ela, esta ficha não pode entrar em &quot;Solicitou Cancelamento&quot;. O texto já escrito não some, é só selecionar.
+                    </p>
+                  )}
+
+                  {/* Somente-leitura (20/08, F3): o modal virou a ÚNICA porta
+                      de escrita dos 3 campos — este bloco só MOSTRA o que já
+                      está gravado (quem abre a ficha precisa ver o pedido) e
+                      leva ao mesmo modal, pré-carregado, para editar. Elimina
+                      estruturalmente o caso da Kelly: no modal a categoria é
+                      obrigatória e o botão de confirmar fica desabilitado sem
+                      ela — não existe mais caminho para gravar observação sem
+                      categoria por engano. */}
+                  <dl className="space-y-1.5 text-sm">
+                    <div>
+                      <dt className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Motivo</dt>
+                      <dd className="text-slate-700 dark:text-slate-200">
+                        {labelMotivoCancelamento(c.cancelamento_motivo_tipo) ?? "— não escolhido —"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Observação</dt>
+                      <dd className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{c.cancelamento_motivo ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Data em que ela quer cancelar</dt>
+                      <dd className="text-slate-700 dark:text-slate-200">{fmtData(c.cancelamento_prazo ?? null)}</dd>
+                    </div>
+                  </dl>
+
+                  {!somenteLeitura && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-2.5"
+                      onClick={() => setSolicitandoCancelamento("editar")}
                     >
-                      <option value="">— selecione —</option>
-                      {MOTIVOS_CANCELAMENTO_HM.map((m) => (
-                        <option key={m} value={m}>{LABEL_MOTIVO_CANCELAMENTO_HM[m as MotivoCancelamentoHm]}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    Observação
-                    <textarea
-                      defaultValue={c.cancelamento_motivo ?? ""}
-                      disabled={somenteLeitura}
-                      onBlur={(e) => { if (e.target.value !== (c.cancelamento_motivo ?? "")) patch({ cancelamento_motivo: e.target.value || null }); }}
-                      rows={2}
-                      placeholder="Detalhe o que a pessoa disse…"
-                      className={fieldClass}
-                    />
-                  </label>
-
-                  <label className="mt-2 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                    Data em que ela quer cancelar
-                    <input
-                      type="date"
-                      value={prazoCancelamento}
-                      disabled={somenteLeitura}
-                      onChange={(e) => setPrazoCancelamento(e.target.value)}
-                      onBlur={() => patch({ cancelamento_prazo: prazoCancelamento || null })}
-                      className={fieldClass}
-                    />
-                    <span className="mt-0.5 block text-[10px] font-normal text-slate-400 dark:text-slate-500">
-                      O que foi combinado com o aluno — não é a garantia de 7 dias da Hotmart.
-                    </span>
-                  </label>
+                      Editar o pedido de cancelamento
+                    </Button>
+                  )}
                 </div>
               )}
 
@@ -2273,29 +2285,53 @@ export function HmDrawer({
         />
       )}
 
-      {/* TAREFA 1 (19/08, caso Vanessa Lima): o select "Etapa" acima abre este
-          modal em vez de fazer PATCH direto ao tentar entrar em "Solicitou
-          Cancelamento" sem motivo gravado — mesmo componente que o board e a
-          tabela já usam (ModalSolicitarCancelamento, card-sinais.tsx).
-          Fechar sem confirmar: o `<select>` é controlado por
-          `value={c.estagio_chave ?? ""}`, então ele mesmo volta ao valor
-          gravado no próximo render — aqui só se fecha o modal, SEM patch. */}
+      {/* TAREFA 1 (19/08, caso Vanessa Lima) + F3 (20/08, caso Kelly): o select
+          "Etapa" abre este modal em vez de fazer PATCH direto ao entrar em
+          "Solicitou Cancelamento", e o botão "Editar o pedido de
+          cancelamento" do bloco acima abre o MESMO modal para quem já está
+          na etapa — porta única de escrita dos 3 campos, mesmo componente
+          que o board e a tabela usam (ModalSolicitarCancelamento,
+          card-sinais.tsx). Fechar sem confirmar: o `<select>` é controlado
+          por `value={c.estagio_chave ?? ""}`, então ele mesmo volta ao valor
+          gravado no próximo render — aqui só se fecha o modal, SEM patch.
+          20/08 (achado do fable-orchestrator): "editar" (bloco somente-leitura,
+          disponível mesmo fora de "Solicitou Cancelamento", ex.: ficha já
+          "Reembolsado") NUNCA pode mover o card — só "mover" (select) inclui
+          `estagio_chave`. Antes disso, editar a observação de uma ficha já
+          reembolsada devolvia o card para "Solicitou Cancelamento" por
+          engano; a distinção agora é pela ORIGEM do clique, não mais por
+          `c.estagio_chave` (que é o mesmo em ambos os casos quando a ficha já
+          está na etapa). */}
       {solicitandoCancelamento && c && (
         <ModalSolicitarCancelamento
           nome={c.nome}
-          onFechar={() => setSolicitandoCancelamento(false)}
-          onConfirmar={async (motivoTipo, observacao, prazo) => {
-            setSolicitandoCancelamento(false);
-            // Motivo/observação/prazo + etapa num ÚNICO PATCH: o `update`
+          // Pré-carga com o que já está gravado — reabrir sobre um pedido
+          // existente (caso Kelly: ela já tinha escrito a observação) não
+          // some mais com o texto, e o operador só ajusta o que falta.
+          iniciais={{
+            motivoTipo: (c.cancelamento_motivo_tipo as MotivoCancelamentoHm | null) ?? "",
+            observacao: c.cancelamento_motivo ?? "",
+            prazo: c.cancelamento_prazo?.slice(0, 10) ?? "",
+          }}
+          rotuloConfirmar={solicitandoCancelamento === "editar" ? "Salvar" : "Registrar e mover"}
+          onFechar={() => setSolicitandoCancelamento(null)}
+          onConfirmar={async ({ motivoTipo, observacao, prazo }, mudou) => {
+            const origem = solicitandoCancelamento;
+            setSolicitandoCancelamento(null);
+            // Motivo/observação/prazo (+ etapa, só na origem "mover" e só
+            // quando ainda não é a corrente) num ÚNICO PATCH: o `update`
             // genérico dos `sets` roda ANTES de `moverEstagioHm` em
-            // app/api/hm/contato/[id]/route.ts (linha ~391 vs. ~597), que relê
-            // o card fresco do banco — então a trava de entrada já enxerga o
-            // motivo no mesmo gesto. Mesmo padrão de tabela/page.tsx:2320.
+            // app/api/hm/contato/[id]/route.ts (linha ~391 vs. ~597), que
+            // relê o card fresco do banco — então a trava de entrada já
+            // enxerga o motivo no mesmo gesto. Mesmo padrão de tabela/page.tsx.
+            // Contrato único de escrita (0306, 20/08): `|| null` é
+            // PROIBIDO — `mudou` decide entre omitir a chave (undefined, não
+            // mexe no gravado) e apagar de propósito.
             await patch({
-              estagio_chave: "hm_solicitou_cancelamento",
+              ...(origem === "mover" && c.estagio_chave !== "hm_solicitou_cancelamento" ? { estagio_chave: "hm_solicitou_cancelamento" } : {}),
               cancelamento_motivo_tipo: motivoTipo,
-              cancelamento_motivo: observacao || null,
-              cancelamento_prazo: prazo || null,
+              cancelamento_motivo: mudou.observacao ? (observacao || null) : undefined,
+              cancelamento_prazo: mudou.prazo ? (prazo || null) : undefined,
             });
           }}
         />

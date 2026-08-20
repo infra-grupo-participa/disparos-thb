@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento, abaDoCard, TOM_ABA, SeloAba, labelMotivoCancelamento, estadoPrazoCancelamento, ModalSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento, abaDoCard, TOM_ABA, SeloAba, labelMotivoCancelamento, estadoPrazoCancelamento, ModalSolicitarCancelamento, type MotivoCancelamentoHm } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -646,7 +646,15 @@ export default function HmKanbanPage() {
     // servidor decide a ordem, ver comentário em app/api/hm/kanban/route.ts),
     // então a trava de entrada já enxerga o motivo. Evita duas chamadas (uma
     // gravando, outra movendo) onde a segunda podia falhar e mover sem motivo.
-    extra?: { cancelamentoMotivoTipo?: string | null; cancelamentoPrazo?: string | null },
+    // `cancelamentoMotivo` (20/08, F2): a observação livre entrou no MESMO
+    // PATCH — antes ia num `fetch` separado para /api/hm/contato/[id], que
+    // podia falhar depois do movimento já ter sido gravado (dois PATCHes,
+    // duas chances de inconsistência). Contrato único de escrita: `undefined`
+    // = não mexe no gravado (chave omitida do JSON), `null` = apagar de
+    // propósito. Schema em lib/validators.ts (HmMoverSchema) e os `sets` de
+    // app/api/hm/kanban/route.ts são trabalho do backend-engineer, em
+    // paralelo — assumido pronto, não editado aqui.
+    extra?: { cancelamentoMotivoTipo?: string | null; cancelamentoMotivo?: string | null; cancelamentoPrazo?: string | null },
   ) {
     try {
       // `?produto=` (0174): o servidor precisa saber de QUAL board veio o arraste.
@@ -1416,10 +1424,20 @@ export default function HmKanbanPage() {
             if (definitivo) {
               // O FATO: confirmar_cancelamento já leva o card para "Reembolsado"
               // e marca o aluno na base — não passa por "Reclamada".
+              // Este modal abre sempre VAZIO (sem pré-carga, pendência
+              // registrada abaixo) — então não existe "apagar de propósito"
+              // aqui: campo não preenchido é OMITIDO, nunca `null`. Mandar
+              // `null` sobrescreveria (e apagaria) o motivo que a ficha já
+              // tinha, ex.: o pedido registrado antes do reembolso ser
+              // confirmado. Contrato dos 3 campos de cancelamento: ver
+              // ModalSolicitarCancelamento.
               await fetch(`/api/hm/contato/${card.comprador_id}?produto=${produto}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ confirmar_cancelamento: true, cancelamento_motivo: motivo || null }),
+                body: JSON.stringify({
+                  confirmar_cancelamento: true,
+                  ...(motivo ? { cancelamento_motivo: motivo } : {}),
+                }),
               });
             } else {
               // O PEDIDO: só move para "Reclamada". O acesso continua valendo.
@@ -1443,24 +1461,29 @@ export default function HmKanbanPage() {
       {solicitandoCancelamento && (
         <ModalSolicitarCancelamento
           nome={solicitandoCancelamento.card.nome}
+          // F1/F2 (20/08, caso Kelly): pré-carrega com o que já está gravado
+          // no card (o payload do board já traz os 3 campos, ver `Card`
+          // acima) — reabrir o modal sobre um pedido existente não some mais
+          // com o texto que a operadora já tinha escrito.
+          iniciais={{
+            motivoTipo: (solicitandoCancelamento.card.cancelamento_motivo_tipo as MotivoCancelamentoHm | null) ?? "",
+            observacao: solicitandoCancelamento.card.cancelamento_motivo ?? "",
+            prazo: solicitandoCancelamento.card.cancelamento_prazo?.slice(0, 10) ?? "",
+          }}
           onFechar={() => { setSolicitandoCancelamento(null); carregar(); }}
-          onConfirmar={async (motivoTipo, observacao, prazo) => {
+          onConfirmar={async ({ motivoTipo, observacao, prazo }, mudou) => {
             const { card, antesDe } = solicitandoCancelamento;
             setSolicitandoCancelamento(null);
-            // Motivo/prazo viajam no MESMO PATCH do movimento (0306/B3) — a
-            // observação livre (cancelamento_motivo) segue campo próprio da
-            // ficha, gravada à parte (não faz parte do contrato do /kanban).
+            // Contrato único de escrita (0306, 20/08): os 3 campos viajam no
+            // MESMO PATCH do movimento — `|| null` é PROIBIDO aqui. Em
+            // branco e igual ao inicial = chave omitida (undefined, não mexe
+            // no gravado); mudou e não vazio = valor novo; mudou e vazio (só
+            // quando havia valor antes) = null (apagou de propósito).
             await patchMover(card, COL_SOLICITOU_CANCELAMENTO, antesDe, {
               cancelamentoMotivoTipo: motivoTipo,
-              cancelamentoPrazo: prazo || null,
+              cancelamentoMotivo: mudou.observacao ? (observacao || null) : undefined,
+              cancelamentoPrazo: mudou.prazo ? (prazo || null) : undefined,
             });
-            if (observacao) {
-              await fetch(`/api/hm/contato/${card.comprador_id}?produto=${produto}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ cancelamento_motivo: observacao }),
-              });
-            }
           }}
         />
       )}
@@ -1689,6 +1712,13 @@ function AddSocioModal({ compradorId, titularNome, onClose, onSalvo }: {
   );
 }
 
+// PENDENTE (fora do escopo desta correção): este modal abre sempre vazio,
+// mesmo quando a ficha já tem cancelamento_motivo gravado (ex.: pedido
+// registrado via ModalSolicitarCancelamento antes do reembolso ser
+// confirmado). Pré-carregar aqui, no mesmo padrão do ModalSolicitarCancelamento
+// (props `iniciais` + flag `mudou`), evita que o operador ache que "o motivo
+// já está registrado" e siga sem redigitar — hoje isso só não apaga o dado
+// porque o `onEscolher` passou a omitir a chave quando o campo fica vazio.
 function CancelamentoModal({ nome, onEscolher, onFechar }: {
   nome: string;
   onEscolher: (definitivo: boolean, motivo: string) => Promise<void>;

@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito, RESULTADOS, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, type OrigemMovimento, ModalSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito, RESULTADOS, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, type OrigemMovimento, ModalSolicitarCancelamento, type MotivoCancelamentoHm } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -527,7 +527,13 @@ export default function HmTabelaPage() {
   // F5 (18/08): mover para "Solicitou Cancelamento" pela tabela sofre a MESMA
   // recusa do board (`cancelamento_sem_motivo`) — mesmo padrão de popover
   // pendente do remarcar acima, pedindo motivo (obrigatório) + prazo antes.
-  const [solicitandoCancelamento, setSolicitandoCancelamento] = useState<{ compradorId: string; nome: string } | null>(null);
+  // F4 (20/08, caso Kelly): carrega os 3 campos já gravados da linha, para
+  // pré-carregar o modal (ModalSolicitarCancelamento) e não apagar o que o
+  // operador já tinha escrito ao reabrir.
+  const [solicitandoCancelamento, setSolicitandoCancelamento] = useState<{
+    compradorId: string; nome: string;
+    motivoTipo: MotivoCancelamentoHm | ""; observacao: string; prazo: string;
+  } | null>(null);
   // Cancelar o popover precisa devolver a célula à data que VALE (o input é não
   // controlado — sem remontar, ele ficaria exibindo uma data que nunca gravou).
   const [nonceData, setNonceData] = useState(0);
@@ -704,7 +710,12 @@ export default function HmTabelaPage() {
     // nasce zerado a cada montagem — manter os setState antigos aqui deixaria
     // três variáveis órfãs (removidas da TAREFA 0).
     if (chave === "hm_solicitou_cancelamento") {
-      setSolicitandoCancelamento({ compradorId: l.comprador_id, nome: l.nome });
+      setSolicitandoCancelamento({
+        compradorId: l.comprador_id, nome: l.nome,
+        motivoTipo: (l.cancelamento_motivo_tipo as MotivoCancelamentoHm | null) ?? "",
+        observacao: l.cancelamento_motivo ?? "",
+        prazo: l.cancelamento_prazo ? String(l.cancelamento_prazo).slice(0, 10) : "",
+      });
       return;
     }
     const abaAtual = l.estagio_aba ?? "comercial";
@@ -2292,8 +2303,13 @@ export default function HmTabelaPage() {
       {solicitandoCancelamento && (
         <ModalSolicitarCancelamento
           nome={solicitandoCancelamento.nome}
+          iniciais={{
+            motivoTipo: solicitandoCancelamento.motivoTipo,
+            observacao: solicitandoCancelamento.observacao,
+            prazo: solicitandoCancelamento.prazo,
+          }}
           onFechar={() => setSolicitandoCancelamento(null)}
-          onConfirmar={async (motivoTipo, observacao, prazo) => {
+          onConfirmar={async ({ motivoTipo, observacao, prazo }, mudou) => {
             const s = solicitandoCancelamento;
             setSolicitandoCancelamento(null);
             if (!s) return;
@@ -2301,11 +2317,14 @@ export default function HmTabelaPage() {
             // grava os campos ANTES de mover (app/api/hm/contato/[id]/
             // route.ts — o UPDATE genérico roda antes de moverEstagioHm),
             // então a trava de entrada já enxerga o motivo no mesmo gesto.
+            // Contrato único de escrita (0306, 20/08): `|| null` é PROIBIDO —
+            // `mudou` decide entre omitir a chave (undefined, não mexe no
+            // gravado) e apagar de propósito (null, só se havia valor antes).
             await patch(s.compradorId, s.nome, {
               estagio_chave: "hm_solicitou_cancelamento",
               cancelamento_motivo_tipo: motivoTipo,
-              cancelamento_motivo: observacao || null,
-              cancelamento_prazo: prazo || null,
+              cancelamento_motivo: mudou.observacao ? (observacao || null) : undefined,
+              cancelamento_prazo: mudou.prazo ? (prazo || null) : undefined,
             });
           }}
         />

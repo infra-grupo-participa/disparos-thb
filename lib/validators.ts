@@ -259,17 +259,20 @@ export const KanbanMoverSchema = z.object({ compradorId: id, estagioChave: z.str
 // deve ficar logo abaixo dele, ou null para o fim da fila. Âncora, e não índice,
 // porque o board pode estar filtrado — "antes do João" vale na coluna inteira, o
 // índice 3 da tela não. Campo ausente = sem gesto de posição (o card vai ao topo).
-// `cancelamentoMotivoTipo`/`cancelamentoPrazo` (0306/B3): o movimento PARA
-// "Solicitou Cancelamento" pode trazer os dois juntos com o gesto de mover —
-// gravados ANTES de mover (a rota decide a ordem), senão a trava de entrada
-// (B1) recusaria o próprio movimento que traz o motivo. Mesmas regras dos
-// campos irmãos em HmContatoPatchSchema.
+// `cancelamentoMotivoTipo`/`cancelamentoPrazo`/`cancelamentoMotivo` (0306/B3,
+// depois B1 do PATCH único): o movimento PARA "Solicitou Cancelamento" pode
+// trazer os três juntos com o gesto de mover — gravados ANTES de mover (a
+// rota decide a ordem), senão a trava de entrada (B1) recusaria o próprio
+// movimento que traz o motivo. Mesmas regras dos campos irmãos em
+// HmContatoPatchSchema — `cancelamentoMotivo` (texto livre) continua
+// OPCIONAL, só a categoria trava a entrada.
 export const HmMoverSchema = z.object({
   compradorId: id,
   estagioChave: z.string().min(1),
   antesDe: id.nullable().optional(),
   cancelamentoMotivoTipo: motivoCancelamentoEnum.nullable().optional(),
   cancelamentoPrazo: dataCampo.optional(),
+  cancelamentoMotivo: z.string().trim().nullable().optional(),
 });
 
 // Cadastro manual na esteira HM. O e-mail é obrigatório de propósito: é a chave

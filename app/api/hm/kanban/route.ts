@@ -306,7 +306,7 @@ export async function PATCH(req: Request) {
   const sessao = g.sessao;
   const p = await parseBody(req, HmMoverSchema);
   if (!p.ok) return p.res;
-  const { compradorId, estagioChave, antesDe, cancelamentoMotivoTipo, cancelamentoPrazo } = p.data;
+  const { compradorId, estagioChave, antesDe, cancelamentoMotivoTipo, cancelamentoPrazo, cancelamentoMotivo } = p.data;
   // Gate de AÇÃO (28/07, leitura ≠ ação): mover é ESCRITA — operador só no pool
   // e nos cards DELE. O card do colega aparece no board (escopo de leitura),
   // mas o arrasto recusa com 403 'card_de_outro_operador' (o front traduz).
@@ -321,18 +321,25 @@ export async function PATCH(req: Request) {
   if (!souMaster && (destinoCancel || (await cancelamentoBloqueado(sessao, compradorId)))) {
     return NextResponse.json({ ok: false, reason: "cancelamento_so_admin_gp" }, { status: 403 });
   }
-  // O movimento com motivo numa tacada (0306/B3): o operador arrasta o card PARA
-  // "Solicitou Cancelamento" já explicando o motivo, no mesmo gesto — sem isso
-  // ele move e depois esquece de voltar na ficha para explicar. Grava ANTES de
-  // mover: a trava de entrada (B1, moverEstagioHm) lê `cancelamento_motivo_tipo`
-  // do card no banco, então se o UPDATE viesse depois do mover, a própria trava
-  // recusaria o movimento que estava trazendo o motivo. `antesDe`/reposição não
-  // dependem disto — só o campo em si precisa existir antes da checagem.
-  if (estagioChave === HM_STAGE_SOLICITOU_CANCELAMENTO && (cancelamentoMotivoTipo !== undefined || cancelamentoPrazo !== undefined)) {
+  // O movimento com motivo numa tacada (0306/B3, depois B1 do PATCH único): o
+  // operador arrasta o card PARA "Solicitou Cancelamento" já explicando o
+  // motivo — categoria, prazo e observação (texto livre) — no mesmo gesto, num
+  // único PATCH (antes eram 2 requisições: esta e um fetch solto da ficha para
+  // gravar só o texto, sem tratamento de erro). Grava ANTES de mover: a trava
+  // de entrada (B1, moverEstagioHm) lê `cancelamento_motivo_tipo` do card no
+  // banco, então se o UPDATE viesse depois do mover, a própria trava recusaria
+  // o movimento que estava trazendo o motivo. `antesDe`/reposição não dependem
+  // disto — só o campo em si precisa existir antes da checagem. A observação
+  // continua OPCIONAL (não trava a entrada) — só a categoria trava.
+  if (
+    estagioChave === HM_STAGE_SOLICITOU_CANCELAMENTO &&
+    (cancelamentoMotivoTipo !== undefined || cancelamentoPrazo !== undefined || cancelamentoMotivo !== undefined)
+  ) {
     const sets: string[] = [];
     const vals: unknown[] = [compradorId, produtoDoBoard];
     if (cancelamentoMotivoTipo !== undefined) { sets.push(`cancelamento_motivo_tipo = $${vals.push(cancelamentoMotivoTipo) }`); }
     if (cancelamentoPrazo !== undefined) { sets.push(`cancelamento_prazo = ${cancelamentoPrazo ? `$${vals.push(cancelamentoPrazo)}::date` : "null"}`); }
+    if (cancelamentoMotivo !== undefined) { sets.push(`cancelamento_motivo = $${vals.push(cancelamentoMotivo)}`); }
     if (sets.length) {
       await query(
         `update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now()

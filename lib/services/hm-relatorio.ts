@@ -172,6 +172,12 @@ export type LinhaEsteira = {
   revisar_motivo: string | null;
   cancelamento_em: QuandoHm;
   cancelamento_motivo: string | null;
+  // Categoria fechada (0306) e prazo pedido pelo aluno — pré-carregam o
+  // ModalSolicitarCancelamento na tabela (mesmos campos do PATCH do board,
+  // app/api/hm/kanban/route.ts). 14 cards antigos ficam null (sem backfill,
+  // decisão do Marcio) — a UI mostra aviso na ficha.
+  cancelamento_motivo_tipo: string | null;
+  cancelamento_prazo: QuandoHm;
   // O pedido é cancelamento_em; o FATO é este. Enquanto os acessos não caem, o
   // cancelado continua dentro do Searchie, da comunidade e do grupo.
   cancelamento_efetivado_em: QuandoHm;
@@ -295,6 +301,12 @@ export async function relatorioHm(f: FiltrosHm): Promise<RelatorioHm> {
             k.grupo_informes, k.pendencia,
             k.nao_contatar, k.nao_contatar_motivo, k.revisar, k.revisar_motivo,
             k.cancelamento_em, k.cancelamento_motivo,
+            -- 0306/B2: categoria e prazo do pedido de cancelamento não estão na
+            -- view (contatos_hm_kanban não foi recriada depois da 0306) — vêm
+            -- de ch, a tabela base já no JOIN acima (1:1 por card, sem
+            -- duplicar linha). Pré-carregam o ModalSolicitarCancelamento na
+            -- tabela, igual ao board.
+            ch.cancelamento_motivo_tipo, ch.cancelamento_prazo,
             k.cancelamento_efetivado_em, k.cancelamento_origem,
             k.hotmart_cancelado_em, k.hotmart_cancelamento_evento, k.hotmart_cancelamento_transacao,
             k.hotmart_status, k.hotmart_status_em, k.canal_aquisicao,
