@@ -87,7 +87,15 @@ export async function fichaHm(compradorId: string, produto?: string | null): Pro
             -- Motivo categorizado + prazo pedido (0306): mesma razão dos campos
             -- acima — a view contatos_hm_kanban ainda não expõe essas duas
             -- colunas, então vêm direto da tabela (ch, já no FROM).
-            ch.cancelamento_motivo_tipo, ch.cancelamento_prazo
+            ch.cancelamento_motivo_tipo, ch.cancelamento_prazo,
+            -- reuniao_motivo_tipo/reuniao_retomar_em (0307/0308): mesma razão
+            -- acima, e a mesma regressão que já aconteceu com
+            -- intencao_pagamento (comentário logo acima) — sem estes dois
+            -- campos aqui, o operador preenche o desfecho da reunião, a ficha
+            -- reabre em branco (undefined), e a trava de entrada (0308)
+            -- recusa o que ele acabou de escrever. Typecheck verde NÃO prova
+            -- que o campo chega — só abrir a ficha de fato prova.
+            ch.reuniao_motivo_tipo, ch.reuniao_retomar_em
        from cs.contatos_hm_kanban k
        -- 0164: join pelo CARD. Com card por pessoa×produto, casar por comprador_id
        -- cruzaria o card do HM com o do Aurum (a mesma regressão da 0163).

@@ -18,7 +18,7 @@ import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { useFetchHm } from "@/app/hm/_components/api-produto";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { MarcaPortal } from "@/app/_components/marca";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito, RESULTADOS, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, type OrigemMovimento, ModalSolicitarCancelamento, type MotivoCancelamentoHm } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, TITLE_CARD_CANCELADO, faltaExplicarCredito, RESULTADOS, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, type OrigemMovimento, ModalSolicitarCancelamento, type MotivoCancelamentoHm, ModalDesfechoReuniao, type ValoresDesfechoReuniao, type MotivoReuniaoHm, labelMotivoReuniao, faltaDataPagamento, SeloSemDataPagamento } from "@/app/hm/_components/card-sinais";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
 import type { LinhaEsteira, QuandoHm } from "@/lib/services/hm-relatorio";
 import { casaBusca } from "@/lib/busca";
@@ -215,9 +215,18 @@ const LENTES: Lente[] = [
     // "Passou da reunião": está na etapa pós-reunião do Comercial (ou o resultado
     // já diz "Realizada") e ninguém escreveu o combinado — o acordo é o que
     // separa cobrança de esquecimento.
+    //
+    // 0307/0308 (F5): `!l.acordo` sozinho é exatamente o critério antigo que
+    // esta feature substituiu (texto livre com 5,6% de preenchimento medido).
+    // `pagamento_previsto_em` (trilha A) entra como sinal melhor — undefined
+    // em `l.reuniao_motivo_tipo` (o campo novo, contrato do backend ainda não
+    // chegou em LinhaEsteira/hm-relatorio.ts) faz a lente cair no critério
+    // antigo, nunca afirma "sem acordo" do que a rota não sabe responder.
     id: "sem_acordo", grupo: "Cobrança do saldo", label: "Sem acordo",
     test: (l) => (l.estagio_aba ?? "comercial") === "comercial" && l.estagio_chave !== "hm_cancelamento"
-      && (l.estagio_chave === "hm_reuniao_finalizada" || /^realizada/i.test(l.reuniao_resultado ?? "")) && !l.acordo,
+      && (l.estagio_chave === "hm_reuniao_finalizada" || /^realizada/i.test(l.reuniao_resultado ?? ""))
+      && !l.acordo && !l.pagamento_previsto_em
+      && (l as { reuniao_motivo_tipo?: string | null }).reuniao_motivo_tipo == null,
   },
   {
     // O FURO que escorre dinheiro: já passou da reunião (ou está na Ativação),
@@ -230,6 +239,7 @@ const LENTES: Lente[] = [
       && l.situacao_financeira !== "mensalidade_em_curso"
       && (saldoDe(l) ?? 1) > 0
       && !l.acordo && !l.pagamento_previsto_em && !l.link_saldo_enviado_em
+      && (l as { reuniao_motivo_tipo?: string | null }).reuniao_motivo_tipo == null
       && (l.estagio_aba === "ativacao" || l.estagio_chave === "hm_reuniao_finalizada" || l.estagio_chave === "hm_pagamento_realizado"),
   },
   {
@@ -401,9 +411,9 @@ const PRESETS: Record<VisaoId, string[]> = {
   // "credito" antes de "saldo" (13/08, pedido do Marcio): o comercial explica o
   // pró-rata pelo que lê aqui — o crédito tem de estar na MESMA linha de onde
   // ele lê "quanto ela deve", não só dentro da ficha.
-  comercial: ["nome", "telefone", "etapa", "esteira", "dias", "responsavel", "equipe", "entrada", "acordo", "meio", "previsao", "link", "credito", "saldo"],
+  comercial: ["nome", "telefone", "etapa", "esteira", "dias", "responsavel", "equipe", "entrada", "desfecho_reuniao", "acordo", "meio", "previsao", "link", "credito", "saldo"],
   ativacao: ["nome", "etapa", "esteira", "dias", "responsavel", "equipe", "checklist", "grupo_informes", "pendencia", "entrevista", "na_base", "socios"],
-  agenda: ["nome", "responsavel", "equipe", "reuniao", "reuniao_resultado", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas", "no_shows"],
+  agenda: ["nome", "responsavel", "equipe", "reuniao", "reuniao_resultado", "desfecho_reuniao", "reunioes_remarcadas", "entrevista", "entrevista_resultado", "entrevistas_remarcadas", "no_shows"],
   // A visão da Jusy/Isabela: a história financeira em linha — sinal → o que já
   // entrou → o crédito (e o porquê) → parcelas → o que falta → cancelamento
   // (ordem decidida em 14/07; "credito" entrou em 13/08 pelo mesmo motivo do
@@ -534,6 +544,12 @@ export default function HmTabelaPage() {
     compradorId: string; nome: string;
     motivoTipo: MotivoCancelamentoHm | ""; observacao: string; prazo: string;
   } | null>(null);
+  // F5 (0307/0308): mesmo padrão de solicitandoCancelamento acima, para o
+  // desfecho da reunião. `ValoresDesfechoReuniao` inclui `trilha`, então não
+  // repete os campos individuais soltos.
+  const [desfechoReuniao, setDesfechoReuniao] = useState<
+    (ValoresDesfechoReuniao & { compradorId: string; nome: string }) | null
+  >(null);
   // Cancelar o popover precisa devolver a célula à data que VALE (o input é não
   // controlado — sem remontar, ele ficaria exibindo uma data que nunca gravou).
   const [nonceData, setNonceData] = useState(0);
@@ -659,12 +675,14 @@ export default function HmTabelaPage() {
               "Marque os itens do checklist na própria linha ou na ficha.",
           );
         } else if (d?.reason === "reuniao_sem_desfecho") {
-          // F7 (17/08): mesmo padrão do checklist_incompleto — o mesmo endpoint
-          // PATCH que a tabela usa para trocar etapa pode devolver esta recusa.
+          // F3 (0307/0308): rede de segurança — trava de ENTRADA em "Reunião
+          // Finalizada" (não mais "sair de Reunião Agendada", texto antigo da
+          // 0284). Mesmo padrão do checklist_incompleto — o servidor diz O
+          // QUE falta, a tabela lista sem inventar texto.
           window.alert(
-            `${nome} não pode sair de "Reunião Agendada" sem o desfecho da reunião.\n\n` +
+            `${nome} não pode entrar em "Reunião Finalizada" sem o desfecho.\n\n` +
               `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
-              "Marque o resultado da reunião na própria linha ou na ficha.",
+              "Abra a ficha e registre se ela prometeu pagar ou não.",
           );
         } else if (d?.reason === "coluna_da_hotmart") {
           // F5 (17/08): a MESMA recusa do board — o endpoint é o mesmo, então a
@@ -715,6 +733,26 @@ export default function HmTabelaPage() {
         motivoTipo: (l.cancelamento_motivo_tipo as MotivoCancelamentoHm | null) ?? "",
         observacao: l.cancelamento_motivo ?? "",
         prazo: l.cancelamento_prazo ? String(l.cancelamento_prazo).slice(0, 10) : "",
+      });
+      return;
+    }
+    // F5 (0307/0308): mesma pergunta do board (F2) — a trilha A/B antes de
+    // mover, para não deixar o servidor recusar sem explicação nenhuma na
+    // tela. Mesmo padrão de "Solicitou Cancelamento" acima.
+    if (chave === "hm_reuniao_finalizada") {
+      const lAny = l as unknown as {
+        intencao_pagamento?: "vai_pagar" | "indeciso" | "nao_vai_pagar" | null;
+        reuniao_motivo_tipo?: string | null; reuniao_retomar_em?: string | null;
+        intencao_pagamento_obs?: string | null;
+      };
+      setDesfechoReuniao({
+        compradorId: l.comprador_id, nome: l.nome,
+        trilha: lAny.reuniao_motivo_tipo ? "nao_prometeu" : lAny.intencao_pagamento === "vai_pagar" ? "prometeu" : "",
+        pagamentoPrevistoEm: l.pagamento_previsto_em ? String(l.pagamento_previsto_em).slice(0, 10) : "",
+        pagamentoMeio: l.pagamento_meio ?? "",
+        reuniaoMotivoTipo: (lAny.reuniao_motivo_tipo as MotivoReuniaoHm | null) ?? "",
+        reuniaoRetomarEm: lAny.reuniao_retomar_em ? String(lAny.reuniao_retomar_em).slice(0, 10) : "",
+        observacao: lAny.intencao_pagamento_obs ?? "",
       });
       return;
     }
@@ -816,6 +854,15 @@ export default function HmTabelaPage() {
       window.alert(
         `"Solicitou Cancelamento" pede o motivo do pedido de cada pessoa — não dá para mover em lote.\n\n` +
           "Mova uma pessoa por vez (nesta tabela ou na Jornada) para registrar o motivo de cada uma.",
+      );
+      return;
+    }
+    // F5 (0307/0308): mesma recusa acima — a trilha A/B é POR PESSOA, o lote
+    // não tem onde perguntar.
+    if (chave === "hm_reuniao_finalizada") {
+      window.alert(
+        `"Reunião Finalizada" pede o desfecho de cada pessoa (prometeu pagar ou não) — não dá para mover em lote.\n\n` +
+          "Mova uma pessoa por vez (nesta tabela ou na Jornada) para registrar o desfecho de cada uma.",
       );
       return;
     }
@@ -1137,6 +1184,59 @@ export default function HmTabelaPage() {
           {RESULTADOS.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       ),
+    },
+    desfecho_reuniao: {
+      // F5 (0307/0308): não é célula de edição livre — a trilha A/B tem
+      // regras cruzadas (data + meio + observação, ou motivo + retomar +
+      // observação) que um único `<select>`/`<input>` de célula não
+      // representa. Mostra o resumo e abre o MESMO ModalDesfechoReuniao do
+      // board (porta única de escrita, mesmo princípio de F5 na ficha).
+      id: "desfecho_reuniao", label: "Desfecho da reunião",
+      sortVal: (l) => {
+        const lAny = l as unknown as { intencao_pagamento?: string | null; reuniao_motivo_tipo?: string | null };
+        return lAny.intencao_pagamento === "vai_pagar" ? "prometeu" : lAny.reuniao_motivo_tipo ? "nao_prometeu" : "";
+      },
+      render: (l) => {
+        const lAny = l as unknown as {
+          intencao_pagamento?: "vai_pagar" | "indeciso" | "nao_vai_pagar" | null;
+          reuniao_motivo_tipo?: string | null; reuniao_retomar_em?: string | null;
+          intencao_pagamento_obs?: string | null;
+        };
+        const prometeu = lAny.intencao_pagamento === "vai_pagar";
+        const naoPrometeu = !prometeu && !!lAny.reuniao_motivo_tipo;
+        const resumo = prometeu
+          ? `Prometeu · ${l.pagamento_previsto_em ? fmtData(l.pagamento_previsto_em) : "sem data"}`
+          : naoPrometeu
+            ? `Não prometeu · ${labelMotivoReuniao(lAny.reuniao_motivo_tipo)}`
+            : null;
+        const semData = faltaDataPagamento({
+          estagioChave: l.estagio_chave, intencaoPagamento: lAny.intencao_pagamento,
+          pagamentoPrevistoEm: l.pagamento_previsto_em ? String(l.pagamento_previsto_em) : l.pagamento_previsto_em,
+          reuniaoMotivoTipo: lAny.reuniao_motivo_tipo,
+        });
+        return (
+          <button
+            type="button"
+            disabled={salvando === l.comprador_id}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDesfechoReuniao({
+                compradorId: l.comprador_id, nome: l.nome,
+                trilha: naoPrometeu ? "nao_prometeu" : prometeu ? "prometeu" : "",
+                pagamentoPrevistoEm: l.pagamento_previsto_em ? String(l.pagamento_previsto_em).slice(0, 10) : "",
+                pagamentoMeio: l.pagamento_meio ?? "",
+                reuniaoMotivoTipo: (lAny.reuniao_motivo_tipo as MotivoReuniaoHm | null) ?? "",
+                reuniaoRetomarEm: lAny.reuniao_retomar_em ? String(lAny.reuniao_retomar_em).slice(0, 10) : "",
+                observacao: lAny.intencao_pagamento_obs ?? "",
+              });
+            }}
+            className="inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
+            title={lAny.intencao_pagamento_obs ?? undefined}
+          >
+            {semData ? <SeloSemDataPagamento posicao="inline" /> : resumo ?? <span className="text-slate-300 dark:text-slate-600">— definir —</span>}
+          </button>
+        );
+      },
     },
     reunioes_remarcadas: {
       id: "reunioes_remarcadas", label: "Reuniões remarcadas", dir: true,
@@ -2325,6 +2425,36 @@ export default function HmTabelaPage() {
               cancelamento_motivo_tipo: motivoTipo,
               cancelamento_motivo: mudou.observacao ? (observacao || null) : undefined,
               cancelamento_prazo: mudou.prazo ? (prazo || null) : undefined,
+            });
+          }}
+        />
+      )}
+
+      {/* F5 (0307/0308): mesmo padrão do modal de cancelamento acima — a
+          trilha A/B antes de mover para "Reunião Finalizada". Grava por
+          /api/hm/contato/[id] (sem `antesDe`, exclusivo do arrasto). */}
+      {desfechoReuniao && (
+        <ModalDesfechoReuniao
+          nome={desfechoReuniao.nome}
+          iniciais={desfechoReuniao}
+          onFechar={() => setDesfechoReuniao(null)}
+          onConfirmar={async (v, mudou) => {
+            const s = desfechoReuniao;
+            setDesfechoReuniao(null);
+            if (!s) return;
+            const linha = linhas.find((x) => x.comprador_id === s.compradorId);
+            const jaEraVaiPagar = (linha as unknown as { intencao_pagamento?: string | null } | undefined)?.intencao_pagamento === "vai_pagar";
+            // Mesmo contrato único de escrita do modal de cancelamento acima:
+            // `|| null` é PROIBIDO — `mudou` decide entre omitir (undefined)
+            // e apagar de propósito (null).
+            await patch(s.compradorId, s.nome, {
+              estagio_chave: "hm_reuniao_finalizada",
+              intencao_pagamento: v.trilha === "prometeu" ? "vai_pagar" : jaEraVaiPagar ? null : undefined,
+              pagamento_previsto_em: mudou.pagamentoPrevistoEm ? (v.pagamentoPrevistoEm || null) : undefined,
+              pagamento_meio: mudou.pagamentoMeio ? (v.pagamentoMeio || null) : undefined,
+              reuniao_motivo_tipo: mudou.reuniaoMotivoTipo ? (v.reuniaoMotivoTipo || null) : undefined,
+              reuniao_retomar_em: mudou.reuniaoRetomarEm ? (v.reuniaoRetomarEm || null) : undefined,
+              intencao_pagamento_obs: mudou.observacao ? (v.observacao || null) : undefined,
             });
           }}
         />

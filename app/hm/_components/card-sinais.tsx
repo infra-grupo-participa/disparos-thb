@@ -23,6 +23,13 @@ export { TAGS_ALUNO_ANTIGO };
 // board/tabela/ficha continuem importando de card-sinais.tsx, como já faziam.
 import { MOTIVOS_CANCELAMENTO_HM, LABEL_MOTIVO_CANCELAMENTO_HM, labelMotivoCancelamento, type MotivoCancelamentoHm } from "@/lib/cancelamento-motivos";
 export { MOTIVOS_CANCELAMENTO_HM, LABEL_MOTIVO_CANCELAMENTO_HM, labelMotivoCancelamento, type MotivoCancelamentoHm };
+// MESMO padrão, para o desfecho da reunião (0307/0308, F1): as 5 categorias
+// de "não prometeu pagar" + o rótulo vêm de lib/reuniao-motivos.ts (fonte
+// única entre este modal, a timeline do backend e a ficha). Reexportado para
+// que kanban/tabela/drawer importem todos de card-sinais.tsx, como já fazem
+// com o motivo de cancelamento.
+import { MOTIVOS_REUNIAO_HM, LABEL_MOTIVO_REUNIAO_HM, labelMotivoReuniao, type MotivoReuniaoHm } from "@/lib/reuniao-motivos";
+export { MOTIVOS_REUNIAO_HM, LABEL_MOTIVO_REUNIAO_HM, labelMotivoReuniao, type MotivoReuniaoHm };
 
 // ===== Paleta do card (13/08) — UM significado por cor, nas três telas ======
 // Pedido do Marcio: "eu estou sentindo muito misturado tudo". Antes rose
@@ -951,5 +958,331 @@ export function ModalSolicitarCancelamento({
         </div>
       </div>
     </>
+  );
+}
+
+// ===== Desfecho da reunião — F1 (0307/0308, pedido do Marcio: "Reunião
+// Finalizada exige prazo de pagamento") =====================================
+// O comercial marca "Reunião Finalizada" e o financeiro fica sem data para
+// cobrar — a trava aceitava `acordo` texto livre como desfecho (5,6% de
+// preenchimento medido; a lista fechada de cancelamento, 0306, tem 62%).
+// Decisão travada pelo Marcio: ao mover para "Reunião Finalizada", UMA das
+// duas trilhas é obrigatória —
+//   [A] PROMETEU PAGAR    → data da promessa + forma de pagamento + observação
+//   [B] NÃO PROMETEU      → motivo (lista fechada) + data de retomar + observação
+// Nunca fica sem prazo. A trava real mora no servidor
+// (cs.fn_hm_pode_finalizar_reuniao, lib/services/hm.ts) — o botão desabilitado
+// aqui é o primeiro aviso, não a garantia; se o servidor recusar mesmo assim
+// (`reuniao_sem_desfecho`), o chamador lista `d.faltando` cru (ver toast em
+// kanban/page.tsx).
+//
+// Irmão de ModalSolicitarCancelamento logo acima — MESMO wrapper (overlay,
+// título, botões, estado local por `iniciais`+`mudou`), reusado em vez de
+// copiado: a 3ª cópia deste wrapper já foi barrada nesta base (ver comentário
+// de ModalSolicitarCancelamento). O que muda é só o corpo do formulário: um
+// radio A/B no lugar do select único de motivo.
+//
+// `pagamentoMeio` usa o MESMO vocabulário que a ficha (hm-drawer.tsx, "Como
+// vai pagar") e a tabela (MEIOS) já gravam em cs.contatos_hm.pagamento_meio —
+// 58 cards já preenchidos com avista/pix/boleto/cartao/cartao_recorrente.
+// Repetido aqui (não importado de hm-drawer.tsx: é `const` local, não
+// exportada) — mesma dívida de duplicação que já existe entre drawer e
+// tabela; MEIOS_PAGAMENTO fica exportado daqui para quem quiser convergir
+// depois.
+export const MEIOS_PAGAMENTO: { v: string; label: string }[] = [
+  { v: "avista", label: "À vista" },
+  { v: "pix", label: "Pix" },
+  { v: "boleto", label: "Boleto parcelado" },
+  { v: "cartao", label: "Cartão" },
+  { v: "cartao_recorrente", label: "Cartão recorrente" },
+];
+
+export type TrilhaDesfechoReuniao = "prometeu" | "nao_prometeu" | "";
+
+export type ValoresDesfechoReuniao = {
+  trilha: TrilhaDesfechoReuniao;
+  // Trilha [A] — prometeu pagar.
+  pagamentoPrevistoEm: string;
+  pagamentoMeio: string;
+  // Trilha [B] — não prometeu.
+  reuniaoMotivoTipo: MotivoReuniaoHm | "";
+  reuniaoRetomarEm: string;
+  // Comum às duas trilhas — observação livre (mesmo campo do backend,
+  // intencaoPagamentoObs).
+  observacao: string;
+};
+
+const VALORES_DESFECHO_VAZIOS: ValoresDesfechoReuniao = {
+  trilha: "", pagamentoPrevistoEm: "", pagamentoMeio: "",
+  reuniaoMotivoTipo: "", reuniaoRetomarEm: "", observacao: "",
+};
+
+/** A trilha está completa o bastante para o botão destravar — MESMA regra do
+ *  servidor (cs.fn_hm_pode_finalizar_reuniao, migration 0308), replicada aqui
+ *  como AVISO ANTECIPADO, não como a garantia (essa é do servidor). A 0308
+ *  reescreveu a 0284: as duas trilhas exigem observação (o "o que foi
+ *  combinado" é parte do desfecho verificável, não um extra opcional) — e a
+ *  trilha B exige a data de retomar (antes era opcional; a 0308 fechou essa
+ *  brecha porque texto livre/campo vazio era o atalho que os 54 cards sem
+ *  data usavam). Trilha A: data + forma de pagamento + observação. Trilha B:
+ *  motivo + data de retomar + observação. */
+function trilhaCompleta(v: ValoresDesfechoReuniao): boolean {
+  const temObs = v.observacao.trim() !== "";
+  if (v.trilha === "prometeu") return !!v.pagamentoPrevistoEm && !!v.pagamentoMeio && temObs;
+  if (v.trilha === "nao_prometeu") return !!v.reuniaoMotivoTipo && !!v.reuniaoRetomarEm && temObs;
+  return false;
+}
+
+export function ModalDesfechoReuniao({
+  nome, iniciais, onConfirmar, onFechar, rotuloConfirmar,
+}: {
+  nome: string;
+  /** Pré-carga dos 6 campos — vem do que já está gravado no card. Ausente =
+   *  desfecho novo, os campos nascem vazios. */
+  iniciais?: ValoresDesfechoReuniao;
+  onConfirmar: (
+    valores: ValoresDesfechoReuniao,
+    mudou: {
+      pagamentoPrevistoEm: boolean; pagamentoMeio: boolean;
+      reuniaoMotivoTipo: boolean; reuniaoRetomarEm: boolean; observacao: boolean;
+    },
+  ) => Promise<void>;
+  onFechar: () => void;
+  rotuloConfirmar?: string;
+}) {
+  const base = iniciais ?? VALORES_DESFECHO_VAZIOS;
+  const [trilha, setTrilha] = useState<TrilhaDesfechoReuniao>(base.trilha);
+  const [pagamentoPrevistoEm, setPagamentoPrevistoEm] = useState(base.pagamentoPrevistoEm);
+  const [pagamentoMeio, setPagamentoMeio] = useState(base.pagamentoMeio);
+  const [reuniaoMotivoTipo, setReuniaoMotivoTipo] = useState<MotivoReuniaoHm | "">(base.reuniaoMotivoTipo);
+  const [reuniaoRetomarEm, setReuniaoRetomarEm] = useState(base.reuniaoRetomarEm);
+  const [observacao, setObservacao] = useState(base.observacao);
+  const [salvando, setSalvando] = useState(false);
+
+  const valoresAtuais: ValoresDesfechoReuniao = {
+    trilha, pagamentoPrevistoEm, pagamentoMeio, reuniaoMotivoTipo, reuniaoRetomarEm, observacao,
+  };
+  const completo = trilhaCompleta(valoresAtuais);
+
+  async function confirmar() {
+    if (!completo) return;
+    setSalvando(true);
+    const observacaoFinal = observacao.trim();
+    try {
+      await onConfirmar(
+        { ...valoresAtuais, observacao: observacaoFinal },
+        {
+          // `|| null` é PROIBIDO no payload — aqui é só o flag "mudou", quem
+          // decide entre omitir/gravar/apagar é o chamador (mesmo contrato de
+          // ModalSolicitarCancelamento). Campo da trilha NÃO escolhida nunca
+          // conta como "mudou": trocar de trilha não deve apagar o que a
+          // outra trilha já tinha gravado antes, a troca é só de leitura.
+          pagamentoPrevistoEm: trilha === "prometeu" && pagamentoPrevistoEm !== base.pagamentoPrevistoEm,
+          pagamentoMeio: trilha === "prometeu" && pagamentoMeio !== base.pagamentoMeio,
+          reuniaoMotivoTipo: trilha === "nao_prometeu" && reuniaoMotivoTipo !== base.reuniaoMotivoTipo,
+          reuniaoRetomarEm: trilha === "nao_prometeu" && reuniaoRetomarEm !== base.reuniaoRetomarEm,
+          observacao: observacaoFinal !== base.observacao,
+        },
+      );
+    } finally { setSalvando(false); }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm" onClick={onFechar} />
+      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white p-5 shadow-pop dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+          Desfecho da reunião com {nome}
+        </h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          A reunião não fica sem um prazo. Escolha o que aconteceu:
+        </p>
+
+        <div className="mt-3 space-y-2">
+          <label className={cn(
+            "flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm",
+            trilha === "prometeu"
+              ? "border-emerald-300 bg-emerald-50 dark:border-emerald-500/40 dark:bg-emerald-500/10"
+              : "border-slate-200 dark:border-slate-700",
+          )}>
+            <input
+              type="radio"
+              name="trilha-desfecho-reuniao"
+              className="mt-0.5"
+              checked={trilha === "prometeu"}
+              onChange={() => setTrilha("prometeu")}
+              autoFocus
+            />
+            <span>
+              <span className="block font-medium text-slate-700 dark:text-slate-200">Prometeu pagar</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400">Ela combinou uma data e uma forma de pagamento.</span>
+            </span>
+          </label>
+
+          {trilha === "prometeu" && (
+            <div className="ml-6 space-y-2 border-l-2 border-emerald-200 pl-3 dark:border-emerald-500/30">
+              <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                Data da promessa <span className="text-rose-500">*</span>
+                <input
+                  type="date"
+                  value={pagamentoPrevistoEm}
+                  onChange={(e) => setPagamentoPrevistoEm(e.target.value)}
+                  className={cn(fieldClass, "mt-1")}
+                  required
+                />
+              </label>
+              <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                Forma de pagamento <span className="text-rose-500">*</span>
+                <select
+                  value={pagamentoMeio}
+                  onChange={(e) => setPagamentoMeio(e.target.value)}
+                  className={cn(fieldClass, "mt-1")}
+                  required
+                >
+                  <option value="">— selecione —</option>
+                  {MEIOS_PAGAMENTO.map((m) => <option key={m.v} value={m.v}>{m.label}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
+
+          <label className={cn(
+            "flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm",
+            trilha === "nao_prometeu"
+              ? "border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10"
+              : "border-slate-200 dark:border-slate-700",
+          )}>
+            <input
+              type="radio"
+              name="trilha-desfecho-reuniao"
+              className="mt-0.5"
+              checked={trilha === "nao_prometeu"}
+              onChange={() => setTrilha("nao_prometeu")}
+            />
+            <span>
+              <span className="block font-medium text-slate-700 dark:text-slate-200">Não prometeu pagar</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400">Ela não se comprometeu com data nenhuma ainda.</span>
+            </span>
+          </label>
+
+          {trilha === "nao_prometeu" && (
+            <div className="ml-6 space-y-2 border-l-2 border-amber-200 pl-3 dark:border-amber-500/30">
+              <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                Motivo <span className="text-rose-500">*</span>
+                <select
+                  value={reuniaoMotivoTipo}
+                  onChange={(e) => setReuniaoMotivoTipo(e.target.value as MotivoReuniaoHm | "")}
+                  className={cn(fieldClass, "mt-1")}
+                  required
+                >
+                  <option value="">— selecione —</option>
+                  {MOTIVOS_REUNIAO_HM.map((m) => (
+                    <option key={m} value={m}>{LABEL_MOTIVO_REUNIAO_HM[m]}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                Data para retomar <span className="text-rose-500">*</span>
+                <input
+                  type="date"
+                  value={reuniaoRetomarEm}
+                  onChange={(e) => setReuniaoRetomarEm(e.target.value)}
+                  className={cn(fieldClass, "mt-1")}
+                  required
+                />
+              </label>
+            </div>
+          )}
+        </div>
+
+        <label className="mt-3 block text-[11px] font-medium text-slate-500 dark:text-slate-400">
+          Observação — o que foi combinado <span className="text-rose-500">*</span>
+          <textarea
+            value={observacao}
+            onChange={(e) => setObservacao(e.target.value)}
+            rows={2}
+            placeholder="Detalhe o que foi combinado…"
+            className={cn(fieldClass, "mt-1")}
+          />
+          {/* Achado do pentester (21/08): este texto passa a trafegar para o
+              financeiro (0307/0308). Medido pelo Marcio antes de decidir: das
+              20 observações existentes, zero têm termo sensível — e os 2
+              textos sensíveis reais da base estão em `acordo`, exposição que
+              já existia antes desta feature (vw_fin_contas_receber). Decisão:
+              manter visível (é o que evita o telefonema do financeiro pro
+              comercial — o pedido original) e mitigar avisando quem escreve.
+              String numa linha só de propósito: scripts/test-vocabulario.ts
+              varre linha a linha e não pega string quebrada em várias linhas
+              de JSX — quebrar aqui faria o aviso escapar da trava calado. */}
+          <span className="mt-0.5 block text-[10px] font-normal text-slate-400 dark:text-slate-500">
+            O financeiro lê isto para cobrar. Escreva o que foi combinado, não dados pessoais.
+          </span>
+        </label>
+
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={onFechar}
+            disabled={salvando}
+            className="flex-1 rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800"
+          >
+            Não mover
+          </button>
+          <button
+            onClick={confirmar}
+            disabled={salvando || !completo}
+            className="flex-1 rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:opacity-50 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20"
+          >
+            {rotuloConfirmar ?? "Registrar e mover"}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ===== Chip "sem data de pagamento" (F4, 0307/0308) =========================
+// Espelho de estadoPrazoCancelamento: cálculo de TELA, ZERO escrita. Card em
+// "Reunião Finalizada" sem NENHUMA das duas trilhas gravadas (nem
+// intencaoPagamento/pagamentoPrevistoEm, nem reuniaoMotivoTipo) — hoje isso só
+// deveria acontecer em quem entrou na etapa ANTES desta trava existir (a trava
+// só guarda a PORTA de entrada, não prende quem já estava lá, mesmo desenho
+// de estadoPrazoCancelamento/checklist). O board comercial mostra a ação
+// "Definir agora" (abre o MESMO modal); o financeiro (outro repo) usa o
+// MESMO cálculo só para informar, sem ação de escrita — decisão do Marcio:
+// só quem ouviu a promessa registra.
+//
+// Todos os campos de entrada são OPCIONAIS: contrato do backend em paralelo,
+// undefined faz o chip ficar CALADO (nunca afirma "sem data" do que a rota
+// ainda não manda).
+export function faltaDataPagamento(p: {
+  estagioChave: string | null | undefined;
+  intencaoPagamento?: string | null;
+  pagamentoPrevistoEm?: string | null;
+  reuniaoMotivoTipo?: string | null;
+}): boolean {
+  if (p.estagioChave !== "hm_reuniao_finalizada") return false;
+  if (p.intencaoPagamento === undefined && p.pagamentoPrevistoEm === undefined && p.reuniaoMotivoTipo === undefined) {
+    return false; // contrato do backend ainda não chegou — fica calado, nunca afirma.
+  }
+  const temPromessa = !!p.pagamentoPrevistoEm;
+  const temMotivoB = !!p.reuniaoMotivoTipo;
+  return !temPromessa && !temMotivoB;
+}
+
+export function SeloSemDataPagamento({ className, posicao = "inline" }: { className?: string; posicao?: "absoluto" | "inline" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold text-rose-700 bg-rose-50 dark:bg-rose-500/15 dark:text-rose-300",
+        posicao === "absoluto"
+          ? "pointer-events-none absolute -right-1.5 -top-2 z-10 rounded-full uppercase tracking-wide text-white bg-rose-600 text-[9px] shadow-sm motion-safe:animate-pulse dark:bg-rose-500 ring-2 ring-white dark:ring-slate-900"
+          : "",
+        className,
+      )}
+      title="Reunião finalizada sem data de pagamento nem motivo registrado — abra a ficha e registre o desfecho."
+    >
+      <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
+      sem data de pagamento
+    </span>
   );
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { NextResponse } from "next/server";
 import { MOTIVOS_CANCELAMENTO_HM } from "@/lib/cancelamento-motivos";
+import { MOTIVOS_REUNIAO_HM } from "@/lib/reuniao-motivos";
 
 // Validação de entrada das rotas (substitui os casts `as {...}` inseguros).
 // parseBody devolve os dados já tipados ou uma resposta 400 pronta.
@@ -220,6 +221,12 @@ const dataCampo = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data em YYYY
 // alimenta o rótulo pt-BR usado pelo backend e pelo frontend).
 const motivoCancelamentoEnum = z.enum(MOTIVOS_CANCELAMENTO_HM);
 
+// Motivo categorizado de "não prometeu pagar" na reunião (0307/0308) — FONTE
+// ÚNICA do z.enum, mesmo desenho de motivoCancelamentoEnum acima. A lista em
+// si vem de lib/reuniao-motivos.ts (que também alimenta o rótulo pt-BR usado
+// pelo backend e pelo frontend).
+const motivoReuniaoEnum = z.enum(MOTIVOS_REUNIAO_HM);
+
 export const ContatoPatchSchema = z.object({
   estagio_chave: z.string().optional(),
   proxima_acao_em: z.string().nullable().optional(),
@@ -266,6 +273,15 @@ export const KanbanMoverSchema = z.object({ compradorId: id, estagioChave: z.str
 // movimento que traz o motivo. Mesmas regras dos campos irmãos em
 // HmContatoPatchSchema — `cancelamentoMotivo` (texto livre) continua
 // OPCIONAL, só a categoria trava a entrada.
+//
+// `intencaoPagamento`/`pagamentoPrevistoEm`/`pagamentoMeio`/
+// `reuniaoMotivoTipo`/`reuniaoRetomarEm`/`intencaoPagamentoObs` (0307/0308,
+// B5): mesmo desenho — o movimento PARA "Reunião Finalizada" pode trazer o
+// desfecho junto com o gesto de mover, gravado ANTES de mover (a trava de
+// entrada, 0308, lê do banco). Semântica de 3 estados (contrato com o
+// frontend): chave AUSENTE = não mexe · valor = grava · null = apaga de
+// propósito. `pagamentoPrevistoEm`/`reuniaoRetomarEm` usam `dataCampo`
+// (mesma validação de formato das datas de cancelamento).
 export const HmMoverSchema = z.object({
   compradorId: id,
   estagioChave: z.string().min(1),
@@ -273,6 +289,12 @@ export const HmMoverSchema = z.object({
   cancelamentoMotivoTipo: motivoCancelamentoEnum.nullable().optional(),
   cancelamentoPrazo: dataCampo.optional(),
   cancelamentoMotivo: z.string().trim().nullable().optional(),
+  intencaoPagamento: z.enum(["vai_pagar", "indeciso", "nao_vai_pagar"]).nullable().optional(),
+  pagamentoPrevistoEm: dataCampo.optional(),
+  pagamentoMeio: z.enum(["boleto", "cartao", "cartao_recorrente", "pix", "avista"]).nullable().optional(),
+  reuniaoMotivoTipo: motivoReuniaoEnum.nullable().optional(),
+  reuniaoRetomarEm: dataCampo.optional(),
+  intencaoPagamentoObs: z.string().trim().nullable().optional(),
 });
 
 // Cadastro manual na esteira HM. O e-mail é obrigatório de propósito: é a chave
@@ -336,6 +358,13 @@ export const HmContatoPatchSchema = z.object({
   // pagamento_so_hotmart no topo da rota). null limpa.
   intencao_pagamento: z.enum(["vai_pagar", "indeciso", "nao_vai_pagar"]).nullable().optional(),
   intencao_pagamento_obs: z.string().nullable().optional(),
+  // Motivo CATEGORIZADO de "não prometeu pagar" + a data de retomar contato
+  // (0307/0308) — trilha [B] da trava de entrada em "Reunião Finalizada"
+  // (cs.fn_hm_pode_finalizar_reuniao). Editar pela ficha depois de já estar
+  // na coluna também é permitido (a trava é só de entrada). "" limpa a data
+  // (mesma regra de dataCampo).
+  reuniao_motivo_tipo: motivoReuniaoEnum.nullable().optional(),
+  reuniao_retomar_em: dataCampo.optional(),
   // ----- acordo do saldo (o que o comercial combina com o aluno) -----
   pagamento_meio: z.enum(["boleto", "cartao", "cartao_recorrente", "pix", "avista"]).nullable().optional(),
   pagamento_previsto_em: z.string().nullable().optional(),   // "vai pagar dia 17"

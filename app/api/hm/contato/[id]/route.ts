@@ -313,6 +313,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     sets.push(`intencao_pagamento_em = ${b.intencao_pagamento ? "now()" : "null"}`);
   }
   if (b.intencao_pagamento_obs !== undefined) add("intencao_pagamento_obs", b.intencao_pagamento_obs);
+  // Trilha [B] da mesma trava (0307/0308): motivo categorizado de "não
+  // prometeu pagar" + a data de retomar contato. Editar pela ficha depois de
+  // já estar na coluna também é permitido (a trava é só de entrada, mesmo
+  // princípio de cancelamento_motivo_tipo).
+  if (b.reuniao_motivo_tipo !== undefined) add("reuniao_motivo_tipo", b.reuniao_motivo_tipo);
+  if (b.reuniao_retomar_em !== undefined) sets.push(`reuniao_retomar_em = ${b.reuniao_retomar_em ? `$${vals.push(b.reuniao_retomar_em)}::date` : "null"}`);
   if (b.oferta_saldo_codigo !== undefined) add("oferta_saldo_codigo", b.oferta_saldo_codigo);
   if (b.pagamento_previsto_em !== undefined) sets.push(`pagamento_previsto_em = ${b.pagamento_previsto_em ? `$${vals.push(b.pagamento_previsto_em)}::date` : "null"}`);
   // Marcar "link enviado" carimba a hora — um booleano perderia o "quando", que é
@@ -615,7 +621,7 @@ function resumoEdicao(b: Record<string, unknown>): string {
   const p: string[] = [];
   if (b.observacoes !== undefined) p.push("observações");
   if (b.acordo !== undefined || b.pagamento_meio !== undefined || b.oferta_saldo_codigo !== undefined || b.pagamento_previsto_em !== undefined || b.link_saldo_enviado !== undefined) p.push("acordo do saldo");
-  if (b.intencao_pagamento !== undefined || b.intencao_pagamento_obs !== undefined) p.push("intenção de pagamento");
+  if (b.intencao_pagamento !== undefined || b.intencao_pagamento_obs !== undefined || b.reuniao_motivo_tipo !== undefined || b.reuniao_retomar_em !== undefined) p.push("desfecho da reunião");
   if (b.credito_oferta !== undefined || b.credito_valor_pago !== undefined || b.credito_dias_totais !== undefined || b.credito_compra_em !== undefined || b.credito_obs !== undefined) p.push("crédito pró-rata");
   if (b.ativ_searchie !== undefined || b.ativ_comunidade !== undefined || b.ativ_grupo !== undefined || b.ativ_pesquisa !== undefined || b.ativ_gps !== undefined || b.grupo_informes !== undefined || b.pendencia !== undefined) p.push("ativação");
   if (b.rev_searchie !== undefined || b.rev_comunidade !== undefined || b.rev_grupo !== undefined || b.rev_pesquisa !== undefined) p.push("revogação");
