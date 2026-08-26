@@ -7,7 +7,7 @@ import type { EscopoVisibilidade } from "../lib/papeis";
 
 const EQUIPE = "eq-grupo-participa";
 const jonathan: EscopoVisibilidade = { modo: "equipe", usuarioId: "u-jonathan", equipeId: EQUIPE };
-const admin: EscopoVisibilidade = { modo: "tudo", usuarioId: "u-victor", equipeId: EQUIPE };
+const admin: EscopoVisibilidade = { modo: "tudo" };
 
 const cardJonathan = { responsavel_id: "u-jonathan", equipe_id: EQUIPE, responsavel: "Jonathan Mendes" };
 const cardArthur   = { responsavel_id: "u-arthur",   equipe_id: EQUIPE, responsavel: "Arthur Galvão" };
