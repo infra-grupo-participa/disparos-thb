@@ -127,7 +127,17 @@ export function sqlEscopo(
   // sozinho não resolve: ele trata o card SEM dono, não o card do colega.
   // Reparte a carteira sem inventar uma equipe por pessoa, que sujaria o
   // cadastro e quebraria os outros portais onde essas mesmas contas operam.
-  const ramoEquipe = opts?.soDono ? "" : `\n       or ${a.eq} = $${p.equipe}::uuid`;
+  // ⚠️ Com soDono o ramo não some do SQL: vira `... and false`. Parece bobo, mas
+  // é o que mantém o placeholder $equipe REFERENCIADO. Os chamadores montam o
+  // array de params com posição fixa (edicao, responsavel, tag, evento, verTudo,
+  // usuario, equipe); se $7 desaparece do texto, o pg recusa a query inteira com
+  // "bind message supplies 7 parameters, but prepared statement requires 6" — e
+  // o board devolve 500, que foi exatamente o que aconteceu em 26/08. O planner
+  // descarta `and false` sem custo, e ninguém precisa lembrar de reordenar
+  // params em cada rota que usar a opção.
+  const ramoEquipe = opts?.soDono
+    ? `\n       or (${a.eq} = $${p.equipe}::uuid and false)`
+    : `\n       or ${a.eq} = $${p.equipe}::uuid`;
   return `($${p.verTudo}::boolean${ramoLivre}${ramoEquipe}
        or ${a.rid} = $${p.usuario}::uuid${ramoCanal}${ramoEsteira})`;
 }
