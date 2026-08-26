@@ -38,6 +38,7 @@ type Card = {
   precheckout_em: string | null;
   comprou_em: string | null;
   profissao: string | null;
+  score_lead: number | null;
 };
 type Coluna = { chave: string; nome: string; cor: string; total: number };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
@@ -726,6 +727,14 @@ function CardItem({ card, ehPool, colega, selecionado, modoSelecao, onDragStart,
               {card.nivel_lead}
             </span>
           )}
+          {ehAcelera && card.score_lead != null && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              title="Score do cruzamento de listas — quanto maior, mais quente"
+            >
+              {card.score_lead}
+            </span>
+          )}
           {ehAcelera && funil && (
             <span
               className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", funil.classe)}
@@ -777,6 +786,12 @@ function CardItem({ card, ehPool, colega, selecionado, modoSelecao, onDragStart,
         <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", corAvatar(card.nome))}>{inicial(card.nome)}</span>
       </div>
       <p className="mt-1.5 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{card.nome}</p>
+      {/* Profissão logo abaixo do nome: no Acelera é o que qualifica a abordagem
+          (advogado e contador são o público do curso), e não cabe nos chips do
+          topo, que já carregam nível, score e estado do funil. */}
+      {ehAcelera && card.profissao && (
+        <p className="truncate text-xs text-slate-500 dark:text-slate-400" title={card.profissao}>{card.profissao}</p>
+      )}
       <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
         <svg className="h-3.5 w-3.5 shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.76.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Z" /></svg>
         <span className="flex-1 truncate">{card.ultima_msg ? card.ultima_msg.replace(/^Respondeu:\s*/, "") : "—"}</span>

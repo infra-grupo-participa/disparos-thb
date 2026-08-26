@@ -61,7 +61,7 @@ export async function GET(req: Request) {
               -- 0309/0310: o card do Acelera vive desses campos (nível do lead,
               -- pré-checkout e compra). Nos outros portais vêm nulos e o front
               -- simplesmente não desenha nada — nenhum board existente muda.
-              h.nivel_lead, h.origem_lead, h.precheckout_em, h.comprou_em, h.profissao,
+              h.nivel_lead, h.origem_lead, h.precheckout_em, h.comprou_em, h.profissao, ct.score_lead,
               row_number() over (partition by h.estagio_chave order by ct.atualizado_em desc nulls last, h.nome) as rk
          from cs.contatos_evento h
          join cs.contatos ct on ct.comprador_id = h.comprador_id and ct.evento = h.evento
@@ -72,7 +72,7 @@ export async function GET(req: Request) {
           and ${sqlEscopo({ rid: "h.responsavel_id", eq: "h.equipe_id", nome: "h.responsavel" }, escopo, opts)}
      )
      select b.comprador_id, b.nome, b.email, b.telefone, b.edicao, b.estagio_chave, b.tags, b.responsavel, b.opt_out, b.ultima_resposta_em,
-            b.nivel_lead, b.origem_lead, b.precheckout_em, b.comprou_em, b.profissao,
+            b.nivel_lead, b.origem_lead, b.precheckout_em, b.comprou_em, b.profissao, b.score_lead,
             um.descricao as ultima_msg,
             me.criado_em as entrou_estagio_em
        from base b
