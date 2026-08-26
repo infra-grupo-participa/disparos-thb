@@ -69,12 +69,43 @@ const NIVEL_LEAD = {
   Frio:   { chip: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300", ponto: "bg-sky-500" },
 } as const;
 
+/** Minutos desde uma data ISO (0 quando não há data). */
+function minutosDesde(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+}
+
+/** "20 min", "3 h", "2 d" — em texto que cabe num selo de card. */
+function decorrido(min: number): string {
+  if (min < 60) return `${min} min`;
+  if (min < 1440) return `${Math.round(min / 60)} h`;
+  return `${Math.round(min / 1440)} d`;
+}
+
+// Quanto tempo se dá a quem acabou de preencher o pré-checkout antes de tratar
+// como lead parado. O pedido do Victor foi explícito: "preencheu há um minuto,
+// não precisa ligar; preencheu há 20 minutos e não comprou, é indício para ir em
+// cima". Abaixo disso a pessoa provavelmente ainda está com o checkout aberto —
+// ligar ali atrapalha a compra em vez de ajudar.
+const ACELERA_CARENCIA_MIN = 10;
+
 /** Onde o lead está no funil de compra — a leitura que o card precisa dar de longe. */
 function funilAcelera(card: { precheckout_em?: string | null; comprou_em?: string | null }) {
-  if (card.comprou_em) return { tipo: "comprou" as const, label: "Comprou", classe: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" };
-  // Preencheu e não comprou: é AQUI que o comercial tem que ligar primeiro — a
-  // pessoa levantou a mão e parou no meio. Por isso vermelho, e não cinza.
-  if (card.precheckout_em) return { tipo: "parou" as const, label: "Preencheu, não comprou", classe: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" };
+  if (card.comprou_em) {
+    return { tipo: "comprou" as const, label: "Comprou", detalhe: `há ${decorrido(minutosDesde(card.comprou_em))}`,
+             classe: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" };
+  }
+  if (card.precheckout_em) {
+    const min = minutosDesde(card.precheckout_em);
+    // Recém-preenchido não é lead parado: é gente com o checkout aberto agora.
+    if (min < ACELERA_CARENCIA_MIN) {
+      return { tipo: "preenchendo" as const, label: `Preencheu há ${decorrido(min)}`, detalhe: "deixe concluir",
+               classe: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" };
+    }
+    // Passou da carência e não comprou: AQUI o comercial liga primeiro.
+    return { tipo: "parou" as const, label: `Preencheu há ${decorrido(min)}`, detalhe: "não comprou",
+             classe: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" };
+  }
   return null;
 }
 
@@ -216,6 +247,30 @@ export default function KanbanPage() {
   }, [edicao, filtroResp, filtroTag, evento]);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  // ===== Acelera: o board se atualiza sozinho ================================
+  // Board de venda ao vivo fica ABERTO na tela durante o lançamento, e duas
+  // coisas dependem do tempo passar: o "preencheu há 20 min" (que congelaria no
+  // valor do primeiro render) e a chegada de quem acabou de comprar — que move o
+  // card para Vendido por trigger, no banco, sem a tela saber.
+  //
+  // Pausa quando há ficha aberta ou seleção em curso: recarregar por baixo de
+  // quem está trabalhando no card troca a lista sob o cursor.
+  useEffect(() => {
+    if (evento !== "ACELERA") return;
+    if (selecionado || selecaoMulti.size > 0 || menu) return;
+    const t = setInterval(() => { carregar(); }, 60_000);
+    return () => clearInterval(t);
+  }, [evento, carregar, selecionado, selecaoMulti, menu]);
+
+  // O relógio do "há X min" precisa andar mesmo sem dado novo: sem isto, um card
+  // aberto às 19h continuaria dizendo "há 2 min" às 20h. Re-render a cada 30 s.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (evento !== "ACELERA") return;
+    const t = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [evento]);
 
   // CS ativos (para atribuir como responsável). 1x na montagem.
   useEffect(() => {
@@ -674,12 +729,17 @@ function CardItem({ card, ehPool, colega, selecionado, modoSelecao, onDragStart,
           {ehAcelera && funil && (
             <span
               className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", funil.classe)}
-              title={funil.tipo === "comprou" ? "Já comprou — não precisa mais de contato" : "Preencheu o pré-checkout e não concluiu a compra — prioridade de contato"}
+              title={
+                funil.tipo === "comprou" ? "Já comprou — não precisa mais de contato"
+                : funil.tipo === "preenchendo" ? `Preencheu agora há pouco — provavelmente ainda está no checkout. Vira prioridade depois de ${ACELERA_CARENCIA_MIN} min sem comprar.`
+                : "Preencheu o pré-checkout e não concluiu a compra — prioridade de contato"
+              }
             >
               {funil.tipo === "parou" && (
                 <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
               )}
               {funil.label}
+              <span className="font-normal opacity-70">· {funil.detalhe}</span>
             </span>
           )}
           {/* Paleta única de edição (edicao-badge.tsx) — a mesma da lista de Leads. */}
@@ -884,8 +944,10 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                   {funilAc && (
                     <div className={cn("rounded-lg px-3 py-2 text-sm font-semibold", funilAc.classe)}>
                       {funilAc.tipo === "comprou"
-                        ? "✓ Já comprou — não precisa de contato"
-                        : "⚠ Preencheu o pré-checkout e não comprou — prioridade de contato"}
+                        ? `✓ Comprou há ${decorrido(minutosDesde(card.comprou_em))} — não precisa de contato`
+                        : funilAc.tipo === "preenchendo"
+                          ? `Preencheu o pré-checkout há ${decorrido(minutosDesde(card.precheckout_em))} — provavelmente ainda está no checkout, deixe concluir`
+                          : `⚠ Preencheu há ${decorrido(minutosDesde(card.precheckout_em))} e não comprou — prioridade de contato`}
                     </div>
                   )}
                   <div className="space-y-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-800/40">
@@ -895,6 +957,8 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                     <LinhaAcelera rotulo="Profissão" valor={card.profissao} />
                     <LinhaAcelera rotulo="Origem" valor={card.origem_lead} />
                     <LinhaAcelera rotulo="Nível" valor={card.nivel_lead} />
+                    {card.precheckout_em && <LinhaAcelera rotulo="Pré-checkout" valor={fmt(card.precheckout_em)} />}
+                    {card.comprou_em && <LinhaAcelera rotulo="Comprou em" valor={fmt(card.comprou_em)} />}
                   </div>
                   {/* Ligar é o trabalho: WhatsApp e discador, por QR ou direto. */}
                   <div className="flex flex-wrap items-center gap-2">
