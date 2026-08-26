@@ -15,10 +15,10 @@
 // depende deles. Para reviver a tela, basta devolver "curso" aqui, em
 // EVENTO_DO_SLUG (app/page.tsx e app/[portal]/layout.tsx), no enum de
 // UsuarioPortaisSchema e na lista de app/usuarios.
-export type PortalId = "ht" | "seminario" | "hm" | "aurum" | "ethb";
+export type PortalId = "ht" | "seminario" | "hm" | "aurum" | "ethb" | "acelera";
 
 export type Marca = {
-  evento: "HT" | "SEM" | "HM" | "AURUM" | "ETHB";
+  evento: "HT" | "SEM" | "HM" | "AURUM" | "ETHB" | "ACELERA";
   nome: string;
   sigla: string;
   cor: string;
@@ -87,6 +87,20 @@ export const PORTAIS: Record<PortalId, Marca> = {
     desc: "ETHB — Time Holding Brasil: comercial, renovação e liberação de acesso dos alunos.",
     gradiente: "from-teal-600 to-emerald-400",
     logo: null, // → public/marcas/ethb.svg (enquanto não houver, cai no monograma "ETHB")
+    logoRatio: null,
+  },
+  // Acelera Holding (0307, 26/08/2026): venda do Curso Nacional. Portal SÓ
+  // COMERCIAL — o evento não tem estágio na aba 'ativacao', então a esteira de
+  // ativação não tem onde aparecer. A logo oficial ainda não chegou; até lá cai
+  // no monograma, que é a regra da casa: ou é o arquivo oficial, ou é a sigla.
+  acelera: {
+    evento: "ACELERA",
+    nome: "Acelera Holding",
+    sigla: "AH",
+    cor: "#0EA5E9", // sky-500
+    desc: "Comercial do Acelera Holding — leads do Curso Nacional, contato, reunião e venda.",
+    gradiente: "from-sky-500 to-cyan-400",
+    logo: null, // → public/marcas/acelera.svg quando o Victor mandar
     logoRatio: null,
   },
 };

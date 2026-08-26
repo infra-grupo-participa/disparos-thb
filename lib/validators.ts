@@ -131,7 +131,7 @@ export const UsuarioPortaisSchema = z.object({
   // "CNHF" saiu do enum em 10/08/2026 (ver lib/marcas.ts). A migration 0170
   // limpou a whitelist das 16 contas que o tinham — sem isso, salvar qualquer
   // uma delas passaria a ser recusado aqui.
-  portais: z.array(z.enum(["HT", "SEM", "HM", "AURUM", "ETHB"])),
+  portais: z.array(z.enum(["HT", "SEM", "HM", "AURUM", "ETHB", "ACELERA"])),
 });
 
 // Cor em hex (#rrggbb) — usada por equipes (0140) e pelo catálogo de tags.

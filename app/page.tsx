@@ -14,8 +14,8 @@ import { podeAcessarPortal } from "@/lib/papeis";
 // nesses boards por cadastro manual (ou, no futuro, por compra da oferta do
 // produto). Só aparecem para quem tem o portal na whitelist (0145).
 // "curso" (CNHF) saiu em 10/08/2026 — ver o cabeçalho de lib/marcas.ts.
-const ORDEM: PortalId[] = ["ht", "seminario", "hm", "aurum", "ethb"];
-const EVENTO_DO_SLUG: Record<PortalId, string> = { ht: "HT", seminario: "SEM", hm: "HM", aurum: "AURUM", ethb: "ETHB" };
+const ORDEM: PortalId[] = ["ht", "seminario", "hm", "aurum", "ethb", "acelera"];
+const EVENTO_DO_SLUG: Record<PortalId, string> = { ht: "HT", seminario: "SEM", hm: "HM", aurum: "AURUM", ethb: "ETHB", acelera: "ACELERA" };
 
 export default async function SelecaoPortal({ searchParams }: { searchParams: { sem_acesso?: string } }) {
   const sessao = await getSessao();

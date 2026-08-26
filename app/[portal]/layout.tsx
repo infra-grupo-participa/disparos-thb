@@ -6,7 +6,10 @@ import { podeAcessarPortal } from "@/lib/papeis";
 // `curso` (CNHF) saiu da lista em 10/08/2026: /curso/* passa a cair em 404, que é
 // o comportamento certo para um portal que não existe mais. Os dados do CNHF não
 // foram tocados — ver o cabeçalho de lib/marcas.ts.
-const EVENTO_DO_SLUG: Record<string, string> = { ht: "HT", seminario: "SEM" };
+// `acelera` (0307): o Acelera Holding roda no portal GENÉRICO (cs.contatos),
+// como HT e Seminário — e não no board recortado por produto do HM. A base dele
+// vem do Curso Nacional, que já vive em cs.contatos.
+const EVENTO_DO_SLUG: Record<string, string> = { ht: "HT", seminario: "SEM", acelera: "ACELERA" };
 
 // Layout do portal: valida o segmento (/ht/* ou /seminario/*). Qualquer outro
 // valor cai em 404. Além disso, aplica o CONTROLE DE ACESSO POR PORTAL (0145): quem

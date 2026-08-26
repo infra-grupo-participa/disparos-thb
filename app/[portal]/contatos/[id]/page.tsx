@@ -7,6 +7,7 @@ import { EdicaoBadge } from "@/app/_components/edicao-badge";
 import { Button, Card, EmptyState, Spinner, cn, fieldClass } from "@/app/_components/ui";
 import { CardLigacoes } from "@/app/_components/ligacao";
 import { Copiavel } from "@/app/_components/copiavel";
+import { QrContato } from "@/app/_components/qr-contato";
 import { Reveal, AnimNum } from "@/app/_components/anim";
 import { usePortal } from "@/app/_components/use-portal";
 import { useMe, msgErroPermissao, msgErroCarregamento } from "@/app/_components/use-me";
@@ -298,6 +299,11 @@ export default function ContatoDetalhe({ params }: { params: { id: string } }) {
                   <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.5 15.3L2 22l4.8-1.5A10 10 0 1 0 12 2Z" /></svg>
                   WhatsApp
                 </a>
+              )}
+              {/* QR do lead (26/08): aponta o celular para a tela e cai na
+                  conversa do WhatsApp ou no discador — sem digitar número. */}
+              {contato.telefone && (
+                <QrContato telefone={contato.telefone} nome={contato.nome} />
               )}
             </div>
             {(contato.tags?.length ?? 0) > 0 && (
