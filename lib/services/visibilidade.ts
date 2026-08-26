@@ -91,7 +91,7 @@ export function sqlCardLivre(a: ColunasEscopo): string {
 export function sqlEscopo(
   a: ColunasEscopo,
   p: { verTudo: number; usuario: number; equipe: number; abas?: number; produto?: number },
-  opts?: { poolRestrito?: boolean },
+  opts?: { poolRestrito?: boolean; soDono?: boolean },
 ): string {
   // Ramo canal→pessoa (0154): reusa o placeholder $usuario — sem novo parâmetro.
   // Card com alguma tag atribuída a mim em cs.usuario_canais entra na minha visão.
@@ -120,8 +120,15 @@ export function sqlEscopo(
   // Card livre: fora do OR quando poolRestrito — só $verTudo alcança (ver o
   // comentário acima). Dentro do OR (comportamento de sempre) nos demais casos.
   const ramoLivre = opts?.poolRestrito ? "" : `\n       or ${sqlCardLivre(a)}`;
-  return `($${p.verTudo}::boolean${ramoLivre}
-       or ${a.eq} = $${p.equipe}::uuid
+  // `soDono` (0311, 26/08 — Acelera Holding): derruba TAMBÉM o ramo de equipe.
+  // No Acelera os cinco vendedores estão na MESMA equipe (Grupo Participa), e o
+  // ramo `equipe` faria cada um enxergar a carteira dos outros quatro — o
+  // oposto do pedido ("o Jonathan não pode ver os do Arthur"). poolRestrito
+  // sozinho não resolve: ele trata o card SEM dono, não o card do colega.
+  // Reparte a carteira sem inventar uma equipe por pessoa, que sujaria o
+  // cadastro e quebraria os outros portais onde essas mesmas contas operam.
+  const ramoEquipe = opts?.soDono ? "" : `\n       or ${a.eq} = $${p.equipe}::uuid`;
+  return `($${p.verTudo}::boolean${ramoLivre}${ramoEquipe}
        or ${a.rid} = $${p.usuario}::uuid${ramoCanal}${ramoEsteira})`;
 }
 
@@ -168,6 +175,9 @@ export function podeVerPorEscopo(
   // (retornado na linha de cima) alcança. Omitido/false = comportamento de
   // sempre (pool visível a qualquer operador).
   poolRestrito?: boolean,
+  // `soDono` (0311): espelha o sqlEscopo — sem o ramo de equipe. Tem de andar
+  // junto: a lista não mostrar e a ficha abrir é o pior dos mundos.
+  soDono?: boolean,
 ): boolean {
   if (escopo.modo === "tudo") return true;
   if (!poolRestrito && ehCardLivre(c)) return true;
@@ -191,7 +201,8 @@ export function podeVerPorEscopo(
   // pode casar com card de equipe nula — "null === null" viraria vazamento.
   // O ramo `responsavel_id === usuarioId` cobre o card do PRÓPRIO usuário
   // quando ele não tem equipe (equipe derivada do dono é nula nesses cards).
-  return escopo.modo === "equipe"
+  // soDono: mesmo com modo "equipe", só o card do próprio usuário abre.
+  return escopo.modo === "equipe" && !soDono
     ? (c.equipe_id !== null && c.equipe_id === escopo.equipeId) || c.responsavel_id === escopo.usuarioId
     : c.responsavel_id === escopo.usuarioId;
 }

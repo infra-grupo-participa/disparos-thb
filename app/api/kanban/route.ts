@@ -28,6 +28,12 @@ export async function GET(req: Request) {
   const { verTudo, equipeId, usuarioId } = paramsEscopo(escopoVisibilidade(g.sessao));
   const f = [edicao, responsavel, tag, evento, verTudo, usuarioId, equipeId];
   const escopo = { verTudo: 5, usuario: 6, equipe: 7 };
+  // Acelera (0311): carteira individual. Os cinco vendedores estão na MESMA
+  // equipe, então o ramo `equipe` do predicado padrão faria cada um enxergar a
+  // carteira dos outros — o oposto do pedido. `soDono` derruba esse ramo e
+  // `poolRestrito` impede que um card sem dono vire pool de todos. Admin
+  // (verTudo) segue vendo tudo, que é como o Victor acompanha.
+  const opts = evento === "ACELERA" ? { soDono: true, poolRestrito: true } : undefined;
 
   // Filtros ($1 edição, $2 responsável, $3 tag, $4 evento) em colunas e cards.
   // A equipe do card deriva do dono (ru.equipe_id) — cs.contatos cru não a tem.
@@ -37,7 +43,7 @@ export async function GET(req: Request) {
               where ($1::text is null or ct.comprador_id in (select comprador_id from cs.contatos_evento where evento = $4 and edicao = $1))
                 and ($2::text is null or ct.responsavel = $2)
                 and ($3::text is null or $3 = any(ct.tags))
-                and ${sqlEscopo({ rid: "ct.responsavel_id", eq: "ru.equipe_id", nome: "ct.responsavel" }, escopo)}
+                and ${sqlEscopo({ rid: "ct.responsavel_id", eq: "ru.equipe_id", nome: "ct.responsavel" }, escopo, opts)}
             )::int as total
        from cs.estagios e
        left join cs.contatos ct on ct.estagio_id = e.id and ct.evento = $4
@@ -63,7 +69,7 @@ export async function GET(req: Request) {
           and ($1::text is null or h.edicao = $1)
           and ($2::text is null or ct.responsavel = $2)
           and ($3::text is null or $3 = any(ct.tags))
-          and ${sqlEscopo({ rid: "h.responsavel_id", eq: "h.equipe_id", nome: "h.responsavel" }, escopo)}
+          and ${sqlEscopo({ rid: "h.responsavel_id", eq: "h.equipe_id", nome: "h.responsavel" }, escopo, opts)}
      )
      select b.comprador_id, b.nome, b.email, b.telefone, b.edicao, b.estagio_chave, b.tags, b.responsavel, b.opt_out, b.ultima_resposta_em,
             b.nivel_lead, b.origem_lead, b.precheckout_em, b.comprou_em, b.profissao,

@@ -119,7 +119,11 @@ export async function podeVerContato(sessao: Ator, compradorId: string, evento: 
   if (!c) return true; // inexistente → deixa o 404 acontecer no fluxo normal
   // O MESMO predicado do sqlEscopo das listagens (visibilidade.ts) — a lista
   // não mostra, a ficha não abre, pela mesma regra e pelo mesmo código.
-  return podeVerPorEscopo(escopo, c);
+  // Acelera (0311): carteira individual, igual ao que /api/kanban aplica. Sem
+  // isto a lista esconderia o card do colega e a ficha abriria por URL direta —
+  // que é justamente o furo que este módulo existe para não ter.
+  const acelera = evento === "ACELERA";
+  return podeVerPorEscopo(escopo, c, undefined, undefined, acelera, acelera);
 }
 
 // Gate de AÇÃO das rotas de escrita (PATCH da ficha, mover no kanban, lote,
