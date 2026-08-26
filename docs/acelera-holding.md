@@ -5,38 +5,67 @@ Curso Nacional. É **só comercial**: não tem ativação e não dispara campanh
 
 ---
 
-## ⏳ O QUE FALTA (leia antes de mexer)
+## A sincronização com a planilha (pronta em 26/08)
 
-**A sincronização com a planilha do Victor ainda NÃO existe.** Os campos estão no
-banco, o board já os lê e desenha tudo certo — mas hoje eles só se preenchem por
-carga manual.
+O pré-checkout e a compra chegam **sozinhos**, de 2 em 2 minutos, direto da
+planilha do SCORE. A pessoa preenche o checkout ou compra, a planilha atualiza, e
+em até 2 minutos o card mostra. Quem compra vai para **Vendido** sem intervenção.
 
-O Victor confirmou em 26/08 que a planilha **atualiza sozinha** as colunas de
-pré-checkout e de compra: assim que a pessoa preenche ou compra, a linha muda lá.
-O que falta é o job que traz isso para cá.
+**As peças:**
 
-> **Só dá para implementar com a planilha em mãos.** Sem ela não se sabe o ID, os
-> nomes das abas, os nomes exatos das colunas nem o formato das datas — e chutar
-> qualquer um desses três é garantir sincronização que roda e grava errado.
+| onde | o quê |
+|------|-------|
+| planilha | `1kas7NFLahAxIthHM55CVYjU02Dh3b0FTKIsfiT9A9fU`, aba `SCORE` |
+| colunas lidas | `email`, `Data checkout`, `Data compra`, `Checkout?`, `Comprou?` |
+| n8n | `[Acelera] Sync do funil — checkout e compra` (`wufUhw1xPAI3cn0v`), a cada 2 min |
+| banco | `public.fn_acelera_sync_funil(jsonb)` (migrations 0315 e 0316) |
 
-**Quando a planilha chegar, o trabalho é:**
+**Por que uma função e não escrita direta:** o schema `cs` não é exposto no
+PostgREST, de propósito. Expor `cs` para o n8n escrever abriria a operação
+inteira por causa de duas colunas. A função `SECURITY DEFINER` faz o contrário:
+o n8n só alcança essa porta, que casa por e-mail e escreve exclusivamente
+`precheckout_em` e `comprou_em`, exclusivamente no evento `ACELERA`.
 
-1. Mapear as colunas dela para `cs.contatos`:
-   | planilha (esperado)          | coluna aqui             |
-   |------------------------------|-------------------------|
-   | data/hora do pré-checkout    | `precheckout_em`        |
-   | data/hora da compra          | `comprou_em`            |
-   | nível do lead                | `nivel_lead`            |
-   | origem do lead               | `origem_lead`           |
-   | responsável do comercial     | `responsavel_id`        |
-   | profissão                    | `public.compradores.profissao` |
-2. Casar cada linha com o contato. **Chave: telefone normalizado (`55DDDNÚMERO`)
-   ou e-mail** — nunca só o nome (a Central já mostrou que nome duplica e muda).
-3. Rodar de X em X minutos durante o lançamento. A planilha muda sozinha, então
-   sincronização única não serve: o "comprou" chegaria tarde e o comercial
-   ligaria para quem já comprou.
-4. Fuso: a planilha de métricas do CNHF está em **UTC**, e as horas da operação
-   são **BRT**. Conferir antes de gravar, senão todo "há X min" nasce 3 h errado.
+**Três decisões que estão dentro dela:**
+
+- **Só escreve quando o valor muda.** Sem isso cada rodada tocaria as 299 linhas
+  e o `atualizado_em` viraria "agora" para todo mundo, embaralhando a ordem do
+  board a cada 2 minutos.
+- **Aceita os dois formatos de data.** O Sheets manda serial (`46260.63…`) quando
+  a célula é data de verdade e texto `dd/mm/aaaa hh:mm:ss` quando foi colada. Os
+  dois convivem no mesmo arquivo.
+- **Data fora da janela do lançamento vira a tag `Data a conferir`**, em vez de
+  ser corrigida no chute. Foi o que pegou uma compra datada de 2017 no teste.
+
+**Ela só grava, nunca apaga.** Limpar a célula na planilha não limpa o card, para
+que uma venda real não suma por causa de uma célula mexida sem querer. Para
+limpar, é update na mão.
+
+### ⚠️ Fuso: a armadilha que já mordeu uma vez
+
+A planilha está em **America/Sao_Paulo**, então tanto o serial quanto o texto são
+**horário de Brasília**. O n8n traduz isso para `'2026-08-26 15:09:36'` — sem
+fuso, porque é tudo o que a célula sabe.
+
+A versão 0315 fazia `::timestamptz` nessa string, e **texto sem fuso é
+interpretado no TimeZone da sessão, que no PostgREST é UTC**. As 15:09 viravam
+15:09 UTC, ou seja, 12:09 aqui. O card, que conta a partir de agora, anunciava
+**4 horas** de espera para quem tinha preenchido fazia 48 minutos. Nenhum erro,
+nenhuma linha rejeitada: só o dado 3 horas no passado.
+
+Isso destrói justamente o que o card serve para fazer, que é o vendedor ligar
+para quem acabou de abrir o checkout e não concluiu. Com 3 horas de atraso o lead
+quente já parece frio e sai da fila.
+
+A 0316 concentrou a tradução em `public.fn_acelera_data_brt(text)`: texto **sem**
+fuso é lido como Brasília; texto que **já traz** fuso (terminado em `Z` ou
+`±hh:mm`) é respeitado como veio, para nunca somar o deslocamento duas vezes.
+A janela do lançamento também passou a ser comparada em Brasília (`'2026-08-20'`
+solto era meia-noite UTC, isto é, 21h do dia 19 aqui).
+
+> **Quem for mexer no Code node do n8n:** ele manda hora de Brasília **sem** sufixo
+> de fuso, e a função conta com isso. Não carimbe `Z` numa hora de Brasília — é
+> exatamente o bug acima, de volta.
 
 ---
 
