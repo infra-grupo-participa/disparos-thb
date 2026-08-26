@@ -10,6 +10,8 @@ import { TagsIcon, TAGS_PADRAO, tagTone } from "@/app/_components/tags";
 import { Reveal } from "@/app/_components/anim";
 import { Avatar, corAvatar, inicial } from "@/app/_components/avatar";
 import { EdicaoBadge } from "@/app/_components/edicao-badge";
+import { QrContato } from "@/app/_components/qr-contato";
+import { Copiavel } from "@/app/_components/copiavel";
 import { toast } from "@/app/_components/toast";
 import { useMe, msgErroPermissao, msgErroCarregamento } from "@/app/_components/use-me";
 import { usePortal } from "@/app/_components/use-portal";
@@ -30,6 +32,12 @@ type Card = {
   ultima_resposta_em: string | null;
   ultima_msg: string | null;
   entrou_estagio_em: string | null;
+  // 0309/0310 — só o Acelera preenche; nos outros portais vêm nulos e nada é desenhado.
+  nivel_lead: "Quente" | "Morno" | "Frio" | null;
+  origem_lead: string | null;
+  precheckout_em: string | null;
+  comprou_em: string | null;
+  profissao: string | null;
 };
 type Coluna = { chave: string; nome: string; cor: string; total: number };
 type Interacao = { tipo: string; descricao: string | null; autor: string | null; criado_em: string };
@@ -50,6 +58,25 @@ type Detalhe = {
 };
 
 const FORM_TITULO: Record<string, string> = { matricula: "Qualificação", ficha_hm: "Ficha de Interesse HM", pesquisa: "Pesquisa de qualificação" };
+
+// ===== Acelera Holding =====================================================
+// O board do Acelera é de VENDA DIRETA: o que o comercial precisa ver no card é
+// a temperatura do lead e onde ele está no funil de compra. Score 0/100, edição
+// e opt-out (que existem para disparo) não dizem nada aqui — ver `ehAcelera`.
+const NIVEL_LEAD = {
+  Quente: { chip: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300", ponto: "bg-rose-500" },
+  Morno:  { chip: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300", ponto: "bg-amber-500" },
+  Frio:   { chip: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300", ponto: "bg-sky-500" },
+} as const;
+
+/** Onde o lead está no funil de compra — a leitura que o card precisa dar de longe. */
+function funilAcelera(card: { precheckout_em?: string | null; comprou_em?: string | null }) {
+  if (card.comprou_em) return { tipo: "comprou" as const, label: "Comprou", classe: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" };
+  // Preencheu e não comprou: é AQUI que o comercial tem que ligar primeiro — a
+  // pessoa levantou a mão e parou no meio. Por isso vermelho, e não cinza.
+  if (card.precheckout_em) return { tipo: "parou" as const, label: "Preencheu, não comprou", classe: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" };
+  return null;
+}
 
 function nivelScore(score: number) {
   if (score >= 60) return { label: "Quente", txt: "text-emerald-600 dark:text-emerald-400", bar: "bg-emerald-500" };
@@ -121,7 +148,11 @@ function tempoTom(iso: string | null): string {
 export default function KanbanPage() {
   const { me, nivel, podeDisparar: podeDisparaFn, podeDistribuir, acaoLivre } = useMe();
   const { portal, evento, base, nome: eventoNome, ehHT } = usePortal();
-  const podeDisparar = podeDisparaFn(evento);
+  // O Acelera não dispara — o trabalho é ligar. Barrar aqui, no ponto único que
+  // já existia, apaga a ação do botão do topo, do menu de contexto, da barra de
+  // seleção e do drawer de uma vez; espalhar `ehAcelera &&` por cada um deles é
+  // que abriria brecha para sobrar um.
+  const podeDisparar = evento !== "ACELERA" && podeDisparaFn(evento);
   // Card de COLEGA (28/07): o operador VÊ o pool + os cards da equipe, mas só
   // AGE no que é dele ou está livre — o detalhe abre em leitura e a API recusa
   // escrita com 403 `card_de_outro_operador`. A regra é o escopoAcao de
@@ -172,7 +203,7 @@ export default function KanbanPage() {
         if (Array.isArray(d.edicoes)) setEdicoes(d.edicoes);
         if (Array.isArray(d.responsaveis)) setResponsaveis(d.responsaveis);
         if (Array.isArray(d.tags)) setTags(d.tags);
-        if (edicao === null && d.edicoes?.length) { setEdicao(d.edicoes[0]); return; }
+        if (evento !== "ACELERA" && edicao === null && d.edicoes?.length) { setEdicao(d.edicoes[0]); return; }
       } else {
         setErro(msgErroPermissao(d.reason) ?? "Não foi possível carregar a jornada. Tente de novo.");
       }
@@ -323,14 +354,19 @@ export default function KanbanPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{ehHT ? "Jornada do HT" : `Jornada · ${eventoNome}`}</h1>
           </div>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            {totalGeral} {ehHT ? "comprador(es)" : "lead(s)"}{edicao ? ` · ${edicao}` : ""} — arraste os cards entre as etapas, clique para ver detalhes.
+            {totalGeral} {ehHT ? "comprador(es)" : "lead(s)"}{edicao && evento !== "ACELERA" ? ` · ${edicao}` : ""} — arraste os cards entre as etapas, clique para ver detalhes.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select value={edicao ?? ""} onChange={(e) => setEdicao(e.target.value)} className={fieldCompactClass}>
-            <option value="">Todas as edições</option>
-            {edicoes.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
-          </select>
+          {/* Edição é conceito do HT (turma do evento). No Acelera a view devolve
+              o 'SEM' do COALESCE para todo mundo — um filtro de um valor só, que
+              não filtra nada e ainda sugere que significa alguma coisa. */}
+          {evento !== "ACELERA" && (
+            <select value={edicao ?? ""} onChange={(e) => setEdicao(e.target.value)} className={fieldCompactClass}>
+              <option value="">Todas as edições</option>
+              {edicoes.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
+            </select>
+          )}
           {opcoesResponsavel.length > 0 && (
             <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} className={fieldCompactClass}>
               <option value="">Todos os operadores</option>
@@ -558,6 +594,22 @@ export default function KanbanPage() {
   );
 }
 
+// Linha da ficha do Acelera: rótulo à esquerda, valor à direita. Quando o valor
+// serve para ALGUMA ação fora daqui (e-mail e telefone), vira copiável de um
+// clique — o operador liga de outro aparelho e não vai digitar na mão.
+function LinhaAcelera({ rotulo, valor, copiavel, mono }: { rotulo: string; valor?: string | null; copiavel?: boolean; mono?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-3 text-sm">
+      <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{rotulo}</span>
+      {valor
+        ? (copiavel
+            ? <Copiavel valor={valor} rotulo={rotulo.toLowerCase()} mono={mono} />
+            : <span className={cn("min-w-0 break-words text-right text-slate-700 dark:text-slate-200", mono && "font-mono")}>{valor}</span>)
+        : <span className="text-slate-400 dark:text-slate-600">—</span>}
+    </div>
+  );
+}
+
 function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
     <button onClick={onClick} className="block w-full px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">
@@ -570,7 +622,10 @@ function CardItem({ card, ehPool, colega, selecionado, modoSelecao, onDragStart,
   card: Card; ehPool?: boolean; colega?: boolean; selecionado: boolean; modoSelecao: boolean;
   onDragStart: () => void; onClick: () => void; onToggleSel: () => void; onMenu: (x: number, y: number) => void;
 }) {
-  const { base } = usePortal();
+  const { base, evento } = usePortal();
+  const ehAcelera = evento === "ACELERA";
+  const funil = ehAcelera ? funilAcelera(card) : null;
+  const niv = ehAcelera && card.nivel_lead ? NIVEL_LEAD[card.nivel_lead] : null;
   return (
     <div
       role="button"
@@ -607,9 +662,29 @@ function CardItem({ card, ehPool, colega, selecionado, modoSelecao, onDragStart,
 
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap gap-1">
+          {/* No Acelera o topo do card responde duas perguntas: quão quente é o
+              lead e onde ele parou na compra. Edição e opt-out são vocabulário
+              de disparo — não entram num board que não dispara. */}
+          {ehAcelera && niv && card.nivel_lead && (
+            <span className={cn("inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold", niv.chip)} title={`Lead ${card.nivel_lead.toLowerCase()}`}>
+              <span className={cn("h-1.5 w-1.5 rounded-full", niv.ponto)} aria-hidden />
+              {card.nivel_lead}
+            </span>
+          )}
+          {ehAcelera && funil && (
+            <span
+              className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold", funil.classe)}
+              title={funil.tipo === "comprou" ? "Já comprou — não precisa mais de contato" : "Preencheu o pré-checkout e não concluiu a compra — prioridade de contato"}
+            >
+              {funil.tipo === "parou" && (
+                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+              )}
+              {funil.label}
+            </span>
+          )}
           {/* Paleta única de edição (edicao-badge.tsx) — a mesma da lista de Leads. */}
-          {card.edicao && <EdicaoBadge edicao={card.edicao} />}
-          {card.opt_out && (
+          {!ehAcelera && card.edicao && <EdicaoBadge edicao={card.edicao} />}
+          {!ehAcelera && card.opt_out && (
             <span className="inline-flex items-center gap-0.5 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 dark:bg-rose-500/15 dark:text-rose-300" title="Opt-out: não recebe disparos">
               <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><path d="m5 5 14 14" /></svg>
               opt-out
@@ -712,6 +787,11 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
   card: Card; colunas: Coluna[]; responsaveis: string[]; podeDisparar: boolean; onClose: () => void; onMover: (chave: string) => void; onDisparar: () => void; onAtualizar: () => void;
 }) {
   const { base, evento } = usePortal();
+  // No Acelera a ficha responde a UMA pergunta: como falo com essa pessoa agora.
+  // Métricas de disparo (respondeu?, taxa, SLA) e o termômetro 0/100 são de outro
+  // trabalho — some tudo, senão o operador tem que caçar o telefone no meio.
+  const ehAcelera = evento === "ACELERA";
+  const funilAc = ehAcelera ? funilAcelera(card) : null;
   const { me, podeDistribuir, ehCardDeColega } = useMe();
   const [det, setDet] = useState<Detalhe | null>(null);
   const [tagNova, setTagNova] = useState("");
@@ -798,14 +878,53 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                   Você pode ver os detalhes e o histórico, mas não alterar — só quem pode agir é o dono ou o gestor.
                 </div>
               )}
-              {/* Respondeu? + métricas */}
+              {/* ===== Acelera: contato + funil de compra ===== */}
+              {ehAcelera && (
+                <>
+                  {funilAc && (
+                    <div className={cn("rounded-lg px-3 py-2 text-sm font-semibold", funilAc.classe)}>
+                      {funilAc.tipo === "comprou"
+                        ? "✓ Já comprou — não precisa de contato"
+                        : "⚠ Preencheu o pré-checkout e não comprou — prioridade de contato"}
+                    </div>
+                  )}
+                  <div className="space-y-2.5 rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-800/40">
+                    {/* Um clique copia — o operador liga de outro aparelho. */}
+                    <LinhaAcelera rotulo="E-mail" valor={card.email} copiavel />
+                    <LinhaAcelera rotulo="Telefone" valor={card.telefone} copiavel mono />
+                    <LinhaAcelera rotulo="Profissão" valor={card.profissao} />
+                    <LinhaAcelera rotulo="Origem" valor={card.origem_lead} />
+                    <LinhaAcelera rotulo="Nível" valor={card.nivel_lead} />
+                  </div>
+                  {/* Ligar é o trabalho: WhatsApp e discador, por QR ou direto. */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <QrContato telefone={card.telefone} nome={card.nome} />
+                    {waLink(card.telefone) && (
+                      <a href={waLink(card.telefone)!} target="_blank" rel="noreferrer"
+                         className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200 transition-colors hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30">
+                        WhatsApp
+                      </a>
+                    )}
+                    {card.telefone && (
+                      <a href={`tel:+${(card.telefone || "").replace(/\D/g, "")}`}
+                         className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700">
+                        Ligar
+                      </a>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Respondeu? + métricas — vocabulário de disparo, fora do Acelera. */}
+              {!ehAcelera && (
               <div className={cn("flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium",
                 respondeu ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400")}>
                 {respondeu ? "✓ Já respondeu a disparo" : "Ainda não respondeu a disparos"}
               </div>
+              )}
 
-              {/* Termômetro + situação do lead */}
-              {det && (
+              {/* Termômetro + situação do lead (score 0/100 é do funil de disparo) */}
+              {!ehAcelera && det && (
                 <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-800/40">
                   <div>
                     <div className="flex items-center justify-between text-xs">
@@ -825,12 +944,14 @@ function Drawer({ card, colunas, responsaveis, podeDisparar, onClose, onMover, o
                 </div>
               )}
 
+              {!ehAcelera && (
               <div className="grid grid-cols-2 gap-2">
                 <MiniM label="Disparos" valor={m?.disparos_recebidos ?? "—"} />
                 <MiniM label="Respondidos" valor={m?.disparos_respondidos ?? "—"} />
                 <MiniM label="Taxa" valor={m ? `${taxa}%` : "—"} />
                 <MiniM label="SLA médio" valor={m?.sla_medio != null ? `${m.sla_medio} min` : "—"} />
               </div>
+              )}
 
               {/* Mover etapa */}
               <div>
