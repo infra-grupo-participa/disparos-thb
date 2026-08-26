@@ -115,10 +115,13 @@ export const MARCA_CASA = {
 };
 
 export function portalDoPath(pathname: string | null | undefined): PortalId {
+  // Derivado das CHAVES de PORTAIS, não de uma cascata de `if` — que era o que
+  // havia aqui e custou caro em 26/08: o portal novo (`acelera`) não tinha um
+  // `if` próprio, caía no `return "ht"` do fim e TODAS as telas de /acelera/*
+  // se identificavam como Holding Total (marca, cor e, pior, o evento usado nas
+  // consultas). O default silencioso escondeu o erro: em vez de quebrar, a tela
+  // mostrava dados de outro evento. Agora um portal registrado em PORTAIS já
+  // vale aqui, e portal novo não precisa lembrar de tocar nesta função.
   const seg = (pathname || "").split("/").filter(Boolean)[0];
-  if (seg === "seminario") return "seminario";
-  if (seg === "hm") return "hm";
-  if (seg === "aurum") return "aurum";
-  if (seg === "ethb") return "ethb";
-  return "ht";
+  return (seg && seg in PORTAIS) ? (seg as PortalId) : "ht";
 }
