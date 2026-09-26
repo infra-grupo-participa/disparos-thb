@@ -23,6 +23,9 @@ export type ProdutoBoard = "HM" | "AURUM" | "ETHB";
 
 const CANAIS_POR_PRODUTO: Record<ProdutoBoard, readonly string[]> = {
   HM: [
+    // Imersão HT de 26–27/09/2026: HM cheio R$ 15 mil (oferta 6fceg8ye). Canal
+    // vem da OFERTA, sem fim — toda compra de 15k nela é deste canal (0321).
+    "Imersão HT - 26-09",
     // As TRÊS edições do pitch da entrada de R$697 (mesma oferta na Hotmart,
     // lives de 09/08, 10/08 e 11/08). Quem separa uma da outra é a janela de
     // compra — ver migrations 0167 e 0179. Ficam lado a lado de propósito: a
