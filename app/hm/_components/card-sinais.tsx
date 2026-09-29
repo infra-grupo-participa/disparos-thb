@@ -515,6 +515,36 @@ export function SeloRecompra({ origem, className }: { origem: string; className?
   );
 }
 
+// Turma sem valor (29/09): a turma do card HM é calculada só pelo banco — quem
+// pagou só o sinal fica SEM turma até pagar a parcela inicial (ou a compra
+// cheia). Vale SÓ no HM (o gatilho ignora Aurum/ETHB) e SÓ na ficha/drawer: no
+// kanban "sem turma" é o estado normal de ~170 cards e não ganha selo.
+// Sinal pago = linha `categoria='sinal'` na razão (`pagamentos` da ficha, já
+// filtrada por produto). Estorno APAGA a linha da razão (fn_hm_estornar_pagamento),
+// então sinal estornado não conta. Sem consulta nova: a ficha já devolve a razão.
+export function aguardaParcelaInicial(
+  turma: string | null | undefined,
+  pagamentos: { categoria?: string | null }[] | null | undefined,
+): boolean {
+  if (turma) return false;
+  return (pagamentos ?? []).some((p) => p.categoria === "sinal");
+}
+
+// Neutro (slate), não é alerta: é estado esperado, sem ação do operador.
+export function SeloAguardandoParcelaInicial({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+        className,
+      )}
+      title="Sem turma ainda: a turma sai sozinha quando a parcela inicial (ou a compra cheia) for paga."
+    >
+      Aguardando parcela inicial
+    </span>
+  );
+}
+
 // O selo do ALUNO ANTIGO (0213, 12/08). Texto VISÍVEL curto de propósito —
 // pedido do Marcio em 13/08: "não precisa deixar porra explícita, acesso
 // pré-marcar não. Só coloca diferença entre um e outro... tem que ser

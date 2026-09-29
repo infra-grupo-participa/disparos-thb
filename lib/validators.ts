@@ -306,6 +306,7 @@ export const HmCadastroSchema = z.object({
   email: z.string().trim().min(1, "informe o e-mail").email("e-mail inválido"),
   telefone: z.string().trim().optional(),
   documento: z.string().trim().optional(),
+  // `turma` só vale fora do HM (AURUM/ETHB); no HM o banco calcula e a rota descarta.
   turma: z.string().trim().optional(),
   categoria: z.enum(["sinal", "compra_cheia"]).nullable().optional(),
   responsavel: z.string().trim().nullable().optional(),
@@ -412,7 +413,8 @@ export const HmContatoPatchSchema = z.object({
   rev_grupo: z.boolean().optional(),
   rev_pesquisa: z.boolean().optional(),
   link_facebook: z.string().nullable().optional(),
-  // turma do aluno NO HM (a atual, T39 por padrão) — editável para exceções
+  // turma do aluno: só é gravada quando o produto do card não é HM (no HM o
+  // banco calcula e a rota descarta este campo).
   turma: z.string().nullable().optional(),
   // ----- crédito pró-rata (insumos; o crédito é calculado) -----
   credito_oferta: z.string().nullable().optional(),
@@ -562,7 +564,13 @@ export const HmAdminEditSchema = z.object({
   valor_pago: z.number().nonnegative().optional(),
   pagamento_em: z.string().nullable().optional(),
   cancelamento_em: z.string().nullable().optional(),
-  turma_origem: z.string().trim().nullable().optional(),
+  // Formato de código de turma (T1..T42, T29.2, A1..). Vazio/null limpa a origem
+  // (vira null). A existência em public.thb_turmas é conferida na rota.
+  turma_origem: z.string().trim()
+    .regex(/^[A-Za-z]{1,3}\d{1,3}(\.\d{1,2})?R?$/, "Código de turma inválido (ex.: T39, T29.2, T17R, A1)")
+    .or(z.literal(""))
+    .transform((v) => (v === "" ? null : v))
+    .nullable().optional(),
 });
 
 // ----- Catálogo de ofertas (0255/0256/0257, master-only) -----

@@ -271,6 +271,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
           ...(entrevistaFinalizada ? ["entrevista_resultado", "entrevista_gravacao_url"] : []),
           ...(!podeEscreverEscopoHm(sessao, "comercial") ? CAMPOS_HM_COMERCIAL : []),
           ...(!podeEscreverEscopoHm(sessao, "ativacao") ? CAMPOS_HM_ATIVACAO : []),
+          // 0312 (achado do pentester): turma é calculada pelo banco e
+          // `turma_origem` preenchida é a ÚNICA alavanca manual — só o master
+          // mexe nela (rota admin). fn_hm_undo_colunas (0307) fotografa as
+          // duas; sem isto, restaurar uma versão antiga devolvia turma/
+          // turma_origem de antes para quem não é master, e o gatilho
+          // fn_hm_turma_regra respeita turma_origem preenchida.
+          // Fora do HM a turma continua editável no PATCH, então o undo também a devolve.
+          "turma_origem",
+          ...(produtoCard === "HM" ? ["turma"] : []),
         ]));
     const r = await queryOne<{ res: { ok: boolean; reason?: string } }>(
       // 0220: `produtoCard` no 5o argumento — sem ele a funcao resolvia o card
@@ -366,9 +375,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.rev_pesquisa !== undefined) add("rev_pesquisa", b.rev_pesquisa);
   if (revogando) add("acessos_revogados_por", operador);
   if (b.link_facebook !== undefined) add("link_facebook", b.link_facebook);
-  // Turma do aluno no HM. Trocar a turma troca a tag junto — senão o card diria
-  // "Turma T39" no filtro e outra coisa na ficha.
-  if (b.turma !== undefined && b.turma) {
+  // Turma: no HM é calculada só pelo banco (gatilho) a partir dos pagamentos —
+  // `turma` do body é descartada. Nos demais produtos (AURUM/ETHB) não há
+  // gatilho, então este é o único gravador. Trocar a turma troca a tag junto.
+  if (produtoCard !== "HM" && b.turma !== undefined && b.turma) {
     add("turma", b.turma);
     sets.push(
       `tags = (select coalesce(array_agg(distinct t), '{}')

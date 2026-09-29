@@ -10,7 +10,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito, RESULTADOS, estadoReuniaoCard, labelMotivoCancelamento, type MotivoCancelamentoHm, ModalSolicitarCancelamento, labelMotivoReuniao, ModalDesfechoReuniao, faltaDataPagamento, SeloSemDataPagamento, type ValoresDesfechoReuniao, type MotivoReuniaoHm } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito, RESULTADOS, estadoReuniaoCard, labelMotivoCancelamento, type MotivoCancelamentoHm, ModalSolicitarCancelamento, labelMotivoReuniao, ModalDesfechoReuniao, faltaDataPagamento, SeloSemDataPagamento, SeloAguardandoParcelaInicial, aguardaParcelaInicial, type ValoresDesfechoReuniao, type MotivoReuniaoHm } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 // A cor da marca de cada portal — a MESMA que o operador vê no topo da tela.
 import { PORTAIS, type PortalId } from "@/lib/marcas";
@@ -1499,19 +1499,29 @@ export function HmDrawer({
                 )}
               </Campo>
 
-              {/* Turma do programa: a atual vem sozinha ao pagar. O campo existe
-                  para a exceção — alguém que entra em outra turma.
+              {/* Turma do programa. HM (29/09): só leitura — o banco calcula ao
+                  pagar a parcela inicial ou a compra cheia (o gatilho é só do HM).
+                  Aurum/ETHB: o campo editável de antes — a atual vem sozinha ao
+                  pagar; o campo existe para a exceção (outra turma).
                   0165: o rótulo e o placeholder eram fixos do HM ("Turma no HM",
                   "T39") e apareciam assim no board do Aurum. Agora seguem o portal. */}
               <Campo label={`Turma no ${nomePortal}`}>
                 <div className="flex items-center gap-2">
-                  <input
-                    defaultValue={c.turma ?? ""}
-                    disabled={somenteLeitura}
-                    onBlur={(e) => { if (e.target.value.trim() && e.target.value !== (c.turma ?? "")) patch({ turma: e.target.value.trim() }); }}
-                    placeholder="turma"
-                    className={fieldClass}
-                  />
+                  {produtoBoard === "HM" ? (
+                    c.turma
+                      ? <span className="text-sm text-slate-700 dark:text-slate-200">{c.turma}</span>
+                      : aguardaParcelaInicial(c.turma, pagamentos)
+                        ? <SeloAguardandoParcelaInicial />
+                        : <span className="text-sm text-slate-400">—</span>
+                  ) : (
+                    <input
+                      defaultValue={c.turma ?? ""}
+                      disabled={somenteLeitura}
+                      onBlur={(e) => { if (e.target.value.trim() && e.target.value !== (c.turma ?? "")) patch({ turma: e.target.value.trim() }); }}
+                      placeholder="turma"
+                      className={fieldClass}
+                    />
+                  )}
                   {c.turma_origem && (
                     <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Turma de onde ele veio">
                       veio da {c.turma_origem}

@@ -2307,6 +2307,12 @@ function CardItem({
               <span className="truncate">com {card.responsavel ?? "colega"}</span>
             </span>
           )}
+          {/* Turma (29/09): só no HM, onde o banco calcula a turma. Sem turma =
+              NADA (estado normal de ~170 cards; o selo de espera fica na ficha).
+              Aurum/ETHB seguem sem a turma no card, como antes. Some sob cancelado. */}
+          {produto === "HM" && !cancelado && card.turma && (
+            <span className="inline-flex shrink-0 items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Turma do aluno">{card.turma}</span>
+          )}
           {/* ADIMPLÊNCIA: "cobro ou não cobro?" — a pergunta que o operador faz
               o dia todo, respondida sem abrir a ficha. UM selo só (13/08) —
               antes havia até três badges independentes aqui ("conferir saldo"

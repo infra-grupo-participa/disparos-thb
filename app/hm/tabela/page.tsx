@@ -1133,26 +1133,30 @@ export default function HmTabelaPage() {
           : <span>{l.categoria_entrada ?? "—"}</span>,
     },
     turma_origem: { id: "turma_origem", label: "Turma de origem", sortVal: (l) => l.turma_origem, render: (l) => <span>{l.turma_origem ?? "—"}</span> },
-    turma: {
-      id: "turma", label: "Turma", edit: true,
-      sortVal: (l) => l.turma,
-      render: (l) => (
-        // Trocar a turma troca a tag junto (o PATCH já faz) — por isso é select,
-        // não texto livre: as opções são as turmas que existem nas linhas.
-        <select
-          value={l.turma ?? ""}
-          disabled={salvando === l.comprador_id}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => { if (e.target.value) patch(l.comprador_id, l.nome, { turma: e.target.value }); }}
-          className={cn(celSelect, "min-w-[4.5rem]")}
-        >
-          {!l.turma && <option value="">—</option>}
-          {Array.from(new Set([l.turma, ...linhas.map((x) => x.turma)].filter((t): t is string => !!t))).sort().map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-      ),
-    },
+    // HM (29/09): só leitura — a turma do HM é calculada pelo banco (gatilho só
+    // do HM). Aurum/ETHB seguem editáveis, como antes.
+    turma: produto === "HM"
+      ? { id: "turma", label: "Turma", sortVal: (l) => l.turma, render: (l) => <span>{l.turma ?? "—"}</span> }
+      : {
+          id: "turma", label: "Turma", edit: true,
+          sortVal: (l) => l.turma,
+          render: (l) => (
+            // Trocar a turma troca a tag junto (o PATCH já faz) — por isso é select,
+            // não texto livre: as opções são as turmas que existem nas linhas.
+            <select
+              value={l.turma ?? ""}
+              disabled={salvando === l.comprador_id}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => { if (e.target.value) patch(l.comprador_id, l.nome, { turma: e.target.value }); }}
+              className={cn(celSelect, "min-w-[4.5rem]")}
+            >
+              {!l.turma && <option value="">—</option>}
+              {Array.from(new Set([l.turma, ...linhas.map((x) => x.turma)].filter((t): t is string => !!t))).sort().map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          ),
+        },
     reuniao: {
       id: "reuniao", label: "Reunião", edit: true,
       sortVal: (l) => dt(l.reuniao_em)?.getTime() ?? null,
@@ -2481,6 +2485,7 @@ export default function HmTabelaPage() {
 
       {cadastrando && (
         <HmCadastroModal
+          produto={produto}
           onClose={() => setCadastrando(false)}
           onCadastrado={async (compradorId) => {
             setCadastrando(false);

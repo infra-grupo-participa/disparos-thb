@@ -1403,7 +1403,7 @@ export async function cadastrarManualHm(
     `select cs.fn_hm_cadastrar_manual($1,$2,$3,$4,$5,$6,$7,$8,$9) as res`,
     [
       dados.nome, dados.email, dados.telefone ?? null, dados.documento ?? null,
-      dados.turma ?? "T39", dados.categoria ?? null, dados.responsavel ?? null,
+      dados.turma ?? null, dados.categoria ?? null, dados.responsavel ?? null,
       dados.estagioChave ?? "hm_comprou", autor,
     ],
   );

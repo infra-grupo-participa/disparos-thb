@@ -38,7 +38,8 @@ export async function POST(req: Request) {
   const r = await cadastrarManualHm(
     {
       nome: b.nome, email: b.email, telefone: b.telefone, documento: b.documento,
-      turma: b.turma, categoria: b.categoria ?? null,
+      turma: b.produto && b.produto !== "HM" ? (b.turma || null) : null,
+      categoria: b.categoria ?? null,
       responsavel: souMaster ? (b.responsavel ?? null) : (sessao.nome || null),
       estagioChave: b.estagio_chave,
       produto: b.produto,
