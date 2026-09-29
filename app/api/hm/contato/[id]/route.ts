@@ -271,6 +271,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
           ...(entrevistaFinalizada ? ["entrevista_resultado", "entrevista_gravacao_url"] : []),
           ...(!podeEscreverEscopoHm(sessao, "comercial") ? CAMPOS_HM_COMERCIAL : []),
           ...(!podeEscreverEscopoHm(sessao, "ativacao") ? CAMPOS_HM_ATIVACAO : []),
+          // 0312 (achado do pentester): turma é calculada pelo banco e
+          // `turma_origem` preenchida é a ÚNICA alavanca manual — só o master
+          // mexe nela (rota admin). fn_hm_undo_colunas (0307) fotografa as
+          // duas; sem isto, restaurar uma versão antiga devolvia turma/
+          // turma_origem de antes para quem não é master, e o gatilho
+          // fn_hm_turma_regra respeita turma_origem preenchida.
+          // Fora do HM a turma continua editável no PATCH, então o undo também a devolve.
+          "turma_origem",
+          ...(produtoCard === "HM" ? ["turma"] : []),
         ]));
     const r = await queryOne<{ res: { ok: boolean; reason?: string } }>(
       // 0220: `produtoCard` no 5o argumento — sem ele a funcao resolvia o card
@@ -313,6 +322,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     sets.push(`intencao_pagamento_em = ${b.intencao_pagamento ? "now()" : "null"}`);
   }
   if (b.intencao_pagamento_obs !== undefined) add("intencao_pagamento_obs", b.intencao_pagamento_obs);
+  // Trilha [B] da mesma trava (0307/0308): motivo categorizado de "não
+  // prometeu pagar" + a data de retomar contato. Editar pela ficha depois de
+  // já estar na coluna também é permitido (a trava é só de entrada, mesmo
+  // princípio de cancelamento_motivo_tipo).
+  if (b.reuniao_motivo_tipo !== undefined) add("reuniao_motivo_tipo", b.reuniao_motivo_tipo);
+  if (b.reuniao_retomar_em !== undefined) sets.push(`reuniao_retomar_em = ${b.reuniao_retomar_em ? `$${vals.push(b.reuniao_retomar_em)}::date` : "null"}`);
   if (b.oferta_saldo_codigo !== undefined) add("oferta_saldo_codigo", b.oferta_saldo_codigo);
   if (b.pagamento_previsto_em !== undefined) sets.push(`pagamento_previsto_em = ${b.pagamento_previsto_em ? `$${vals.push(b.pagamento_previsto_em)}::date` : "null"}`);
   // Marcar "link enviado" carimba a hora — um booleano perderia o "quando", que é
@@ -360,9 +375,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (b.rev_pesquisa !== undefined) add("rev_pesquisa", b.rev_pesquisa);
   if (revogando) add("acessos_revogados_por", operador);
   if (b.link_facebook !== undefined) add("link_facebook", b.link_facebook);
-  // Turma do aluno no HM. Trocar a turma troca a tag junto — senão o card diria
-  // "Turma T39" no filtro e outra coisa na ficha.
-  if (b.turma !== undefined && b.turma) {
+  // Turma: no HM é calculada só pelo banco (gatilho) a partir dos pagamentos —
+  // `turma` do body é descartada. Nos demais produtos (AURUM/ETHB) não há
+  // gatilho, então este é o único gravador. Trocar a turma troca a tag junto.
+  if (produtoCard !== "HM" && b.turma !== undefined && b.turma) {
     add("turma", b.turma);
     sets.push(
       `tags = (select coalesce(array_agg(distinct t), '{}')
@@ -615,7 +631,7 @@ function resumoEdicao(b: Record<string, unknown>): string {
   const p: string[] = [];
   if (b.observacoes !== undefined) p.push("observações");
   if (b.acordo !== undefined || b.pagamento_meio !== undefined || b.oferta_saldo_codigo !== undefined || b.pagamento_previsto_em !== undefined || b.link_saldo_enviado !== undefined) p.push("acordo do saldo");
-  if (b.intencao_pagamento !== undefined || b.intencao_pagamento_obs !== undefined) p.push("intenção de pagamento");
+  if (b.intencao_pagamento !== undefined || b.intencao_pagamento_obs !== undefined || b.reuniao_motivo_tipo !== undefined || b.reuniao_retomar_em !== undefined) p.push("desfecho da reunião");
   if (b.credito_oferta !== undefined || b.credito_valor_pago !== undefined || b.credito_dias_totais !== undefined || b.credito_compra_em !== undefined || b.credito_obs !== undefined) p.push("crédito pró-rata");
   if (b.ativ_searchie !== undefined || b.ativ_comunidade !== undefined || b.ativ_grupo !== undefined || b.ativ_pesquisa !== undefined || b.ativ_gps !== undefined || b.grupo_informes !== undefined || b.pendencia !== undefined) p.push("ativação");
   if (b.rev_searchie !== undefined || b.rev_comunidade !== undefined || b.rev_grupo !== undefined || b.rev_pesquisa !== undefined) p.push("revogação");

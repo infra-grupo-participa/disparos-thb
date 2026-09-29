@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Button, cn, fieldClass, Spinner } from "@/app/_components/ui";
 import { corAvatar, inicial, Avatar } from "@/app/_components/avatar";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloAguardandoParcelaInicial, aguardaParcelaInicial } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 
 // Link de saldo (0255): cada valor de saldo tem sua PRÓPRIA oferta na Hotmart
@@ -134,6 +134,9 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
   const [saldoCheio, setSaldoCheio] = useState<string | null>(null);
   // Link de saldo sugerido pelo valor real desta pessoa (0255) — ver LinkSaldo acima.
   const [links, setLinks] = useState<LinkSaldo[]>([]);
+  // Razão (só a categoria): diz se o sinal foi pago, para o selo "Aguardando
+  // parcela inicial" do HM. Já vem no mesmo GET da ficha — sem consulta nova.
+  const [pagamentos, setPagamentos] = useState<{ categoria: string | null }[]>([]);
 
   const recarregar = useCallback(async () => {
     // 0164: sem o produto, quem tem card em 2 boards abriria um deles ao acaso.
@@ -150,6 +153,7 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
       setAurum(d.aurumSaldo ?? null);
       setSaldoCheio(d.saldoCheio ?? null);
       setLinks(d.linksSaldo ?? []);
+      setPagamentos(d.pagamentos ?? []);
       // Sugestão do servidor para o bloco financeiro (15.000 quando a entrada
       // foi o sinal). O operador confere antes de confirmar.
       const sugestao = numOu0(d.financeiro?.valor_total) || numOu0(d.financeiro?.sugestao_valor_total);
@@ -234,6 +238,9 @@ export default function HmFichaPage({ params }: { params: { id: string } }) {
           <p className="mt-0.5 truncate text-sm text-slate-500 dark:text-slate-400">{c.telefone || "sem telefone"}{c.email ? ` · ${c.email}` : ""}</p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {c.turma && <Badge cls="bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">{c.turma}</Badge>}
+            {/* HM (29/09): sem turma + sinal pago = à espera da parcela inicial.
+                Só no HM — o gatilho de turma não vale para Aurum/ETHB. */}
+            {produtoBoard === "HM" && aguardaParcelaInicial(c.turma, pagamentos) && <SeloAguardandoParcelaInicial />}
             {c.estagio_nome && <Badge cls="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{c.estagio_nome}</Badge>}
             {c.apto_ativacao && <Badge cls="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Saldo pago</Badge>}
             {/* Recompra (27/07) e aluno antigo (0213): os mesmos selos do board/tabela/drawer. */}

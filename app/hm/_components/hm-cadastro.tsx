@@ -34,9 +34,10 @@ export function HmCadastroModal({
   const [email, setEmail] = useState("");
   const [telefone, setTelefone] = useState("");
   const [documento, setDocumento] = useState("");
-  // 0165: "T39" é a turma corrente do HM. Pré-preencher isso no board do Aurum
-  // cadastraria o aluno na turma de outro produto — fora do HM nasce vazio.
-  const [turma, setTurma] = useState(produto && produto !== "HM" ? "" : "T39");
+  // No HM a turma é calculada pelo banco: o campo some e nada é enviado.
+  // Em AURUM/ETHB o campo existe e nasce vazio (sem default de outro produto).
+  const ehHm = produto === "HM";
+  const [turma, setTurma] = useState("");
   const [categoria, setCategoria] = useState<"" | "sinal" | "compra_cheia">("");
   const [responsavel, setResponsavel] = useState("");
   const [estagio, setEstagio] = useState<"hm_comprou" | "hm_pendente_liberacao">("hm_comprou");
@@ -58,7 +59,7 @@ export function HmCadastroModal({
           email: email.trim(),
           telefone: telefone.trim() || undefined,
           documento: documento.trim() || undefined,
-          turma: turma.trim() || undefined,
+          turma: ehHm ? undefined : turma.trim() || undefined,
           categoria: categoria || null,
           responsavel: responsavel.trim() || null,
           estagio_chave: estagio,
@@ -124,11 +125,12 @@ export function HmCadastroModal({
             CPF
             <input className={cn(fieldClass, "mt-1")} value={documento} onChange={(e) => setDocumento(e.target.value)} placeholder="somente números" inputMode="numeric" />
           </label>
-          <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
-            Turma
-            {/* 0165: placeholder era "T39", a turma do HM — no Aurum induzia a erro. */}
-            <input className={cn(fieldClass, "mt-1")} value={turma} onChange={(e) => setTurma(e.target.value)} placeholder="turma" />
-          </label>
+          {!ehHm && (
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
+              Turma
+              <input className={cn(fieldClass, "mt-1")} value={turma} onChange={(e) => setTurma(e.target.value)} placeholder="turma" />
+            </label>
+          )}
           <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
             Operador
             <input className={cn(fieldClass, "mt-1")} value={responsavel} onChange={(e) => setResponsavel(e.target.value)} placeholder="opcional" />

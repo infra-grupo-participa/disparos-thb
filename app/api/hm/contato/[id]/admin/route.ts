@@ -50,6 +50,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   );
   if (!atual) return NextResponse.json({ ok: false, reason: "não encontrado" }, { status: 404 });
 
+  // Turma de origem tem de existir em public.thb_turmas — texto livre gerava
+  // "turma fantasma" no card. Valida ANTES de qualquer escrita (undo, fn, updates).
+  if (b.turma_origem) {
+    const turma = await queryOne<{ codigo: string }>(
+      `select codigo from public.thb_turmas where codigo = $1 ${produtoCard === "HM" ? "and tipo = 'thb'" : ""} limit 1`,
+      [b.turma_origem],
+    );
+    if (!turma) {
+      return NextResponse.json(
+        { ok: false, reason: "turma_inexistente", error: `Turma ${b.turma_origem} não existe` },
+        { status: 400 },
+      );
+    }
+  }
+
   const mudancas: string[] = [];
 
   // Snapshot para o "Desfazer edição" (A2) — só quando a edição toca campo do
@@ -90,17 +105,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // Turma de origem: troca o campo E a tag "Origem X" junto — senão o filtro
   // do board diria uma coisa e a ficha outra.
   if (b.turma_origem !== undefined && b.turma_origem !== atual.turma_origem) {
-    await query(
+    // `returning`: o gatilho fn_hm_turma_regra pode repreencher turma_origem (e
+    // recalcular turma) no mesmo update — a timeline registra o que ficou.
+    const depois = await queryOne<{ turma_origem: string | null; turma: string | null }>(
       `update cs.contatos_hm
           set turma_origem = $2,
               tags = (select coalesce(array_agg(distinct t), '{}')
                         from unnest(array(select x from unnest(coalesce(tags, '{}')) x where x !~ '^Origem ')
                              || case when $2::text is not null then array['Origem ' || $2::text] else '{}'::text[] end) t),
               atualizado_em = now()
-        where id = $1`,
+        where id = $1
+        returning turma_origem, turma`,
       [atual.id, b.turma_origem],
     );
-    mudancas.push(`turma de origem ("${atual.turma_origem ?? "—"}" → "${b.turma_origem ?? "—"}")`);
+    mudancas.push(
+      `turma de origem ("${atual.turma_origem ?? "—"}" → "${depois?.turma_origem ?? "—"}") · turma ("${depois?.turma ?? "—"}")`,
+    );
   }
 
   if (mudancas.length) {

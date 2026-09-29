@@ -187,6 +187,17 @@ export type EscopoCampoHm = "comercial" | "ativacao";
 export const CAMPOS_HM_COMERCIAL: readonly string[] = [
   "responsavel_id", "responsavel",
   "reuniao_em", "reuniao_resultado", "reuniao_gravacao_url",
+  // 0307/0308 + achado #2 do pentester (21/08): o desfecho comercial da
+  // reunião é A MESMA DECISÃO que reuniao_resultado — quem não participou da
+  // conversa não declara o que foi combinado nela, pela mesma lógica que já
+  // vale para os 3 campos acima. Sem estes 4, um operador só de HM:ativacao
+  // (função "ativacao", sem "comercial") que tivesse podeAgirCardHm sobre o
+  // card gravava o desfecho de uma reunião comercial da qual não participou.
+  // `pagamento_meio` NÃO entra aqui de propósito: é anterior a esta feature,
+  // usado por outros fluxos (58 cards preenchidos) e restringi-lo agora seria
+  // mudança de escopo com risco de quebrar quem já usa (decisão do Marcio).
+  "intencao_pagamento", "intencao_pagamento_obs",
+  "reuniao_motivo_tipo", "reuniao_retomar_em",
 ];
 export const CAMPOS_HM_ATIVACAO: readonly string[] = [
   "responsavel_ativacao_id",

@@ -21,7 +21,7 @@ import { toast } from "@/app/_components/toast";
 import { MarcaPortal } from "@/app/_components/marca";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 import { COR_EQUIPE_PADRAO } from "@/app/hm/_components/selo-equipe";
-import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento, abaDoCard, TOM_ABA, SeloAba, labelMotivoCancelamento, estadoPrazoCancelamento, ModalSolicitarCancelamento, type MotivoCancelamentoHm } from "@/app/hm/_components/card-sinais";
+import { ehEstagioCancelamento, origemRecompraDistinta, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, ehAlunoNovo, SeloAlunoNovo, SeloCardNovo, SeloSemOperador, TAGS_ALUNO_NOVO, TAGS_ALUNO_ANTIGO, TITLE_CARD_CANCELADO, faltaExplicarCredito, estadoFinanceiroCard, TOM, estadoReuniaoCard, SeloReuniaoSemData, SeloReuniaoVencida, ehColunaHotmart, ehColunaEspelho, TITLE_COLUNA_HOTMART, TITLE_COLUNA_ESPELHO, gpsPendente, SeloGpsPendente, type OrigemMovimento, abaDoCard, TOM_ABA, SeloAba, labelMotivoCancelamento, estadoPrazoCancelamento, ModalSolicitarCancelamento, type MotivoCancelamentoHm, labelMotivoReuniao, ModalDesfechoReuniao, faltaDataPagamento, SeloSemDataPagamento, type ValoresDesfechoReuniao, type MotivoReuniaoHm } from "@/app/hm/_components/card-sinais";
 import { casaBusca } from "@/lib/busca";
 
 type Estagio = { chave: string; nome: string; aba: string | null };
@@ -110,6 +110,19 @@ type Card = {
    *  fica calado, nunca inventa motivo/prazo que o payload não mandou. */
   cancelamento_motivo_tipo?: string | null;
   cancelamento_prazo?: string | null;
+  /** 0307/0308 (F2/F4): desfecho da reunião comercial — trilha [A] prometeu
+   *  pagar (intencao_pagamento/pagamento_previsto_em/pagamento_meio) ou
+   *  trilha [B] não prometeu (reuniao_motivo_tipo/reuniao_retomar_em). Todos
+   *  opcionais: contrato do backend em paralelo — a rota do kanban já expõe
+   *  reuniao_motivo_tipo/reuniao_retomar_em no SELECT (ch2, direto — a view
+   *  cs.contatos_hm_kanban não foi tocada), mas intencao_pagamento/
+   *  pagamento_meio ainda não somaram ao SELECT (só são GRAVADOS pelo PATCH
+   *  hoje) — undefined faz o chip de F4 ficar CALADO, nunca inventa que falta
+   *  data do que a rota não sabe responder ainda. */
+  intencao_pagamento?: "vai_pagar" | "indeciso" | "nao_vai_pagar" | null;
+  pagamento_meio?: string | null;
+  reuniao_motivo_tipo?: string | null;
+  reuniao_retomar_em?: string | null;
   ultima_msg: string | null;
   entrou_estagio_em: string | null;
   /** A MESMA pessoa nos outros boards (0164), pronto para exibir:
@@ -203,6 +216,11 @@ const COL_PARCELADO = "hm_pagamento_parcelado"; // espelho de quem paga em parce
 // mensagem/ligação ao comercial, sem rastro na Hotmart. Motivo + prazo (F1)
 // são a única fonte que existe desse pedido.
 const COL_SOLICITOU_CANCELAMENTO = "hm_solicitou_cancelamento";
+// 0307/0308 (F2, pedido do Marcio: "Reunião Finalizada exige prazo de
+// pagamento"): mover para cá exige a trilha A ou B do desfecho — a trava real
+// é do servidor (cs.fn_hm_pode_finalizar_reuniao), o modal aqui é o primeiro
+// aviso. Mesmo desenho de COL_SOLICITOU_CANCELAMENTO.
+const COL_REUNIAO_FINALIZADA = "hm_reuniao_finalizada";
 
 // Em qual coluna DESTA aba o card aparece — ou null se ele não pertence a ela.
 // Quem quitou o saldo vive na Ativação, mas o Comercial não pode perdê-lo de
@@ -464,6 +482,9 @@ export default function HmKanbanPage() {
   // (opcional) ANTES de o card entrar na coluna — mesmo padrão do `cancelando`
   // acima (hm_cancelamento), gesto único sem confundir os dois cancelamentos.
   const [solicitandoCancelamento, setSolicitandoCancelamento] = useState<{ card: Card; antesDe: string | null } | null>(null);
+  // F2 (0307/0308): "Reunião Finalizada" pede a trilha A/B ANTES de o card
+  // entrar na coluna — mesmo padrão de `solicitandoCancelamento` acima.
+  const [desfechoReuniao, setDesfechoReuniao] = useState<{ card: Card; antesDe: string | null } | null>(null);
   const [menu, setMenu] = useState<{ card: Card; x: number; y: number } | null>(null);
   const [cadastrando, setCadastrando] = useState(false);
   const arrastando = useRef<Card | null>(null);
@@ -654,7 +675,16 @@ export default function HmKanbanPage() {
     // propósito. Schema em lib/validators.ts (HmMoverSchema) e os `sets` de
     // app/api/hm/kanban/route.ts são trabalho do backend-engineer, em
     // paralelo — assumido pronto, não editado aqui.
-    extra?: { cancelamentoMotivoTipo?: string | null; cancelamentoMotivo?: string | null; cancelamentoPrazo?: string | null },
+    // F2 (0307/0308): o desfecho da reunião viaja no MESMO PATCH, mesmo
+    // contrato de omitir/gravar/apagar do bloco de cancelamento acima —
+    // schema em lib/validators.ts (HmMoverSchema), trabalho do backend em
+    // paralelo, assumido pronto.
+    extra?: {
+      cancelamentoMotivoTipo?: string | null; cancelamentoMotivo?: string | null; cancelamentoPrazo?: string | null;
+      intencaoPagamento?: "vai_pagar" | "indeciso" | "nao_vai_pagar" | null;
+      pagamentoPrevistoEm?: string | null; pagamentoMeio?: string | null;
+      reuniaoMotivoTipo?: string | null; reuniaoRetomarEm?: string | null; intencaoPagamentoObs?: string | null;
+    },
   ) {
     try {
       // `?produto=` (0174): o servidor precisa saber de QUAL board veio o arraste.
@@ -676,10 +706,14 @@ export default function HmKanbanPage() {
             "erro",
           );
         } else if (d?.reason === "reuniao_sem_desfecho") {
-          // F7: mesmo padrão do checklist_incompleto — o servidor diz O QUE
-          // falta (a lista `faltando`), a tela lista, sem inventar texto.
+          // F3 (0307/0308): rede de segurança para quem chega em "Reunião
+          // Finalizada" por um caminho que NÃO passa pelo ModalDesfechoReuniao
+          // (ex.: chamada direta à API, ou o select "Etapa" da ficha antes de
+          // F5 interceptar). Mesmo padrão do checklist_incompleto — o
+          // servidor diz O QUE falta (a lista `faltando`, já em pt-BR), a
+          // tela só lista, nunca inventa texto.
           toast(
-            `${card.nome} não pode sair de "Reunião Agendada" sem o desfecho da reunião — falta: ${(d.faltando ?? []).join(", ")}. Marque o resultado da reunião na ficha antes de mover.`,
+            `${card.nome} não pode entrar em "Reunião Finalizada" sem o desfecho — falta: ${(d.faltando ?? []).join(", ")}. Abra o card e registre se ela prometeu pagar ou não.`,
             "erro",
           );
         } else if (d?.reason === "saldo_em_aberto") {
@@ -782,6 +816,11 @@ export default function HmKanbanPage() {
     // servidor recusa (`cancelamento_sem_motivo`) sem ele; perguntar aqui evita
     // o card ir e voltar sozinho sem explicação.
     if (destino.chave === COL_SOLICITOU_CANCELAMENTO) { setSolicitandoCancelamento({ card, antesDe: null }); return; }
+    // F2 (0307/0308): "Reunião Finalizada" pede a trilha A/B antes de mover —
+    // o servidor recusa (`reuniao_sem_desfecho`) sem ela; mesma pergunta
+    // antecipada do cancelamento acima, mesmo motivo (evitar ir e voltar
+    // sozinho sem explicação).
+    if (destino.chave === COL_REUNIAO_FINALIZADA) { setDesfechoReuniao({ card, antesDe: null }); return; }
     const abaDestino = destino.aba ?? "comercial";
     const abaAtual = card.estagio_aba ?? "comercial";
     // Tirar da Ativação um card pago desfaz o pagamento (o servidor limpa a marca).
@@ -859,6 +898,12 @@ export default function HmKanbanPage() {
     // o caminho do arrasto direto na coluna.
     if (mudouDeColuna && estagioChave === COL_SOLICITOU_CANCELAMENTO) {
       setSolicitandoCancelamento({ card, antesDe });
+      return;
+    }
+    // F2 (0307/0308): mesma pergunta do arrasto pelo menu (moverParaEtapa) —
+    // aqui é o caminho do arrasto direto na coluna "Reunião Finalizada".
+    if (mudouDeColuna && estagioChave === COL_REUNIAO_FINALIZADA) {
+      setDesfechoReuniao({ card, antesDe });
       return;
     }
     // O espelho é só o registro do pagamento no Comercial: o card mora na
@@ -1287,6 +1332,10 @@ export default function HmKanbanPage() {
                             temMe={!!me?.id}
                             associando={associando === card.comprador_id}
                             onAssociarAMim={() => associarAMim(card)}
+                            // F4 (0307/0308): "Definir agora" abre o MESMO modal do
+                            // movimento (F2) direto do board — só na aba Comercial
+                            // (a Ativação não mexe no desfecho da reunião).
+                            onDefinirDesfecho={aba === "comercial" ? () => setDesfechoReuniao({ card, antesDe: null }) : undefined}
                           />
                         </Fragment>
                       ))
@@ -1483,6 +1532,64 @@ export default function HmKanbanPage() {
               cancelamentoMotivoTipo: motivoTipo,
               cancelamentoMotivo: mudou.observacao ? (observacao || null) : undefined,
               cancelamentoPrazo: mudou.prazo ? (prazo || null) : undefined,
+            });
+          }}
+        />
+      )}
+
+      {/* F2 (0307/0308, pedido do Marcio): mover para "Reunião Finalizada"
+          pede a trilha A (prometeu pagar) ou B (não prometeu) ANTES do
+          movimento — mesmo padrão de ModalSolicitarCancelamento acima, gesto
+          único. */}
+      {desfechoReuniao && (
+        <ModalDesfechoReuniao
+          nome={desfechoReuniao.card.nome}
+          // Pré-carrega com o que já está gravado no card — reabrir o modal
+          // sobre um desfecho existente (ex.: editar a data de retomada) não
+          // some com o que o comercial já tinha registrado. `pagamentoMeio`
+          // fica de fora da pré-carga porque `Card.pagamento_meio` ainda não
+          // vem do SELECT do kanban (só é gravado pelo PATCH hoje) — nasce
+          // vazio, sem inventar um valor que o board não sabe.
+          //
+          // `reuniao_motivo_tipo` é o sinal mais confiável de trilha B: é
+          // campo exclusivo desta feature (0307), sem uso fora dela.
+          // `intencao_pagamento === "vai_pagar"` decide a trilha A quando
+          // presente; `pagamento_previsto_em` sozinho NÃO decide — é campo
+          // antigo (0056/0214), reusado por outros fluxos da ficha, e pode
+          // estar preenchido sem que a trilha A tenha sido a escolhida aqui.
+          iniciais={{
+            trilha: desfechoReuniao.card.reuniao_motivo_tipo
+              ? "nao_prometeu"
+              : desfechoReuniao.card.intencao_pagamento === "vai_pagar" ? "prometeu" : "",
+            pagamentoPrevistoEm: desfechoReuniao.card.pagamento_previsto_em?.slice(0, 10) ?? "",
+            pagamentoMeio: desfechoReuniao.card.pagamento_meio ?? "",
+            reuniaoMotivoTipo: (desfechoReuniao.card.reuniao_motivo_tipo as MotivoReuniaoHm | null) ?? "",
+            reuniaoRetomarEm: desfechoReuniao.card.reuniao_retomar_em?.slice(0, 10) ?? "",
+            observacao: "",
+          }}
+          onFechar={() => { setDesfechoReuniao(null); carregar(); }}
+          onConfirmar={async (v, mudou) => {
+            const { card, antesDe } = desfechoReuniao;
+            setDesfechoReuniao(null);
+            // Contrato único de escrita: os 6 campos viajam no MESMO PATCH do
+            // movimento — `|| null` é PROIBIDO. Chave omitida (undefined) =
+            // não mexe; mudou e valor novo = grava; mudou e vazio (só quando
+            // havia valor antes) = null (apagou de propósito).
+            //
+            // `intencaoPagamento` (0308): SÓ 'vai_pagar' é a trilha A. Trocar
+            // para a trilha B enquanto o card já tinha 'vai_pagar' gravado
+            // precisa APAGAR (null) — senão o servidor lê um 'vai_pagar' órfão
+            // (sem pagamentoPrevistoEm/pagamentoMeio/obs da trilha A) e a
+            // trava recusa com o `faltando` errado, da trilha que a pessoa
+            // acabou de abandonar.
+            const jaEraVaiPagar = card.intencao_pagamento === "vai_pagar";
+            await patchMover(card, COL_REUNIAO_FINALIZADA, antesDe, {
+              intencaoPagamento: v.trilha === "prometeu" ? "vai_pagar" : jaEraVaiPagar ? null : undefined,
+              pagamentoPrevistoEm: mudou.pagamentoPrevistoEm ? (v.pagamentoPrevistoEm || null) : undefined,
+              pagamentoMeio: mudou.pagamentoMeio ? (v.pagamentoMeio || null) : undefined,
+              reuniaoMotivoTipo: mudou.reuniaoMotivoTipo ? (v.reuniaoMotivoTipo || null) : undefined,
+              reuniaoRetomarEm: mudou.reuniaoRetomarEm ? (v.reuniaoRetomarEm || null) : undefined,
+              intencaoPagamentoObs: mudou.observacao ? (v.observacao || null) : undefined,
             });
           }}
         />
@@ -1865,7 +1972,7 @@ function SelosExtras({ itens }: { itens: { key: string; rotulo: string; el: Reac
 
 function CardItem({
   card, espelho, ehPool, bloqueado, colega, travadoHotmart, onDragStart, onDragEnd, onAbrir, onMenu, selecionavel, marcado, onToggleMarcado, coresTags, descricoesTags, destacado,
-  temMe, associando, onAssociarAMim,
+  temMe, associando, onAssociarAMim, onDefinirDesfecho,
 }: {
   card: Card; espelho: boolean; ehPool?: boolean; bloqueado?: boolean; colega?: boolean;
   /** F2 (17/08): a ficha está numa coluna imutável da Hotmart (Boleto Gerado —
@@ -1884,6 +1991,12 @@ function CardItem({
   temMe?: boolean;
   associando?: boolean;
   onAssociarAMim?: () => void;
+  /** F4 (0307/0308): "Definir agora" no chip de sem-data — abre o MESMO
+   *  ModalDesfechoReuniao direto do board, 1 clique, sem passar pela ficha
+   *  (mesmo espírito de onAssociarAMim). Só o board COMERCIAL tem esta ação —
+   *  o financeiro (outro repo) mostra o chip sem botão (decisão do Marcio:
+   *  só quem ouviu a promessa registra). */
+  onDefinirDesfecho?: () => void;
 }) {
   // 0187: mesmo drawer/board serve HM/Aurum/ETHB — o crédito vem de fonte
   // diferente em cada um (ver o comentário no tipo Card, acima).
@@ -1996,6 +2109,17 @@ function CardItem({
   const estadoPrazo = card.estagio_chave === "hm_solicitou_cancelamento"
     ? estadoPrazoCancelamento({ estagioChave: card.estagio_chave, prazo: card.cancelamento_prazo })
     : null;
+  // F4 (0307/0308): "Reunião Finalizada" sem NENHUMA trilha gravada — só
+  // acontece em card que entrou na etapa antes da trava 0308 existir (a
+  // trava só guarda a PORTA de entrada, mesmo desenho do checklist/
+  // cancelamento acima). Cálculo de tela, zero escrita — degrada calado
+  // enquanto o backend não mandar intencao_pagamento/pagamento_meio.
+  const semDataPagamento = !cancelado && faltaDataPagamento({
+    estagioChave: card.estagio_chave,
+    intencaoPagamento: card.intencao_pagamento,
+    pagamentoPrevistoEm: card.pagamento_previsto_em,
+    reuniaoMotivoTipo: card.reuniao_motivo_tipo,
+  });
   // PEDIDO 1 (18/08): fundo/faixa por aba — cálculo aqui, uso no className/style
   // abaixo. Ver a precedência documentada em card-sinais.tsx (SeloAba/TOM_ABA):
   // cancelado/quitado sempre vencem o tom de fundo da aba; a faixa lateral da
@@ -2183,6 +2307,12 @@ function CardItem({
               <span className="truncate">com {card.responsavel ?? "colega"}</span>
             </span>
           )}
+          {/* Turma (29/09): só no HM, onde o banco calcula a turma. Sem turma =
+              NADA (estado normal de ~170 cards; o selo de espera fica na ficha).
+              Aurum/ETHB seguem sem a turma no card, como antes. Some sob cancelado. */}
+          {produto === "HM" && !cancelado && card.turma && (
+            <span className="inline-flex shrink-0 items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Turma do aluno">{card.turma}</span>
+          )}
           {/* ADIMPLÊNCIA: "cobro ou não cobro?" — a pergunta que o operador faz
               o dia todo, respondida sem abrir a ficha. UM selo só (13/08) —
               antes havia até três badges independentes aqui ("conferir saldo"
@@ -2305,6 +2435,26 @@ function CardItem({
         <div className={cn("mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold", TOM[estadoPrazo.tom])} title={estadoPrazo.title}>
           <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2v4M16 2v4M3.5 9h17M21 8.5V17c0 3-1.5 5-5 5H8c-3.5 0-5-2-5-5V8.5c0-3 1.5-5 5-5h8c3.5 0 5 2 5 5Z" /><path d="M12 9v4M12 17h.01" /></svg>
           {estadoPrazo.txt}
+        </div>
+      )}
+
+      {/* F4 (0307/0308): "Reunião Finalizada" sem trilha nenhuma gravada —
+          chip inline (mesmo espírito do selo de motivo/prazo acima, não
+          disputa o canto absoluto). "Definir agora" abre o MESMO modal do
+          F2, 1 clique — só existe aqui (board comercial); o financeiro não
+          tem este botão (decisão do Marcio, ver comentário de onDefinirDesfecho). */}
+      {semDataPagamento && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <SeloSemDataPagamento posicao="inline" />
+          {onDefinirDesfecho && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onDefinirDesfecho(); }}
+              className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 underline decoration-dotted hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10"
+            >
+              Definir agora
+            </button>
+          )}
         </div>
       )}
 

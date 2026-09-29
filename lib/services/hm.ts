@@ -3,6 +3,7 @@ import { logger } from "@/lib/log";
 import { acaoLivrePorEquipeEvento, ehMaster, escopoVisibilidade, esteiraCompartilhada, nivelDe, podeAtribuirPara, podeRemanejarTravado, podeTravarAtribuicao, semBonusDeGerente, veredictoEscopoCamposHm, type Ator, type Papel, type TipoEquipe, type VeredictoCampoHm } from "@/lib/papeis";
 import { podeVerPorEscopo, veredictoAcao, type VeredictoAcao } from "@/lib/services/visibilidade";
 import { LABEL_MOTIVO_CANCELAMENTO_HM } from "@/lib/cancelamento-motivos";
+import { labelMotivoReuniao } from "@/lib/reuniao-motivos";
 
 const log = logger("hm");
 
@@ -528,6 +529,39 @@ export async function moverEstagioHm(
     const detalhe = [motivoLabel ? `motivo: ${motivoLabel}` : null, prazoLabel ? `prazo pedido: ${prazoLabel}` : null]
       .filter(Boolean)
       .join(" · ");
+    await addInteracaoHm(
+      ch.id,
+      "mudanca_estagio",
+      detalhe ? `Movido para "${novo.nome}" — ${detalhe}` : `Movido para "${novo.nome}"`,
+      autor, ch.estagio_id, novo.id,
+    );
+  } else if (chave === HM_STAGE_REUNIAO_FINALIZADA) {
+    // B9 (0307/0308): entrar em "Reunião Finalizada" registra o DESFECHO na
+    // própria timeline — mesmo desenho do bloco de cancelamento acima. Relê
+    // do banco (não de `ch`, o estado ANTES do movimento): a rota grava os
+    // campos ANTES de chamar moverEstagioHm (mesmo motivo do comentário
+    // acima), então o valor vigente já está lá. `labelMotivoReuniao` de
+    // lib/reuniao-motivos.ts — NUNCA string literal (foi bug achado pelo
+    // orchestrator na 0306: o servidor gravava uma frase e a tela mostrava
+    // outra porque cada lado tinha sua própria cópia do rótulo).
+    const dados = await queryOne<{
+      intencao: string | null; pagamento_previsto: string | null;
+      motivo_tipo: string | null; retomar_em: string | null;
+    }>(
+      `select intencao_pagamento as intencao, pagamento_previsto_em as pagamento_previsto,
+              reuniao_motivo_tipo as motivo_tipo, reuniao_retomar_em as retomar_em
+         from cs.contatos_hm where id = $1`,
+      [ch.id],
+    );
+    const detalhe = dados?.intencao === "vai_pagar"
+      ? [
+          "prometeu pagar",
+          dados.pagamento_previsto ? `previsto: ${fmtBrData(dados.pagamento_previsto)}` : null,
+        ].filter(Boolean).join(" · ")
+      : [
+          dados?.motivo_tipo ? `motivo: ${labelMotivoReuniao(dados.motivo_tipo)}` : null,
+          dados?.retomar_em ? `retomar em: ${fmtBrData(dados.retomar_em)}` : null,
+        ].filter(Boolean).join(" · ");
     await addInteracaoHm(
       ch.id,
       "mudanca_estagio",
@@ -1369,7 +1403,7 @@ export async function cadastrarManualHm(
     `select cs.fn_hm_cadastrar_manual($1,$2,$3,$4,$5,$6,$7,$8,$9) as res`,
     [
       dados.nome, dados.email, dados.telefone ?? null, dados.documento ?? null,
-      dados.turma ?? "T39", dados.categoria ?? null, dados.responsavel ?? null,
+      dados.turma ?? null, dados.categoria ?? null, dados.responsavel ?? null,
       dados.estagioChave ?? "hm_comprou", autor,
     ],
   );

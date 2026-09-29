@@ -255,6 +255,31 @@ ok("master escreve em tudo",
 ok("campo genérico (observações) não aciona a checagem para NINGUÉM — não é o escopo do pedido",
   veredictoEscopoCamposHm(soAtivacao, ["observacoes", "tags"]), "ok");
 
+// Achado #2 do pentester (21/08, 0307/0308): o desfecho comercial da reunião
+// (intencao_pagamento/_obs, reuniao_motivo_tipo, reuniao_retomar_em) é A
+// MESMA DECISÃO que reuniao_resultado — entraram em CAMPOS_HM_COMERCIAL.
+// `pagamento_meio` fica DE FORA de propósito (decisão do Marcio: campo
+// anterior à feature, usado por outros fluxos, 58 cards preenchidos —
+// restringi-lo agora seria mudança de escopo não pedida).
+ok("SÓ ativação tentando gravar intencao_pagamento (desfecho da reunião) → recusa",
+  veredictoEscopoCamposHm(soAtivacao, ["intencao_pagamento"]), "sem_permissao_comercial");
+ok("SÓ ativação tentando gravar intencao_pagamento_obs → recusa",
+  veredictoEscopoCamposHm(soAtivacao, ["intencao_pagamento_obs"]), "sem_permissao_comercial");
+ok("SÓ ativação tentando gravar reuniao_motivo_tipo (trilha B) → recusa",
+  veredictoEscopoCamposHm(soAtivacao, ["reuniao_motivo_tipo"]), "sem_permissao_comercial");
+ok("SÓ ativação tentando gravar reuniao_retomar_em → recusa",
+  veredictoEscopoCamposHm(soAtivacao, ["reuniao_retomar_em"]), "sem_permissao_comercial");
+ok("SÓ ativação gravando pagamento_meio SOZINHO → ok (não entrou na lista, decisão do Marcio)",
+  veredictoEscopoCamposHm(soAtivacao, ["pagamento_meio"]), "ok");
+ok("SÓ comercial escrevendo o desfecho inteiro da reunião dela → ok",
+  veredictoEscopoCamposHm(soComercial, ["intencao_pagamento", "intencao_pagamento_obs", "pagamento_previsto_em", "pagamento_meio"]), "ok");
+ok("SÓ comercial escrevendo a trilha B (não prometeu) → ok",
+  veredictoEscopoCamposHm(soComercial, ["reuniao_motivo_tipo", "reuniao_retomar_em", "intencao_pagamento_obs"]), "ok");
+ok("Ana Camila (as duas funções) escreve o desfecho da reunião — não regride quem já trabalha",
+  veredictoEscopoCamposHm(anaAtivacao, ["intencao_pagamento", "reuniao_motivo_tipo"]), "ok");
+ok("master escreve o desfecho da reunião sempre",
+  veredictoEscopoCamposHm(master, ["intencao_pagamento", "reuniao_motivo_tipo", "reuniao_retomar_em"]), "ok");
+
 console.log("\n== a ABA de destino do estagio_chave conta como campo (2ª metade do buraco) ==");
 // "a etapa da aba comercial" era citada como parte do buraco de quem só tem
 // ativação — mover o card DE VOLTA (ou dentro) do comercial é, na prática,

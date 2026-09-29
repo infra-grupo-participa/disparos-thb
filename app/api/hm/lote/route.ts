@@ -169,11 +169,21 @@ export async function POST(req: Request) {
         // parcelado/realizado; sem repassar, o master ficaria bloqueado no lote.
         const r = await moverEstagioHm(compradorId, b.estagio_chave, operador, undefined, produto, souMaster);
         if (!r.ok) {
+          // Todo `reason` de MoverErro precisa de tradução própria — sem ela,
+          // o operador em massa recebe "etapa inválida" para um card que na
+          // verdade só faltava o motivo do cancelamento ou o desfecho da
+          // reunião, e não descobre o que fazer para tentar de novo. Achado
+          // no escopo desta feature (0307/0308): reuniao_sem_desfecho e
+          // cancelamento_sem_motivo caíam no fallback genérico.
           falhas.push({
             compradorId,
             nome,
             motivo: r.reason === "checklist_incompleto" ? "checklist incompleto"
-              : r.reason === "coluna_da_hotmart" ? `coluna "${r.coluna}" é da Hotmart — só admin do GP move` : "etapa inválida",
+              : r.reason === "coluna_da_hotmart" ? `coluna "${r.coluna}" é da Hotmart — só admin do GP move`
+              : r.reason === "reuniao_sem_desfecho" ? "reunião sem desfecho"
+              : r.reason === "cancelamento_sem_motivo" ? "cancelamento sem motivo"
+              : r.reason === "saldo_em_aberto" ? "saldo em aberto"
+              : "etapa inválida",
             faltando: r.faltando,
           });
           continue;

@@ -10,7 +10,7 @@ import { ContatoDoNome } from "@/app/_components/copiavel";
 import { TagPicker, type TagOpcao } from "@/app/hm/_components/tag-picker";
 import { useMe, msgErroPermissao } from "@/app/_components/use-me";
 import { SeloEquipe } from "@/app/hm/_components/selo-equipe";
-import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito, RESULTADOS, estadoReuniaoCard, labelMotivoCancelamento, type MotivoCancelamentoHm, ModalSolicitarCancelamento } from "@/app/hm/_components/card-sinais";
+import { origemRecompra, SeloRecompra, ehAlunoAntigo, SeloAlunoAntigo, SeloSemOperador, faltaExplicarCredito, RESULTADOS, estadoReuniaoCard, labelMotivoCancelamento, type MotivoCancelamentoHm, ModalSolicitarCancelamento, labelMotivoReuniao, ModalDesfechoReuniao, faltaDataPagamento, SeloSemDataPagamento, SeloAguardandoParcelaInicial, aguardaParcelaInicial, type ValoresDesfechoReuniao, type MotivoReuniaoHm } from "@/app/hm/_components/card-sinais";
 import { useProdutoHm } from "@/app/hm/_components/use-produto";
 // A cor da marca de cada portal — a MESMA que o operador vê no topo da tela.
 import { PORTAIS, type PortalId } from "@/lib/marcas";
@@ -83,6 +83,12 @@ type Contato = {
   contato_inicial_em?: string | null;
   intencao_pagamento?: "vai_pagar" | "indeciso" | "nao_vai_pagar" | null;
   intencao_pagamento_obs?: string | null;
+  // 0307/0308 (F5): desfecho da trilha [B] (não prometeu pagar) — motivo
+  // categorizado + data de retomar. Irmãos de cancelamento_motivo_tipo/
+  // cancelamento_prazo acima, mesmo motivo de serem opcionais (contrato do
+  // backend em paralelo).
+  reuniao_motivo_tipo?: string | null;
+  reuniao_retomar_em?: string | null;
 };
 
 // Reembolso, chargeback e protesto acabam todos em "aluno sem acesso", mas são
@@ -371,6 +377,12 @@ export function HmDrawer({
   // bloco somente-leitura, disponível mesmo com a ficha já em outra etapa,
   // ex.: "Reembolsado" — NUNCA deve mover o card, só atualizar os 3 campos).
   const [solicitandoCancelamento, setSolicitandoCancelamento] = useState<null | "mover" | "editar">(null);
+  // F5 (0307/0308): controla o modal que o select "Etapa" abre ao tentar
+  // entrar em "Reunião Finalizada" — mesmo padrão de solicitandoCancelamento
+  // acima. Só "mover" (não existe "editar" por um botão dedicado como o
+  // cancelamento tem — reabrir pelo próprio select, já em "Reunião
+  // Finalizada", cobre o caso de corrigir o desfecho).
+  const [desfechoReuniao, setDesfechoReuniao] = useState<null | "mover" | "editar">(null);
   const [pendencia, setPendencia] = useState("");
   // F8 (17/08): intenção de pagamento — mesmo padrão de rascunho local da
   // observação (grava no blur); o select grava direto (sem rascunho, como
@@ -499,6 +511,18 @@ export function HmDrawer({
           window.alert(
             `${c?.nome ?? "Esta pessoa"} ainda não pagou o saldo — o sinal não é pagamento realizado.${falta}\n\n` +
               "Registre o pagamento do saldo (valor cheio) antes de mover para a Ativação.",
+          );
+        } else if (d?.reason === "reuniao_sem_desfecho") {
+          // F3/F5 (0307/0308): rede de segurança — o select "Etapa" abaixo já
+          // intercepta ANTES do patch e abre ModalDesfechoReuniao (mesmo
+          // padrão de F1/cancelamento_sem_motivo acima), mas um PATCH que
+          // chegue por outro caminho (chamada direta à API) não pode deixar a
+          // ficha muda. Mesmo padrão do checklist_incompleto: o servidor diz
+          // O QUE falta, a mensagem lista sem inventar texto.
+          window.alert(
+            `${c?.nome ?? "Esta pessoa"} não pode entrar em "Reunião Finalizada" sem o desfecho.\n\n` +
+              `Falta: ${(d.faltando ?? []).join(", ")}.\n\n` +
+              "O desfecho é escolhido na janela que abre ao mover a ficha para essa etapa (pelo select \"Etapa\" abaixo).",
           );
         } else if (d?.reason === "entrevista_finalizada_travada") {
           // 12/08: msgErroPermissao (app/_components/use-me.ts) é de outro agente
@@ -1439,6 +1463,14 @@ export function HmDrawer({
                       setSolicitandoCancelamento("mover");
                       return; // NÃO faz patch — o select volta sozinho (é controlado por c.estagio_chave)
                     }
+                    // F5 (0307/0308): "Reunião Finalizada" pede a trilha A/B
+                    // ANTES de mover — mesmo desenho de "Solicitou
+                    // Cancelamento" acima. SEMPRE abre ao entrar nesta etapa
+                    // (mesmo com desfecho já gravado — reabrir corrige).
+                    if (destino === "hm_reuniao_finalizada") {
+                      setDesfechoReuniao("mover");
+                      return;
+                    }
                     // TODO (19/08): "Reclamada"/"Reembolsado" (hm_cancelamento/
                     // hm_reembolsado) continuam SEM confirmação neste select —
                     // o board pergunta motivo ao mover para lá, a ficha não.
@@ -1467,19 +1499,29 @@ export function HmDrawer({
                 )}
               </Campo>
 
-              {/* Turma do programa: a atual vem sozinha ao pagar. O campo existe
-                  para a exceção — alguém que entra em outra turma.
+              {/* Turma do programa. HM (29/09): só leitura — o banco calcula ao
+                  pagar a parcela inicial ou a compra cheia (o gatilho é só do HM).
+                  Aurum/ETHB: o campo editável de antes — a atual vem sozinha ao
+                  pagar; o campo existe para a exceção (outra turma).
                   0165: o rótulo e o placeholder eram fixos do HM ("Turma no HM",
                   "T39") e apareciam assim no board do Aurum. Agora seguem o portal. */}
               <Campo label={`Turma no ${nomePortal}`}>
                 <div className="flex items-center gap-2">
-                  <input
-                    defaultValue={c.turma ?? ""}
-                    disabled={somenteLeitura}
-                    onBlur={(e) => { if (e.target.value.trim() && e.target.value !== (c.turma ?? "")) patch({ turma: e.target.value.trim() }); }}
-                    placeholder="turma"
-                    className={fieldClass}
-                  />
+                  {produtoBoard === "HM" ? (
+                    c.turma
+                      ? <span className="text-sm text-slate-700 dark:text-slate-200">{c.turma}</span>
+                      : aguardaParcelaInicial(c.turma, pagamentos)
+                        ? <SeloAguardandoParcelaInicial />
+                        : <span className="text-sm text-slate-400">—</span>
+                  ) : (
+                    <input
+                      defaultValue={c.turma ?? ""}
+                      disabled={somenteLeitura}
+                      onBlur={(e) => { if (e.target.value.trim() && e.target.value !== (c.turma ?? "")) patch({ turma: e.target.value.trim() }); }}
+                      placeholder="turma"
+                      className={fieldClass}
+                    />
+                  )}
                   {c.turma_origem && (
                     <span className="shrink-0 rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="Turma de onde ele veio">
                       veio da {c.turma_origem}
@@ -1858,6 +1900,82 @@ export function HmDrawer({
                       onClick={() => setSolicitandoCancelamento("editar")}
                     >
                       Editar o pedido de cancelamento
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {/* DESFECHO DA REUNIÃO (0307/0308, F5) — porta única de escrita:
+                  este bloco só MOSTRA o que já está gravado (trilha A ou B); o
+                  modal grava (mesmo princípio do bloco de cancelamento acima,
+                  firmado no caso Kelly: card-sinais.tsx). Aparece em "Reunião
+                  Finalizada" (F5) OU sempre que já houver desfecho gravado —
+                  não some um registro feito antes de o card sair da etapa.
+                  Campos opcionais no contrato do backend degradam calados. */}
+              {(c.estagio_chave === "hm_reuniao_finalizada"
+                || c.intencao_pagamento != null
+                || c.reuniao_motivo_tipo != null
+              ) && (
+                <div className="rounded-lg border border-brand-200 bg-brand-50/50 p-3 dark:border-brand-500/30 dark:bg-brand-500/5">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Desfecho da reunião
+                  </p>
+
+                  {faltaDataPagamento({
+                    estagioChave: c.estagio_chave,
+                    intencaoPagamento: c.intencao_pagamento,
+                    pagamentoPrevistoEm: c.pagamento_previsto_em,
+                    reuniaoMotivoTipo: c.reuniao_motivo_tipo,
+                  }) && (
+                    <p className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+                      Sem data de pagamento nem motivo registrado — esta ficha entrou nesta etapa antes da trava existir. Registre o desfecho abaixo.
+                    </p>
+                  )}
+
+                  <dl className="space-y-1.5 text-sm">
+                    <div>
+                      <dt className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Trilha</dt>
+                      <dd className="text-slate-700 dark:text-slate-200">
+                        {c.intencao_pagamento === "vai_pagar" ? "Prometeu pagar" : c.reuniao_motivo_tipo ? "Não prometeu pagar" : "— não registrada —"}
+                      </dd>
+                    </div>
+                    {c.intencao_pagamento === "vai_pagar" ? (
+                      <>
+                        <div>
+                          <dt className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Data da promessa</dt>
+                          <dd className="text-slate-700 dark:text-slate-200">{fmtData(c.pagamento_previsto_em)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Forma de pagamento</dt>
+                          <dd className="text-slate-700 dark:text-slate-200">{MEIOS.find((m) => m.v === c.pagamento_meio)?.label ?? c.pagamento_meio ?? "—"}</dd>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <dt className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Motivo</dt>
+                          <dd className="text-slate-700 dark:text-slate-200">{labelMotivoReuniao(c.reuniao_motivo_tipo) ?? "—"}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Data para retomar</dt>
+                          <dd className="text-slate-700 dark:text-slate-200">{fmtData(c.reuniao_retomar_em ?? null)}</dd>
+                        </div>
+                      </>
+                    )}
+                    <div>
+                      <dt className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Observação</dt>
+                      <dd className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{c.intencao_pagamento_obs ?? "—"}</dd>
+                    </div>
+                  </dl>
+
+                  {!somenteLeitura && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-2.5"
+                      onClick={() => setDesfechoReuniao("editar")}
+                    >
+                      Editar o desfecho da reunião
                     </Button>
                   )}
                 </div>
@@ -2332,6 +2450,48 @@ export function HmDrawer({
               cancelamento_motivo_tipo: motivoTipo,
               cancelamento_motivo: mudou.observacao ? (observacao || null) : undefined,
               cancelamento_prazo: mudou.prazo ? (prazo || null) : undefined,
+            });
+          }}
+        />
+      )}
+
+      {/* F5 (0307/0308): mesmo padrão do bloco de cancelamento acima — o
+          select "Etapa" abre este modal em vez de fazer PATCH direto ao
+          entrar em "Reunião Finalizada", porta única de escrita dos 6 campos
+          do desfecho, mesmo componente que o board usa (ModalDesfechoReuniao,
+          card-sinais.tsx). Fechar sem confirmar: o `<select>` volta sozinho,
+          controlado por `value={c.estagio_chave ?? ""}`. */}
+      {desfechoReuniao && c && (
+        <ModalDesfechoReuniao
+          nome={c.nome}
+          // Pré-carga com o que já está gravado — mesma lógica de
+          // desambiguação de trilha do board (kanban/page.tsx): motivo B é o
+          // sinal mais confiável (campo exclusivo desta feature).
+          iniciais={{
+            trilha: c.reuniao_motivo_tipo ? "nao_prometeu" : c.intencao_pagamento === "vai_pagar" ? "prometeu" : "",
+            pagamentoPrevistoEm: c.pagamento_previsto_em?.slice(0, 10) ?? "",
+            pagamentoMeio: c.pagamento_meio ?? "",
+            reuniaoMotivoTipo: (c.reuniao_motivo_tipo as MotivoReuniaoHm | null) ?? "",
+            reuniaoRetomarEm: c.reuniao_retomar_em?.slice(0, 10) ?? "",
+            observacao: c.intencao_pagamento_obs ?? "",
+          }}
+          rotuloConfirmar={desfechoReuniao === "editar" ? "Salvar" : "Registrar e mover"}
+          onFechar={() => setDesfechoReuniao(null)}
+          onConfirmar={async (v, mudou) => {
+            const origem = desfechoReuniao;
+            setDesfechoReuniao(null);
+            // Mesmo contrato único de escrita do bloco de cancelamento acima:
+            // `|| null` é PROIBIDO — `mudou` decide entre omitir (undefined,
+            // não mexe) e apagar de propósito (null).
+            const jaEraVaiPagar = c.intencao_pagamento === "vai_pagar";
+            await patch({
+              ...(origem === "mover" && c.estagio_chave !== "hm_reuniao_finalizada" ? { estagio_chave: "hm_reuniao_finalizada" } : {}),
+              intencao_pagamento: v.trilha === "prometeu" ? "vai_pagar" : jaEraVaiPagar ? null : undefined,
+              pagamento_previsto_em: mudou.pagamentoPrevistoEm ? (v.pagamentoPrevistoEm || null) : undefined,
+              pagamento_meio: mudou.pagamentoMeio ? (v.pagamentoMeio || null) : undefined,
+              reuniao_motivo_tipo: mudou.reuniaoMotivoTipo ? (v.reuniaoMotivoTipo || null) : undefined,
+              reuniao_retomar_em: mudou.reuniaoRetomarEm ? (v.reuniaoRetomarEm || null) : undefined,
+              intencao_pagamento_obs: mudou.observacao ? (v.observacao || null) : undefined,
             });
           }}
         />

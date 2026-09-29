@@ -5,7 +5,7 @@ import { ehMaster, escopoVisibilidade, abasDaEsteira, ESTEIRA_COMPARTILHADA_PROD
 import { query } from "@/lib/db";
 import { parseBody, HmMoverSchema } from "@/lib/validators";
 import { listaResponsaveis, sqlEscopo } from "@/lib/services/visibilidade";
-import { moverEstagioHm, podeAgirCardHm, cancelamentoBloqueado, HM_ESTAGIOS_CANCELAMENTO, HM_STAGE_SOLICITOU_CANCELAMENTO } from "@/lib/services/hm";
+import { moverEstagioHm, podeAgirCardHm, cancelamentoBloqueado, veredictoCamposHm, HM_ESTAGIOS_CANCELAMENTO, HM_STAGE_SOLICITOU_CANCELAMENTO, HM_STAGE_REUNIAO_FINALIZADA } from "@/lib/services/hm";
 
 export const runtime = "nodejs";
 
@@ -131,6 +131,12 @@ export async function GET(req: Request) {
             -- o board nesta mesma sessão). O front usa cancelamento_prazo para o
             -- selo de prazo vencido.
             ch2.cancelamento_motivo_tipo, ch2.cancelamento_prazo,
+            -- Desfecho da reunião (0307/0308, B8): mesma razão do bloco
+            -- acima — direto de ch2, view cs.contatos_hm_kanban NÃO tocada
+            -- (mexer nela já derrubou o board nesta mesma sessão, 0300). O
+            -- front usa os dois para o selo de "sem promessa" / prazo de
+            -- retomada vencido no card em Reunião Finalizada.
+            ch2.reuniao_motivo_tipo, ch2.reuniao_retomar_em,
             um.descricao as ultima_msg,
             me.criado_em as entrou_estagio_em,
             -- A MESMA pessoa nos OUTROS boards (0164): o operador do Aurum precisa
@@ -306,13 +312,42 @@ export async function PATCH(req: Request) {
   const sessao = g.sessao;
   const p = await parseBody(req, HmMoverSchema);
   if (!p.ok) return p.res;
-  const { compradorId, estagioChave, antesDe, cancelamentoMotivoTipo, cancelamentoPrazo, cancelamentoMotivo } = p.data;
+  const {
+    compradorId, estagioChave, antesDe, cancelamentoMotivoTipo, cancelamentoPrazo, cancelamentoMotivo,
+    intencaoPagamento, pagamentoPrevistoEm, pagamentoMeio, reuniaoMotivoTipo, reuniaoRetomarEm, intencaoPagamentoObs,
+  } = p.data;
   // Gate de AÇÃO (28/07, leitura ≠ ação): mover é ESCRITA — operador só no pool
   // e nos cards DELE. O card do colega aparece no board (escopo de leitura),
   // mas o arrasto recusa com 403 'card_de_outro_operador' (o front traduz).
   const acao = await podeAgirCardHm(sessao, compradorId, produtoDoBoard);
   if (acao !== "ok") {
     return NextResponse.json({ ok: false, reason: acao }, { status: 403 });
+  }
+  // Gate de CAMPO (achado #2 do pentester, 21/08) — roda DEPOIS do gate de
+  // CARD acima, mesmo desenho de app/api/hm/contato/[id]/route.ts. Este PATCH
+  // grava campos de cancelamento (0306) e do desfecho da reunião (0307/0308)
+  // ANTES de mover — sem este gate, arrastar o card PARA "Reunião Finalizada"
+  // era um caminho que gravava o desfecho comercial sem passar pela separação
+  // dura comercial×ativação: o gate existia no PATCH da ficha e no lote, mas
+  // nunca neste PATCH de arrastar, que é o caminho mais comum. `camposPresentes`
+  // só entra na lista quando o VALOR foi de fato enviado (!== undefined) —
+  // mesma regra do PATCH da ficha.
+  const camposPresentesKanban = [
+    ...(cancelamentoMotivoTipo !== undefined ? ["cancelamento_motivo_tipo"] : []),
+    ...(cancelamentoPrazo !== undefined ? ["cancelamento_prazo"] : []),
+    ...(cancelamentoMotivo !== undefined ? ["cancelamento_motivo"] : []),
+    ...(intencaoPagamento !== undefined ? ["intencao_pagamento"] : []),
+    ...(pagamentoPrevistoEm !== undefined ? ["pagamento_previsto_em"] : []),
+    ...(pagamentoMeio !== undefined ? ["pagamento_meio"] : []),
+    ...(reuniaoMotivoTipo !== undefined ? ["reuniao_motivo_tipo"] : []),
+    ...(reuniaoRetomarEm !== undefined ? ["reuniao_retomar_em"] : []),
+    ...(intencaoPagamentoObs !== undefined ? ["intencao_pagamento_obs"] : []),
+  ];
+  if (camposPresentesKanban.length) {
+    const veredictoCampo = await veredictoCamposHm(sessao, camposPresentesKanban, estagioChave);
+    if (veredictoCampo !== "ok") {
+      return NextResponse.json({ ok: false, reason: veredictoCampo }, { status: 403 });
+    }
   }
   // Trava dos cancelados (27/07): mexer num card já em Reclamada/Reembolsado, ou
   // MOVER um card PARA essas colunas, é só do MASTER (admin do GP). Demais: 403.
@@ -340,6 +375,41 @@ export async function PATCH(req: Request) {
     if (cancelamentoMotivoTipo !== undefined) { sets.push(`cancelamento_motivo_tipo = $${vals.push(cancelamentoMotivoTipo) }`); }
     if (cancelamentoPrazo !== undefined) { sets.push(`cancelamento_prazo = ${cancelamentoPrazo ? `$${vals.push(cancelamentoPrazo)}::date` : "null"}`); }
     if (cancelamentoMotivo !== undefined) { sets.push(`cancelamento_motivo = $${vals.push(cancelamentoMotivo)}`); }
+    if (sets.length) {
+      await query(
+        `update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now()
+          where comprador_id = $1 and coalesce(produto, 'HM') = coalesce($2, 'HM')`,
+        vals,
+      );
+    }
+  }
+  // O movimento com desfecho numa tacada (0307/0308, B5) — espelho EXATO do
+  // bloco de cancelamento logo acima. O operador arrasta o card PARA "Reunião
+  // Finalizada" já trazendo a trilha [A] (intencaoPagamento/pagamentoPrevistoEm/
+  // pagamentoMeio) ou [B] (reuniaoMotivoTipo/reuniaoRetomarEm), mais a
+  // observação, no mesmo gesto. Grava ANTES de mover: a trava de entrada
+  // (0308, moverEstagioHm) lê os campos do card no banco — se o UPDATE viesse
+  // depois do mover, a própria trava recusaria o movimento que estava
+  // trazendo o desfecho. Lista BRANCA de colunas fixas (nunca chave dinâmica).
+  // Semântica de 3 estados (contrato com o frontend): chave AUSENTE não entra
+  // no `sets`; valor grava; `null` apaga de propósito — `|| null` é PROIBIDO
+  // (já apagou dado neste sistema).
+  if (
+    estagioChave === HM_STAGE_REUNIAO_FINALIZADA &&
+    (intencaoPagamento !== undefined || pagamentoPrevistoEm !== undefined || pagamentoMeio !== undefined ||
+      reuniaoMotivoTipo !== undefined || reuniaoRetomarEm !== undefined || intencaoPagamentoObs !== undefined)
+  ) {
+    const sets: string[] = [];
+    const vals: unknown[] = [compradorId, produtoDoBoard];
+    if (intencaoPagamento !== undefined) {
+      sets.push(`intencao_pagamento = $${vals.push(intencaoPagamento)}`);
+      sets.push(`intencao_pagamento_em = ${intencaoPagamento ? "now()" : "null"}`);
+    }
+    if (pagamentoPrevistoEm !== undefined) { sets.push(`pagamento_previsto_em = ${pagamentoPrevistoEm ? `$${vals.push(pagamentoPrevistoEm)}::date` : "null"}`); }
+    if (pagamentoMeio !== undefined) { sets.push(`pagamento_meio = $${vals.push(pagamentoMeio)}`); }
+    if (reuniaoMotivoTipo !== undefined) { sets.push(`reuniao_motivo_tipo = $${vals.push(reuniaoMotivoTipo)}`); }
+    if (reuniaoRetomarEm !== undefined) { sets.push(`reuniao_retomar_em = ${reuniaoRetomarEm ? `$${vals.push(reuniaoRetomarEm)}::date` : "null"}`); }
+    if (intencaoPagamentoObs !== undefined) { sets.push(`intencao_pagamento_obs = $${vals.push(intencaoPagamentoObs)}`); }
     if (sets.length) {
       await query(
         `update cs.contatos_hm set ${sets.join(", ")}, atualizado_em = now()
