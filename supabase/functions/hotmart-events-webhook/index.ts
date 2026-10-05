@@ -1,5 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  type Aviso,
+  codigoAssinante,
+  decidirAviso,
+  numeroRecorrencia,
+  rotuloAguardando,
+  tituloRecusa,
+} from "./decidir_aviso.ts";
+import { avisarUmaVez, type PortaDeAviso, postarNoSlack } from "./avisar.ts";
 
 // `EdgeRuntime` é um global injetado pelo runtime das Supabase Edge Functions
 // (não existe no Deno CLI puro, por isso o type-check local não o conhece sem
@@ -244,11 +253,14 @@ async function notifySlack(channel: string, payload: {
   // texto do card: anunciar boleto impresso como "Nova compra" faz o comercial
   // comemorar dinheiro que ainda não entrou — e pode nunca entrar.
   aguardandoPagamento?: boolean;
-}) {
+  // Título do card de pagamento gerado: PIX, boleto ou parcelado sem cartão
+  // (rotuloAguardando). Antes era "Boleto gerado" para tudo, inclusive PIX.
+  rotuloAguardando?: string;
+}): Promise<boolean> {
   const webhookUrl = SLACK_WEBHOOKS[channel];
   if (!webhookUrl) {
     console.warn(`Webhook não configurado para canal: ${channel}`);
-    return;
+    return false;
   }
 
   const dataFormatada = formatBrDate(payload.dataCompraMs);
@@ -277,39 +289,26 @@ async function notifySlack(channel: string, payload: {
     : "";
 
   const titulo = payload.aguardandoPagamento
-    ? `:hourglass_flowing_sand: Boleto gerado (ainda NÃO pago): ${payload.produto}`
+    ? `:hourglass_flowing_sand: ${payload.rotuloAguardando ?? "Pagamento gerado (ainda NÃO pago)"}: ${payload.produto}`
     : `Nova compra: ${payload.produto}`;
   const avisoPendente = payload.aguardandoPagamento
     ? "\n\n:warning: *Aguardando compensação* — a venda só conta quando a Hotmart aprovar."
     : "";
 
-  try {
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: titulo,
-        blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `${payload.aguardandoPagamento ? `*${titulo}*\n\n` : ""}*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Origem:* ${origemLabel}\n*Região:* ${regiaoLabel}\n*Data da compra:* ${dataFormatada}${linhaAprovacao}${avisoPendente}${mencaoIsabela}`,
-            },
-          },
-          { type: "divider" },
-        ],
-      }),
-      // Slack fora do ar não pode travar o processamento do evento — 10s e segue.
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) {
-      console.error(`Falha ao notificar Slack (${channel}):`, response.status, await response.text());
-    }
-  } catch (e) {
-    console.error(`[SLACK] falha ao notificar (${channel}):`, e instanceof Error ? e.message : e);
-  }
+  // true só com 2xx (postarNoSlack): o chamador libera a chave quando der false.
+  return await postarNoSlack(webhookUrl, {
+    text: titulo,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${payload.aguardandoPagamento ? `*${titulo}*\n\n` : ""}*Nome:* ${payload.nome}\n*E-mail:* ${payload.email}\n*Telefone:* ${payload.telefone ?? "-"}\n*Produto:* ${payload.produto}\n*Valor:* ${valorFormatado}\n*Origem:* ${origemLabel}\n*Região:* ${regiaoLabel}\n*Data da compra:* ${dataFormatada}${linhaAprovacao}${avisoPendente}${mencaoIsabela}`,
+        },
+      },
+      { type: "divider" },
+    ],
+  }, `compra (${channel})`);
 }
 
 // Persiste a compra aprovada nas tabelas canônicas public.compradores / public.compras.
@@ -743,12 +742,107 @@ const EVENTOS_AGUARDANDO_PAGAMENTO: Record<string, string> = {
 // concluída ficava com o status desatualizado.
 const EVENTOS_APROVACAO = new Set(["PURCHASE_APPROVED", "PURCHASE_COMPLETE"]);
 
-// A Hotmart manda o meio de pagamento em payment.type, com nomes variados por
-// método. Normalizar aqui evita que cada consumidor tenha de conhecer todos.
-function ehBoleto(tipo: string | null): boolean {
-  if (!tipo) return false;
-  const t = tipo.toUpperCase();
-  return t.includes("BILLET") || t.includes("BOLETO") || t.includes("BANKSLIP");
+// Reivindica o aviso ANTES de publicar: INSERT ... ON CONFLICT DO NOTHING RETURNING
+// na PK (chave, tipo) de cs.slack_notificacao_compra (migration 0323). A Hotmart
+// manda cada evento 2 vezes com 0,4-2,5 s de diferença; só quem inserir a linha
+// publica. Falha ABERTA: se o RPC der erro, publica assim mesmo — perder o aviso
+// de uma venda custa mais que um card duplicado. O erro vai para o log.
+async function reivindicarAviso(aviso: Aviso, canal: string): Promise<boolean> {
+  if (aviso.tipo === "NADA" || !aviso.chave) return false;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error(`[AVISO] sem credencial do banco — publica sem deduplicar (${aviso.tipo} ${aviso.chave})`);
+    return true;
+  }
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data, error } = await supabase.rpc("fn_reivindicar_aviso_slack", {
+      p_chave: aviso.chave,
+      p_tipo: aviso.tipo,
+      p_canal: canal,
+    });
+    if (error) {
+      console.error(`[AVISO] reivindicação falhou, publica assim mesmo (${aviso.tipo} ${aviso.chave}):`, error.message);
+      return true;
+    }
+    if (data !== true) {
+      console.log(`[AVISO] já avisado, não publica de novo (${aviso.tipo} ${aviso.chave})`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`[AVISO] exceção na reivindicação, publica assim mesmo (${aviso.tipo} ${aviso.chave}):`, e instanceof Error ? e.message : e);
+    return true;
+  }
+}
+
+// O Slack não confirmou: apaga a reivindicação (delete pela PK) para que o próximo
+// envio do mesmo evento possa publicar. Não fatal: falha vira log.
+async function liberarAviso(aviso: Aviso): Promise<void> {
+  if (!aviso.chave || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return;
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { error } = await supabase.rpc("fn_liberar_aviso_slack", {
+      p_chave: aviso.chave,
+      p_tipo: aviso.tipo,
+    });
+    if (error) console.error(`[AVISO] liberação recusada (${aviso.tipo} ${aviso.chave}):`, error.message);
+  } catch (e) {
+    console.error(`[AVISO] exceção na liberação (${aviso.tipo} ${aviso.chave}):`, e instanceof Error ? e.message : e);
+  }
+}
+
+const PORTA_DE_AVISO: PortaDeAviso = { reivindicar: reivindicarAviso, liberar: liberarAviso };
+
+// Tentativa de cartão recusada (PURCHASE_CANCELED sem approved_date). Não é
+// cancelamento: a pessoa quis comprar e não conseguiu pagar — é lead quente.
+// Um aviso por pessoa/produto/dia (a chave da RECUSA em decidirAviso).
+async function notifySlackRecusa(channel: string, payload: {
+  nome: string;
+  email: string;
+  telefone: string | null;
+  produto: string;
+  valor: number | null;
+  moeda: string;
+  motivo: string | null;
+  // payment.type: escolhe o título (cartão recusado / boleto-PIX vencido / outro).
+  tipoPagamento: unknown;
+}): Promise<boolean> {
+  const webhookUrl = SLACK_WEBHOOKS[channel];
+  if (!webhookUrl) {
+    console.warn(`Webhook não configurado para canal: ${channel}`);
+    return false;
+  }
+  const valorFormatado = payload.valor != null
+    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: payload.moeda || "BRL" }).format(payload.valor)
+    : "-";
+  const titulo = tituloRecusa(payload.tipoPagamento);
+  // Sem refusal_reason (APPLE_PAY, por exemplo) a linha do motivo some.
+  const dados = [
+    `*Nome:* ${payload.nome}`,
+    `*E-mail:* ${payload.email || "-"}`,
+    `*Telefone:* ${payload.telefone ?? "-"}`,
+    `*Produto:* ${payload.produto}`,
+    `*Valor:* ${valorFormatado}`,
+    payload.motivo ? `*Motivo:* ${payload.motivo}` : null,
+  ].filter(Boolean).join("\n");
+
+  return await postarNoSlack(webhookUrl, {
+    text: `${titulo.replace(/^:[a-z_]+: /, "").replace(/\*/g, "")}: ${payload.produto}`,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${titulo}\n${dados}\n\nVale ligar. Novas tentativas de hoje não serão avisadas.`,
+        },
+      },
+      { type: "divider" },
+    ],
+  }, `recusa (${channel})`);
 }
 
 // Este aviso é INFORMATIVO, para o canal de vendas do produto: "fulano pediu
@@ -771,9 +865,9 @@ async function notifySlackCancelamento(channel: string, payload: {
   transaction: string;
   eraAluno: boolean;
   turma?: string | null;
-}) {
+}): Promise<boolean> {
   const webhookUrl = SLACK_WEBHOOKS[channel];
-  if (!webhookUrl) return;
+  if (!webhookUrl) return false;
 
   const valorFormatado = payload.valor != null
     ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: payload.moeda || "BRL" }).format(payload.valor)
@@ -796,26 +890,13 @@ async function notifySlackCancelamento(channel: string, payload: {
     ? "\n\n_A remoção dos acessos já foi pedida no canal de acessos._"
     : "\n\n_Ainda não era aluno — não há acesso a remover._";
 
-  try {
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: `${label}: ${payload.produto}`,
-        blocks: [
-          { type: "section", text: { type: "mrkdwn", text: `:x: *${label}*\n${dados}${rodape}` } },
-          { type: "divider" },
-        ],
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) {
-      console.error(`Falha ao notificar cancelamento no Slack (${channel}):`, response.status, await response.text());
-    }
-  } catch (e) {
-    console.error(`[SLACK] falha ao notificar cancelamento (${channel}):`, e instanceof Error ? e.message : e);
-  }
+  return await postarNoSlack(webhookUrl, {
+    text: `${label}: ${payload.produto}`,
+    blocks: [
+      { type: "section", text: { type: "mrkdwn", text: `:x: *${label}*\n${dados}${rodape}` } },
+      { type: "divider" },
+    ],
+  }, `cancelamento (${channel})`);
 }
 
 // O que o banco devolve sobre o cancelamento. Nome/e-mail/telefone/turma vêm do
@@ -1084,6 +1165,10 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
       return;
     }
 
+    // Único ponto que decide se o Slack é chamado (ver decidir_aviso.ts). Cada
+    // notify abaixo só roda se aviso.tipo pedir E a reivindicação atômica vencer.
+    const aviso = await decidirAviso(event, body, channel);
+
     // ---- Assinatura cancelada: o payload fala de ASSINANTE, não de compra ----
     // SUBSCRIPTION_CANCELLATION não traz purchase.transaction — não há transação a
     // reclassificar. O elo é o e-mail do assinante. Tratado antes do guard de
@@ -1098,7 +1183,7 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
       // O payload cru do cancelamento já foi guardado no handler, antes do
       // 200 (ver comentário no serve()) — não se grava de novo aqui.
       const r = await cancelarPorEmailNoBanco(email, event, eventoEm);
-      await notifySlackCancelamento(channel, {
+      if (aviso.tipo === "CANCELAMENTO") await avisarUmaVez(aviso, channel, () => notifySlackCancelamento(channel, {
         evento: event,
         // O nome do sistema vem primeiro: é o corrigido. O do payload é reserva.
         nome: r.nome || String(subscriber?.name ?? buyer?.name ?? email),
@@ -1110,7 +1195,7 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
         transaction: "— (assinatura)",
         eraAluno: r.eraAluno,
         turma: r.turma,
-      });
+      }), PORTA_DE_AVISO);
 
       return;
     }
@@ -1139,7 +1224,22 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
       }
 
       const precoC = purchase.price as Record<string, unknown> | undefined;
-      await notifySlackCancelamento(channel, {
+      if (aviso.tipo === "RECUSA") {
+        const paymentC = purchase.payment as Record<string, unknown> | undefined;
+        await avisarUmaVez(aviso, channel, () => notifySlackRecusa(channel, {
+          nome: r.nome || String(buyer.name ?? "Sem nome"),
+          email: r.email || String(buyer.email ?? ""),
+          telefone: r.telefone ?? extractPhone(buyer),
+          produto: CHANNEL_LABEL[channel] ?? productName,
+          valor: (precoC?.value as number) ?? null,
+          moeda: (precoC?.currency_code as string) ?? "BRL",
+          motivo: paymentC?.refusal_reason ? String(paymentC.refusal_reason) : null,
+          tipoPagamento: paymentC?.type,
+        }), PORTA_DE_AVISO);
+        return;
+      }
+
+      if (aviso.tipo === "CANCELAMENTO") await avisarUmaVez(aviso, channel, () => notifySlackCancelamento(channel, {
         evento: event,
         // O nome do sistema vem primeiro: é o corrigido (o do payload pode ser o
         // telefone). Cai no payload só quando a compra não existe no banco.
@@ -1152,7 +1252,7 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
         transaction,
         eraAluno: r.eraAluno,
         turma: r.turma,
-      });
+      }), PORTA_DE_AVISO);
 
       return;
     }
@@ -1169,7 +1269,7 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
     const isRenovacao = channel === "HM"
       && (
         productId === "3507214"
-        || (purchase.is_subscription === true && Number(purchase.recurrency_number ?? 1) > 1)
+        || (purchase.is_subscription === true && (numeroRecorrencia(body) ?? 1) > 1)
       );
     const produtoLabel = isRenovacao
       ? "Holding Masters — Renovação"
@@ -1213,7 +1313,8 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
     console.log(`[DIAG ${channel}] sck bruto:`, rawSck, "-> rotulado:", origem);
     console.log(`[DIAG ${channel}] productId/name:`, productId, "/", productName, "| isRenovacao:", isRenovacao);
 
-    await notifySlack(channel, {
+    const paymentAviso = purchase.payment as Record<string, unknown> | undefined;
+    if (aviso.tipo === "VENDA" || aviso.tipo === "AGUARDANDO") await avisarUmaVez(aviso, channel, () => notifySlack(channel, {
       nome,
       email: String(buyer.email ?? ""),
       telefone,
@@ -1226,8 +1327,9 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
       cidade,
       estado,
       markPortoAlegre,
-      aguardandoPagamento: Boolean(statusAguardando),
-    });
+      aguardandoPagamento: aviso.tipo === "AGUARDANDO",
+      rotuloAguardando: rotuloAguardando(paymentAviso?.type),
+    }), PORTA_DE_AVISO);
 
     // [ADICIONADO] Persiste a compra aprovada no banco (compradores/compras).
     // Roda para todos os canais mapeados (base canônica é multi-produto). É a fonte
@@ -1236,14 +1338,17 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
     const payment = purchase.payment as Record<string, unknown> | undefined;
     const fullPrice = purchase.full_price as Record<string, unknown> | undefined;
 
-    // QUAL COBRANÇA É ESTA. No Parcelado Hotmart a MESMA transação é recobrada todo
-    // mês e o contador sobe — e é esse número que diz "a Marina já pagou 2 de 12".
-    // O nome do campo não é confiável: `recurrency_number` veio NULO nas 258 compras
-    // que temos, então ou a Hotmart não o manda aqui, ou usa outro nome. Tentamos
-    // todos os que a documentação e o export sugerem, e, se nenhum vier, assumimos a
-    // 1ª cobrança — que é o comportamento seguro (nunca infla o que a pessoa pagou).
-    // O payload cru fica guardado em cs.hotmart_eventos: quando a próxima parcela
-    // cair, `select * from cs.vw_hotmart_campos` mostra o nome certo sem adivinhação.
+    // QUAL COBRANÇA É ESTA (numero_cobranca). ⚠️ `data.purchase.recurrence_number`
+    // NÃO deve alimentar este campo — ele vai só para `numero_recorrencia` (abaixo).
+    // cs.fn_hm_lancar_compra (0088) lança N linhas no razão quando numero_cobranca = N,
+    // porque supõe que a Hotmart REUSA a transação a cada parcela. Não reusa: medido
+    // em cs.hotmart_eventos em 05/10/2026, 0 de 117 transações HOTMART_INSTALLMENTS
+    // têm mais de um recurrence_number — cada parcela é uma transação nova. Gravar
+    // recurrence_number=3 aqui lançaria de novo as parcelas 1 e 2, que já entraram
+    // pelas próprias transações: pagamento em dobro no razão.
+    // Por isso a leitura fica como estava: `recurrency_number` (com y, que a Hotmart
+    // não manda) e os outros nomes candidatos; se nenhum vier, null = 1ª cobrança,
+    // que nunca infla o que a pessoa pagou.
     const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
     const numeroCobranca =
       num(purchase.recurrency_number)
@@ -1274,7 +1379,10 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
       // dinheiro que nunca entrou.
       status: statusAguardando ?? String(purchase.status ?? "APPROVED"),
       isAssinatura: purchase.is_subscription === true,
-      numeroRecorrencia: num(purchase.recurrency_number),
+      // data.purchase.recurrence_number: 1 na 1ª parcela, 2, 3… nas seguintes. Antes
+      // lia `recurrency_number`, que a Hotmart não manda — vazio em 140 de 140 compras.
+      // Só esta coluna recebe o recurrence_number; numero_cobranca não (ver acima).
+      numeroRecorrencia: numeroRecorrencia(body),
       metodoPagamento: payment?.type ? String(payment.type) : null,
       parcelas: num(payment?.installments_number),
       dataCompraIso: msToIso(Number(purchase.order_date ?? 0) || null),
@@ -1289,8 +1397,9 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
         ?? num((purchase as Record<string, unknown>).net_value),
       taxaProcessamento: num((purchase as Record<string, unknown>).hotmart_fee),
       canalVenda: origem ?? null,
-      codigoAssinante: (purchase.subscription as Record<string, unknown> | undefined)?.subscriber_code
-        ? String((purchase.subscription as Record<string, unknown>).subscriber_code) : null,
+      // data.subscription.subscriber.code liga as parcelas da mesma compra. O caminho
+      // antigo (purchase.subscription.subscriber_code) só existia em 13 de 140.
+      codigoAssinante: codigoAssinante(body),
       evento: event,
     });
 
