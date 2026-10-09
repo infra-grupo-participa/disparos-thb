@@ -9,6 +9,7 @@ import {
   tituloRecusa,
 } from "./decidir_aviso.ts";
 import { avisarUmaVez, type PortaDeAviso, postarNoSlack } from "./avisar.ts";
+import { rotuloDoProduto } from "./rotulo_produto.ts";
 
 // `EdgeRuntime` é um global injetado pelo runtime das Supabase Edge Functions
 // (não existe no Deno CLI puro, por isso o type-check local não o conhece sem
@@ -69,14 +70,16 @@ const PRODUCT_CHANNEL: Record<string, string> = {
   "1667133": "IMERSAO", // Imersão em Holding Familiar
 };
 
-// Nomes legíveis por canal
+// Nomes legíveis por canal. É o PRODUTO, sem edição: a edição (Porto Alegre, Miami,
+// lote…) vem do nome da oferta — ver rotulo_produto.ts. Até 09/10/2026 a Clínica e a
+// Imersão tinham "Porto Alegre" fixo aqui, e a Clínica de Miami saiu como Porto Alegre.
 const CHANNEL_LABEL: Record<string, string> = {
   HT:      "Holding Total",
   HM:      "Holding Masters",
   HMAIS:   "Holding Mais",
-  CLINICA: "Clínica em Holding Familiar - Porto Alegre",
+  CLINICA: "Clínica de Holding Familiar",
   ETHB:    "Encontro do Time Holding Brasil",
-  IMERSAO: "Imersão em Holding Familiar - Porto Alegre",
+  IMERSAO: "Imersão em Holding Familiar",
   AURUM:   "Aurum",
 };
 
@@ -343,6 +346,27 @@ async function alertaProdutoNaoMapeado(
     });
   } catch (e) {
     console.error("[alertaProdutoNaoMapeado] falhou:", e);
+  }
+}
+
+// Nome da oferta no catálogo sincronizado da Hotmart (fin.ofertas, PK oferta_codigo).
+// fin não é exposto no PostgREST: vai pela casca public (0324). Falha → null, e o
+// aviso sai com o nome do produto: o rótulo é cosmético, o aviso não pode cair por ele.
+async function nomeDaOferta(codigo: string | null): Promise<string | null> {
+  if (!codigo || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data, error } = await supabase.rpc("fn_hotmart_nome_oferta", { p_oferta: codigo });
+    if (error) {
+      console.error("[nomeDaOferta] rpc falhou:", error.message);
+      return null;
+    }
+    return typeof data === "string" ? data : null;
+  } catch (e) {
+    console.error("[nomeDaOferta] falhou:", e);
+    return null;
   }
 }
 
@@ -1205,6 +1229,13 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
       return;
     }
 
+    // O que o Slack chama de "Produto": o nome da oferta vendida (Miami, lote, sinal…).
+    const ofertaAviso = purchase.offer as Record<string, unknown> | undefined;
+    const produtoDaOferta = rotuloDoProduto(
+      CHANNEL_LABEL[channel] ?? productName,
+      await nomeDaOferta(ofertaAviso?.code ? String(ofertaAviso.code) : null),
+    );
+
     // ---- Cancelamento: reembolso, chargeback, protesto, assinatura cancelada ----
     // A compra é reclassificada (o dinheiro entrou e voltou — isso é história, não
     // se apaga), o card vai para "Solicitou Cancelamento" com o fato datado, o
@@ -1230,7 +1261,7 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
           nome: r.nome || String(buyer.name ?? "Sem nome"),
           email: r.email || String(buyer.email ?? ""),
           telefone: r.telefone ?? extractPhone(buyer),
-          produto: CHANNEL_LABEL[channel] ?? productName,
+          produto: produtoDaOferta,
           valor: (precoC?.value as number) ?? null,
           moeda: (precoC?.currency_code as string) ?? "BRL",
           motivo: paymentC?.refusal_reason ? String(paymentC.refusal_reason) : null,
@@ -1246,7 +1277,7 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
         nome: r.nome || String(buyer.name ?? "Sem nome"),
         email: r.email || String(buyer.email ?? ""),
         telefone: r.telefone ?? extractPhone(buyer),
-        produto: CHANNEL_LABEL[channel] ?? productName,
+        produto: produtoDaOferta,
         valor: (precoC?.value as number) ?? null,
         moeda: (precoC?.currency_code as string) ?? "BRL",
         transaction,
@@ -1273,7 +1304,7 @@ async function processarEvento(body: Record<string, unknown>): Promise<void> {
       );
     const produtoLabel = isRenovacao
       ? "Holding Masters — Renovação"
-      : (CHANNEL_LABEL[channel] ?? productName);
+      : produtoDaOferta;
 
     const rawSck = extractSck(purchase);
     const origem = rawSck ? resolveOrigemLabel(rawSck) : null;
